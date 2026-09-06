@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1788693472223,
+      "tag": "0000_flashy_roulette",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788694954509,
+      "tag": "0001_messy_black_bolt",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788696153594,
+      "tag": "0002_smooth_ink",
+      "breakpoints": true
+    }
+  ]
+}
