@@ -5269,3 +5269,7 @@ h1 > span {
     bottom: 250px;
   }
 }
+
+.mode-3d:has(.ammo-panel) .equipped-card {
+  display: none;
+}
