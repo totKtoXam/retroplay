@@ -1,4 +1,6 @@
 import * as T from 'three';
+import { createAvatar, setAvatarStyle } from './world-avatar';
+import { createWorldArt } from './world-art';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ZONES, type RoomState } from '@/lib/model';
 export const STATIONS = [
@@ -203,24 +205,46 @@ export function createWorldScene() {
   const snowCaps: T.Object3D[] = [];
   const blossomGroup = new T.Group();
   decor.add(blossomGroup);
+  // Ветвистые деревья с мягкими кронами; геометрия объединяется по материалу.
   const pine = (x: number, z: number, h: number, i: number) => {
-    cyl(0.12, 0.22, h * 0.52, '#806b66', x, h * 0.26, z, decor, 7);
-    for (let k = 0; k < 3; k++) {
-      const tree = mesh(
-        new T.ConeGeometry(h * 0.28 - k * 0.18, h * 0.54, 7),
+    cyl(0.1, 0.25, h * 0.66, '#806b66', x, h * 0.33, z, decor, 10);
+    for (let k = 0; k < 5; k++) {
+      const angle = k * 2.4 + i * 0.7,
+        spread = k === 4 ? 0 : h * 0.23;
+      const px = x + Math.cos(angle) * spread,
+        pz = z + Math.sin(angle) * spread;
+      const py = h * (k === 4 ? 0.97 : 0.69 + (k % 2) * 0.12);
+      const branch = cyl(
+        0.04,
+        0.09,
+        h * 0.4,
+        '#806b66',
+        (x + px) / 2,
+        py - h * 0.24,
+        (z + pz) / 2,
+        decor,
+        7,
+      );
+      branch.rotation.z = Math.cos(angle) * 0.65;
+      branch.rotation.x = Math.sin(angle) * 0.65;
+      const crown = mesh(
+        new T.SphereGeometry(h * 0.27, 12, 9),
         '#427f74',
-        x,
-        h * 0.55 + k * h * 0.19,
-        z,
+        px,
+        py,
+        pz,
       );
-      tree.material = leafMaterials[i % 3];
+      crown.scale.set(1.15, 0.8, 1);
+      crown.material = leafMaterials[(i + k) % 3];
+      (crown.material as T.MeshStandardMaterial).flatShading = false;
       const cap = mesh(
-        new T.ConeGeometry(h * 0.18 - k * 0.1, h * 0.31, 7),
+        new T.SphereGeometry(h * 0.255, 10, 7),
         '#dce9f0',
-        x,
-        h * 0.67 + k * h * 0.19,
-        z,
+        px,
+        py + h * 0.1,
+        pz,
       );
+      cap.scale.set(1.14, 0.47, 1);
       snowCaps.push(cap);
     }
   };
@@ -453,7 +477,9 @@ export function createWorldScene() {
     const toRemove: T.Mesh[] = [];
     group.traverse((o) => {
       if (!(o instanceof T.Mesh) || Array.isArray(o.material)) return;
-      const geo = o.geometry.clone().applyMatrix4(o.matrixWorld);
+      const geo = (
+        o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()
+      ).applyMatrix4(o.matrixWorld);
       const list = buckets.get(o.material) || [];
       list.push(geo);
       buckets.set(o.material, list);
@@ -510,7 +536,10 @@ export function createWorldScene() {
     { x: 0, z: -18, w: 6.8, d: 6.8 },
     { x: 0, z: -10, w: 2.8, d: 2.8 },
   );
+  const art = createWorldArt(scene);
+  let animeStyle = false;
   const update = (s: RoomState) => {
+    animeStyle = s.visualStyle === 'anime';
     const night = s.time === 'night',
       sunset = s.time === 'sunset',
       dawn = s.time === 'dawn',
@@ -522,20 +551,24 @@ export function createWorldScene() {
           ? '#707cc0'
           : dawn
             ? '#999dcc'
-            : '#79b8ed',
+            : animeStyle
+              ? '#88b5f2'
+              : '#79b8ed',
       bottom = night
         ? '#3a3b69'
         : sunset
           ? '#edb6a9'
           : dawn
             ? '#efcbd4'
-            : '#d2dfef';
+            : animeStyle
+              ? '#f5dcec'
+              : '#d2dfef';
     skyMaterial.uniforms.top.value.set(top);
     skyMaterial.uniforms.bottom.value.set(bottom);
     scene.fog = new T.Fog(bottom, 52, 140);
-    hemi.intensity = night ? 0.9 : 1.4;
+    hemi.intensity = night ? 0.9 : animeStyle ? 0.8 : 1.4;
     hemi.color.set(night ? '#98b6ff' : '#e6edff');
-    sunlight.intensity = night ? 0.7 : sunset ? 2.4 : 2.8;
+    sunlight.intensity = night ? 0.7 : animeStyle ? 1.7 : sunset ? 2.4 : 2.8;
     sunlight.position.set(-24, sunset ? 16 : night ? 28 : 38, 18);
     sunlight.shadow.needsUpdate = true;
     sunlight.color.set(sunset ? '#ffb687' : night ? '#98acff' : '#ffedce');
@@ -548,85 +581,50 @@ export function createWorldScene() {
     stars.visible = night;
     clouds.visible = !night;
     groundMaterial.color.set(
-      winter
-        ? '#d6e1ec'
-        : autumn
-          ? '#b49b86'
-          : s.theme === 'steppe'
-            ? '#b7b294'
-            : '#81a99b',
+      animeStyle
+        ? winter
+          ? '#e5e0f1'
+          : autumn
+            ? '#d8bdce'
+            : '#b9d5cb'
+        : winter
+          ? '#d6e1ec'
+          : autumn
+            ? '#b49b86'
+            : s.theme === 'steppe'
+              ? '#b7b294'
+              : '#81a99b',
     );
-    const colors = winter
-      ? ['#b8ccdc', '#9bb7cc', '#c6d6df']
-      : autumn
-        ? ['#bb7b69', '#d4a17a', '#a8788e']
-        : s.season === 'spring'
-          ? ['#548f88', '#7097a2', '#6faaa1']
-          : ['#427b80', '#58868f', '#679b97'];
+    const colors = animeStyle
+      ? ['#d99cc8', '#b8a2d6', '#f0bdd7']
+      : winter
+        ? ['#b8ccdc', '#9bb7cc', '#c6d6df']
+        : autumn
+          ? ['#bb7b69', '#d4a17a', '#a8788e']
+          : s.season === 'spring'
+            ? ['#548f88', '#7097a2', '#6faaa1']
+            : ['#427b80', '#58868f', '#679b97'];
     leafMaterials.forEach((m, i) => m.color.set(colors[i]));
     snowCaps.forEach((o) => (o.visible = winter));
     flowers.visible = !winter;
-    blossomGroup.visible = s.season === 'spring';
+    blossomGroup.visible = animeStyle || s.season === 'spring';
     holiday.visible = s.theme !== 'steppe';
     winterDecor.visible = s.theme === 'newyear';
     interior.visible = s.interior;
     yurt.visible = !s.interior;
     lanternMaterials.forEach((m) => (m.emissiveIntensity = night ? 2 : 1));
+    scene.traverse((o) => {
+      if (o instanceof T.Group && o.name === 'player-avatar')
+        setAvatarStyle(o, animeStyle);
+    });
+    art.update(s);
   };
   const avatarFactory = (color: string) => {
-    if (color === '#368c78') color = '#7386c9';
-    const group = new T.Group();
-    const root = new T.Group();
-    group.add(root);
-    root.name = 'rig';
-    const torso = cyl(0.3, 0.26, 0.7, color, 0, 1.08, 0, root, 8);
-    torso.name = 'torso';
-    cyl(0.13, 0.16, 0.15, '#d6b297', 0, 1.52, 0, root, 8);
-    mesh(new T.SphereGeometry(0.25, 14, 10), '#e0bba0', 0, 1.76, 0, root);
-    mesh(
-      new T.SphereGeometry(0.263, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.6),
-      '#363343',
-      0,
-      1.81,
-      0.02,
-      root,
-    );
-    for (const x of [-0.085, 0.085])
-      sphere(0.023, '#33364c', x, 1.78, -0.232, root);
-    box(0.18, 0.03, 0.015, '#b7877f', 0, 1.66, -0.227, root);
-    box(0.35, 0.06, 0.22, '#899edf', 0, 1.91, -0.17, root);
-    cyl(0.23, 0.25, 0.12, '#657acf', 0, 1.99, 0, root, 10);
-    for (const x of [-0.17, 0.17]) {
-      const leg = new T.Group();
-      leg.position.set(x, 0.77, 0);
-      leg.name = x < 0 ? 'legL' : 'legR';
-      root.add(leg);
-      box(0.2, 0.57, 0.23, '#303e58', 0, -0.28, 0, leg);
-      box(0.23, 0.15, 0.37, '#d6dfef', 0, -0.59, -0.06, leg);
-      box(0.24, 0.045, 0.39, '#8191ae', 0, -0.67, -0.06, leg);
-    }
-    for (const x of [-0.39, 0.39]) {
-      const arm = new T.Group();
-      arm.position.set(x, 1.4, 0);
-      arm.name = x < 0 ? 'armL' : 'armR';
-      root.add(arm);
-      cyl(0.115, 0.1, 0.51, color, 0, -0.24, 0, arm, 8);
-      sphere(0.105, '#ddb599', 0, -0.52, 0, arm);
-    }
-    box(0.39, 0.42, 0.19, '#343e66', 0, 1.13, 0.27, root);
-    box(0.28, 0.2, 0.055, '#8898df', 0, 1.13, 0.39, root);
-    box(0.035, 0.54, 0.03, '#b7c1e1', -0.15, 1.1, -0.255, root);
-    box(0.035, 0.54, 0.03, '#b7c1e1', 0.15, 1.1, -0.255, root);
-    const gun = new T.Group();
-    gun.name = 'gun';
-    gun.position.set(0.43, 1.02, -0.4);
-    gun.rotation.x = Math.PI / 2;
-    root.add(gun);
-    cyl(0.1, 0.14, 0.64, '#9eabdc', 0, 0, 0, gun, 10);
-    cyl(0.15, 0.15, 0.12, '#8875de', 0, 0.27, 0, gun, 10);
-    sphere(0.17, '#c980d5', 0, -0.1, 0.17, gun);
-    box(0.12, 0.26, 0.13, '#445679', 0, -0.26, -0.1, gun);
-    return group;
+    const avatar = createAvatar(color);
+    avatar.name = 'player-avatar';
+    setAvatarStyle(avatar, animeStyle);
+    art.styleObject(avatar);
+    return avatar;
   };
   const setNotes = (s: RoomState) => {
     for (const b of boards) {
@@ -706,5 +704,7 @@ export function createWorldScene() {
     setNotes,
     clouds,
     sunlight,
+    animate: (time: number) => art.animate(time),
+    dispose: () => art.dispose(),
   };
 }

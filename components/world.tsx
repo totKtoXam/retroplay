@@ -4,11 +4,17 @@ import * as T from 'three';
 import {
   ZONES,
   GAME_TOOLS,
+  TOOL_HINTS,
   type Pose,
   type Room,
   type WorldEffect,
 } from '@/lib/model';
 import { createWorldScene, STATIONS } from './world-scene';
+import {
+  animateAvatar,
+  avatarShoot,
+  followCameraHeading,
+} from './world-avatar';
 import {
   MousePointer2,
   MoveUp,
@@ -29,6 +35,9 @@ type Props = {
   tool: number;
   onTool: (n: number) => void;
   onZone: (z: string) => void;
+  onUseTool: (zone: string) => void;
+  sensitivity: number;
+  invertCamera: boolean;
   onPose: (p: Pose) => void;
   onMonitor: (v: boolean) => void;
   onFps: (v: number) => void;
@@ -36,6 +45,7 @@ type Props = {
   onFire: (effect: WorldEffect) => void;
   onFailure: () => void;
   blocked: boolean;
+  working?: boolean;
   paintColor: string;
 };
 type Particle = {
@@ -77,6 +87,7 @@ export default function World(props: Props) {
     shadow: () => void;
     capture: () => void;
     pause: () => void;
+    closeInventory: () => void;
     keys: Set<string>;
   } | null>(null);
   const lock = () => engine.current?.capture();
@@ -109,7 +120,10 @@ export default function World(props: Props) {
     renderer.toneMappingExposure = 0.94;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = T.PCFShadowMap;
-    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.autoUpdate = props.quality === 'high';
+    kit.sunlight.shadow.mapSize.setScalar(
+      props.quality === 'high' ? 2048 : 1024,
+    );
     renderer.shadowMap.needsUpdate = true;
     host.appendChild(renderer.domElement);
     const canvas = renderer.domElement;
@@ -125,6 +139,9 @@ export default function World(props: Props) {
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.color || '#718cdd',
     );
+    avatar.traverse((o) => {
+      if (o instanceof T.Mesh) o.castShadow = props.quality === 'high';
+    });
     scene.add(avatar);
     const remoteAvatars = new Map<string, T.Group>(),
       labels = new Map<string, T.Sprite>();
@@ -167,14 +184,15 @@ export default function World(props: Props) {
       (m) => m.id === latest.current.room.self,
     )?.pose;
     const pos = new T.Vector3(
-      initial?.x || 0,
-      initial?.y || 0,
-      initial?.z || 15,
+      initial?.x ?? 0,
+      initial?.y ?? 0,
+      initial?.z ?? 15,
     );
     let cameraYaw = initial?.yaw || 0,
       heading = cameraYaw,
+      viewHeight = 1.35,
       pitch = 0.38,
-      distance = 8,
+      distance = 6.5,
       vy = 0,
       currentStance: 'stand' | 'sit' | 'lie' = initial?.stance || 'stand',
       lastC = -1000,
@@ -269,6 +287,8 @@ export default function World(props: Props) {
     const spawn = (e: WorldEffect) => {
       if (seen.has(e.id) || Date.now() - e.at > 14000) return;
       seen.add(e.id);
+      const remote = remoteAvatars.get(e.author);
+      if (remote) avatarShoot(remote);
       if (seen.size > 200) {
         const first = seen.values().next().value;
         if (first) seen.delete(first);
@@ -339,10 +359,9 @@ export default function World(props: Props) {
         at: Date.now(),
       };
       spawn(e);
+      avatarShoot(avatar);
       p.onFire(e);
       setShots((v) => v + 1);
-      const gun = avatar.getObjectByName('gun');
-      if (gun) gun.position.z = -0.24;
     };
     const capture = () => {
       if (latest.current.blocked || document.pointerLockElement === canvas)
@@ -369,6 +388,11 @@ export default function World(props: Props) {
     };
     engine.current = {
       capture,
+      closeInventory: () => {
+        middle = false;
+        setRadial(false);
+        capture();
+      },
       pause: () => {
         softLook = false;
         activeControl = false;
@@ -391,7 +415,7 @@ export default function World(props: Props) {
       reset: () => {
         cameraYaw = heading;
         pitch = 0.38;
-        distance = 8;
+        distance = 6.5;
         canvas.focus();
       },
       keys,
@@ -416,12 +440,32 @@ export default function World(props: Props) {
       left = false;
     };
     const onKey = (e: KeyboardEvent) => {
+      if (
+        e.code === 'KeyQ' &&
+        !e.repeat &&
+        !latest.current.blocked &&
+        (enabled() || middle)
+      ) {
+        e.preventDefault();
+        if (middle) {
+          engine.current?.closeInventory();
+        } else {
+          middle = true;
+          setRadial(true);
+          clear();
+          softLook = false;
+          if (document.pointerLockElement) document.exitPointerLock();
+        }
+        return;
+      }
       if (e.code === 'Escape') {
+        middle = false;
+        setRadial(false);
         engine.current?.pause();
         if (document.pointerLockElement) document.exitPointerLock();
         return;
       }
-      if (!enabled() || latest.current.blocked) return;
+      if ((!enabled() && !middle) || latest.current.blocked) return;
       if (
         [
           'KeyW',
@@ -473,6 +517,7 @@ export default function World(props: Props) {
       if (e.code.startsWith('Digit')) {
         const n = Number(e.code.slice(-1));
         latest.current.onTool(n === 0 ? 9 : n - 1);
+        if (middle) engine.current?.closeInventory();
       }
     };
     const onUp = (e: KeyboardEvent) => {
@@ -491,8 +536,16 @@ export default function World(props: Props) {
         document.pointerLockElement === canvas ||
         (softLook && mouseInWorld)
       ) {
-        cameraYaw -= e.movementX * 0.003;
-        pitch = T.MathUtils.clamp(pitch + e.movementY * 0.0025, -0.05, 1.15);
+        cameraYaw -= e.movementX * 0.0023 * latest.current.sensitivity;
+        pitch = T.MathUtils.clamp(
+          pitch +
+            e.movementY *
+              0.002 *
+              latest.current.sensitivity *
+              (latest.current.invertCamera ? -1 : 1),
+          -0.05,
+          1.15,
+        );
       }
     };
     const wheel = (e: WheelEvent) => {
@@ -533,9 +586,13 @@ export default function World(props: Props) {
           const hit = ray.intersectObjects(kit.boards.map((b) => b.panel))[0];
           if (hit) {
             document.exitPointerLock();
-            latest.current.onZone(hit.object.userData.zone);
+            latest.current.onUseTool(hit.object.userData.zone);
             clear();
           } else if (t === 'reaction') latest.current.onAction('reaction');
+          else if (nearZone) {
+            latest.current.onUseTool(nearZone);
+            clear();
+          }
         }
       }
     };
@@ -577,11 +634,14 @@ export default function World(props: Props) {
           Math.abs(z - c.z) < c.d / 2 + 0.28
         );
       });
+    let nextFrame = 0;
     const animate = (now: number) => {
       raf = requestAnimationFrame(animate);
       const frameInterval =
         latest.current.quality === 'high' ? 1000 / 60 : 1000 / 30;
-      if (now - last < frameInterval - 0.8) return;
+      if (now + 0.8 < nextFrame) return;
+      nextFrame += frameInterval;
+      if (nextFrame < now - frameInterval) nextFrame = now + frameInterval;
       const dt = Math.min(0.06, (now - last) / 1000 || 0.033);
       last = now;
       if (document.hidden) return;
@@ -636,51 +696,62 @@ export default function World(props: Props) {
           nz = T.MathUtils.clamp(pos.z + vz * speed * dt, -23, 23);
         if (!blocked(nx, pos.z)) pos.x = nx;
         if (!blocked(pos.x, nz)) pos.z = nz;
-        const desired = Math.atan2(-vx, -vz);
-        heading +=
-          Math.atan2(Math.sin(desired - heading), Math.cos(desired - heading)) *
-          Math.min(1, dt * 12);
       }
+      heading = followCameraHeading(heading, cameraYaw, dt);
       vy -= 13 * dt;
       pos.y = Math.max(0, pos.y + vy * dt);
       if (pos.y === 0) vy = 0;
       avatar.position.copy(pos);
       avatar.position.y += 0.27;
       avatar.rotation.y = heading;
-      const rig = avatar.getObjectByName('rig')!;
-      rig.rotation.x = currentStance === 'lie' ? Math.PI / 2 : 0;
-      rig.position.y = currentStance === 'lie' ? 0.35 : 0;
-      rig.scale.y = currentStance === 'sit' ? 0.65 : 1;
-      for (const key of ['legL', 'legR', 'armL', 'armR']) {
-        const limb = avatar.getObjectByName(key);
-        if (limb)
-          limb.rotation.x =
-            currentStance === 'sit' && key.startsWith('leg')
-              ? -Math.PI / 2
-              : moving
-                ? Math.sin(now * 0.011 * speed) *
-                  (key.endsWith('L') ? 1 : -1) *
-                  0.5
-                : 0;
-      }
-      const gun = avatar.getObjectByName('gun');
-      if (gun) {
-        gun.visible = ['paint', 'confetti'].includes(
-          GAME_TOOLS[latest.current.tool]?.id,
-        );
-        gun.position.z = T.MathUtils.lerp(gun.position.z, -0.4, dt * 12);
-      }
+      animateAvatar(
+        avatar,
+        {
+          speed: moving ? speed : 0,
+          strafe: dx,
+          forward: -dz,
+          airborne: pos.y > 0.005,
+          velocityY: vy,
+          stance: currentStance,
+          tool: GAME_TOOLS[latest.current.tool]?.id || 'pointer',
+          pitch,
+          working: latest.current.working,
+          inventory: middle,
+        },
+        dt,
+        now / 1000,
+      );
       shadow.position.set(pos.x, 0.24, pos.z);
       shadow.scale.setScalar(Math.max(0.5, 1 - pos.y * 0.1));
-      const target = new T.Vector3(pos.x, pos.y + 1.35, pos.z),
+      viewHeight = T.MathUtils.lerp(
+        viewHeight,
+        currentStance === 'lie' ? 0.6 : currentStance === 'sit' ? 1 : 1.35,
+        1 - Math.exp(-8 * dt),
+      );
+      const target = new T.Vector3(pos.x, pos.y + viewHeight, pos.z),
         desired = new T.Vector3(
           pos.x + Math.sin(cameraYaw) * distance * Math.cos(pitch),
-          pos.y + 1.9 + Math.sin(pitch) * distance,
+          pos.y + viewHeight + 0.55 + Math.sin(pitch) * distance,
           pos.z + Math.cos(cameraYaw) * distance * Math.cos(pitch),
         );
       desired.y = Math.max(0.9, desired.y);
       camera.position.lerp(desired, Math.min(1, dt * 10));
+      const shoulderX = Math.cos(cameraYaw) * 0.58,
+        shoulderZ = -Math.sin(cameraYaw) * 0.58;
+      target.x += shoulderX;
+      target.z += shoulderZ;
+      camera.position.x += shoulderX * (1 - Math.exp(-10 * dt));
+      camera.position.z += shoulderZ * (1 - Math.exp(-10 * dt));
       camera.lookAt(target);
+      const fov = T.MathUtils.lerp(
+        camera.fov,
+        moving && run ? 60 : 54,
+        1 - Math.exp(-5 * dt),
+      );
+      if (Math.abs(fov - camera.fov) > 0.01) {
+        camera.fov = fov;
+        camera.updateProjectionMatrix();
+      }
       let nearest = '';
       for (let i = 0; i < STATIONS.length; i++) {
         if (latest.current.room.state.template === 'three' && i === 1) continue;
@@ -697,6 +768,9 @@ export default function World(props: Props) {
         if (!remote) {
           remote = kit.avatarFactory(member.color);
           remoteAvatars.set(member.id, remote);
+          remote.traverse((o) => {
+            if (o instanceof T.Mesh) o.castShadow = props.quality === 'high';
+          });
           scene.add(remote);
           const label = addLabel(member.name, member.color);
           labels.set(member.id, label);
@@ -709,20 +783,22 @@ export default function World(props: Props) {
           Math.min(1, dt * 7),
         );
         remote.rotation.y = p.yaw;
-        const rr = remote.getObjectByName('rig')!;
-        rr.rotation.x = p.stance === 'lie' ? Math.PI / 2 : 0;
-        rr.position.y = p.stance === 'lie' ? 0.35 : 0;
-        rr.scale.y = p.stance === 'sit' ? 0.65 : 1;
-        for (const key of ['legL', 'legR']) {
-          const limb = remote.getObjectByName(key);
-          if (limb)
-            limb.rotation.x =
-              p.stance === 'sit'
-                ? -Math.PI / 2
-                : p.moving
-                  ? Math.sin(now * 0.014) * (key === 'legL' ? 1 : -1) * 0.5
-                  : 0;
-        }
+        animateAvatar(
+          remote,
+          {
+            speed: p.speed ?? (p.moving ? 3.4 : 0),
+            strafe: p.strafe || 0,
+            forward: p.forward ?? 1,
+            airborne: p.y > 0.01,
+            velocityY: 0,
+            stance: p.stance,
+            tool: p.tool || 'other',
+            pitch: p.pitch || 0,
+            working: p.working,
+          },
+          dt,
+          now / 1000,
+        );
       }
       for (let i = flights.length - 1; i >= 0; i--) {
         const f = flights[i],
@@ -777,10 +853,21 @@ export default function World(props: Props) {
           yaw: heading,
           stance: currentStance,
           moving,
+          speed: moving ? speed : 0,
+          strafe: dx,
+          forward: -dz,
+          pitch,
+          tool: ['paint', 'confetti'].includes(
+            GAME_TOOLS[latest.current.tool]?.id,
+          )
+            ? GAME_TOOLS[latest.current.tool].id
+            : 'other',
+          working: latest.current.working || middle,
         });
         poseAt = now;
       }
       kit.clouds.position.x = Math.sin(now * 0.000015) * 2;
+      kit.animate(now / 1000);
       renderer.render(scene, camera);
     };
     camera.position.set(pos.x, 6, pos.z + 8);
@@ -820,6 +907,7 @@ export default function World(props: Props) {
       });
       paintGeo.dispose();
       confettiGeo.dispose();
+      kit.dispose();
       renderer.dispose();
       canvas.remove();
     };
@@ -829,6 +917,7 @@ export default function World(props: Props) {
     engine.current?.shadow();
   }, [
     props.room.state.theme,
+    props.room.state.visualStyle,
     props.room.state.time,
     props.room.state.season,
     props.room.state.interior,
@@ -841,7 +930,9 @@ export default function World(props: Props) {
   }, [props.room.effects]);
   const current = GAME_TOOLS[props.tool];
   return (
-    <div className={`world-container ${active ? 'play-active' : ''}`}>
+    <div
+      className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : ''}`}
+    >
       <div ref={mount} className="world-canvas" />
       <div className="crosshair modern-crosshair">
         <i />
@@ -851,9 +942,11 @@ export default function World(props: Props) {
         <span className="live-dot" />
         <div>
           <strong>
-            {props.room.state.interior
-              ? 'ATELIER / Мастерская'
-              : 'ALATAU / Горный лагерь'}
+            {props.room.state.visualStyle === 'anime'
+              ? 'SORA / Небесный сад'
+              : props.room.state.interior
+                ? 'ATELIER / Мастерская'
+                : 'ALATAU / Горный фестиваль'}
           </strong>
           <span>
             {props.room.state.interior
@@ -922,7 +1015,7 @@ export default function World(props: Props) {
           </button>
         </div>
       )}
-      {near && !props.blocked && (
+      {near && active && !radial && !props.blocked && (
         <button className="interact-prompt" onClick={() => props.onZone(near)}>
           <kbd>E</kbd>
           {ZONES.find((z) => z.id === near)?.title}
@@ -938,7 +1031,7 @@ export default function World(props: Props) {
               ? 'Краска исчезает через 12 секунд'
               : current?.id === 'confetti'
                 ? 'Направленный залп · без лимита'
-                : 'Подойдите к доске · E'}
+                : TOOL_HINTS[current?.id]}
           </span>
         </div>
         {current?.id === 'paint' ? (
@@ -975,19 +1068,16 @@ export default function World(props: Props) {
           <kbd>Tab</kbd> кто в сети
         </span>
         <span>
-          <kbd>Колесо</kbd> инвентарь
+          <kbd>Q / колесо</kbd> инвентарь
         </span>
       </div>
       {radial && (
-        <div
-          className="radial-backdrop"
-          role="presentation"
-          onMouseUp={() => setRadial(false)}
-        >
+        <div className="radial-backdrop" role="presentation">
           <div className="radial-center">
             <span className="eyebrow">ИНВЕНТАРЬ</span>
             <strong>{current?.label}</strong>
-            <span>Наведите и отпустите колесо</span>
+            <span>{TOOL_HINTS[current?.id]}</span>
+            <small>Q или клик — выбрать · Esc — закрыть</small>
           </div>
           {GAME_TOOLS.map((t, i) => (
             <button
@@ -995,7 +1085,7 @@ export default function World(props: Props) {
               onMouseEnter={() => props.onTool(i)}
               onClick={() => {
                 props.onTool(i);
-                setRadial(false);
+                engine.current?.closeInventory();
               }}
               className={`radial-item ${props.tool === i ? 'selected' : ''}`}
               style={{

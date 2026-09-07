@@ -25,6 +25,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { THEMES, PHASES } from '@/lib/model';
 import { api, ready } from '@/lib/client';
 import { Choice } from './controls';
+import { StylePicker } from './style-picker';
 type Summary = {
   id: string;
   title: string;
@@ -41,6 +42,7 @@ export default function Lobby() {
     [name, setName] = useState(''),
     [title, setTitle] = useState(''),
     [theme, setTheme] = useState('nauryz'),
+    [visualStyle, setVisualStyle] = useState('classic'),
     [template, setTemplate] = useState('four'),
     [rooms, setRooms] = useState<Summary[]>([]),
     [busy, setBusy] = useState(false),
@@ -70,6 +72,7 @@ export default function Lobby() {
         name,
         theme,
         template,
+        visualStyle,
       });
       localStorage.setItem('jinaly-name', name);
       location.href = '/room/' + r.id;
@@ -372,6 +375,7 @@ export default function Lobby() {
                 { value: 'three', label: 'Start / Stop / Continue' },
               ]}
             />
+            <StylePicker value={visualStyle} onChange={setVisualStyle} />
             <span className="field">Выберите мир</span>
             <div className="theme-grid">
               {THEMES.map((t) => (

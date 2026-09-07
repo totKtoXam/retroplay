@@ -114,6 +114,20 @@ export const GAME_TOOLS = [
   { id: 'action', label: 'Задача', key: '9' },
   { id: 'pointer', label: 'Обзор', key: '0' },
 ];
+export const TOOL_HINTS: Record<string, string> = {
+  paint: 'ЛКМ — выстрел краской · пятна исчезают',
+  confetti: 'ЛКМ — залп конфетти',
+  sticky: 'ЛКМ по доске — новая идея',
+  group: 'ЛКМ по доске — объединить идеи',
+  draw: 'ЛКМ по доске — рисовать маркером',
+  shape: 'ЛКМ по доске — добавить фигуру',
+  connector: 'ЛКМ по доске — связать карточки',
+  reaction: 'ЛКМ — отправить реакцию',
+  action: 'ЛКМ по доске — создать задачу',
+  pointer: 'ЛКМ по доске — открыть зону',
+  text: 'Текстовый блок на доске',
+  image: 'Изображение или ссылка',
+};
 export type WorldEffect = {
   id: string;
   kind: 'paint' | 'confetti';
@@ -131,6 +145,12 @@ export type Pose = {
   yaw: number;
   stance: 'stand' | 'sit' | 'lie';
   moving: boolean;
+  speed?: number;
+  strafe?: number;
+  forward?: number;
+  pitch?: number;
+  tool?: string;
+  working?: boolean;
 };
 export type Person = {
   id: string;
@@ -179,6 +199,7 @@ export type Round = {
 export type RoomState = {
   title: string;
   theme: string;
+  visualStyle?: 'classic' | 'anime';
   season: string;
   time: string;
   interior: boolean;
@@ -222,6 +243,7 @@ export function initialState(
   return {
     title,
     theme,
+    visualStyle: 'classic',
     template,
     season: THEMES.find((t) => t.id === theme)?.season || 'spring',
     time: 'day',
@@ -434,6 +456,10 @@ export function applyOperation(
         p.theme,
         THEMES.map((t) => t.id),
       );
+    if ('visualStyle' in p)
+      s.visualStyle = oneOf(p.visualStyle, ['classic', 'anime']) as
+        | 'classic'
+        | 'anime';
     if ('season' in p)
       s.season = oneOf(p.season, ['spring', 'summer', 'autumn', 'winter']);
     if ('time' in p) s.time = oneOf(p.time, ['dawn', 'day', 'sunset', 'night']);

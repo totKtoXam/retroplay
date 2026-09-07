@@ -9,11 +9,11 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json",
-    "lint": "oxlint app db lib tests components/board.tsx components/controls.tsx components/lobby.tsx components/room-app.tsx components/world.tsx components/world-scene.ts",
+    "lint": "oxlint app db lib tests components/board.tsx components/controls.tsx components/lobby.tsx components/room-app.tsx components/world.tsx components/world-scene.ts components/world-avatar.ts components/world-art.ts components/style-picker.tsx components/music-player.tsx",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/model.test.mjs",
+    "test": "node --experimental-strip-types --test tests/model.test.mjs tests/avatar.test.mjs",
     "test:integration": "node tests/integration.mjs",
     "db:local": "wrangler d1 migrations apply site-creator-d1 --local --config wrangler.local.json"
   },

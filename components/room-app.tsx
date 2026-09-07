@@ -77,6 +77,7 @@ import {
   PHASES,
   TOOLS,
   GAME_TOOLS,
+  TOOL_HINTS,
   voteCount,
   type RoomState,
   type Room,
@@ -85,6 +86,8 @@ import {
 } from '@/lib/model';
 import { api, ready, download, parseCSV } from '@/lib/client';
 import { Choice, Toggle } from './controls';
+import { StylePicker } from './style-picker';
+import { MusicPlayer } from './music-player';
 import Board, { Card } from './board';
 const World = lazy(() => import('./world'));
 const icons = [
@@ -133,6 +136,9 @@ type Draft = {
 };
 export default function RoomApp({ id }: { id: string }) {
   const [fullscreen, setFullscreen] = useState(false);
+  const [musicOpen, setMusicOpen] = useState(false),
+    [sensitivity, setSensitivity] = useState(1),
+    [invertCamera, setInvertCamera] = useState(false);
   const [paintColor, setPaintColor] = useState('#aa86f6'),
     [environment, setEnvironment] = useState(false);
   const [room, setRoom] = useState<Room | null>(null),
@@ -290,6 +296,17 @@ export default function RoomApp({ id }: { id: string }) {
       .then(() => {
         if (!stop) {
           setName(localStorage.getItem('jinaly-name') || '');
+          const savedSensitivity = Number(
+            localStorage.getItem('jinaly-sensitivity') || 1,
+          );
+          setSensitivity(
+            Number.isFinite(savedSensitivity)
+              ? Math.min(2, Math.max(0.4, savedSensitivity))
+              : 1,
+          );
+          setInvertCamera(
+            localStorage.getItem('jinaly-invert-camera') === 'true',
+          );
           setQuality(localStorage.getItem('jinaly-quality') || 'low');
           void tick();
         }
@@ -349,18 +366,6 @@ export default function RoomApp({ id }: { id: string }) {
       lastFocus.current = room.state.focus.at;
     }
   }, [room, beep, flash]);
-  useEffect(() => {
-    if (!sound || !room?.state.music) return;
-    const melody =
-      room.state.music === 'steppe'
-        ? [220, 293.66, 329.63, 440]
-        : room.state.music === 'rain'
-          ? [164.81, 196, 246.94]
-          : [261.63, 329.63, 392];
-    let i = 0;
-    const timer = setInterval(() => beep(melody[i++ % melody.length]), 1800);
-    return () => clearInterval(timer);
-  }, [sound, room?.state.music, beep]);
   useEffect(
     () => () => {
       void audio.current?.close();
@@ -756,7 +761,13 @@ export default function RoomApp({ id }: { id: string }) {
       0,
     );
   return (
-    <main className={'room-app mode-' + mode}>
+    <main
+      className={
+        'room-app mode-' +
+        mode +
+        (s.visualStyle === 'anime' ? ' style-anime' : ' style-classic')
+      }
+    >
       <header className="room-header">
         <Link href="/" className="back-button" aria-label="К комнатам">
           <ArrowLeft size={19} />
@@ -1023,6 +1034,21 @@ export default function RoomApp({ id }: { id: string }) {
                 tool={tool}
                 onTool={setTool}
                 onZone={setSelectedZone}
+                sensitivity={sensitivity}
+                invertCamera={invertCamera}
+                onUseTool={(zone) => {
+                  const selected = activeTools[tool].id;
+                  if (['draw', 'connector'].includes(selected)) {
+                    setMode('board');
+                    setTool(TOOLS.findIndex((t) => t.id === selected));
+                    flash(
+                      selected === 'draw'
+                        ? 'Удерживайте мышь на доске, чтобы рисовать'
+                        : 'Выберите две карточки, чтобы создать связь',
+                    );
+                  } else if (selected === 'pointer') setSelectedZone(zone);
+                  else newNote(zone);
+                }}
                 onPose={(p) => {
                   pose.current = p;
                 }}
@@ -1033,12 +1059,18 @@ export default function RoomApp({ id }: { id: string }) {
                 }
                 onFire={(effect) => void act({ type: 'effect', ...effect })}
                 paintColor={paintColor}
+                working={!!draft || !!selectedZone}
                 onFailure={() => {
                   setMode('board');
                   flash('WebGL недоступен. Открыта обычная доска.');
                 }}
                 blocked={
-                  !!panel || !!draft || !!selectedZone || monitor || environment
+                  !!panel ||
+                  !!draft ||
+                  !!selectedZone ||
+                  monitor ||
+                  environment ||
+                  musicOpen
                 }
               />
             </Suspense>
@@ -1091,6 +1123,17 @@ export default function RoomApp({ id }: { id: string }) {
                 </button>
                 {environment && (
                   <div className="environment-controls">
+                    <StylePicker
+                      compact
+                      value={s.visualStyle || 'classic'}
+                      disabled={!host}
+                      onChange={(visualStyle) =>
+                        void act({
+                          type: 'room.settings',
+                          patch: { visualStyle },
+                        })
+                      }
+                    />
                     <span className="hud-label">ВРЕМЯ СУТОК</span>
                     <div className="time-buttons">
                       {[
@@ -1235,19 +1278,33 @@ export default function RoomApp({ id }: { id: string }) {
               />
             </div>
           )}
+          <MusicPlayer onOpenChange={setMusicOpen} />
+          <div className="tool-status" aria-live="polite">
+            <span>{activeTools[tool]?.label}</span>
+            <small>
+              {mode === '3d'
+                ? TOOL_HINTS[activeTools[tool]?.id]
+                : 'Выберите инструмент и работайте на доске'}
+            </small>
+            <kbd>1–0 / Q</kbd>
+          </div>
           <div className="hotbar" aria-label="Инвентарь и инструменты">
             {activeTools.map((t, i) => {
               const Icon = activeIcons[i];
               return (
                 <button
                   key={t.id}
-                  title={t.label + ' · ' + t.key}
+                  title={
+                    t.label + ' · ' + t.key + ' · ' + (TOOL_HINTS[t.id] || '')
+                  }
                   aria-label={t.label}
                   aria-pressed={tool === i}
-                  className={tool === i ? 'selected' : ''}
+                  className={
+                    (tool === i ? 'selected ' : '') +
+                    (mode === '3d' && i === 2 ? 'tool-category-start' : '')
+                  }
                   onClick={() => {
                     setTool(i);
-                    if (t.id === 'group') setPanel('group');
                   }}
                 >
                   <kbd>{t.key}</kbd>
@@ -1258,9 +1315,9 @@ export default function RoomApp({ id }: { id: string }) {
             })}
             <div className="hotbar-separator" />
             <button
-              title="Дополнительные инструменты"
-              aria-label="Дополнительные инструменты"
-              onClick={() => setPanel('widgets')}
+              title="Все инструменты"
+              aria-label="Все инструменты"
+              onClick={() => setPanel('tools')}
             >
               <Menu size={20} />
             </button>
@@ -1783,6 +1840,7 @@ export default function RoomApp({ id }: { id: string }) {
                 vote: 'Голосование',
                 group: 'Объединить идеи в тему',
                 widgets: 'Для живой встречи',
+                tools: 'Инвентарь и инструменты',
                 actions: 'План действий',
                 export: 'Забрать результаты с собой',
                 help: 'Управление и инструменты',
@@ -1796,6 +1854,43 @@ export default function RoomApp({ id }: { id: string }) {
                 ? 'Оформление мира общее для всей комнаты. Качество графики — только для вас.'
                 : 'Инструменты вашей ретроспективы'}
           </DialogDescription>
+          {panel === 'tools' && (
+            <>
+              <div className="tool-library">
+                {activeTools.map((t, i) => {
+                  const Icon = activeIcons[i];
+                  return (
+                    <button
+                      key={t.id}
+                      className={tool === i ? 'selected' : ''}
+                      onClick={() => {
+                        setTool(i);
+                        setPanel('');
+                      }}
+                    >
+                      <Icon size={22} />
+                      <div>
+                        <strong>{t.label}</strong>
+                        <small>{TOOL_HINTS[t.id]}</small>
+                      </div>
+                      <kbd>{t.key}</kbd>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="tool-library-footer">
+                <button
+                  className="secondary"
+                  onClick={() => setPanel('widgets')}
+                >
+                  Игры для команды
+                </button>
+                <button className="secondary" onClick={() => setPanel('help')}>
+                  Управление
+                </button>
+              </div>
+            </>
+          )}
           {panel === 'history' && (
             <>
               <p className="muted">
@@ -1888,6 +1983,13 @@ export default function RoomApp({ id }: { id: string }) {
                   }
                 />
               </label>
+              <StylePicker
+                value={s.visualStyle || 'classic'}
+                disabled={!host}
+                onChange={(visualStyle) =>
+                  void act({ type: 'room.settings', patch: { visualStyle } })
+                }
+              />
               <div className="theme-grid">
                 {THEMES.map((t) => (
                   <button
@@ -1982,6 +2084,30 @@ export default function RoomApp({ id }: { id: string }) {
                   { value: 'low', label: 'Экономное · до 30 FPS' },
                   { value: 'high', label: 'Плавное · до 60 FPS' },
                 ]}
+              />
+              <label className="field">
+                Чувствительность камеры: {sensitivity.toFixed(1)}×
+                <input
+                  aria-label="Чувствительность камеры"
+                  type="range"
+                  min="0.4"
+                  max="2"
+                  step="0.1"
+                  value={sensitivity}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setSensitivity(v);
+                    localStorage.setItem('jinaly-sensitivity', String(v));
+                  }}
+                />
+              </label>
+              <Toggle
+                label="Инвертировать вертикальную камеру"
+                value={invertCamera}
+                onChange={(v) => {
+                  setInvertCamera(v);
+                  localStorage.setItem('jinaly-invert-camera', String(v));
+                }}
               />
               <Toggle label="Звуки встречи" value={sound} onChange={setSound} />
               <label className="field">
@@ -2297,20 +2423,12 @@ export default function RoomApp({ id }: { id: string }) {
                 <Dices size={18} />
                 Выбрать {spinner && '· ' + spinner}
               </button>
-              <Choice
-                label="Звуковая атмосфера"
-                value={s.music}
-                disabled={!host}
-                onChange={(track) => void act({ type: 'music', track })}
-                options={[
-                  { value: '', label: 'Тишина' },
-                  { value: 'steppe', label: 'Степь · мягкие тона' },
-                  { value: 'rain', label: 'Спокойствие · низкие тона' },
-                  { value: 'evening', label: 'Вечер · светлые тона' },
-                ]}
-              />
+              <p className="muted">
+                Музыка включается в Jinaly Radio в игровом окне. Плейлист и
+                громкость индивидуальны для каждого участника.
+              </p>
               <Toggle
-                label="Разрешить звук на моём устройстве"
+                label="Звуки событий и реакций"
                 value={sound}
                 onChange={setSound}
               />

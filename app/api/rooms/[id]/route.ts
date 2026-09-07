@@ -219,6 +219,28 @@ export async function POST(request: Request, context: Context) {
                 ? p.stance
                 : 'stand',
               moving: !!p.moving,
+              speed:
+                typeof p.speed === 'number' && Number.isFinite(p.speed)
+                  ? Math.max(0, Math.min(6.5, p.speed))
+                  : p.moving
+                    ? 3.4
+                    : 0,
+              strafe:
+                typeof p.strafe === 'number' && Number.isFinite(p.strafe)
+                  ? Math.max(-1, Math.min(1, p.strafe))
+                  : 0,
+              forward:
+                typeof p.forward === 'number' && Number.isFinite(p.forward)
+                  ? Math.max(-1, Math.min(1, p.forward))
+                  : 0,
+              pitch:
+                typeof p.pitch === 'number' && Number.isFinite(p.pitch)
+                  ? Math.max(-0.5, Math.min(1.2, p.pitch))
+                  : 0,
+              tool: ['paint', 'confetti', 'other'].includes(p.tool)
+                ? p.tool
+                : 'other',
+              working: !!p.working,
             }
           : null;
       const ping =

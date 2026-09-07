@@ -60,6 +60,12 @@ export async function POST(request: Request) {
       p.theme,
       p.template === 'three' ? 'three' : 'four',
     );
+    if (
+      p.visualStyle !== undefined &&
+      !['classic', 'anime'].includes(p.visualStyle)
+    )
+      throw Error('Неизвестный стиль');
+    s.visualStyle = p.visualStyle === 'anime' ? 'anime' : 'classic';
     await db().batch([
       db()
         .prepare(

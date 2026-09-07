@@ -35,6 +35,7 @@ const created = await req(host, '/api/rooms', {
   title: 'QA · concurrent retro',
   name: 'QA Host',
   theme: 'nauryz',
+  visualStyle: 'anime',
 });
 assert.equal(created.status, 201, JSON.stringify(created.data));
 const id = created.data.id,
@@ -49,6 +50,64 @@ assert.equal(
   200,
 );
 assert.equal((await req(guest, path, { type: 'phase', phase: 4 })).status, 400);
+assert.equal((await req(host, path)).data.state.visualStyle, 'anime');
+assert.equal(
+  (
+    await req(guest, path, {
+      type: 'room.settings',
+      patch: { visualStyle: 'classic' },
+    })
+  ).status,
+  400,
+);
+await req(host, path, {
+  type: 'room.settings',
+  patch: { visualStyle: 'classic' },
+});
+assert.equal((await req(guest, path)).data.state.visualStyle, 'classic');
+assert.equal(
+  (
+    await req(host, path, {
+      type: 'room.settings',
+      patch: { visualStyle: 'unknown' },
+    })
+  ).status,
+  400,
+);
+await req(guest, path, {
+  type: 'presence',
+  pose: {
+    x: 0,
+    y: 0,
+    z: 0,
+    yaw: 1.5,
+    stance: 'lie',
+    moving: true,
+    speed: 999,
+    strafe: 3,
+    forward: -5,
+    pitch: 6,
+    tool: 'paint',
+    working: true,
+  },
+});
+const pose = (await req(host, path)).data.members.find(
+  (m) => m.id === guest.self,
+).pose;
+assert.deepEqual(
+  [
+    pose.x,
+    pose.z,
+    pose.speed,
+    pose.strafe,
+    pose.forward,
+    pose.pitch,
+    pose.tool,
+    pose.working,
+  ],
+  [0, 0, 6.5, 1, -1, 1.2, 'paint', true],
+);
+
 await req(host, path, {
   type: 'room.settings',
   patch: { privateWriting: true },
