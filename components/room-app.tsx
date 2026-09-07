@@ -167,6 +167,36 @@ export default function RoomApp({ id }: { id: string }) {
     [spinOptions, setSpinOptions] = useState(''),
     [deleteConfirm, setDeleteConfirm] = useState(false),
     [celebrate, setCelebrate] = useState('');
+  useEffect(() => {
+    if (mode !== 'board' || !room) return;
+    const key = (e: KeyboardEvent) => {
+      if (
+        e.repeat ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.altKey ||
+        draft ||
+        selectedZone ||
+        monitor ||
+        musicOpen ||
+        (panel && panel !== 'tools')
+      )
+        return;
+      const target = e.target as HTMLElement;
+      if (target.closest('input,textarea,select,[contenteditable="true"]'))
+        return;
+      if (e.code === 'KeyQ') {
+        e.preventDefault();
+        setPanel((p) => (p === 'tools' ? '' : 'tools'));
+      } else if (/^Digit[0-9]$/.test(e.code)) {
+        e.preventDefault();
+        setTool((Number(e.code.slice(-1)) + 9) % 10);
+        if (panel === 'tools') setPanel('');
+      }
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [mode, room, draft, selectedZone, monitor, musicOpen, panel]);
   const activeTools = mode === '3d' ? GAME_TOOLS : TOOLS;
   const activeIcons =
     mode === '3d'
