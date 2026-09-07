@@ -12,6 +12,9 @@ export type AvatarMotion = {
   pitch: number;
   working?: boolean;
   inventory?: boolean;
+  aiming?: boolean;
+  crouching?: boolean;
+  reload?: number;
 };
 type Rig = {
   root: T.Group;
@@ -361,7 +364,7 @@ export function setAvatarStyle(avatar: T.Group, anime: boolean) {
   r.classic.visible = !anime;
   r.anime.visible = anime;
   r.coat.visible = anime;
-  r.head.scale.setScalar(anime ? 1.17 : 1);
+  r.head.scale.setScalar(anime ? 1.17 : 0.82);
   r.scarf.visible = anime;
 }
 export function avatarShoot(avatar: T.Group) {
@@ -415,7 +418,10 @@ export function animateAvatar(
     r.chest.rotation.x,
     sitting ? 0.06 : prone ? 0.04 : -sprint * 0.16 - r.landing * 0.18,
   );
-  r.chest.rotation.y = follow(r.chest.rotation.y, wave * 0.065 * stride);
+  r.chest.rotation.y = follow(
+    r.chest.rotation.y,
+    wave * (m.aiming ? 0.018 : 0.065) * stride,
+  );
   r.head.rotation.x = follow(
     r.head.rotation.x,
     m.working ? 0.22 : prone ? 0.6 : -m.pitch * 0.3,
@@ -428,8 +434,8 @@ export function animateAvatar(
     let hip = step * 0.65 * stride * (m.forward < 0 ? -1 : 1),
       knee = Math.max(0, -step) * 0.85 * stride;
     if (sitting) {
-      hip = 1.4;
-      knee = -1.5;
+      hip = m.crouching ? 0.92 + step * 0.12 * stride : 1.4;
+      knee = m.crouching ? -1.7 : -1.5;
     } else if (prone) {
       hip = step * 0.18 * stride;
       knee = -Math.max(0, step) * 0.7 * stride;
@@ -463,6 +469,11 @@ export function animateAvatar(
     if (armed && !prone) {
       arm = 0.65 - m.pitch * 0.55 - r.recoil * 0.2;
       elbow = 0.93 + r.recoil * 0.25;
+    }
+    if (m.reload) {
+      const reload = Math.sin(m.reload * Math.PI);
+      arm = i ? 0.7 : 0.4 + reload * 0.7;
+      elbow = i ? 1.1 : 1.2 + reload * 0.6;
     }
     if (m.working || m.inventory) {
       arm = i ? 0.55 : 0.85;

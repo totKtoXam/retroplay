@@ -4931,3 +4931,341 @@ h1 > span {
 .style-anime.mode-3d .equipped-card div > span {
   color: #786384;
 }
+
+/* Cinematic HUD: graphite, warm metal and unobstructed camera controls. */
+.view-switch {
+  position: absolute;
+  z-index: 6;
+  left: 20px;
+  top: 100px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px;
+  border: 1px solid #ffffff25;
+  background: #172024e8;
+  backdrop-filter: blur(14px);
+  border-radius: 10px;
+  color: #cdd5d8;
+  box-shadow: 0 8px 24px #0002;
+}
+.view-switch button {
+  border: 0;
+  background: transparent;
+  color: #abb7bc;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.view-switch button span {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  opacity: 0.65;
+}
+.view-switch button[aria-pressed='true'] {
+  background: #b79a69;
+  color: #111a1e;
+  box-shadow: 0 2px 8px #0002;
+}
+.view-switch kbd {
+  font-size: 10px;
+  padding: 0 7px;
+  opacity: 0.65;
+}
+.world-container .camera-toolbar {
+  top: 151px;
+}
+.camera-toolbar button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.style-classic.mode-3d .room-header {
+  background: #131c20;
+  color: #ecebe6;
+  border-color: #ffffff15;
+}
+.style-classic.mode-3d .room-heading h1 {
+  color: #edeae1;
+  letter-spacing: 0.015em;
+}
+.style-classic.mode-3d .meeting-bar {
+  background: #1a2327;
+  border-color: #ffffff10;
+}
+.style-classic.mode-3d .phase-list button.current {
+  color: #dfc99f;
+}
+.style-classic.mode-3d .phase-list button.current > span {
+  background: #b79a69;
+  color: #171f23;
+}
+.style-classic.mode-3d .room-header .icon-button,
+.style-classic.mode-3d .room-header .secondary,
+.style-classic.mode-3d .back-button {
+  background: #ffffff08;
+  border-color: #ffffff15;
+  color: #cbd1d0;
+}
+.style-classic.mode-3d .world-location,
+.style-classic.mode-3d .camera-toolbar,
+.style-classic.mode-3d .equipped-card,
+.style-classic.mode-3d .environment-toggle,
+.style-classic.mode-3d .music-dock,
+.style-classic.mode-3d .tool-status,
+.style-classic.mode-3d .hotbar {
+  background: #162125e8;
+  border-color: #ffffff24;
+  color: #d8dfdd;
+  box-shadow: 0 8px 28px #0003;
+}
+.style-classic.mode-3d .world-location strong,
+.style-classic.mode-3d .equipped-card strong {
+  color: #e8dbc1;
+}
+.style-classic.mode-3d .world-location {
+  border-left-color: #b99a65;
+}
+.style-classic.mode-3d .camera-onboarding {
+  background: linear-gradient(110deg, #1d292ded, #263435e8);
+  border-color: #e4cf9d44;
+  box-shadow: 0 16px 50px #0003;
+}
+.style-classic.mode-3d .camera-onboarding strong {
+  color: #e9e3d6;
+}
+.style-classic.mode-3d .camera-onboarding span,
+.style-classic.mode-3d .camera-onboarding small {
+  color: #a6b4b8;
+}
+.style-classic.mode-3d .camera-onboarding .play-capture {
+  background: #b79a69;
+  color: #142024;
+}
+.style-classic.mode-3d .hotbar button.selected {
+  background: #b79a69;
+  color: #101b1f;
+  box-shadow: none;
+  border-color: #dfcba6;
+}
+.style-classic.mode-3d .world-help {
+  background: #172125d9;
+  color: #acbbbf;
+  border-color: #ffffff15;
+}
+.style-classic.mode-3d .main-surface:after {
+  box-shadow: inset 0 0 140px #07101425;
+}
+.style-picker .style-option.style-classic {
+  background: linear-gradient(125deg, #243538, #4b5348 70%, #b39b71);
+  color: #e9e1d2;
+}
+.style-anime .view-switch {
+  background: #f4edf5f0;
+  color: #685377;
+  border-color: #fff;
+}
+.style-anime .view-switch button {
+  color: #786586;
+}
+.style-anime .view-switch button[aria-pressed='true'] {
+  background: #9278ba;
+  color: white;
+}
+@media (max-width: 680px) {
+  .view-switch {
+    left: 14px;
+    top: 81px;
+  }
+  .view-switch button {
+    padding: 7px 8px;
+    font-size: 10px;
+  }
+  .view-switch button span {
+    display: none;
+  }
+  .world-container .camera-toolbar {
+    top: 130px;
+  }
+  .view-switch kbd {
+    font-size: 9px;
+  }
+}
+
+/* Tactical direction: angular panels, coral accents, restrained cyan light. */
+.style-classic.mode-3d .room-header {
+  background: #101823;
+}
+.style-classic.mode-3d .meeting-bar {
+  background: #17222f;
+}
+.style-classic.mode-3d .world-location,
+.style-classic.mode-3d .environment-toggle,
+.style-classic.mode-3d .tool-status,
+.style-classic.mode-3d .hotbar,
+.style-classic.mode-3d .music-dock {
+  background: #121e2aef;
+  border-radius: 4px;
+  border-color: #ffffff26;
+}
+.style-classic.mode-3d .world-location {
+  border-left: 3px solid #ed626e;
+}
+.style-classic.mode-3d .world-location strong {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: #f0f0e9;
+}
+.style-classic.mode-3d .phase-list button.current {
+  color: #edb0b4;
+}
+.style-classic.mode-3d .phase-list button.current > span,
+.style-classic.mode-3d .camera-onboarding .play-capture,
+.style-classic.mode-3d .view-switch button[aria-pressed='true'],
+.style-classic.mode-3d .hotbar button.selected {
+  background: #e85d69;
+  color: #fff;
+}
+.style-classic.mode-3d .camera-onboarding {
+  background: #142130ef;
+  border-radius: 3px;
+  border: 1px solid #77929650;
+  border-left: 3px solid #ed626e;
+}
+.style-classic.mode-3d .camera-onboarding .play-capture {
+  border-radius: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+.style-classic.mode-3d .view-switch {
+  background: #152332ef;
+  border-radius: 4px;
+}
+.style-classic.mode-3d .view-switch button {
+  border-radius: 2px;
+}
+.style-classic.mode-3d .mode-tabs [aria-selected='true'] {
+  background: #df5f6d;
+  color: white;
+}
+.style-classic.mode-3d .world-help {
+  border-radius: 3px;
+  background: #132131e6;
+}
+.style-classic.mode-3d .equipped-card {
+  display: none;
+}
+.style-picker .style-option.style-classic {
+  background: linear-gradient(130deg, #203442 0%, #243d47 64%, #d96873 160%);
+  color: #f0eddf;
+}
+.ammo-panel {
+  position: absolute;
+  right: 24px;
+  bottom: 104px;
+  z-index: 6;
+  min-width: 160px;
+  padding: 13px 17px;
+  background: #101d2ad9;
+  border-right: 3px solid #ed626e;
+  color: #eef1ed;
+  pointer-events: none;
+}
+.ammo-panel > span {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #a7b9c1;
+}
+.ammo-panel strong {
+  display: block;
+  font-size: 37px;
+  font-weight: 500;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+.ammo-panel small {
+  font-size: 15px;
+  color: #90a7b3;
+}
+.ammo-panel > div {
+  font-size: 9px;
+  color: #a5b7c1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ammo-panel kbd {
+  font: inherit;
+  color: #e5ecea;
+  border: 1px solid #ffffff35;
+  border-radius: 2px;
+  padding: 1px 3px;
+}
+.ammo-panel i {
+  width: 7px;
+}
+.ammo-panel.is-reloading {
+  border-color: #8ce9da;
+}
+.ammo-panel.is-reloading > span {
+  color: #8ce9da;
+  animation: reload-pulse 0.65s ease-in-out infinite alternate;
+}
+@keyframes reload-pulse {
+  to {
+    opacity: 0.4;
+  }
+}
+.modern-crosshair {
+  transition:
+    transform 0.12s,
+    opacity 0.12s;
+}
+.is-aiming .modern-crosshair {
+  transform: translate(-50%, -50%) scale(0.55);
+  opacity: 0.8;
+}
+@media (max-width: 900px) {
+  .ammo-panel {
+    right: 16px;
+    bottom: 130px;
+    min-width: 140px;
+    padding: 9px 12px;
+  }
+  .ammo-panel strong {
+    font-size: 29px;
+  }
+  .ammo-panel > div {
+    font-size: 8px;
+  }
+}
+@media (max-width: 680px) {
+  .ammo-panel {
+    bottom: 134px;
+    min-width: 120px;
+  }
+  .ammo-panel strong {
+    font-size: 25px;
+  }
+  .ammo-panel > span {
+    font-size: 8px;
+  }
+  .ammo-panel > div i,
+  .ammo-panel > div kbd:last-child {
+    display: none;
+  }
+}
+
+.mode-3d .paint-palette {
+  bottom: 230px;
+}
+@media (max-width: 900px) {
+  .mode-3d .paint-palette {
+    bottom: 250px;
+  }
+}

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import * as T from 'three';
 import {
   ZONES,
@@ -10,6 +10,19 @@ import {
   type WorldEffect,
 } from '@/lib/model';
 import { createWorldScene, STATIONS } from './world-scene';
+import { createFirstPersonHands } from './world-hands';
+import { ToolMagazine, CAPACITY, type Blaster } from '@/lib/tool-magazine';
+import {
+  cameraFrame,
+  eyeHeight,
+  avoidCameraWalls,
+  visibleInWorld,
+  type Perspective,
+} from '@/lib/game-camera';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import {
   animateAvatar,
   avatarShoot,
@@ -65,12 +78,33 @@ type Flight = {
   color: string;
   kind: string;
 };
+function readPerspective(): Perspective {
+  try {
+    return localStorage.getItem('jinaly-perspective') === 'first'
+      ? 'first'
+      : 'third';
+  } catch {
+    return 'third';
+  }
+}
+function subscribePerspective(callback: () => void) {
+  window.addEventListener('storage', callback);
+  window.addEventListener('jinaly-perspective', callback);
+  return () => {
+    window.removeEventListener('storage', callback);
+    window.removeEventListener('jinaly-perspective', callback);
+  };
+}
 export default function World(props: Props) {
   const mount = useRef<HTMLDivElement>(null),
     latest = useRef(props);
   useEffect(() => {
     latest.current = props;
   }, [props]);
+  const magazine = useRef(new ToolMagazine());
+  const [rounds, setRounds] = useState({ ...CAPACITY }),
+    [reloading, setReloading] = useState(false),
+    [aiming, setAiming] = useState(false);
   const [locked, setLocked] = useState(false),
     [radial, setRadial] = useState(false),
     [near, setNear] = useState(''),
@@ -90,6 +124,22 @@ export default function World(props: Props) {
     closeInventory: () => void;
     keys: Set<string>;
   } | null>(null);
+  const perspective = useSyncExternalStore(
+    subscribePerspective,
+    readPerspective,
+    () => 'third' as Perspective,
+  );
+  const perspectiveRef = useRef<Perspective>(perspective);
+  useEffect(() => {
+    perspectiveRef.current = perspective;
+  }, [perspective]);
+  const choosePerspective = (value: Perspective) => {
+    perspectiveRef.current = value;
+    try {
+      localStorage.setItem('jinaly-perspective', value);
+      window.dispatchEvent(new Event('jinaly-perspective'));
+    } catch {}
+  };
   const lock = () => engine.current?.capture();
   useEffect(() => {
     if (props.blocked) {
@@ -110,7 +160,7 @@ export default function World(props: Props) {
       latest.current.onFailure();
       return;
     }
-    const kit = createWorldScene(),
+    const kit = createWorldScene(renderer),
       { scene } = kit;
     renderer.setPixelRatio(
       Math.min(devicePixelRatio, props.quality === 'high' ? 1.5 : 1),
@@ -119,7 +169,7 @@ export default function World(props: Props) {
     renderer.toneMapping = T.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.94;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = T.PCFShadowMap;
+    renderer.shadowMap.type = T.PCFSoftShadowMap;
     renderer.shadowMap.autoUpdate = props.quality === 'high';
     kit.sunlight.shadow.mapSize.setScalar(
       props.quality === 'high' ? 2048 : 1024,
@@ -132,9 +182,35 @@ export default function World(props: Props) {
       'aria-label',
       'Игровой мир: клик — играть, движение мыши — камера, WASD — движение, Esc — курсор',
     );
-    const camera = new T.PerspectiveCamera(54, 1, 0.1, 300);
+    const camera = new T.PerspectiveCamera(64, 1, 0.06, 350);
     kit.update(latest.current.room.state);
     kit.setNotes(latest.current.room.state);
+    const cameraObstacles: T.Object3D[] = [];
+    scene.updateMatrixWorld(true);
+    scene.traverse((o) => {
+      if (
+        o instanceof T.Mesh &&
+        !(o instanceof T.InstancedMesh) &&
+        !Array.isArray(o.material) &&
+        !o.userData.noCameraCollision &&
+        o.material.side !== T.BackSide &&
+        !o.material.transparent
+      ) {
+        o.geometry.computeBoundingBox();
+        cameraObstacles.push(o);
+      }
+    });
+    scene.add(camera);
+    const hands = createFirstPersonHands(camera);
+    let composer: EffectComposer | undefined,
+      bloom: UnrealBloomPass | undefined;
+    if (props.quality === 'high') {
+      composer = new EffectComposer(renderer);
+      composer.addPass(new RenderPass(scene, camera));
+      bloom = new UnrealBloomPass(new T.Vector2(1, 1), 0.22, 0.45, 1.05);
+      composer.addPass(bloom);
+      composer.addPass(new OutputPass());
+    }
     const avatar = kit.avatarFactory(
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.color || '#718cdd',
@@ -190,8 +266,8 @@ export default function World(props: Props) {
     );
     let cameraYaw = initial?.yaw || 0,
       heading = cameraYaw,
-      viewHeight = 1.35,
-      pitch = 0.38,
+      viewHeight = eyeHeight(initial?.stance || 'stand'),
+      pitch = 0.16,
       distance = 6.5,
       vy = 0,
       currentStance: 'stand' | 'sit' | 'lie' = initial?.stance || 'stand',
@@ -204,7 +280,11 @@ export default function World(props: Props) {
       nearZone = '',
       middle = false,
       left = false,
-      lastShot = 0,
+      aimHeld = false,
+      aimBlend = 0,
+      crouchHeld = false,
+      beforeCrouch: 'stand' | 'sit' | 'lie' = 'stand',
+      equippedTool = latest.current.tool,
       activeControl = false,
       softLook = false,
       mouseInWorld = false;
@@ -313,14 +393,30 @@ export default function World(props: Props) {
         kind: e.kind,
       });
     };
+    const updateAmmo = () => {
+      setRounds({ ...magazine.current.rounds });
+      setReloading(magazine.current.reloading);
+    };
+    const beginReload = () => {
+      const tool = GAME_TOOLS[latest.current.tool]?.id;
+      if (tool === 'paint' || tool === 'confetti') {
+        magazine.current.reload(tool, performance.now());
+        aimHeld = false;
+        setAiming(false);
+        updateAmmo();
+      }
+    };
     const shoot = () => {
       const p = latest.current;
       if (p.blocked || middle || p.room.state.archived) return;
       const tool = GAME_TOOLS[p.tool]?.id;
       if (tool !== 'paint' && tool !== 'confetti') return;
       const now = performance.now();
-      if (now - lastShot < 260) return;
-      lastShot = now;
+      if (!magazine.current.fire(tool, now)) {
+        if (magazine.current.reloading) setReloading(true);
+        return;
+      }
+      updateAmmo();
       ray.setFromCamera(
         document.pointerLockElement || softLook ? new T.Vector2(0, 0) : mouse,
         camera,
@@ -329,6 +425,8 @@ export default function World(props: Props) {
       scene.traverse((o) => {
         if (
           o instanceof T.Mesh &&
+          visibleInWorld(o) &&
+          !hands.group.getObjectById(o.id) &&
           !avatar.getObjectById(o.id) &&
           o !== shadow &&
           o.geometry.type !== 'SphereGeometry' &&
@@ -340,14 +438,45 @@ export default function World(props: Props) {
       });
       const hit = ray
         .intersectObjects(targets, false)
-        .find((h) => h.distance < 65 && h.distance > 1);
+        .find((h) => h.distance < 65 && h.distance > 0.08);
       const target = hit ? hit.point : ray.ray.at(35, new T.Vector3());
       const normal = hit?.face
         ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
         : new T.Vector3(0, 1, 0);
-      const origin = pos
-        .clone()
-        .add(new T.Vector3(0.4, currentStance === 'lie' ? 0.5 : 1.3, 0));
+      const origin =
+        perspectiveRef.current === 'first'
+          ? hands.group.localToWorld(new T.Vector3(0, 0.025, -0.69))
+          : pos
+              .clone()
+              .add(
+                new T.Vector3(
+                  Math.cos(cameraYaw) * 0.38,
+                  currentStance === 'lie'
+                    ? 0.5
+                    : currentStance === 'sit'
+                      ? 1.05
+                      : 1.5,
+                  -Math.sin(cameraYaw) * 0.38,
+                ),
+              );
+      // Ствол не должен стрелять через препятствие, находящееся ближе центра прицела.
+      const muzzleRay = new T.Raycaster(
+        camera.position,
+        origin.clone().sub(camera.position).normalize(),
+        0,
+        camera.position.distanceTo(origin),
+      );
+      const obstruction = muzzleRay
+        .intersectObjects(targets, false)
+        .find((h) => visibleInWorld(h.object));
+      if (obstruction) {
+        target.copy(obstruction.point);
+        origin.copy(camera.position);
+        if (obstruction.face)
+          normal
+            .copy(obstruction.face.normal)
+            .transformDirection(obstruction.object.matrixWorld);
+      }
       const e: WorldEffect = {
         id: crypto.randomUUID(),
         kind: tool,
@@ -360,6 +489,7 @@ export default function World(props: Props) {
       };
       spawn(e);
       avatarShoot(avatar);
+      hands.shoot();
       p.onFire(e);
       setShots((v) => v + 1);
     };
@@ -396,8 +526,7 @@ export default function World(props: Props) {
       pause: () => {
         softLook = false;
         activeControl = false;
-        left = false;
-        keys.clear();
+        clear();
         setActive(false);
       },
       kit,
@@ -414,7 +543,7 @@ export default function World(props: Props) {
       },
       reset: () => {
         cameraYaw = heading;
-        pitch = 0.38;
+        pitch = perspectiveRef.current === 'first' ? 0 : 0.16;
         distance = 6.5;
         canvas.focus();
       },
@@ -425,6 +554,7 @@ export default function World(props: Props) {
       renderer.setSize(width, Math.max(height, 1));
       camera.aspect = width / Math.max(height, 1);
       camera.updateProjectionMatrix();
+      composer?.setSize(width, Math.max(height, 1));
     };
     const ro = new ResizeObserver(resize);
     ro.observe(host);
@@ -438,6 +568,13 @@ export default function World(props: Props) {
     const clear = () => {
       keys.clear();
       left = false;
+      aimHeld = false;
+      setAiming(false);
+      if (crouchHeld) {
+        currentStance = beforeCrouch;
+        crouchHeld = false;
+        setStance(currentStance);
+      }
     };
     const onKey = (e: KeyboardEvent) => {
       if (
@@ -481,6 +618,8 @@ export default function World(props: Props) {
           'Tab',
           'KeyE',
           'KeyF',
+          'KeyV',
+          'KeyR',
           'ArrowLeft',
           'ArrowRight',
           'ArrowUp',
@@ -492,12 +631,19 @@ export default function World(props: Props) {
       keys.add(e.code);
       if (e.repeat) return;
       if (e.code === 'Tab') latest.current.onMonitor(true);
+      if (e.code === 'KeyR') beginReload();
+      if (e.code.startsWith('Control') && !crouchHeld) {
+        beforeCrouch = currentStance;
+        crouchHeld = true;
+        currentStance = 'sit';
+        setStance('sit');
+      }
       if (e.code === 'Space' && pos.y <= 0.01) {
         currentStance = 'stand';
         setStance('stand');
         vy = 5.7;
       }
-      if (e.code === 'KeyC') {
+      if (e.code === 'KeyC' && !crouchHeld) {
         const now = performance.now();
         currentStance =
           now - lastC < 360
@@ -514,6 +660,10 @@ export default function World(props: Props) {
         clear();
       }
       if (e.code === 'KeyF') engine.current?.reset();
+      if (e.code === 'KeyV')
+        choosePerspective(
+          perspectiveRef.current === 'first' ? 'third' : 'first',
+        );
       if (e.code.startsWith('Digit')) {
         const n = Number(e.code.slice(-1));
         latest.current.onTool(n === 0 ? 9 : n - 1);
@@ -522,6 +672,16 @@ export default function World(props: Props) {
     };
     const onUp = (e: KeyboardEvent) => {
       keys.delete(e.code);
+      if (
+        e.code.startsWith('Control') &&
+        crouchHeld &&
+        !keys.has('ControlLeft') &&
+        !keys.has('ControlRight')
+      ) {
+        currentStance = beforeCrouch;
+        crouchHeld = false;
+        setStance(currentStance);
+      }
       if (e.code === 'Tab') latest.current.onMonitor(false);
     };
     const onMouse = (e: MouseEvent) => {
@@ -543,8 +703,8 @@ export default function World(props: Props) {
               0.002 *
               latest.current.sensitivity *
               (latest.current.invertCamera ? -1 : 1),
-          -0.05,
-          1.15,
+          -1.35,
+          1.4,
         );
       }
     };
@@ -570,6 +730,15 @@ export default function World(props: Props) {
         if (document.pointerLockElement) document.exitPointerLock();
       } else if (e.button === 2) {
         e.preventDefault();
+        if (!enabled()) {
+          capture();
+          return;
+        }
+        const tool = GAME_TOOLS[latest.current.tool]?.id;
+        aimHeld =
+          (tool === 'paint' || tool === 'confetti') &&
+          !magazine.current.reloading;
+        setAiming(aimHeld);
       } else if (e.button === 0) {
         if (document.pointerLockElement !== canvas && !softLook) {
           capture();
@@ -598,6 +767,10 @@ export default function World(props: Props) {
     };
     const onMouseUp = (e: MouseEvent) => {
       if (e.button === 0) left = false;
+      if (e.button === 2) {
+        aimHeld = false;
+        setAiming(false);
+      }
       if (e.button === 1 && middle) {
         middle = false;
         setRadial(false);
@@ -651,6 +824,19 @@ export default function World(props: Props) {
         frames = 0;
         fpsAt = now;
       }
+      if (equippedTool !== latest.current.tool) {
+        equippedTool = latest.current.tool;
+        magazine.current.cancel();
+        aimHeld = false;
+        setAiming(false);
+        updateAmmo();
+      }
+      if (magazine.current.tick(now)) updateAmmo();
+      aimBlend = T.MathUtils.lerp(
+        aimBlend,
+        aimHeld && !latest.current.blocked ? 1 : 0,
+        1 - Math.exp(-18 * dt),
+      );
       if (left && enabled()) shoot();
       let dx = 0,
         dz = 0;
@@ -669,23 +855,22 @@ export default function World(props: Props) {
             (Number(keys.has('ArrowDown')) - Number(keys.has('ArrowUp'))) *
               dt *
               0.8,
-          -0.05,
-          1.15,
+          -1.35,
+          1.4,
         );
       }
       const moving = !!(dx || dz),
-        slow = keys.has('ShiftLeft') || keys.has('ShiftRight'),
-        run = keys.has('ControlLeft') || keys.has('ControlRight'),
-        speed =
-          currentStance === 'lie'
-            ? 0.65
-            : currentStance === 'sit'
-              ? 1
-              : slow
-                ? 1.1
-                : run
-                  ? 6.5
-                  : 3.4;
+        slow = keys.has('ShiftLeft') || keys.has('ShiftRight');
+      const speed =
+        currentStance === 'lie'
+          ? 0.65
+          : currentStance === 'sit'
+            ? 1.5
+            : slow
+              ? 2
+              : aimHeld
+                ? 3
+                : 4.8;
       if (moving) {
         const len = Math.hypot(dx, dz);
         dx /= len;
@@ -716,6 +901,9 @@ export default function World(props: Props) {
           tool: GAME_TOOLS[latest.current.tool]?.id || 'pointer',
           pitch,
           working: latest.current.working,
+          crouching: crouchHeld,
+          aiming: aimHeld,
+          reload: magazine.current.progress(now),
           inventory: middle,
         },
         dt,
@@ -725,28 +913,53 @@ export default function World(props: Props) {
       shadow.scale.setScalar(Math.max(0.5, 1 - pos.y * 0.1));
       viewHeight = T.MathUtils.lerp(
         viewHeight,
-        currentStance === 'lie' ? 0.6 : currentStance === 'sit' ? 1 : 1.35,
-        1 - Math.exp(-8 * dt),
+        eyeHeight(currentStance),
+        1 - Math.exp(-10 * dt),
       );
-      const target = new T.Vector3(pos.x, pos.y + viewHeight, pos.z),
-        desired = new T.Vector3(
-          pos.x + Math.sin(cameraYaw) * distance * Math.cos(pitch),
-          pos.y + viewHeight + 0.55 + Math.sin(pitch) * distance,
-          pos.z + Math.cos(cameraYaw) * distance * Math.cos(pitch),
-        );
-      desired.y = Math.max(0.9, desired.y);
-      camera.position.lerp(desired, Math.min(1, dt * 10));
-      const shoulderX = Math.cos(cameraYaw) * 0.58,
-        shoulderZ = -Math.sin(cameraYaw) * 0.58;
-      target.x += shoulderX;
-      target.z += shoulderZ;
-      camera.position.x += shoulderX * (1 - Math.exp(-10 * dt));
-      camera.position.z += shoulderZ * (1 - Math.exp(-10 * dt));
-      camera.lookAt(target);
+      const mode = perspectiveRef.current;
+      const view = cameraFrame(
+        pos,
+        cameraYaw,
+        pitch,
+        viewHeight,
+        mode,
+        distance,
+      );
+      const desired =
+        mode === 'third'
+          ? avoidCameraWalls(view.eye, view.position, cameraObstacles)
+          : view.position;
+      // При приближении к стене сокращаем дистанцию сразу, возвращаем её плавно.
+      if (
+        mode === 'first' ||
+        camera.position.distanceTo(view.eye) >
+          desired.distanceTo(view.eye) + 0.1
+      )
+        camera.position.copy(desired);
+      else camera.position.lerp(desired, 1 - Math.exp(-14 * dt));
+      camera.lookAt(
+        camera.position.clone().addScaledVector(view.direction, 30),
+      );
+      avatar.visible = mode === 'third';
+      shadow.visible = mode === 'third';
+      hands.update(
+        dt,
+        now / 1000,
+        moving ? speed : 0,
+        GAME_TOOLS[latest.current.tool]?.id || 'other',
+        latest.current.paintColor,
+        mode === 'first' && !middle && !latest.current.working,
+        aimBlend,
+        magazine.current.progress(now),
+      );
       const fov = T.MathUtils.lerp(
         camera.fov,
-        moving && run ? 60 : 54,
-        1 - Math.exp(-5 * dt),
+        T.MathUtils.lerp(
+          mode === 'first' ? 80 : 68,
+          mode === 'first' ? 56 : 50,
+          aimBlend,
+        ),
+        1 - Math.exp(-8 * dt),
       );
       if (Math.abs(fov - camera.fov) > 0.01) {
         camera.fov = fov;
@@ -795,6 +1008,9 @@ export default function World(props: Props) {
             tool: p.tool || 'other',
             pitch: p.pitch || 0,
             working: p.working,
+            crouching: p.crouching,
+            aiming: p.aiming,
+            reload: p.reload,
           },
           dt,
           now / 1000,
@@ -863,12 +1079,20 @@ export default function World(props: Props) {
             ? GAME_TOOLS[latest.current.tool].id
             : 'other',
           working: latest.current.working || middle,
+          crouching: crouchHeld,
+          aiming: aimHeld,
+          reload: magazine.current.progress(now),
         });
         poseAt = now;
       }
       kit.clouds.position.x = Math.sin(now * 0.000015) * 2;
       kit.animate(now / 1000);
-      renderer.render(scene, camera);
+      if (composer) {
+        if (bloom)
+          bloom.strength =
+            latest.current.room.state.visualStyle === 'anime' ? 0.1 : 0.22;
+        composer.render(dt);
+      } else renderer.render(scene, camera);
     };
     camera.position.set(pos.x, 6, pos.z + 8);
     raf = requestAnimationFrame(animate);
@@ -908,6 +1132,8 @@ export default function World(props: Props) {
       paintGeo.dispose();
       confettiGeo.dispose();
       kit.dispose();
+      composer?.passes.forEach((pass) => pass.dispose());
+      composer?.dispose();
       renderer.dispose();
       canvas.remove();
     };
@@ -931,7 +1157,7 @@ export default function World(props: Props) {
   const current = GAME_TOOLS[props.tool];
   return (
     <div
-      className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : ''}`}
+      className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''}`}
     >
       <div ref={mount} className="world-canvas" />
       <div className="crosshair modern-crosshair">
@@ -946,7 +1172,7 @@ export default function World(props: Props) {
               ? 'SORA / Небесный сад'
               : props.room.state.interior
                 ? 'ATELIER / Мастерская'
-                : 'ALATAU / Горный фестиваль'}
+                : 'ALATAU / RETRO PROTOCOL'}
           </strong>
           <span>
             {props.room.state.interior
@@ -956,6 +1182,21 @@ export default function World(props: Props) {
           </span>
         </div>
       </div>
+      <fieldset className="view-switch" aria-label="Режим обзора">
+        <button
+          aria-pressed={perspective === 'first'}
+          onClick={() => choosePerspective('first')}
+        >
+          1-е лицо <span>FPP</span>
+        </button>
+        <button
+          aria-pressed={perspective === 'third'}
+          onClick={() => choosePerspective('third')}
+        >
+          3-е лицо <span>TPP</span>
+        </button>
+        <kbd>V</kbd>
+      </fieldset>
       <div className="camera-toolbar">
         <span>
           <Camera size={14} />
@@ -975,12 +1216,14 @@ export default function World(props: Props) {
         </button>
         <button
           onClick={() => engine.current?.distance(-1.5)}
+          disabled={perspective === 'first'}
           aria-label="Приблизить камеру"
         >
           <Plus size={16} />
         </button>
         <button
           onClick={() => engine.current?.distance(1.5)}
+          disabled={perspective === 'first'}
           aria-label="Отдалить камеру"
         >
           <Minus size={16} />
@@ -1022,6 +1265,21 @@ export default function World(props: Props) {
           <span>Открыть доску</span>
         </button>
       )}
+      {['paint', 'confetti'].includes(current?.id) && (
+        <div
+          className={`ammo-panel ${reloading ? 'is-reloading' : ''}`}
+          aria-live="polite"
+        >
+          <span>{reloading ? 'ПЕРЕЗАРЯДКА' : current.label}</span>
+          <strong>
+            {rounds[current.id as Blaster]}{' '}
+            <small>/ {CAPACITY[current.id as Blaster]}</small>
+          </strong>
+          <div>
+            <kbd>R</kbd> перезарядить <i /> <kbd>ПКМ</kbd> прицел
+          </div>
+        </div>
+      )}
       <div className="equipped-card">
         <span className="weapon-number">{current?.key}</span>
         <div>
@@ -1050,7 +1308,7 @@ export default function World(props: Props) {
           <kbd>Мышь</kbd> камера · <kbd>Esc</kbd> курсор
         </span>
         <span>
-          <kbd>WASD</kbd> движение
+          <kbd>V</kbd> 1-е / 3-е лицо · <kbd>WASD</kbd> движение
         </span>
         <span>
           <kbd>Пробел</kbd> прыжок
@@ -1059,7 +1317,7 @@ export default function World(props: Props) {
           <kbd>C</kbd> сесть · 2×C лечь
         </span>
         <span>
-          <kbd>Ctrl</kbd> бег
+          <kbd>Ctrl</kbd> присесть
         </span>
         <span>
           <kbd>Shift</kbd> шаг

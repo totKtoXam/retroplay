@@ -25,8 +25,10 @@ export function StylePicker({
           >
             <Mountain size={compact ? 18 : 28} />
             <span>
-              <strong>Фестиваль</strong>
-              {!compact && <small>Тёплый свет · горный лагерь</small>}
+              <strong>Tactical</strong>
+              {!compact && (
+                <small>Чёткие формы · контраст · быстрый темп</small>
+              )}
             </span>
           </TabsTrigger>
           <TabsTrigger

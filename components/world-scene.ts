@@ -1,6 +1,10 @@
 import * as T from 'three';
 import { createAvatar, setAvatarStyle } from './world-avatar';
 import { createWorldArt } from './world-art';
+import {
+  createSurfaceLibrary,
+  createCinematicLandscape,
+} from './world-cinematic';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ZONES, type RoomState } from '@/lib/model';
 export const STATIONS = [
@@ -9,21 +13,14 @@ export const STATIONS = [
   [-9, 9],
   [9, 9],
 ];
-export function createWorldScene() {
+export function createWorldScene(renderer?: T.WebGLRenderer) {
+  const surfaces = createSurfaceLibrary();
   const scene = new T.Scene(),
     decor = new T.Group();
   scene.add(decor);
   const mats = new Map<string, T.MeshStandardMaterial>();
   const material = (c: string) => {
-    if (!mats.has(c))
-      mats.set(
-        c,
-        new T.MeshStandardMaterial({
-          color: c,
-          roughness: 0.85,
-          flatShading: true,
-        }),
-      );
+    if (!mats.has(c)) mats.set(c, surfaces.material(c));
     return mats.get(c)!;
   };
   const mesh = (
@@ -98,7 +95,8 @@ export function createWorldScene() {
     side: T.BackSide,
     depthWrite: false,
   });
-  scene.add(new T.Mesh(new T.SphereGeometry(160, 24, 16), skyMaterial));
+  const animeSky = new T.Mesh(new T.SphereGeometry(160, 24, 16), skyMaterial);
+  scene.add(animeSky);
   const sun = new T.Mesh(
     new T.SphereGeometry(3.3, 20, 12),
     new T.MeshBasicMaterial({ color: '#fff1cb' }),
@@ -148,6 +146,8 @@ export function createWorldScene() {
   water.rotation.x = -Math.PI / 2;
   water.position.y = -3.1;
   decor.add(water);
+  const oldMountains = new T.Group();
+  scene.add(oldMountains);
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * Math.PI * 2,
       r = 78 + (i % 3) * 9,
@@ -159,6 +159,7 @@ export function createWorldScene() {
       h / 2 - 6,
       Math.sin(a) * r,
     );
+    oldMountains.add(mountain);
     mountain.rotation.y = i * 0.6;
     const snow = mesh(
       new T.ConeGeometry(5.8, h * 0.33, 5),
@@ -167,6 +168,7 @@ export function createWorldScene() {
       h * 0.84 - 6,
       Math.sin(a) * r,
     );
+    oldMountains.add(snow);
     snow.rotation.y = i * 0.6;
   }
   const pond = new T.Mesh(
@@ -206,8 +208,10 @@ export function createWorldScene() {
   const blossomGroup = new T.Group();
   decor.add(blossomGroup);
   // Ветвистые деревья с мягкими кронами; геометрия объединяется по материалу.
+  const oldForest = new T.Group();
+  scene.add(oldForest);
   const pine = (x: number, z: number, h: number, i: number) => {
-    cyl(0.1, 0.25, h * 0.66, '#806b66', x, h * 0.33, z, decor, 10);
+    cyl(0.1, 0.25, h * 0.66, '#806b66', x, h * 0.33, z, oldForest, 10);
     for (let k = 0; k < 5; k++) {
       const angle = k * 2.4 + i * 0.7,
         spread = k === 4 ? 0 : h * 0.23;
@@ -222,7 +226,7 @@ export function createWorldScene() {
         (x + px) / 2,
         py - h * 0.24,
         (z + pz) / 2,
-        decor,
+        oldForest,
         7,
       );
       branch.rotation.z = Math.cos(angle) * 0.65;
@@ -234,6 +238,7 @@ export function createWorldScene() {
         py,
         pz,
       );
+      oldForest.add(crown);
       crown.scale.set(1.15, 0.8, 1);
       crown.material = leafMaterials[(i + k) % 3];
       (crown.material as T.MeshStandardMaterial).flatShading = false;
@@ -491,7 +496,10 @@ export function createWorldScene() {
     }
     for (const [mat, geos] of buckets) {
       const merged = mergeGeometries(geos);
-      if (merged) group.add(new T.Mesh(merged, mat));
+      if (merged) {
+        surfaces.projectUV(merged);
+        group.add(new T.Mesh(merged, mat));
+      }
       geos.forEach((g) => g.dispose());
     }
   };
@@ -505,6 +513,8 @@ export function createWorldScene() {
     o.removeFromParent();
     scene.add(o);
   });
+  batch(oldForest);
+  batch(oldMountains);
   batch(decor);
   batch(yurt);
   batch(interior);
@@ -537,9 +547,35 @@ export function createWorldScene() {
     { x: 0, z: -10, w: 2.8, d: 2.8 },
   );
   const art = createWorldArt(scene);
+  const cinematic = createCinematicLandscape(scene, STATIONS);
+  const waterTime = { value: 0 };
+  for (const surface of [water, pond]) {
+    const mat = surface.material as T.MeshStandardMaterial;
+    mat.color.set('#355e67');
+    mat.roughness = 0.2;
+    mat.metalness = 0.45;
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.waterTime = waterTime;
+      shader.vertexShader = 'varying vec2 vRipple;\n' + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvRipple=position.xz;',
+      );
+      shader.fragmentShader =
+        'varying vec2 vRipple; uniform float waterTime;\n' +
+        shader.fragmentShader;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_begin>',
+        '#include <normal_fragment_begin>\nnormal=normalize(normal+vec3(sin(vRipple.x*2.1+waterTime)*.085,cos(vRipple.y*1.8+waterTime*.7)*.085,0.));',
+      );
+    };
+  }
   let animeStyle = false;
   const update = (s: RoomState) => {
     animeStyle = s.visualStyle === 'anime';
+    animeSky.visible = oldMountains.visible = oldForest.visible = animeStyle;
+    sun.visible = animeStyle;
+    cinematic.update(s, renderer);
     const night = s.time === 'night',
       sunset = s.time === 'sunset',
       dawn = s.time === 'dawn',
@@ -565,21 +601,31 @@ export function createWorldScene() {
               : '#d2dfef';
     skyMaterial.uniforms.top.value.set(top);
     skyMaterial.uniforms.bottom.value.set(bottom);
-    scene.fog = new T.Fog(bottom, 52, 140);
-    hemi.intensity = night ? 0.9 : animeStyle ? 0.8 : 1.4;
+    scene.fog = new T.Fog(
+      animeStyle
+        ? bottom
+        : s.time === 'night'
+          ? '#18242d'
+          : s.time === 'sunset'
+            ? '#b5a18c'
+            : '#9fb6c2',
+      animeStyle ? 52 : 65,
+      animeStyle ? 140 : 205,
+    );
+    hemi.intensity = night ? 0.45 : animeStyle ? 0.8 : 0.65;
     hemi.color.set(night ? '#98b6ff' : '#e6edff');
     sunlight.intensity = night ? 0.7 : animeStyle ? 1.7 : sunset ? 2.4 : 2.8;
-    sunlight.position.set(-24, sunset ? 16 : night ? 28 : 38, 18);
+    sunlight.position.set(-30, sunset ? 9 : night ? 20 : 36, -24);
     sunlight.shadow.needsUpdate = true;
     sunlight.color.set(sunset ? '#ffb687' : night ? '#98acff' : '#ffedce');
-    rim.intensity = night ? 1.5 : 1;
+    rim.intensity = animeStyle ? 1 : night ? 0.3 : 0.25;
     sun.position.y = night ? 45 : sunset ? 9 : dawn ? 13 : 38;
     (sun.material as T.MeshBasicMaterial).color.set(
       night ? '#dbe6ff' : '#ffe1ae',
     );
     sun.scale.setScalar(night ? 0.55 : 1);
     stars.visible = night;
-    clouds.visible = !night;
+    clouds.visible = animeStyle && !night;
     groundMaterial.color.set(
       animeStyle
         ? winter
@@ -590,10 +636,10 @@ export function createWorldScene() {
         : winter
           ? '#d6e1ec'
           : autumn
-            ? '#b49b86'
+            ? '#8a7858'
             : s.theme === 'steppe'
-              ? '#b7b294'
-              : '#81a99b',
+              ? '#817b63'
+              : '#737b62',
     );
     const colors = animeStyle
       ? ['#d99cc8', '#b8a2d6', '#f0bdd7']
@@ -605,7 +651,7 @@ export function createWorldScene() {
             ? ['#548f88', '#7097a2', '#6faaa1']
             : ['#427b80', '#58868f', '#679b97'];
     leafMaterials.forEach((m, i) => m.color.set(colors[i]));
-    snowCaps.forEach((o) => (o.visible = winter));
+    snowCaps.forEach((o) => (o.visible = winter && animeStyle));
     flowers.visible = !winter;
     blossomGroup.visible = animeStyle || s.season === 'spring';
     holiday.visible = s.theme !== 'steppe';
@@ -617,7 +663,18 @@ export function createWorldScene() {
       if (o instanceof T.Group && o.name === 'player-avatar')
         setAvatarStyle(o, animeStyle);
     });
+    const accents = [
+      '#669feb',
+      '#e49b9e',
+      '#e4bd71',
+      '#a798e2',
+      '#669feb',
+      '#7485c6',
+    ];
+    for (const color of accents)
+      mats.get(color)?.color.set(animeStyle ? color : '#766f60');
     art.update(s);
+    cinematic.update(s, renderer);
   };
   const avatarFactory = (color: string) => {
     const avatar = createAvatar(color);
@@ -704,7 +761,14 @@ export function createWorldScene() {
     setNotes,
     clouds,
     sunlight,
-    animate: (time: number) => art.animate(time),
-    dispose: () => art.dispose(),
+    animate: (time: number) => {
+      art.animate(time);
+      waterTime.value = time;
+    },
+    dispose: () => {
+      art.dispose();
+      cinematic.dispose();
+      surfaces.dispose();
+    },
   };
 }

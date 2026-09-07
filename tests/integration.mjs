@@ -89,6 +89,9 @@ await req(guest, path, {
     pitch: 6,
     tool: 'paint',
     working: true,
+    crouching: true,
+    aiming: true,
+    reload: 2,
   },
 });
 const pose = (await req(host, path)).data.members.find(
@@ -105,9 +108,10 @@ assert.deepEqual(
     pose.tool,
     pose.working,
   ],
-  [0, 0, 6.5, 1, -1, 1.2, 'paint', true],
+  [0, 0, 6.5, 1, -1, 1.4, 'paint', true],
 );
 
+assert.deepEqual([pose.crouching, pose.aiming, pose.reload], [true, true, 1]);
 await req(host, path, {
   type: 'room.settings',
   patch: { privateWriting: true },

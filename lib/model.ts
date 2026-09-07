@@ -151,6 +151,9 @@ export type Pose = {
   pitch?: number;
   tool?: string;
   working?: boolean;
+  crouching?: boolean;
+  aiming?: boolean;
+  reload?: number;
 };
 export type Person = {
   id: string;

@@ -439,6 +439,7 @@ export function createWorldArt(scene: T.Scene) {
     update(s: RoomState) {
       currentAnime = s.visualStyle === 'anime';
       currentInterior = s.interior;
+      garden.visible = currentAnime;
       animeGarden.visible = currentAnime && !s.interior;
       atelier.visible = s.interior;
       petals.visible = (currentAnime || s.season === 'spring') && !s.interior;

@@ -235,12 +235,18 @@ export async function POST(request: Request, context: Context) {
                   : 0,
               pitch:
                 typeof p.pitch === 'number' && Number.isFinite(p.pitch)
-                  ? Math.max(-0.5, Math.min(1.2, p.pitch))
+                  ? Math.max(-1.35, Math.min(1.4, p.pitch))
                   : 0,
               tool: ['paint', 'confetti', 'other'].includes(p.tool)
                 ? p.tool
                 : 'other',
               working: !!p.working,
+              crouching: !!p.crouching,
+              aiming: !!p.aiming,
+              reload:
+                typeof p.reload === 'number' && Number.isFinite(p.reload)
+                  ? Math.max(0, Math.min(1, p.reload))
+                  : 0,
             }
           : null;
       const ping =
