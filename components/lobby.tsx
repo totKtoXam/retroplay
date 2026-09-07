@@ -1,6 +1,7 @@
 'use client';
+/* oxlint-disable next/no-html-link-for-pages -- Полная навигация обходит ошибку RSC prefetch в production-сборке vinext. */
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
+
 import {
   Plus,
   ArrowUpRight,
@@ -165,10 +166,10 @@ export default function Lobby() {
   return (
     <main className="lobby">
       <header className="main-header">
-        <Link className="brand" href="/">
+        <a className="brand" href="/">
           <span className="brand-symbol">Ж</span>jinaly
           <span className="brand-suffix">RETRO WORLD</span>
-        </Link>
+        </a>
         <span className="header-caption">
           Место, где команда становится ближе
         </span>
@@ -278,7 +279,7 @@ export default function Lobby() {
               {shown.map((r) => {
                 const t = THEMES.find((t) => t.id === r.theme) || THEMES[0];
                 return (
-                  <Link
+                  <a
                     href={'/room/' + r.id}
                     key={r.id}
                     className="room-card"
@@ -312,7 +313,7 @@ export default function Lobby() {
                         <ChevronRight size={17} />
                       </div>
                     </div>
-                  </Link>
+                  </a>
                 );
               })}
               <button className="new-room-card" onClick={() => setCreate(true)}>

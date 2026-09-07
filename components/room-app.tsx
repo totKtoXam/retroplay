@@ -1,5 +1,6 @@
 'use client';
-import Link from 'next/link';
+/* oxlint-disable next/no-html-link-for-pages -- Полная навигация обходит ошибку RSC prefetch в production-сборке vinext. */
+
 import {
   useState,
   useEffect,
@@ -706,9 +707,9 @@ export default function RoomApp({ id }: { id: string }) {
   if (join)
     return (
       <main className="join-screen">
-        <Link className="brand" href="/">
+        <a className="brand" href="/">
           <span className="brand-symbol">Ж</span>jinaly
-        </Link>
+        </a>
         <div className="join-card">
           <span className="join-emoji">🤝</span>
           <h1>{join.title}</h1>
@@ -747,9 +748,9 @@ export default function RoomApp({ id }: { id: string }) {
   if (!room || !s)
     return (
       <main className="join-screen">
-        <Link href="/" className="brand">
+        <a href="/" className="brand">
           <span className="brand-symbol">Ж</span>jinaly
-        </Link>
+        </a>
         <div className="join-card">
           <CompassPlaceholder />
           <h2>
@@ -768,9 +769,9 @@ export default function RoomApp({ id }: { id: string }) {
               >
                 Повторить
               </button>
-              <Link href="/" className="secondary">
+              <a href="/" className="secondary">
                 К комнатам
-              </Link>
+              </a>
             </>
           )}
         </div>
@@ -799,12 +800,12 @@ export default function RoomApp({ id }: { id: string }) {
       }
     >
       <header className="room-header">
-        <Link href="/" className="back-button" aria-label="К комнатам">
+        <a href="/" className="back-button" aria-label="К комнатам">
           <ArrowLeft size={19} />
-        </Link>
-        <Link className="brand room-brand" href="/">
+        </a>
+        <a className="brand room-brand" href="/">
           <span className="brand-symbol">Ж</span>
-        </Link>
+        </a>
         <div className="room-heading">
           <h1>{s.title}</h1>
           <span>
@@ -1605,14 +1606,14 @@ export default function RoomApp({ id }: { id: string }) {
                 )}
                 {/* Видео открывается отдельной ссылкой, без внешних iframe. */}
                 {draft.url && (
-                  <Link
+                  <a
                     href={draft.url}
                     target="_blank"
                     rel="noreferrer"
                     className="text-button"
                   >
                     Открыть вложение ↗
-                  </Link>
+                  </a>
                 )}
                 <div className="color-picker">
                   <span>Цвет</span>
