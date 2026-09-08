@@ -1,3 +1,5 @@
+import { ZONES } from '../lib/model';
+import { makeGrenade, setGrenadeStyle } from './party-geometry';
 import * as T from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -137,6 +139,24 @@ export function createFirstPersonHands(camera: T.Camera) {
   let recoil = 0,
     equip = 0,
     lastTool = '';
+  const grenadeHands = new T.Group();
+  group.add(grenadeHands);
+  for (const child of weapon.children) {
+    if (
+      child instanceof T.Mesh &&
+      [skin, sleeve].includes(child.material as T.MeshStandardMaterial)
+    )
+      grenadeHands.add(child.clone());
+  }
+  const grenade = makeGrenade('#f49fd6');
+  grenade.position.set(0.03, -0.02, -0.2);
+  group.add(grenade);
+  grenade.traverse((o) => {
+    if (o instanceof T.Mesh) {
+      (o.material as T.Material).depthTest = false;
+      o.renderOrder = 1001;
+    }
+  });
   return {
     group,
     shoot: () => {
@@ -151,10 +171,11 @@ export function createFirstPersonHands(camera: T.Camera) {
       active: boolean,
       aim: number,
       reload: number,
+      variant = 'pinata',
     ) {
       group.visible = active;
       weapon.visible = tool === 'paint' || tool === 'confetti';
-      tablet.visible = !weapon.visible;
+      tablet.visible = !weapon.visible && tool !== 'grenade';
       if (lastTool !== tool) {
         lastTool = tool;
         equip = 1;
@@ -163,7 +184,14 @@ export function createFirstPersonHands(camera: T.Camera) {
       const reloading = Math.sin(reload * Math.PI);
       cartridge.position.y = -0.12 - reloading * 0.17;
       recoil *= Math.exp(-15 * dt);
-      paint.color.set(tool === 'confetti' ? '#dcb26a' : color);
+      grenade.visible = tool === 'grenade';
+      grenadeHands.visible = grenade.visible;
+      if (grenade.visible) setGrenadeStyle(grenade, variant, true);
+      if (tool === 'pointer')
+        (screen.material as T.MeshBasicMaterial).color.set(
+          ZONES.find((z) => z.id === variant)?.color || '#91c3c3',
+        );
+      paint.color.set(color);
       group.position.set(
         T.MathUtils.lerp(tool === 'pointer' ? 0.12 : 0.28, 0, aim) +
           Math.sin(time * speed * 2.4) *

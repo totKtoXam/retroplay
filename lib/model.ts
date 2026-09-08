@@ -112,11 +112,13 @@ export const GAME_TOOLS = [
   { id: 'connector', label: 'Связь', key: '7' },
   { id: 'reaction', label: 'Реакция', key: '8' },
   { id: 'action', label: 'Задача', key: '9' },
-  { id: 'pointer', label: 'Обзор', key: '0' },
+  { id: 'pointer', label: 'Планшет', key: '3' },
+  { id: 'grenade', label: 'Гранаты', key: '4' },
 ];
 export const TOOL_HINTS: Record<string, string> = {
   paint: 'ЛКМ — выстрел краской · пятна исчезают',
   confetti: 'ЛКМ — залп конфетти',
+  grenade: 'ЛКМ — бросок · колесо — вид гранаты',
   sticky: 'ЛКМ по доске — новая идея',
   group: 'ЛКМ по доске — объединить идеи',
   draw: 'ЛКМ по доске — рисовать маркером',
@@ -130,7 +132,8 @@ export const TOOL_HINTS: Record<string, string> = {
 };
 export type WorldEffect = {
   id: string;
-  kind: 'paint' | 'confetti';
+  kind: 'paint' | 'confetti' | 'grenade';
+  variant?: string;
   origin: number[];
   target: number[];
   normal: number[];
@@ -150,6 +153,7 @@ export type Pose = {
   forward?: number;
   pitch?: number;
   tool?: string;
+  variant?: string;
   working?: boolean;
   crouching?: boolean;
   aiming?: boolean;
@@ -160,6 +164,9 @@ export type Person = {
   name: string;
   color: string;
   lastSeen: number;
+  hp?: number;
+  respawnAt?: number;
+  life?: number;
   pose: Pose;
   ping: number;
   mood: string;
@@ -167,6 +174,7 @@ export type Person = {
   cursor?: { x?: number; y?: number; mode?: string };
 };
 export type Note = {
+  redacted?: boolean;
   id: string;
   kind: string;
   text: string;
@@ -200,6 +208,8 @@ export type Round = {
   votes: Record<string, Record<string, number>>;
 };
 export type RoomState = {
+  anonymousPlayers?: boolean;
+  respawnSeconds?: number;
   title: string;
   theme: string;
   visualStyle?: 'classic' | 'anime';
@@ -463,6 +473,11 @@ export function applyOperation(
       s.visualStyle = oneOf(p.visualStyle, ['classic', 'anime']) as
         | 'classic'
         | 'anime';
+    if ('respawnSeconds' in p) {
+      s.respawnSeconds = finite(p.respawnSeconds, 1, 30);
+      if (!Number.isInteger(s.respawnSeconds))
+        throw Error('Интервал должен быть целым числом');
+    }
     if ('season' in p)
       s.season = oneOf(p.season, ['spring', 'summer', 'autumn', 'winter']);
     if ('time' in p) s.time = oneOf(p.time, ['dawn', 'day', 'sunset', 'night']);
@@ -470,6 +485,7 @@ export function applyOperation(
       'interior',
       'privateWriting',
       'anonymous',
+      'anonymousPlayers',
       'layoutLocked',
     ] as const)
       if (key in p) s[key] = !!p[key];
@@ -575,12 +591,44 @@ export function applyOperation(
 }
 export function publicState(state: RoomState, self: string): RoomState {
   const s = structuredClone(state);
-  s.notes = s.notes
-    .filter((n) => !n.hidden || n.author === self)
-    .map((n) => ({
-      ...n,
-      author: n.anonymous && n.author !== self ? 'anonymous' : n.author,
-    }));
+  s.notes = s.notes.map((n) =>
+    n.hidden && n.author !== self
+      ? {
+          id: n.id,
+          kind: 'sticky',
+          text: '',
+          zone: n.zone,
+          color: n.color,
+          x: n.x,
+          y: n.y,
+          width: n.width,
+          height: n.height,
+          rotation: n.rotation,
+          author: '',
+          anonymous: true,
+          hidden: true,
+          redacted: true,
+          locked: true,
+          group: '',
+          tags: [],
+          url: '',
+          points: [],
+          from: '',
+          to: '',
+          owner: '',
+          due: '',
+          done: false,
+          comments: [],
+          reactions: {},
+        }
+      : {
+          ...n,
+          author:
+            (n.anonymous || s.anonymousPlayers) && n.author !== self
+              ? 'anonymous'
+              : n.author,
+        },
+  );
   s.rounds = s.rounds.map((r) =>
     r.active ? { ...r, votes: { [self]: r.votes[self] || {} } } : r,
   );

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-const base = 'http://localhost:3000';
+const base = process.env.RETRO_TEST_URL || 'http://localhost:3000';
 async function actor() {
   const r = await fetch(base + '/api/session', {
     method: 'POST',

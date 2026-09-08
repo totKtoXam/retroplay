@@ -721,6 +721,23 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
         ctx.fillRect(x, y, 232, 159);
         ctx.fillStyle = '#444759';
         ctx.font = '22px sans-serif';
+        if (n.redacted) {
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#444759';
+          for (let row = 0; row < 4; row++) {
+            ctx.beginPath();
+            ctx.moveTo(x + 16, y + 30 + row * 28);
+            for (let t = 0; t < 11; t++)
+              ctx.quadraticCurveTo(
+                x + 24 + t * 16,
+                y + 14 + row * 28,
+                x + 32 + t * 16,
+                y + 30 + row * 28,
+              );
+            ctx.stroke();
+          }
+          return;
+        }
         const words = n.text.split(/\s/);
         let line = '',
           row = 0;

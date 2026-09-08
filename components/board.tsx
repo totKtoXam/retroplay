@@ -42,6 +42,28 @@ export function Card({
   style?: React.CSSProperties;
   dragHandle?: React.ReactNode;
 }) {
+  if (n.redacted)
+    return (
+      <article
+        className="note-card private-placeholder"
+        style={{ background: n.color, ...style }}
+        aria-label="Приватный стикер"
+      >
+        <svg viewBox="0 0 200 130" aria-hidden="true">
+          {[25, 50, 75, 100].map((y, i) => (
+            <path
+              key={y}
+              d={`M15 ${y} q8 -15 15 0 t15 0 t15 0 t15 0 t15 0 t15 0 t15 0 ${i % 2 ? '' : 't15 0 t15 0'}`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+            />
+          ))}
+        </svg>
+        <small>🔒 Приватно</small>
+      </article>
+    );
   const person = room.members.find((m) => m.id === n.author);
   const voted = room.state.rounds.at(-1)?.votes[room.self]?.[n.id] || 0;
   const total = voteCount(room.state, n.id);
@@ -104,7 +126,9 @@ export function Card({
       )}
       <div className="note-bottom">
         <span className="note-author">
-          {n.anonymous ? 'Анонимно' : person?.name || 'Участник'}
+          {n.anonymous || room.state.anonymousPlayers
+            ? 'Анонимно'
+            : person?.name || 'Участник'}
         </span>
         <div>
           <button title="Комментарии" onClick={onEdit}>

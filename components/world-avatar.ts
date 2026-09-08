@@ -1,3 +1,4 @@
+import { makeGrenade, setGrenadeStyle } from './party-geometry.ts';
 import * as T from 'three';
 import { buildAgentSkin } from './world-agent.ts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -10,6 +11,7 @@ export type AvatarMotion = {
   velocityY: number;
   stance: 'stand' | 'sit' | 'lie';
   tool: string;
+  variant?: string;
   pitch: number;
   working?: boolean;
   inventory?: boolean;
@@ -354,6 +356,39 @@ export function createAvatar(color: string) {
   }
   materials.forEach((m) => m.dispose());
   disposeAgentMaterials();
+  const faceRoot = new T.Group();
+  faceRoot.name = 'unmasked-head';
+  while (head.children.length) faceRoot.add(head.children[0]);
+  head.add(faceRoot);
+  const bag = new T.Group();
+  bag.name = 'anonymous-bag';
+  bag.rotation.y = Math.PI;
+  bag.position.y = 0.12;
+  bag.visible = false;
+  const paper = new T.Mesh(
+    new T.BoxGeometry(0.56, 0.65, 0.52),
+    new T.MeshStandardMaterial({ color: '#d7b587', roughness: 1 }),
+  );
+  bag.add(paper);
+  const ink = new T.MeshBasicMaterial({ color: '#34323a' });
+  for (const x of [-0.105, 0.105]) {
+    const eye = new T.Mesh(new T.CircleGeometry(0.026, 8), ink);
+    eye.position.set(x, 0.04, 0.264);
+    bag.add(eye);
+  }
+  const smile = new T.Mesh(
+    new T.TorusGeometry(0.12, 0.012, 4, 16, Math.PI),
+    ink,
+  );
+  smile.rotation.z = Math.PI;
+  smile.position.set(0, -0.035, 0.264);
+  bag.add(smile);
+  head.add(bag);
+  const grenade = makeGrenade('#f49fd6');
+  grenade.name = 'held-grenade';
+  grenade.visible = false;
+  grenade.position.set(0, -0.3, 0.03);
+  elbows[1].add(grenade);
   setAvatarStyle(avatar, false);
   return avatar;
 }
@@ -371,6 +406,12 @@ export function setAvatarStyle(avatar: T.Group, anime: boolean) {
   r.coat.visible = anime;
   r.head.scale.setScalar(anime ? 1.17 : 1);
   r.scarf.visible = anime;
+}
+export function setAvatarAnonymous(avatar: T.Group, value: boolean) {
+  const face = avatar.getObjectByName('unmasked-head'),
+    bag = avatar.getObjectByName('anonymous-bag');
+  if (face) face.visible = !value;
+  if (bag) bag.visible = value;
 }
 export function avatarShoot(avatar: T.Group) {
   const r = rigs.get(avatar);
@@ -432,7 +473,12 @@ export function animateAvatar(
     m.working ? 0.22 : prone ? 0.6 : -m.pitch * 0.3,
   );
   r.head.rotation.z = follow(r.head.rotation.z, Math.sin(time * 1.5) * 0.018);
-  const armed = ['paint', 'confetti'].includes(m.tool);
+  const grenade = avatar.getObjectByName('held-grenade');
+  if (grenade) {
+    grenade.visible = m.tool === 'grenade';
+    if (grenade.visible) setGrenadeStyle(grenade, m.variant || 'pinata');
+  }
+  const armed = ['paint', 'confetti', 'grenade'].includes(m.tool);
   for (let i = 0; i < 2; i++) {
     const side = i ? 1 : -1,
       step = Math.sin(r.phase + (i ? Math.PI : 0));
@@ -497,7 +543,7 @@ export function animateAvatar(
   }
   r.gun.rotation.x =
     -r.arms[1].rotation.x - r.elbows[1].rotation.x - m.pitch * 0.6;
-  r.gun.visible = armed && !m.working && !m.inventory;
+  r.gun.visible = armed && m.tool !== 'grenade' && !m.working && !m.inventory;
   r.gun.position.z = follow(r.gun.position.z, -0.03 + r.recoil * 0.08);
   r.tablet.visible = !!m.working || !!m.inventory || m.tool === 'pointer';
   r.scarf.rotation.x = follow(

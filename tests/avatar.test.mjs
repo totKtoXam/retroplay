@@ -5,6 +5,7 @@ import {
   animateAvatar,
   avatarShoot,
   setAvatarStyle,
+  setAvatarAnonymous,
   followCameraHeading,
 } from '../components/world-avatar.ts';
 
@@ -105,4 +106,17 @@ test('Tactical skin replaces all legacy body surfaces within a small draw-call b
   setAvatarStyle(a, true);
   assert.ok(agent.every((o) => !visible(o)));
   assert.ok(legacy.some(visible));
+});
+
+test('Anonymous bag conceals the head across both styles and can be removed', () => {
+  const a = createAvatar('#657ac9');
+  setAvatarAnonymous(a, true);
+  for (const anime of [true, false]) {
+    setAvatarStyle(a, anime);
+    assert.equal(a.getObjectByName('unmasked-head').visible, false);
+    assert.equal(a.getObjectByName('anonymous-bag').visible, true);
+  }
+  setAvatarAnonymous(a, false);
+  assert.equal(a.getObjectByName('unmasked-head').visible, true);
+  assert.equal(a.getObjectByName('anonymous-bag').visible, false);
 });

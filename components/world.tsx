@@ -17,8 +17,12 @@ import {
 } from '@/lib/model';
 import { createWorldScene, STATIONS } from './world-scene';
 import { createFirstPersonHands } from './world-hands';
+import { ItemWheel } from './item-wheel';
+import { PAINTS, CONFETTI, GRENADES } from '@/lib/game-items';
+import { partyGeometry, grenadeParty, makeGrenade } from './party-geometry';
+import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
-import { QUICK_SLOTS, cycleSlot, slotForDigit } from '@/lib/loadout';
+import { QUICK_SLOTS, slotForDigit } from '@/lib/loadout';
 import { ToolMagazine, CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import {
   cameraFrame,
@@ -50,11 +54,17 @@ import {
   Palette,
   PartyPopper,
   Tablet,
+  Bomb,
   X,
 } from 'lucide-react';
 type Props = {
   room: Room;
   quality: string;
+  fps: number;
+  fpsLimit: number;
+  now: number;
+  onGraphics: () => void;
+  onPaintColor: (color: string) => void;
   tool: number;
   onTool: (n: number) => void;
   onZone: (z: string) => void;
@@ -80,7 +90,8 @@ type Particle = {
   born: number;
 };
 type Flight = {
-  mesh: T.Mesh;
+  mesh: T.Object3D;
+  variant: string;
   origin: T.Vector3;
   target: T.Vector3;
   normal: T.Vector3;
@@ -112,6 +123,16 @@ export default function World(props: Props) {
   useEffect(() => {
     latest.current = props;
   }, [props]);
+  const [contextWheel, setContextWheel] = useState(false);
+  const [confettiStyle, setConfettiStyle] = useState('classic');
+  const [grenadeStyle, setGrenadeStyle] = useState('pinata');
+  const [tabletZone, setTabletZone] = useState('good');
+  const selection = useRef({ confettiStyle, grenadeStyle, tabletZone });
+  useEffect(() => {
+    selection.current = { confettiStyle, grenadeStyle, tabletZone };
+  }, [confettiStyle, grenadeStyle, tabletZone]);
+  const self = props.room.members.find((m) => m.id === props.room.self);
+  const dead = self?.hp === 0;
   const magazine = useRef(new ToolMagazine());
   const [showAgent, setShowAgent] = useState(false);
   const [rounds, setRounds] = useState({ ...CAPACITY }),
@@ -135,6 +156,7 @@ export default function World(props: Props) {
     pause: () => void;
     closeInventory: (resume?: boolean) => void;
     openInventory: () => void;
+    openContext: () => void;
     keys: Set<string>;
   } | null>(null);
   const perspective = useSyncExternalStore(
@@ -312,10 +334,18 @@ export default function World(props: Props) {
       paintGeo = new T.SphereGeometry(0.105, 7, 5),
       confettiGeo = new T.PlaneGeometry(0.07, 0.13),
       normalUp = new T.Vector3(0, 0, 1);
-    const burst = (at: T.Vector3, color: string, now: number) => {
+    const partyGeometries = new Map(
+      CONFETTI.map((c) => [c.id, partyGeometry(c.id)]),
+    );
+    const burst = (
+      at: T.Vector3,
+      color: string,
+      now: number,
+      style = 'classic',
+    ) => {
       const count = props.quality === 'high' ? 70 : 40;
       const mesh = new T.InstancedMesh(
-        confettiGeo,
+        partyGeometries.get(style) || confettiGeo,
         new T.MeshBasicMaterial({ side: T.DoubleSide, transparent: true }),
         count,
       );
@@ -336,7 +366,13 @@ export default function World(props: Props) {
         mesh.setColorAt(
           i,
           new T.Color(
-            [color, '#c8b6ff', '#80d8fa', '#ffbfd8', '#ffe29b'][i % 5],
+            style === 'snow'
+              ? '#e7f7ff'
+              : style === 'hearts'
+                ? ['#ff647c', '#ffb1c8'][i % 2]
+                : style === 'digital'
+                  ? ['#7fe0b8', '#b6ffe5'][i % 2]
+                  : [color, '#c8b6ff', '#80d8fa', '#ffbfd8', '#ffe29b'][i % 5],
           ),
         );
         dummy.position.copy(at);
@@ -378,7 +414,11 @@ export default function World(props: Props) {
       splats.push({ mesh: decal, born: now });
     };
     const spawn = (e: WorldEffect) => {
-      if (seen.has(e.id) || Date.now() - e.at > 14000) return;
+      if (
+        seen.has(e.id) ||
+        Date.now() - e.at > (e.kind === 'paint' ? 14000 : 5000)
+      )
+        return;
       seen.add(e.id);
       const remote = remoteAvatars.get(e.author);
       if (remote) avatarShoot(remote);
@@ -389,10 +429,10 @@ export default function World(props: Props) {
       const start = new T.Vector3(...e.origin),
         target = new T.Vector3(...e.target),
         normal = new T.Vector3(...e.normal).normalize();
-      const ball = new T.Mesh(
-        paintGeo,
-        new T.MeshBasicMaterial({ color: e.color }),
-      );
+      const ball =
+        e.kind === 'grenade'
+          ? makeGrenade(e.color, e.variant)
+          : new T.Mesh(paintGeo, new T.MeshBasicMaterial({ color: e.color }));
       ball.position.copy(start);
       scene.add(ball);
       flights.push({
@@ -400,8 +440,12 @@ export default function World(props: Props) {
         origin: start,
         target,
         normal,
-        born: performance.now(),
-        duration: Math.max(130, start.distanceTo(target) * 22),
+        born: performance.now() - Math.max(0, Date.now() - e.at),
+        duration:
+          e.kind === 'grenade'
+            ? 1100
+            : Math.max(130, start.distanceTo(target) * 22),
+        variant: e.variant || 'classic',
         color: e.color,
         kind: e.kind,
       });
@@ -419,13 +463,21 @@ export default function World(props: Props) {
         updateAmmo();
       }
     };
+    let lastGrenade = -Infinity;
+    const isDead = () =>
+      latest.current.room.members.find((m) => m.id === latest.current.room.self)
+        ?.hp === 0;
     const shoot = () => {
       const p = latest.current;
-      if (p.blocked || middle || p.room.state.archived) return;
+      if (p.blocked || middle || isDead() || p.room.state.archived) return;
       const tool = GAME_TOOLS[p.tool]?.id;
-      if (tool !== 'paint' && tool !== 'confetti') return;
+      if (tool !== 'paint' && tool !== 'confetti' && tool !== 'grenade') return;
       const now = performance.now();
-      if (!magazine.current.fire(tool, now)) {
+      if (tool === 'grenade') {
+        if (now - lastGrenade < 1500) return;
+        lastGrenade = now;
+      }
+      if (tool !== 'grenade' && !magazine.current.fire(tool, now)) {
         if (magazine.current.reloading) setReloading(true);
         return;
       }
@@ -496,7 +548,18 @@ export default function World(props: Props) {
         origin: origin.toArray(),
         target: target.toArray(),
         normal: normal.toArray(),
-        color: p.paintColor,
+        color:
+          tool === 'grenade'
+            ? GRENADES.find((g) => g.id === selection.current.grenadeStyle)!
+                .color
+            : tool === 'confetti'
+              ? CONFETTI.find((c) => c.id === selection.current.confettiStyle)!
+                  .color
+              : p.paintColor,
+        variant:
+          tool === 'grenade'
+            ? selection.current.grenadeStyle
+            : selection.current.confettiStyle,
         author: p.room.self,
         at: Date.now(),
       };
@@ -534,6 +597,7 @@ export default function World(props: Props) {
       closeInventory: (resume = true) => {
         middle = false;
         setRadial(false);
+        setContextWheel(false);
         if (resume) capture();
         else {
           activeControl = false;
@@ -542,7 +606,18 @@ export default function World(props: Props) {
           clear();
         }
       },
+      openContext: () => {
+        middle = true;
+        setContextWheel(true);
+        setRadial(false);
+        clear();
+        softLook = false;
+        activeControl = false;
+        setActive(false);
+        if (document.pointerLockElement) document.exitPointerLock();
+      },
       openInventory: () => {
+        setContextWheel(false);
         middle = true;
         setRadial(true);
         clear();
@@ -627,6 +702,7 @@ export default function World(props: Props) {
       if (e.code === 'Escape') {
         middle = false;
         setRadial(false);
+        setContextWheel(false);
         engine.current?.pause();
         if (document.pointerLockElement) document.exitPointerLock();
         return;
@@ -676,6 +752,7 @@ export default function World(props: Props) {
         currentStance = 'sit';
         setStance('sit');
       }
+      if (isDead()) return;
       if (e.code === 'Space' && pos.y <= 0.01) {
         currentStance = 'stand';
         setStance('stand');
@@ -692,10 +769,17 @@ export default function World(props: Props) {
         lastC = now;
         setStance(currentStance);
       }
-      if (e.code === 'KeyE' && nearZone) {
+      if (
+        e.code === 'KeyE' &&
+        (nearZone || GAME_TOOLS[latest.current.tool]?.id === 'pointer')
+      ) {
         engine.current?.pause();
         if (document.pointerLockElement) document.exitPointerLock();
-        latest.current.onZone(nearZone);
+        latest.current.onUseTool(
+          GAME_TOOLS[latest.current.tool]?.id === 'pointer'
+            ? selection.current.tabletZone
+            : nearZone,
+        );
         clear();
       }
       if (e.code === 'KeyF') engine.current?.reset();
@@ -751,14 +835,14 @@ export default function World(props: Props) {
       e.preventDefault();
       canvas.focus();
       if (e.altKey) engine.current?.distance(e.deltaY > 0 ? 1 : -1);
-      else latest.current.onTool(cycleSlot(latest.current.tool, e.deltaY));
+      else engine.current?.openContext();
     };
     const onDown = (e: MouseEvent) => {
       if (latest.current.blocked || middle) return;
       canvas.focus();
       if (e.button === 1) {
         e.preventDefault();
-        engine.current?.openInventory();
+        engine.current?.openContext();
       } else if (e.button === 2) {
         e.preventDefault();
         if (!enabled()) {
@@ -777,7 +861,7 @@ export default function World(props: Props) {
         }
         left = true;
         const t = GAME_TOOLS[latest.current.tool]?.id;
-        if (t === 'paint' || t === 'confetti') shoot();
+        if (t === 'paint' || t === 'confetti' || t === 'grenade') shoot();
         else {
           ray.setFromCamera(
             document.pointerLockElement || softLook ? new T.Vector2() : mouse,
@@ -834,11 +918,13 @@ export default function World(props: Props) {
           Math.abs(z - c.z) < c.d / 2 + 0.28
         );
       });
+    let life =
+      latest.current.room.members.find((m) => m.id === latest.current.room.self)
+        ?.life || 0;
     let nextFrame = 0;
     const animate = (now: number) => {
       raf = requestAnimationFrame(animate);
-      const frameInterval =
-        latest.current.quality === 'high' ? 1000 / 60 : 1000 / 30;
+      const frameInterval = 1000 / latest.current.fpsLimit;
       if (now + 0.8 < nextFrame) return;
       nextFrame += frameInterval;
       if (nextFrame < now - frameInterval) nextFrame = now + frameInterval;
@@ -851,6 +937,18 @@ export default function World(props: Props) {
         frames = 0;
         fpsAt = now;
       }
+      const own = latest.current.room.members.find(
+        (m) => m.id === latest.current.room.self,
+      );
+      if ((own?.life || 0) !== life) {
+        life = own?.life || 0;
+        pos.set(0, 0, 4);
+        vy = 0;
+        currentStance = 'stand';
+        clear();
+      }
+      if (isDead()) clear();
+      setAvatarAnonymous(avatar, !!latest.current.room.state.anonymousPlayers);
       if (equippedTool !== latest.current.tool) {
         equippedTool = latest.current.tool;
         magazine.current.cancel();
@@ -867,7 +965,8 @@ export default function World(props: Props) {
       if (left && enabled() && !middle && !latest.current.blocked) shoot();
       let dx = 0,
         dz = 0;
-      const control = enabled() && !latest.current.blocked && !middle;
+      const control =
+        enabled() && !latest.current.blocked && !middle && !isDead();
       if (control) {
         if (softLook && mouseInWorld && Math.abs(mouse.x) > 0.88)
           cameraYaw -= Math.sign(mouse.x) * 1.35 * dt;
@@ -926,6 +1025,7 @@ export default function World(props: Props) {
           velocityY: vy,
           stance: currentStance,
           tool: GAME_TOOLS[latest.current.tool]?.id || 'pointer',
+          variant: selection.current.grenadeStyle,
           pitch,
           working: latest.current.working,
           crouching: crouchHeld,
@@ -967,17 +1067,23 @@ export default function World(props: Props) {
       camera.lookAt(
         camera.position.clone().addScaledVector(view.direction, 30),
       );
-      avatar.visible = mode === 'third';
-      shadow.visible = mode === 'third';
+      avatar.visible = mode === 'third' && !isDead();
+      shadow.visible = mode === 'third' && !isDead();
       hands.update(
         dt,
         now / 1000,
         moving ? speed : 0,
         GAME_TOOLS[latest.current.tool]?.id || 'other',
-        latest.current.paintColor,
-        mode === 'first' && !middle && !latest.current.working,
+        GAME_TOOLS[latest.current.tool]?.id === 'confetti'
+          ? CONFETTI.find((c) => c.id === selection.current.confettiStyle)!
+              .color
+          : latest.current.paintColor,
+        mode === 'first' && !middle && !latest.current.working && !isDead(),
         aimBlend,
         magazine.current.progress(now),
+        GAME_TOOLS[latest.current.tool]?.id === 'pointer'
+          ? selection.current.tabletZone
+          : selection.current.grenadeStyle,
       );
       const fov = T.MathUtils.lerp(
         camera.fov,
@@ -1016,7 +1122,28 @@ export default function World(props: Props) {
           labels.set(member.id, label);
           remote.add(label);
         }
-        remote.visible = Date.now() - member.lastSeen < 15000;
+        remote.visible =
+          Date.now() - member.lastSeen < 15000 && member.hp !== 0;
+        setAvatarAnonymous(
+          remote,
+          !!latest.current.room.state.anonymousPlayers,
+        );
+        const caption = latest.current.room.state.anonymousPlayers
+          ? `${member.hp ?? 100} HP`
+          : `${member.name.slice(0, 12)} · ${member.hp ?? 100}`;
+        let label = labels.get(member.id);
+        if (label?.userData.caption !== caption) {
+          if (label) {
+            label.removeFromParent();
+            label.material.map?.dispose();
+            label.material.dispose();
+          }
+          label = addLabel(caption, member.color);
+          label.userData.caption = caption;
+          labels.set(member.id, label);
+          remote.add(label);
+        }
+
         const p = member.pose;
         remote.position.lerp(
           new T.Vector3(p.x, p.y + 0.27, p.z),
@@ -1033,6 +1160,7 @@ export default function World(props: Props) {
             velocityY: 0,
             stance: p.stance,
             tool: p.tool || 'other',
+            variant: p.variant,
             pitch: p.pitch || 0,
             working: p.working,
             crouching: p.crouching,
@@ -1047,11 +1175,30 @@ export default function World(props: Props) {
         const f = flights[i],
           t = Math.min(1, (now - f.born) / f.duration);
         f.mesh.position.lerpVectors(f.origin, f.target, t);
+        if (f.kind === 'grenade') {
+          f.mesh.position.y += Math.sin(t * Math.PI) * 3;
+          f.mesh.rotation.z = t * 7;
+        }
         if (t >= 1) {
-          if (f.kind === 'paint') splat(f.target, f.normal, f.color, now);
-          else burst(f.target, f.color, now);
+          if (f.kind === 'paint')
+            splat(f.target, f.normal, f.color, f.born + f.duration);
+          else {
+            burst(
+              f.target,
+              f.color,
+              f.born + f.duration,
+              f.kind === 'grenade' ? grenadeParty(f.variant) : f.variant,
+            );
+            if (f.kind === 'grenade' && f.variant === 'paintburst')
+              splat(f.target, f.normal, f.color, f.born + f.duration);
+          }
           f.mesh.removeFromParent();
-          (f.mesh.material as T.Material).dispose();
+          f.mesh.traverse((o) => {
+            if (o instanceof T.Mesh) {
+              (o.material as T.Material).dispose();
+              if (f.kind === 'grenade') o.geometry.dispose();
+            }
+          });
           flights.splice(i, 1);
         }
       }
@@ -1100,11 +1247,12 @@ export default function World(props: Props) {
           strafe: dx,
           forward: -dz,
           pitch,
-          tool: ['paint', 'confetti'].includes(
+          tool: ['paint', 'confetti', 'grenade', 'pointer'].includes(
             GAME_TOOLS[latest.current.tool]?.id,
           )
             ? GAME_TOOLS[latest.current.tool].id
             : 'other',
+          variant: selection.current.grenadeStyle,
           working: latest.current.working || middle,
           crouching: crouchHeld,
           aiming: aimHeld,
@@ -1158,6 +1306,7 @@ export default function World(props: Props) {
       });
       paintGeo.dispose();
       confettiGeo.dispose();
+      partyGeometries.forEach((g) => g.dispose());
       kit.dispose();
       composer?.passes.forEach((pass) => pass.dispose());
       composer?.dispose();
@@ -1191,24 +1340,41 @@ export default function World(props: Props) {
         <i />
         <i />
       </div>
-      <div className="world-location">
+      <button
+        className="world-location world-performance"
+        onClick={props.onGraphics}
+        aria-label="Настройки FPS"
+      >
         <span className="live-dot" />
         <div>
           <strong>
-            {props.room.state.visualStyle === 'anime'
-              ? 'SORA / Небесный сад'
-              : props.room.state.interior
-                ? 'ATELIER / Мастерская'
-                : 'ALATAU / RETRO PROTOCOL'}
+            {props.fps} FPS <span> / {props.fpsLimit}</span>
           </strong>
-          <span>
-            {props.room.state.interior
-              ? 'Внутреннее пространство'
-              : 'Открытый мир'}{' '}
-            · {props.quality === 'high' ? '60' : '30'} FPS MAX
-          </span>
+          <span>{self?.ping || 0} мс · Графика и FPS ↗</span>
         </div>
+      </button>
+      <div className={`health-hud ${dead ? 'depleted' : ''}`}>
+        <strong>{self?.hp ?? 100}</strong>
+        <span>HP</span>
+        <meter
+          min="0"
+          max="100"
+          value={self?.hp ?? 100}
+          aria-label="Здоровье"
+        />
       </div>
+      {dead && (
+        <div className="respawn-overlay">
+          <span>ПЕРЕРЫВ НА КОНФЕТТИ</span>
+          <strong>
+            {Math.max(
+              0,
+              Math.ceil(((self?.respawnAt || 0) - props.now) / 1000),
+            )}
+          </strong>
+          <p>Возрождение через несколько секунд</p>
+        </div>
+      )}
       <fieldset className="view-switch" aria-label="Режим обзора">
         <button
           aria-pressed={perspective === 'first'}
@@ -1269,7 +1435,7 @@ export default function World(props: Props) {
           <Crosshair size={16} />
         </button>
       </div>
-      {!active && !radial && !props.blocked && (
+      {!active && !radial && !contextWheel && !dead && !props.blocked && (
         <div className="camera-onboarding">
           <MousePointer2 size={24} />
           <div>
@@ -1353,12 +1519,12 @@ export default function World(props: Props) {
           <kbd>Tab</kbd> кто в сети
         </span>
         <span>
-          <kbd>1–3 / колесо</kbd> предмет · <kbd>Q</kbd> снаряжение
+          <kbd>1–4</kbd> предмет · <kbd>Q</kbd> снаряжение
         </span>
       </div>
       <div className="quick-loadout" aria-label="Быстрые предметы">
         {QUICK_SLOTS.map((slot, i) => {
-          const Icon = [Crosshair, PartyPopper, Tablet][i];
+          const Icon = [Crosshair, PartyPopper, Tablet, Bomb][i];
           return (
             <button
               key={slot.key}
@@ -1380,6 +1546,74 @@ export default function World(props: Props) {
           <span>Снаряжение</span>
         </button>
       </div>
+      <button
+        className="item-options-button"
+        onClick={() => engine.current?.openContext()}
+      >
+        <span style={{ color: props.paintColor }}>
+          {current.id === 'paint'
+            ? '●'
+            : current.id === 'confetti'
+              ? CONFETTI.find((c) => c.id === confettiStyle)?.icon
+              : current.id === 'grenade'
+                ? GRENADES.find((g) => g.id === grenadeStyle)?.icon
+                : '▤'}
+        </span>
+        {current.id === 'paint'
+          ? 'Выбрать краску'
+          : current.id === 'confetti'
+            ? CONFETTI.find((c) => c.id === confettiStyle)?.label
+            : current.id === 'grenade'
+              ? GRENADES.find((c) => c.id === grenadeStyle)?.label
+              : tabletZone}
+        <kbd>Колесо</kbd>
+      </button>
+      {contextWheel && (
+        <ItemWheel
+          key={current.id}
+          title={
+            current.id === 'paint'
+              ? 'Палитра'
+              : current.id === 'confetti'
+                ? 'Набор конфетти'
+                : current.id === 'grenade'
+                  ? 'Гранаты'
+                  : 'Планшет'
+          }
+          items={
+            current.id === 'paint'
+              ? PAINTS
+              : current.id === 'confetti'
+                ? CONFETTI
+                : current.id === 'grenade'
+                  ? GRENADES
+                  : ['good', 'bad', 'stop', 'start'].map((id) => ({
+                      id,
+                      label: id,
+                      color: ZONES.find((z) => z.id === id)!.color,
+                      icon: '▤',
+                    }))
+          }
+          selected={
+            current.id === 'paint'
+              ? PAINTS.find((p) => p.color === props.paintColor)?.id || 'violet'
+              : current.id === 'confetti'
+                ? confettiStyle
+                : current.id === 'grenade'
+                  ? grenadeStyle
+                  : tabletZone
+          }
+          onSelect={(id) => {
+            if (current.id === 'paint')
+              props.onPaintColor(PAINTS.find((p) => p.id === id)!.color);
+            else if (current.id === 'confetti') setConfettiStyle(id);
+            else if (current.id === 'grenade') setGrenadeStyle(id);
+            else setTabletZone(id);
+            engine.current?.closeInventory();
+          }}
+          onClose={() => engine.current?.closeInventory(false)}
+        />
+      )}
       <Dialog
         open={radial}
         onOpenChange={(open) => {
@@ -1404,8 +1638,7 @@ export default function World(props: Props) {
             </button>
           </header>
           <DialogDescription>
-            Выберите предмет и вернитесь в игру. Колесо переключает три быстрых
-            слота.
+            Выберите предмет. Колесо мыши открывает варианты предмета в руках.
           </DialogDescription>
           <button
             className="agent-preview-toggle"
@@ -1421,11 +1654,12 @@ export default function World(props: Props) {
                   ?.color || '#718cdd'
               }
               anime={props.room.state.visualStyle === 'anime'}
+              anonymous={!!props.room.state.anonymousPlayers}
             />
           )}
           <div className="equipment-items">
             {QUICK_SLOTS.map((slot, i) => {
-              const Icon = [Crosshair, PartyPopper, Tablet][i];
+              const Icon = [Crosshair, PartyPopper, Tablet, Bomb][i];
               return (
                 <button
                   key={slot.key}
@@ -1454,7 +1688,13 @@ export default function World(props: Props) {
           <div className="equipment-retro">
             {GAME_TOOLS.filter(
               (t) =>
-                !['paint', 'confetti', 'reaction', 'pointer'].includes(t.id),
+                ![
+                  'paint',
+                  'confetti',
+                  'grenade',
+                  'reaction',
+                  'pointer',
+                ].includes(t.id),
             ).map((t) => (
               <button
                 key={t.id}
@@ -1478,7 +1718,7 @@ export default function World(props: Props) {
             👍 Поддержать команду
           </button>
           <footer>
-            <kbd>Q / I</kbd> снаряжение <kbd>1–3</kbd> быстрый выбор{' '}
+            <kbd>Q / I</kbd> снаряжение <kbd>1–4</kbd> быстрый выбор{' '}
             <kbd>Esc</kbd> закрыть
           </footer>
         </DialogContent>

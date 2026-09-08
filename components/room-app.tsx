@@ -44,7 +44,6 @@ import {
   Trash2,
   Eye,
   EyeOff,
-  Palette,
   Sunrise,
   Sunset,
   Moon,
@@ -56,6 +55,7 @@ import {
   Menu,
   X,
   Wifi,
+  Bomb,
   Monitor,
   Send,
 } from 'lucide-react';
@@ -136,11 +136,14 @@ type Draft = {
   rotation: number;
 };
 export default function RoomApp({ id }: { id: string }) {
+  const [fpsLimit, setFpsLimit] = useState(30);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [quickSticky, setQuickSticky] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [musicOpen, setMusicOpen] = useState(false),
     [sensitivity, setSensitivity] = useState(1),
     [invertCamera, setInvertCamera] = useState(false);
-  const [paintColor, setPaintColor] = useState('#aa86f6'),
+  const [paintColor, setPaintColor] = useState('#bc91f5'),
     [environment, setEnvironment] = useState(false);
   const [room, setRoom] = useState<Room | null>(null),
     [join, setJoin] = useState<{ title: string } | null>(null),
@@ -212,6 +215,7 @@ export default function RoomApp({ id }: { id: string }) {
           Smile,
           ListChecks,
           MousePointer2,
+          Bomb,
         ]
       : icons;
   const cursor = useRef({ x: 0, y: 0, mode: '3d' });
@@ -312,6 +316,10 @@ export default function RoomApp({ id }: { id: string }) {
           if (roomRef.current)
             await api('/api/rooms/' + id, {
               type: 'presence',
+              life:
+                roomRef.current.members.find(
+                  (m) => m.id === roomRef.current?.self,
+                )?.life || 0,
               pose: pose.current,
               ping: pingRef.current,
               cursor: cursor.current,
@@ -339,6 +347,8 @@ export default function RoomApp({ id }: { id: string }) {
             localStorage.getItem('jinaly-invert-camera') === 'true',
           );
           setQuality(localStorage.getItem('jinaly-quality') || 'low');
+          const savedFps = Number(localStorage.getItem('jinaly-fps-limit'));
+          setFpsLimit([20, 30, 60].includes(savedFps) ? savedFps : 30);
           void tick();
         }
       })
@@ -542,19 +552,30 @@ export default function RoomApp({ id }: { id: string }) {
       setBusy(false);
     }
   };
-  const newNote = (zone: string, x?: number, y?: number) => {
-    if (activeTools[tool].id === 'group') {
+  const newNote = (
+    zone: string,
+    x?: number,
+    y?: number,
+    stickyOnly = false,
+  ) => {
+    if (!stickyOnly && activeTools[tool].id === 'group') {
       setPanel('group');
       return;
     }
     const count = s?.notes.filter((n) => n.zone === zone).length || 0;
-    let kind = kinds[activeTools[tool].id] || 'sticky';
+    let kind = stickyOnly ? 'sticky' : kinds[activeTools[tool].id] || 'sticky';
     if (['draw', 'connector'].includes(kind)) kind = 'sticky';
+    setQuickSticky(kind === 'sticky');
     setDraft({
       kind,
       text: kind === 'token' ? '💡' : '',
       zone,
-      color: kind === 'shape' ? '#b5d1c0' : '#f5e6a9',
+      color:
+        kind === 'sticky'
+          ? ZONES.find((z) => z.id === zone)!.color
+          : kind === 'shape'
+            ? '#b5d1c0'
+            : '#f5e6a9',
       url: '',
       x: x ?? 25 + (count % 2) * 280,
       y: y ?? 60 + Math.floor(count / 2) * 230,
@@ -571,6 +592,8 @@ export default function RoomApp({ id }: { id: string }) {
     });
   };
   const editNote = (n: Note) => {
+    if (n.redacted) return;
+    setQuickSticky(false);
     setComment('');
     setDraft({ ...n, tags: n.tags.join(', ') });
   };
@@ -807,7 +830,41 @@ export default function RoomApp({ id }: { id: string }) {
           <span className="brand-symbol">Ж</span>
         </a>
         <div className="room-heading">
-          <h1>{s.title}</h1>
+          {editingTitle ? (
+            <input
+              className="inline-room-title"
+              aria-label="Название встречи"
+              ref={(node) => node?.focus()}
+              defaultValue={s.title}
+              maxLength={100}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                if (e.key === 'Escape') {
+                  e.currentTarget.value = s.title;
+                  e.currentTarget.blur();
+                }
+              }}
+              onBlur={(e) => {
+                setEditingTitle(false);
+                if (e.target.value.trim() && e.target.value !== s.title)
+                  void act({
+                    type: 'room.settings',
+                    patch: { title: e.target.value },
+                  });
+              }}
+            />
+          ) : (
+            <h1>
+              <button
+                className="editable-room-title"
+                disabled={!host}
+                title={host ? 'Нажмите, чтобы изменить название' : undefined}
+                onClick={() => setEditingTitle(true)}
+              >
+                {s.title}
+              </button>
+            </h1>
+          )}
           <span>
             {host ? 'Вы — ведущий' : 'Вы — участник'}
             <i />
@@ -876,7 +933,7 @@ export default function RoomApp({ id }: { id: string }) {
         <button
           className="icon-button"
           onClick={() => setPanel('settings')}
-          aria-label="Настройки комнаты"
+          aria-label="Настройки встречи"
         >
           <Settings2 size={19} />
         </button>
@@ -943,10 +1000,7 @@ export default function RoomApp({ id }: { id: string }) {
               <strong>{theme.name}</strong>
               <span>{s.interior ? 'Мастерская' : 'Алатау · Открытый мир'}</span>
             </div>
-            <button
-              onClick={() => setPanel('settings')}
-              aria-label="Изменить мир"
-            >
+            <button onClick={() => setPanel('world')} aria-label="Изменить мир">
               <ChevronRight size={16} />
             </button>
           </div>
@@ -1062,6 +1116,11 @@ export default function RoomApp({ id }: { id: string }) {
               <World
                 room={room}
                 quality={quality}
+                fps={fps}
+                fpsLimit={fpsLimit}
+                now={now}
+                onGraphics={() => setPanel('fps')}
+                onPaintColor={setPaintColor}
                 tool={tool}
                 onTool={setTool}
                 onBoardTool={(id) => {
@@ -1077,22 +1136,10 @@ export default function RoomApp({ id }: { id: string }) {
                     'Инструмент выбран. Нажмите на доску, чтобы применить.',
                   );
                 }}
-                onZone={setSelectedZone}
+                onZone={(zone) => newNote(zone, undefined, undefined, true)}
                 sensitivity={sensitivity}
                 invertCamera={invertCamera}
-                onUseTool={(zone) => {
-                  const selected = activeTools[tool].id;
-                  if (['draw', 'connector'].includes(selected)) {
-                    setMode('board');
-                    setTool(TOOLS.findIndex((t) => t.id === selected));
-                    flash(
-                      selected === 'draw'
-                        ? 'Удерживайте мышь на доске, чтобы рисовать'
-                        : 'Выберите две карточки, чтобы создать связь',
-                    );
-                  } else if (selected === 'pointer') setSelectedZone(zone);
-                  else newNote(zone);
-                }}
+                onUseTool={(zone) => newNote(zone, undefined, undefined, true)}
                 onPose={(p) => {
                   pose.current = p;
                 }}
@@ -1233,7 +1280,10 @@ export default function RoomApp({ id }: { id: string }) {
                     </div>
                     <button
                       className="text-button"
-                      onClick={() => setPanel('settings')}
+                      onClick={() => {
+                        setEnvironment(false);
+                        setPanel('world');
+                      }}
                     >
                       Все настройки мира <ChevronRight size={13} />
                     </button>
@@ -1256,30 +1306,10 @@ export default function RoomApp({ id }: { id: string }) {
                   </button>
                 ))}
               </div>
-              {activeTools[tool]?.id === 'paint' && (
-                <div className="paint-palette">
-                  <Palette size={14} />
-                  {['#aa86f6', '#f18fb7', '#70d3f0', '#ffca76', '#88d6b8'].map(
-                    (color) => (
-                      <button
-                        aria-label={'Краска ' + color}
-                        title={'Краска ' + color}
-                        key={color}
-                        className={paintColor === color ? 'selected' : ''}
-                        style={{ background: color }}
-                        onClick={() => setPaintColor(color)}
-                      />
-                    ),
-                  )}
-                </div>
-              )}
             </>
           )}
           <div className="surface-top-right">
-            <button
-              className="surface-chip"
-              onClick={() => setPanel('settings')}
-            >
+            <button className="surface-chip" onClick={() => setPanel('world')}>
               <Sun size={15} />
               {
                 (
@@ -1494,7 +1524,7 @@ export default function RoomApp({ id }: { id: string }) {
               <strong>
                 {mode === '3d' ? fps : '—'} <small>FPS</small>
               </strong>
-              <span>{quality === 'low' ? 'Лимит 30 FPS' : 'Лимит 60 FPS'}</span>
+              <span>{`Лимит ${fpsLimit} FPS`}</span>
             </div>
             <div>
               <Users />
@@ -1518,7 +1548,8 @@ export default function RoomApp({ id }: { id: string }) {
                   </strong>
                   <small>
                     {m.id === room.host ? 'Ведущий' : 'Участник'} ·{' '}
-                    {now - m.lastSeen < 15000 ? 'в сети' : 'не в сети'}
+                    {now - m.lastSeen < 15000 ? 'в сети' : 'не в сети'} ·{' '}
+                    {m.hp ?? 100} HP {m.hp === 0 ? '· возрождение' : ''}
                   </small>
                 </span>
                 <span className="participant-ping">
@@ -1534,7 +1565,49 @@ export default function RoomApp({ id }: { id: string }) {
         </DialogContent>
       </Dialog>
       <Dialog
-        open={!!draft}
+        open={!!draft && quickSticky}
+        onOpenChange={(v) => !v && setDraft(null)}
+      >
+        <DialogContent
+          className="quick-sticky-dialog"
+          style={{ background: draft?.color }}
+          aria-describedby={undefined}
+        >
+          <DialogTitle>{draft?.zone}</DialogTitle>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void saveNote();
+            }}
+          >
+            <textarea
+              aria-label="Текст стикера"
+              placeholder="Напишите вашу мысль…"
+              value={draft?.text || ''}
+              maxLength={8000}
+              required
+              onChange={(e) =>
+                draft && setDraft({ ...draft, text: e.target.value })
+              }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  if (draft?.text.trim()) void saveNote();
+                }
+              }}
+            />
+            <button
+              disabled={busy || s.archived || !draft?.text.trim()}
+              aria-label="Сохранить стикер"
+              title="Сохранить · Ctrl+Enter"
+            >
+              <Check size={24} />
+            </button>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!draft && !quickSticky}
         onOpenChange={(v) => {
           if (!v) {
             setDraft(null);
@@ -1878,7 +1951,9 @@ export default function RoomApp({ id }: { id: string }) {
             {(
               {
                 history: 'История изменений',
-                settings: 'Мир и настройки встречи',
+                settings: 'Настройки встречи',
+                world: 'Настройки мира',
+                fps: 'Графика и FPS',
                 share: 'Пригласить команду',
                 timer: 'Время для главного',
                 vote: 'Голосование',
@@ -1895,8 +1970,12 @@ export default function RoomApp({ id }: { id: string }) {
             {panel === 'share'
               ? 'Участники войдут по ссылке. Новая комната имеет отдельный адрес.'
               : panel === 'settings'
-                ? 'Оформление мира общее для всей комнаты. Качество графики — только для вас.'
-                : 'Инструменты вашей ретроспективы'}
+                ? 'Приватность и правила совместной работы'
+                : panel === 'world'
+                  ? 'Общий облик мира и правила возрождения'
+                  : panel === 'fps'
+                    ? 'Эти настройки действуют только на вашем устройстве'
+                    : 'Инструменты вашей ретроспективы'}
           </DialogDescription>
           {panel === 'tools' && (
             <>
@@ -2010,23 +2089,8 @@ export default function RoomApp({ id }: { id: string }) {
               </p>
             </>
           )}
-          {panel === 'settings' && (
+          {panel === 'world' && (
             <>
-              <label className="field">
-                Название комнаты
-                <input
-                  defaultValue={s.title}
-                  maxLength={100}
-                  disabled={!host}
-                  onBlur={(e) =>
-                    e.target.value !== s.title &&
-                    void act({
-                      type: 'room.settings',
-                      patch: { title: e.target.value },
-                    })
-                  }
-                />
-              </label>
               <StylePicker
                 value={s.visualStyle || 'classic'}
                 disabled={!host}
@@ -2092,30 +2156,46 @@ export default function RoomApp({ id }: { id: string }) {
                   void act({ type: 'room.settings', patch: { interior } })
                 }
               />
-              <Toggle
-                label="Приватное написание"
-                description="Каждый сам раскрывает свои новые заметки"
-                value={s.privateWriting}
-                disabled={!host}
-                onChange={(privateWriting) =>
-                  void act({ type: 'room.settings', patch: { privateWriting } })
-                }
-              />
-              <Toggle
-                label="Анонимные новые заметки"
-                value={s.anonymous}
-                disabled={!host}
-                onChange={(anonymous) =>
-                  void act({ type: 'room.settings', patch: { anonymous } })
-                }
-              />
-              <Toggle
-                label="Заблокировать макет"
-                value={s.layoutLocked}
-                disabled={!host}
-                onChange={(layoutLocked) =>
-                  void act({ type: 'room.settings', patch: { layoutLocked } })
-                }
+              <label className="field">
+                Возрождение, секунд
+                <input
+                  type="number"
+                  aria-label="Интервал возрождения"
+                  key={s.respawnSeconds ?? 5}
+                  defaultValue={s.respawnSeconds ?? 5}
+                  min="1"
+                  max="30"
+                  step="1"
+                  disabled={!host}
+                  onBlur={(e) => {
+                    const value = Number(e.target.value);
+                    if (Number.isInteger(value) && value >= 1 && value <= 30)
+                      void act({
+                        type: 'room.settings',
+                        patch: { respawnSeconds: value },
+                      });
+                    else e.target.value = String(s.respawnSeconds ?? 5);
+                  }}
+                />
+              </label>
+            </>
+          )}
+          {panel === 'fps' && (
+            <>
+              <p className="performance-summary">
+                {fps} FPS · {me?.ping || 0} мс
+              </p>
+              <Choice
+                label="Лимит FPS"
+                value={String(fpsLimit)}
+                onChange={(v) => {
+                  setFpsLimit(Number(v));
+                  localStorage.setItem('jinaly-fps-limit', v);
+                }}
+                options={[20, 30, 60].map((v) => ({
+                  value: String(v),
+                  label: `${v} FPS`,
+                }))}
               />
               <Choice
                 label="Качество графики на вашем устройстве"
@@ -2125,8 +2205,11 @@ export default function RoomApp({ id }: { id: string }) {
                   localStorage.setItem('jinaly-quality', q);
                 }}
                 options={[
-                  { value: 'low', label: 'Экономное · до 30 FPS' },
-                  { value: 'high', label: 'Плавное · до 60 FPS' },
+                  { value: 'low', label: 'Экономное · для слабого ноутбука' },
+                  {
+                    value: 'high',
+                    label: 'Детальное · динамические тени и свечение',
+                  },
                 ]}
               />
               <label className="field">
@@ -2152,6 +2235,47 @@ export default function RoomApp({ id }: { id: string }) {
                   setInvertCamera(v);
                   localStorage.setItem('jinaly-invert-camera', String(v));
                 }}
+              />
+            </>
+          )}
+          {panel === 'settings' && (
+            <>
+              <Toggle
+                label="Анонимные участники"
+                description="Пакеты со смайликом вместо лиц. Никнеймы скрыты."
+                value={!!s.anonymousPlayers}
+                disabled={!host}
+                onChange={(anonymousPlayers) =>
+                  void act({
+                    type: 'room.settings',
+                    patch: { anonymousPlayers },
+                  })
+                }
+              />
+              <Toggle
+                label="Приватное написание"
+                description="Каждый сам раскрывает свои новые заметки"
+                value={s.privateWriting}
+                disabled={!host}
+                onChange={(privateWriting) =>
+                  void act({ type: 'room.settings', patch: { privateWriting } })
+                }
+              />
+              <Toggle
+                label="Анонимные новые заметки"
+                value={s.anonymous}
+                disabled={!host}
+                onChange={(anonymous) =>
+                  void act({ type: 'room.settings', patch: { anonymous } })
+                }
+              />
+              <Toggle
+                label="Заблокировать макет"
+                value={s.layoutLocked}
+                disabled={!host}
+                onChange={(layoutLocked) =>
+                  void act({ type: 'room.settings', patch: { layoutLocked } })
+                }
               />
               <Toggle label="Звуки встречи" value={sound} onChange={setSound} />
               <label className="field">
@@ -2608,10 +2732,10 @@ export default function RoomApp({ id }: { id: string }) {
                 (удерживать). <b>Shift</b> — медленный шаг.
               </p>
               <p>
-                <b>1–3 и колесо</b> — краскомёт, конфетти и планшет.{' '}
-                <b>Q, I или средняя кнопка</b> — снаряжение. Выбор
-                подтверждается кликом. Инструменты ретро в этой панели сразу
-                открывают обычную доску.
+                <b>1–4</b> — краскомёт, конфетти, планшет и гранаты. Колесо —
+                варианты предмета. <b>Q, I или средняя кнопка</b> — снаряжение.
+                Выбор подтверждается кликом. Инструменты ретро в этой панели
+                сразу открывают обычную доску.
               </p>
               <p>
                 <b>E</b> у доски — открыть её. <b>Tab</b> — участники и

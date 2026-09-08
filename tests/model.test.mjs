@@ -26,13 +26,15 @@ test('Rooms have independent state', () => {
   assert.equal(a.notes.length, 1);
   assert.equal(b.notes.length, 0);
 });
-test('Private notes never enter other participant payloads', () => {
+test('Private text is redacted while card geometry remains visible', () => {
   let s = run(initialState('A'), {
     type: 'room.settings',
     patch: { privateWriting: true },
   });
   s = run(s, { type: 'note.add', text: 'secret' }, 'guest');
-  assert.equal(publicState(s, 'host').notes.length, 0);
+  assert.equal(publicState(s, 'host').notes.length, 1);
+  assert.equal(publicState(s, 'host').notes[0].redacted, true);
+  assert.equal(publicState(s, 'host').notes[0].text, '');
   assert.equal(publicState(s, 'guest').notes[0].text, 'secret');
   assert.throws(
     () =>

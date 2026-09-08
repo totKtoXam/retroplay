@@ -1,15 +1,22 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import * as T from 'three';
-import { createAvatar, animateAvatar, setAvatarStyle } from './world-avatar';
+import {
+  createAvatar,
+  animateAvatar,
+  setAvatarStyle,
+  setAvatarAnonymous,
+} from './world-avatar';
 
 /** Статический просмотр: кадр рисуется только при повороте или изменении размера. */
 export function AvatarPreview({
   color,
   anime,
+  anonymous = false,
 }: {
   color: string;
   anime: boolean;
+  anonymous?: boolean;
 }) {
   const mount = useRef<HTMLDivElement>(null),
     turn = useRef<(angle: number) => void>(() => {});
@@ -43,6 +50,7 @@ export function AvatarPreview({
     const avatar = createAvatar(color);
     scene.add(avatar);
     setAvatarStyle(avatar, anime);
+    setAvatarAnonymous(avatar, anonymous);
     for (let i = 0; i < 45; i++)
       animateAvatar(
         avatar,
@@ -100,7 +108,7 @@ export function AvatarPreview({
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [color, anime]);
+  }, [color, anime, anonymous]);
   return (
     <div className="agent-preview">
       <div ref={mount} className="agent-preview-canvas" />

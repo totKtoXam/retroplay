@@ -2,14 +2,27 @@
 export const QUICK_SLOTS = [
   { index: 0, key: '1', label: 'Краскомёт', hint: 'ЛКМ выстрел · ПКМ прицел' },
   { index: 1, key: '2', label: 'Конфетти', hint: 'ЛКМ праздничный залп' },
-  { index: 9, key: '3', label: 'Планшет', hint: 'E открыть ближайшую доску' },
+  {
+    index: 9,
+    key: '3',
+    label: 'Планшет',
+    hint: 'Колесо раздел · E написать идею',
+  },
+  {
+    index: 10,
+    key: '4',
+    label: 'Гранаты',
+    hint: 'ЛКМ бросить · колесо вид гранаты',
+  },
 ];
 export function cycleSlot(current: number, direction: number) {
   const slot = Math.max(
     0,
     QUICK_SLOTS.findIndex((s) => s.index === current),
   );
-  return QUICK_SLOTS[(slot + (direction > 0 ? 1 : 2)) % 3].index;
+  return QUICK_SLOTS[
+    (slot + (direction > 0 ? 1 : QUICK_SLOTS.length - 1)) % QUICK_SLOTS.length
+  ].index;
 }
 export function slotForDigit(code: string) {
   return QUICK_SLOTS.find((s) => `Digit${s.key}` === code)?.index;

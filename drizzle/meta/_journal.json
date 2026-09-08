@@ -22,6 +22,13 @@
       "when": 1788696153594,
       "tag": "0002_smooth_ink",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788841755512,
+      "tag": "0003_nappy_iron_patriot",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,5 @@
+import { resolveCombat } from '@/db/combat';
+import { effectStyle, effectCooldown } from '@/lib/game-items';
 import { db, session, json, payload } from '@/db/server';
 import {
   applyOperation,
@@ -34,9 +36,10 @@ export async function GET(request: Request, context: Context) {
         title: JSON.parse(r.state).title,
         theme: JSON.parse(r.state).theme,
       });
+    await resolveCombat(id, JSON.parse(r.state).respawnSeconds ?? 5);
     const { results } = await db()
       .prepare(
-        'SELECT session AS id,name,color,seen AS lastSeen,pose,ping,mood,hat,cursor FROM members WHERE room=? ORDER BY seen DESC LIMIT 100',
+        'SELECT session AS id,name,color,seen AS lastSeen,pose,ping,mood,hat,cursor,hp,respawn_at AS respawnAt,life FROM members WHERE room=? ORDER BY seen DESC LIMIT 100',
       )
       .bind(id)
       .all();
@@ -61,6 +64,9 @@ export async function GET(request: Request, context: Context) {
           : publicState(JSON.parse(r.state), self),
       members: results.map((m) => ({
         ...m,
+        name: JSON.parse(r.state).anonymousPlayers ? 'Участник' : m.name,
+        mood: JSON.parse(r.state).anonymousPlayers ? '' : m.mood,
+        hat: JSON.parse(r.state).anonymousPlayers ? '' : m.hat,
         pose: JSON.parse(String(m.pose)),
         cursor: JSON.parse(String(m.cursor)),
       })),
@@ -128,7 +134,8 @@ export async function POST(request: Request, context: Context) {
       .first();
     if (!member) return json({ error: 'Сначала войдите в комнату' }, 403);
     if (op.type === 'effect') {
-      if (!['paint', 'confetti'].includes(op.kind))
+      if (JSON.parse(r.state).archived) return json({ ok: false });
+      if (!['paint', 'confetti', 'grenade'].includes(op.kind))
         throw Error('Неизвестный эффект');
       for (const p of [op.origin, op.target, op.normal])
         if (
@@ -141,8 +148,30 @@ export async function POST(request: Request, context: Context) {
         )
           throw Error('Некорректная траектория');
       if (!/^#[0-9a-f]{6}$/i.test(op.color)) throw Error('Некорректный цвет');
+      const shooter = await db()
+        .prepare(
+          'SELECT pose,hp,last_shot FROM members WHERE room=? AND session=?',
+        )
+        .bind(id, self)
+        .first<{ pose: string; hp: number; last_shot: number }>();
+      if (!shooter || shooter.hp <= 0)
+        return json({ ok: false, reason: 'respawning' });
+      const position = JSON.parse(shooter.pose);
+      if (
+        Math.hypot(
+          op.origin[0] - position.x,
+          op.origin[1] - position.y,
+          op.origin[2] - position.z,
+        ) > 9 ||
+        Math.hypot(
+          ...op.target.map((v: number, i: number) => v - op.origin[i]),
+        ) > 75
+      )
+        throw Error('Предмет слишком далеко');
+      const now = Date.now();
       const data = {
         kind: op.kind,
+        variant: effectStyle(op.kind, op.variant),
         origin: op.origin,
         target: op.target,
         normal: op.normal,
@@ -152,17 +181,33 @@ export async function POST(request: Request, context: Context) {
         typeof op.id === 'string' && /^[a-f0-9-]{36}$/.test(op.id)
           ? op.id
           : crypto.randomUUID();
-      await db().batch([
+      const result = await db().batch([
         db()
           .prepare(
-            'INSERT OR IGNORE INTO effects (id,room,author,payload,at) VALUES (?,?,?,?,?)',
+            'INSERT OR IGNORE INTO effects (id,room,author,payload,at,resolve_at) SELECT ?,?,?,?,?,? FROM members WHERE room=? AND session=? AND hp>0 AND last_shot<=?',
           )
-          .bind(effectId, id, self, JSON.stringify(data), Date.now()),
+          .bind(
+            effectId,
+            id,
+            self,
+            JSON.stringify(data),
+            now,
+            now + (op.kind === 'grenade' ? 1100 : 0),
+            id,
+            self,
+            now - effectCooldown(op.kind),
+          ),
+        db()
+          .prepare(
+            'UPDATE members SET last_shot=? WHERE room=? AND session=? AND EXISTS(SELECT 1 FROM effects WHERE id=? AND at=?)',
+          )
+          .bind(now, id, self, effectId, now),
         db()
           .prepare('DELETE FROM effects WHERE room=? AND at<?')
-          .bind(id, Date.now() - 15000),
+          .bind(id, now - 15000),
       ]);
-      return json({ ok: true });
+      await resolveCombat(id, JSON.parse(r.state).respawnSeconds ?? 5);
+      return json({ ok: !!result[0].meta.changes });
     }
     if (op.type === 'history') {
       const { results } = await db()
@@ -173,9 +218,10 @@ export async function POST(request: Request, context: Context) {
         .all();
       return json({
         history: results.map((h) =>
-          JSON.parse(r!.state).anonymous &&
-          String(h.action).startsWith('note.') &&
-          h.author !== self
+          JSON.parse(r!.state).anonymousPlayers ||
+          (JSON.parse(r!.state).anonymous &&
+            String(h.action).startsWith('note.') &&
+            h.author !== self)
             ? { ...h, author: '', name: 'Анонимно' }
             : h,
         ),
@@ -237,9 +283,16 @@ export async function POST(request: Request, context: Context) {
                 typeof p.pitch === 'number' && Number.isFinite(p.pitch)
                   ? Math.max(-1.35, Math.min(1.4, p.pitch))
                   : 0,
-              tool: ['paint', 'confetti', 'other'].includes(p.tool)
+              tool: [
+                'paint',
+                'confetti',
+                'grenade',
+                'pointer',
+                'other',
+              ].includes(p.tool)
                 ? p.tool
                 : 'other',
+              variant: effectStyle(p.tool, p.variant),
               working: !!p.working,
               crouching: !!p.crouching,
               aiming: !!p.aiming,
@@ -256,9 +309,16 @@ export async function POST(request: Request, context: Context) {
       if (pose)
         await db()
           .prepare(
-            'UPDATE members SET seen=?,pose=?,ping=? WHERE room=? AND session=?',
+            'UPDATE members SET seen=?,pose=CASE WHEN hp>0 AND life=? THEN ? ELSE pose END,ping=? WHERE room=? AND session=?',
           )
-          .bind(Date.now(), JSON.stringify(pose), ping, id, self)
+          .bind(
+            Date.now(),
+            Number.isInteger(op.life) ? op.life : 0,
+            JSON.stringify(pose),
+            ping,
+            id,
+            self,
+          )
           .run();
       else
         await db()
