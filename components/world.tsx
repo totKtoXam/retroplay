@@ -2,6 +2,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import * as T from 'three';
 import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from './ui/dialog';
+import {
   ZONES,
   GAME_TOOLS,
   TOOL_HINTS,
@@ -11,6 +17,8 @@ import {
 } from '@/lib/model';
 import { createWorldScene, STATIONS } from './world-scene';
 import { createFirstPersonHands } from './world-hands';
+import { AvatarPreview } from './avatar-preview';
+import { QUICK_SLOTS, cycleSlot, slotForDigit } from '@/lib/loadout';
 import { ToolMagazine, CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import {
   cameraFrame,
@@ -41,6 +49,8 @@ import {
   Users,
   Palette,
   PartyPopper,
+  Tablet,
+  X,
 } from 'lucide-react';
 type Props = {
   room: Room;
@@ -49,6 +59,7 @@ type Props = {
   onTool: (n: number) => void;
   onZone: (z: string) => void;
   onUseTool: (zone: string) => void;
+  onBoardTool: (tool: string) => void;
   sensitivity: number;
   invertCamera: boolean;
   onPose: (p: Pose) => void;
@@ -102,6 +113,7 @@ export default function World(props: Props) {
     latest.current = props;
   }, [props]);
   const magazine = useRef(new ToolMagazine());
+  const [showAgent, setShowAgent] = useState(false);
   const [rounds, setRounds] = useState({ ...CAPACITY }),
     [reloading, setReloading] = useState(false),
     [aiming, setAiming] = useState(false);
@@ -121,7 +133,8 @@ export default function World(props: Props) {
     shadow: () => void;
     capture: () => void;
     pause: () => void;
-    closeInventory: () => void;
+    closeInventory: (resume?: boolean) => void;
+    openInventory: () => void;
     keys: Set<string>;
   } | null>(null);
   const perspective = useSyncExternalStore(
@@ -518,10 +531,25 @@ export default function World(props: Props) {
     };
     engine.current = {
       capture,
-      closeInventory: () => {
+      closeInventory: (resume = true) => {
         middle = false;
         setRadial(false);
-        capture();
+        if (resume) capture();
+        else {
+          activeControl = false;
+          softLook = false;
+          setActive(false);
+          clear();
+        }
+      },
+      openInventory: () => {
+        middle = true;
+        setRadial(true);
+        clear();
+        softLook = false;
+        activeControl = false;
+        setActive(false);
+        if (document.pointerLockElement) document.exitPointerLock();
       },
       pause: () => {
         softLook = false;
@@ -578,20 +606,21 @@ export default function World(props: Props) {
     };
     const onKey = (e: KeyboardEvent) => {
       if (
-        e.code === 'KeyQ' &&
+        (e.code === 'KeyQ' || e.code === 'KeyI') &&
         !e.repeat &&
         !latest.current.blocked &&
-        (enabled() || middle)
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !(e.target as HTMLElement | null)?.closest(
+          'input,textarea,select,[contenteditable=true]',
+        )
       ) {
         e.preventDefault();
         if (middle) {
           engine.current?.closeInventory();
         } else {
-          middle = true;
-          setRadial(true);
-          clear();
-          softLook = false;
-          if (document.pointerLockElement) document.exitPointerLock();
+          engine.current?.openInventory();
         }
         return;
       }
@@ -603,6 +632,15 @@ export default function World(props: Props) {
         return;
       }
       if ((!enabled() && !middle) || latest.current.blocked) return;
+      if (middle) {
+        const slot = slotForDigit(e.code);
+        if (slot !== undefined) {
+          e.preventDefault();
+          latest.current.onTool(slot);
+          engine.current?.closeInventory();
+        }
+        return;
+      }
       if (
         [
           'KeyW',
@@ -655,7 +693,8 @@ export default function World(props: Props) {
         setStance(currentStance);
       }
       if (e.code === 'KeyE' && nearZone) {
-        document.exitPointerLock();
+        engine.current?.pause();
+        if (document.pointerLockElement) document.exitPointerLock();
         latest.current.onZone(nearZone);
         clear();
       }
@@ -665,9 +704,8 @@ export default function World(props: Props) {
           perspectiveRef.current === 'first' ? 'third' : 'first',
         );
       if (e.code.startsWith('Digit')) {
-        const n = Number(e.code.slice(-1));
-        latest.current.onTool(n === 0 ? 9 : n - 1);
-        if (middle) engine.current?.closeInventory();
+        const slot = slotForDigit(e.code);
+        if (slot !== undefined) latest.current.onTool(slot);
       }
     };
     const onUp = (e: KeyboardEvent) => {
@@ -709,25 +747,18 @@ export default function World(props: Props) {
       }
     };
     const wheel = (e: WheelEvent) => {
-      if (latest.current.blocked) return;
+      if (latest.current.blocked || middle || !enabled()) return;
       e.preventDefault();
       canvas.focus();
       if (e.altKey) engine.current?.distance(e.deltaY > 0 ? 1 : -1);
-      else
-        latest.current.onTool(
-          (latest.current.tool + (e.deltaY > 0 ? 1 : 9)) % 10,
-        );
+      else latest.current.onTool(cycleSlot(latest.current.tool, e.deltaY));
     };
     const onDown = (e: MouseEvent) => {
-      if (latest.current.blocked) return;
+      if (latest.current.blocked || middle) return;
       canvas.focus();
       if (e.button === 1) {
         e.preventDefault();
-        middle = true;
-        setRadial(true);
-        clear();
-        softLook = false;
-        if (document.pointerLockElement) document.exitPointerLock();
+        engine.current?.openInventory();
       } else if (e.button === 2) {
         e.preventDefault();
         if (!enabled()) {
@@ -771,11 +802,7 @@ export default function World(props: Props) {
         aimHeld = false;
         setAiming(false);
       }
-      if (e.button === 1 && middle) {
-        middle = false;
-        setRadial(false);
-        capture();
-      }
+      // Отпускание колеса не выбирает предмет: выбор подтверждается кликом.
     };
     const changed = () => {
       const captured = document.pointerLockElement === canvas;
@@ -837,7 +864,7 @@ export default function World(props: Props) {
         aimHeld && !latest.current.blocked ? 1 : 0,
         1 - Math.exp(-18 * dt),
       );
-      if (left && enabled()) shoot();
+      if (left && enabled() && !middle && !latest.current.blocked) shoot();
       let dx = 0,
         dz = 0;
       const control = enabled() && !latest.current.blocked && !middle;
@@ -1262,7 +1289,7 @@ export default function World(props: Props) {
         <button className="interact-prompt" onClick={() => props.onZone(near)}>
           <kbd>E</kbd>
           {ZONES.find((z) => z.id === near)?.title}
-          <span>Открыть доску</span>
+          <span>Работать с идеями</span>
         </button>
       )}
       {['paint', 'confetti'].includes(current?.id) && (
@@ -1326,37 +1353,136 @@ export default function World(props: Props) {
           <kbd>Tab</kbd> кто в сети
         </span>
         <span>
-          <kbd>Q / колесо</kbd> инвентарь
+          <kbd>1–3 / колесо</kbd> предмет · <kbd>Q</kbd> снаряжение
         </span>
       </div>
-      {radial && (
-        <div className="radial-backdrop" role="presentation">
-          <div className="radial-center">
-            <span className="eyebrow">ИНВЕНТАРЬ</span>
-            <strong>{current?.label}</strong>
-            <span>{TOOL_HINTS[current?.id]}</span>
-            <small>Q или клик — выбрать · Esc — закрыть</small>
-          </div>
-          {GAME_TOOLS.map((t, i) => (
+      <div className="quick-loadout" aria-label="Быстрые предметы">
+        {QUICK_SLOTS.map((slot, i) => {
+          const Icon = [Crosshair, PartyPopper, Tablet][i];
+          return (
             <button
-              key={t.id}
-              onMouseEnter={() => props.onTool(i)}
-              onClick={() => {
-                props.onTool(i);
-                engine.current?.closeInventory();
-              }}
-              className={`radial-item ${props.tool === i ? 'selected' : ''}`}
-              style={{
-                left: `calc(50% + ${Math.sin((i / 10) * Math.PI * 2) * 195}px)`,
-                top: `calc(50% - ${Math.cos((i / 10) * Math.PI * 2) * 195}px)`,
-              }}
+              key={slot.key}
+              aria-pressed={props.tool === slot.index}
+              onClick={() => props.onTool(slot.index)}
+              title={slot.hint}
             >
-              <kbd>{t.key}</kbd>
-              {t.label}
+              <kbd>{slot.key}</kbd>
+              <Icon size={24} />
+              <span>{slot.label}</span>
             </button>
-          ))}
-        </div>
-      )}
+          );
+        })}
+        <button
+          className="open-kit"
+          onClick={() => engine.current?.openInventory()}
+        >
+          <kbd>Q</kbd>
+          <span>Снаряжение</span>
+        </button>
+      </div>
+      <Dialog
+        open={radial}
+        onOpenChange={(open) => {
+          if (!open) engine.current?.closeInventory(false);
+        }}
+      >
+        <DialogContent
+          className="equipment-panel"
+          showCloseButton={false}
+          finalFocus={false}
+        >
+          <header>
+            <div>
+              <span className="eyebrow">JINALY / LOADOUT</span>
+              <DialogTitle>Снаряжение</DialogTitle>
+            </div>
+            <button
+              aria-label="Закрыть снаряжение"
+              onClick={() => engine.current?.closeInventory()}
+            >
+              <X />
+            </button>
+          </header>
+          <DialogDescription>
+            Выберите предмет и вернитесь в игру. Колесо переключает три быстрых
+            слота.
+          </DialogDescription>
+          <button
+            className="agent-preview-toggle"
+            aria-expanded={showAgent}
+            onClick={() => setShowAgent(!showAgent)}
+          >
+            {showAgent ? 'Скрыть персонажа' : 'Посмотреть персонажа'} ↗
+          </button>
+          {showAgent && (
+            <AvatarPreview
+              color={
+                props.room.members.find((m) => m.id === props.room.self)
+                  ?.color || '#718cdd'
+              }
+              anime={props.room.state.visualStyle === 'anime'}
+            />
+          )}
+          <div className="equipment-items">
+            {QUICK_SLOTS.map((slot, i) => {
+              const Icon = [Crosshair, PartyPopper, Tablet][i];
+              return (
+                <button
+                  key={slot.key}
+                  aria-pressed={props.tool === slot.index}
+                  onClick={() => {
+                    props.onTool(slot.index);
+                    engine.current?.closeInventory();
+                  }}
+                >
+                  <kbd>{slot.key}</kbd>
+                  <Icon size={42} />
+                  <strong>{slot.label}</strong>
+                  <small>{slot.hint}</small>
+                  <span>
+                    {props.tool === slot.index ? 'В руках' : 'Взять в руки'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <h3>Работа с ретроспективой</h3>
+          <p>
+            Инструмент сразу откроет обычную доску. В 3D нажмите E рядом со
+            стендом.
+          </p>
+          <div className="equipment-retro">
+            {GAME_TOOLS.filter(
+              (t) =>
+                !['paint', 'confetti', 'reaction', 'pointer'].includes(t.id),
+            ).map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  engine.current?.closeInventory(false);
+                  props.onBoardTool(t.id);
+                }}
+              >
+                {t.label}
+                <span>Открыть доску ↗</span>
+              </button>
+            ))}
+          </div>
+          <button
+            className="equipment-reaction"
+            onClick={() => {
+              props.onAction('reaction');
+              engine.current?.closeInventory();
+            }}
+          >
+            👍 Поддержать команду
+          </button>
+          <footer>
+            <kbd>Q / I</kbd> снаряжение <kbd>1–3</kbd> быстрый выбор{' '}
+            <kbd>Esc</kbd> закрыть
+          </footer>
+        </DialogContent>
+      </Dialog>
       <div className="mobile-world">
         <button onClick={() => props.onZone(near || 'good')}>
           <MoveUp />

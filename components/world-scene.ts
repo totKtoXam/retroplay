@@ -412,6 +412,7 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
       holiday,
     );
   }
+  const oldLampStart = decor.children.length;
   const lanternMaterials: T.MeshStandardMaterial[] = [];
   for (const x of [-4.6, 4.6])
     for (const z of [-9, 2, 13]) {
@@ -429,6 +430,9 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
       window2.material = glow;
       mesh(new T.ConeGeometry(0.5, 0.35, 4), '#62738a', x, 3.98, z);
     }
+  const oldLamps = new T.Group();
+  decor.children.slice(oldLampStart).forEach((o) => oldLamps.add(o));
+  scene.add(oldLamps);
   const winterDecor = new T.Group();
   scene.add(winterDecor);
   for (let i = 0; i < 3; i++) {
@@ -513,6 +517,7 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
     o.removeFromParent();
     scene.add(o);
   });
+  batch(oldLamps);
   batch(oldForest);
   batch(oldMountains);
   batch(decor);
@@ -636,10 +641,10 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
         : winter
           ? '#d6e1ec'
           : autumn
-            ? '#8a7858'
+            ? '#c6b6a1'
             : s.theme === 'steppe'
-              ? '#817b63'
-              : '#737b62',
+              ? '#a6b4af'
+              : '#a6b4af',
     );
     const colors = animeStyle
       ? ['#d99cc8', '#b8a2d6', '#f0bdd7']
@@ -652,12 +657,13 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
             : ['#427b80', '#58868f', '#679b97'];
     leafMaterials.forEach((m, i) => m.color.set(colors[i]));
     snowCaps.forEach((o) => (o.visible = winter && animeStyle));
-    flowers.visible = !winter;
-    blossomGroup.visible = animeStyle || s.season === 'spring';
+    flowers.visible = !winter && animeStyle;
+    oldLamps.visible = animeStyle;
+    blossomGroup.visible = animeStyle;
     holiday.visible = s.theme !== 'steppe';
     winterDecor.visible = s.theme === 'newyear';
     interior.visible = s.interior;
-    yurt.visible = !s.interior;
+    yurt.visible = !s.interior && animeStyle;
     lanternMaterials.forEach((m) => (m.emissiveIntensity = night ? 2 : 1));
     scene.traverse((o) => {
       if (o instanceof T.Group && o.name === 'player-avatar')

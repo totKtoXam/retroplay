@@ -84,3 +84,25 @@ test('Pose blending is stable at 30 and 60 FPS', () => {
     ) < 0.001,
   );
 });
+
+test('Tactical skin replaces all legacy body surfaces within a small draw-call budget', () => {
+  const a = createAvatar('#8196dd');
+  const visible = (o) => {
+    for (let p = o; p; p = p.parent) if (!p.visible) return false;
+    return true;
+  };
+  const legacy = [],
+    agent = [],
+    meshes = [];
+  a.traverse((o) => {
+    if (o.name === 'legacy-skin') legacy.push(o);
+    if (o.name === 'agent-skin') agent.push(o);
+    if (o.isMesh && visible(o)) meshes.push(o);
+  });
+  assert.ok(agent.length >= 10);
+  assert.ok(legacy.every((o) => !visible(o)));
+  assert.ok(meshes.length <= 24, 'Character must batch details per joint');
+  setAvatarStyle(a, true);
+  assert.ok(agent.every((o) => !visible(o)));
+  assert.ok(legacy.some(visible));
+});

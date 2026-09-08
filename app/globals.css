@@ -5273,3 +5273,337 @@ h1 > span {
 .mode-3d:has(.ammo-panel) .equipped-card {
   display: none;
 }
+
+/* Компактный игровой HUD и явный выбор снаряжения. */
+.mode-3d .hotbar,
+.mode-3d .tool-status,
+.mode-3d .equipped-card,
+.mode-3d .world-help,
+.mode-3d .camera-toolbar {
+  display: none;
+}
+.mode-3d .ammo-panel {
+  bottom: 28px;
+  right: 24px;
+  min-width: 142px;
+  background: #152d38ec;
+}
+.mode-3d .paint-palette {
+  bottom: 160px;
+  right: 24px;
+  background: #19303de8;
+}
+.mode-3d .quick-loadout {
+  position: absolute;
+  z-index: 8;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: stretch;
+  gap: 7px;
+  padding: 7px;
+  background: #132a35ec;
+  border: 1px solid #93aeb838;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px #07131a40;
+}
+.quick-loadout button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 102px;
+  min-height: 74px;
+  background: #25414c;
+  color: #a9bdc6;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+.quick-loadout button kbd {
+  position: absolute;
+  left: 7px;
+  top: 5px;
+  font-size: 10px;
+  color: #8ea8b3;
+}
+.quick-loadout button span {
+  font-size: 11px;
+}
+.quick-loadout button[aria-pressed='true'] {
+  background: #dce7de;
+  color: #243d46;
+  border-color: #fff0c9;
+}
+.quick-loadout button[aria-pressed='true'] kbd {
+  color: #526e74;
+}
+.quick-loadout .open-kit {
+  width: 92px;
+  background: transparent;
+  border-left: 1px solid #aac1c22c;
+  border-radius: 0;
+}
+.quick-loadout .open-kit kbd {
+  position: static;
+  display: grid;
+  place-items: center;
+  border: 1px solid #91a4aa88;
+  width: 26px;
+  height: 24px;
+  border-radius: 4px;
+}
+.equipment-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: #081722c9;
+  backdrop-filter: blur(7px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.equipment-panel {
+  max-width: 760px;
+  width: 100%;
+  max-height: 100%;
+  overflow: auto;
+  background: #e8ebe3;
+  color: #1e3743;
+  padding: 27px;
+  border-radius: 14px;
+  box-shadow: 0 30px 90px #0007;
+}
+.equipment-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+.equipment-panel header button {
+  display: grid;
+  place-items: center;
+  background: #d4ddd7;
+  border: 0;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  color: #264550;
+}
+.equipment-panel .eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: #597679;
+}
+.equipment-panel h2 {
+  font-size: 28px;
+  line-height: 1.1;
+  font-weight: 650;
+  margin: 5px 0 0;
+}
+.equipment-panel h3 {
+  font-size: 14px;
+  margin: 23px 0 6px;
+}
+.equipment-panel p {
+  font-size: 12px;
+  color: #526d74;
+  line-height: 1.6;
+}
+.equipment-items {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 17px;
+}
+.equipment-items button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 20px 15px 13px;
+  border: 1px solid #bacdc6;
+  border-radius: 9px;
+  color: #244652;
+  background: #d9e2dc;
+  text-align: left;
+}
+.equipment-items button:hover,
+.equipment-items button:focus-visible {
+  border-color: #cc7368;
+  outline: 2px solid #cc736844;
+}
+.equipment-items button[aria-pressed='true'] {
+  background: #294b56;
+  color: #fff4df;
+  border-color: #294b56;
+}
+.equipment-items button kbd {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  opacity: 0.5;
+}
+.equipment-items button svg {
+  margin: 12px 0;
+}
+.equipment-items button strong {
+  font-size: 16px;
+}
+.equipment-items button small {
+  font-size: 10px;
+  opacity: 0.75;
+}
+.equipment-items button span {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 10px;
+}
+.equipment-retro {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+.equipment-retro button {
+  padding: 11px 13px;
+  text-align: left;
+  background: #f6f4e9;
+  border: 1px solid #c6d0c7;
+  border-radius: 5px;
+  color: #294b56;
+  font-size: 12px;
+}
+.equipment-retro button span {
+  display: block;
+  font-size: 9px;
+  color: #6f8788;
+  margin-top: 4px;
+}
+.equipment-panel footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: #58767c;
+  margin-top: 22px;
+}
+.equipment-panel footer kbd {
+  padding: 4px 6px;
+  background: #cfdad2;
+  border-radius: 3px;
+}
+.mode-3d .camera-onboarding {
+  bottom: 140px;
+  padding: 18px 22px;
+  border-radius: 9px;
+  background: #16323eef;
+  max-width: 600px;
+}
+.mode-3d .interact-prompt {
+  bottom: 145px;
+}
+@media (max-width: 900px) {
+  .quick-loadout button {
+    width: 76px;
+    min-height: 65px;
+  }
+  .quick-loadout .open-kit {
+    width: 74px;
+  }
+  .mode-3d .ammo-panel {
+    bottom: 122px;
+    padding: 8px 12px;
+  }
+  .mode-3d .paint-palette {
+    bottom: 238px;
+  }
+}
+@media (max-width: 600px) {
+  .equipment-panel {
+    padding: 16px;
+  }
+  .equipment-items {
+    gap: 6px;
+  }
+  .equipment-items button {
+    padding: 12px 9px;
+  }
+  .equipment-items button strong {
+    font-size: 12px;
+  }
+  .equipment-retro {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .equipment-panel footer {
+    flex-wrap: wrap;
+  }
+  .quick-loadout button {
+    width: 67px;
+  }
+  .mode-3d .quick-loadout {
+    bottom: 16px;
+  }
+}
+
+.equipment-panel[data-slot='dialog-content'] {
+  display: block;
+  width: min(760px, calc(100vw - 36px));
+  max-width: 760px;
+  max-height: calc(100dvh - 50px);
+  padding: 27px;
+}
+
+.agent-preview-toggle,
+.equipment-reaction {
+  border: 0;
+  background: transparent;
+  color: #375e69;
+  font-size: 12px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+.agent-preview {
+  background: radial-gradient(ellipse at 50% 40%, #ecf0e4, #bfccc3);
+  border-radius: 9px;
+  margin: 8px 0 15px;
+}
+.agent-preview-canvas {
+  height: 300px;
+  width: 100%;
+}
+.agent-preview-canvas canvas {
+  display: block;
+}
+.agent-preview-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 25px;
+  padding: 5px 15px 14px;
+  color: #385661;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.agent-preview-controls button {
+  background: #ecf1e5;
+  border: 1px solid #9fb5af;
+  border-radius: 5px;
+  width: 38px;
+  height: 30px;
+}
+.world-container .quick-loadout kbd {
+  background: transparent;
+  color: #abc0c9;
+}
+.world-container .quick-loadout button[aria-pressed='true'] kbd {
+  color: #36555e;
+}
+.world-container .quick-loadout .open-kit kbd {
+  background: #263e4a;
+  color: #b3c8cc;
+}

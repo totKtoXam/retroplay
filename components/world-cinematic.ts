@@ -118,7 +118,7 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
   terrain.rotateX(-Math.PI / 2);
   const p = terrain.getAttribute('position'),
     colors = new Float32Array(p.count * 3),
-    rock = new T.Color('#5d655e'),
+    rock = new T.Color('#8899a8'),
     snow = new T.Color('#cdd7db'),
     shade = new T.Color();
   for (let i = 0; i < p.count; i++) {
@@ -126,7 +126,7 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
       z = p.getZ(i),
       r = Math.hypot(x, z),
       angle = Math.atan2(z, x);
-    const envelope = T.MathUtils.smoothstep(r, 43, 70);
+    const envelope = T.MathUtils.smoothstep(r, 76, 113);
     const ridge =
       1 - Math.abs(Math.sin(angle * 5 + noise(x * 0.012, z * 0.012) * 0.7));
     const h =
@@ -257,12 +257,12 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
   const architecture = new T.Group();
   group.add(architecture);
   const charcoal = new T.MeshStandardMaterial({
-    color: '#343e3d',
+    color: '#263d48',
     metalness: 0.6,
     roughness: 0.33,
   });
   const limestone = new T.MeshStandardMaterial({
-    color: '#aca797',
+    color: '#ded7c5',
     roughness: 0.81,
   });
   const timberMap = detailTexture(true);
@@ -315,6 +315,124 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
     block(3.65, 0.19, 0.65, timber, x, 0.85, z + 3.15);
     block(3.65, 0.1, 0.18, charcoal, x, 0.6, z + 3.15);
   }
+  const coral = new T.MeshStandardMaterial({
+    color: '#c96e61',
+    roughness: 0.8,
+  });
+  const blue = new T.MeshStandardMaterial({ color: '#527d89', roughness: 0.7 });
+  const cream = new T.MeshStandardMaterial({
+    color: '#eee6d5',
+    roughness: 0.9,
+  });
+  const labels: T.Texture[] = [];
+  const sign = (
+    text: string,
+    x: number,
+    y: number,
+    z: number,
+    w: number,
+    h: number,
+    bg = '#213b46',
+  ) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, 1024, 256);
+    ctx.fillStyle = '#f2e9d8';
+    ctx.font = '600 100px sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 55, 130);
+    const texture = new T.CanvasTexture(canvas);
+    texture.colorSpace = T.SRGBColorSpace;
+    labels.push(texture);
+    const mesh = new T.Mesh(
+      new T.PlaneGeometry(w, h),
+      new T.MeshBasicMaterial({ map: texture }),
+    );
+    mesh.position.set(x, y, z);
+    group.add(mesh);
+  };
+  // Боковые корпуса стоят за границами прогулочной зоны, сохраняя четыре доступных стенда.
+  for (const side of [-1, 1]) {
+    block(7, 9, 18, side < 0 ? coral : limestone, side * 27, 4.4, -8);
+    block(7.5, 0.5, 18.5, cream, side * 27, 9.1, -8);
+    block(6, 3.5, 7, blue, side * 26, 10.8, -12);
+    for (let level = 0; level < 2; level++)
+      for (let i = 0; i < 5; i++) {
+        block(
+          0.1,
+          1.9,
+          1.55,
+          charcoal,
+          side * 23.45,
+          2.5 + level * 3.7,
+          -15 + i * 3,
+        );
+        block(
+          0.2,
+          0.12,
+          1.8,
+          cream,
+          side * 23.35,
+          1.5 + level * 3.7,
+          -15 + i * 3,
+        );
+      }
+    for (let i = 0; i < 5; i++)
+      block(0.2, 8.6, 0.18, cream, side * 23.3, 4.2, -16 + i * 4);
+    block(7, 0.7, 9, charcoal, side * 26, 5, 14);
+    block(6, 4.2, 8, blue, side * 27, 2.2, 14);
+    block(7, 0.22, 8, cream, side * 27, 4.55, 14);
+  }
+  // Центральный корпус занимает прежний объём юрты: существующая коллизия сохраняется.
+  block(6.6, 5.8, 6.5, limestone, 0, 3, -18);
+  block(7.1, 0.3, 7, cream, 0, 6, -18);
+  block(3, 3.9, 0.07, charcoal, 0, 2.4, -14.71);
+  block(2.7, 3.6, 0.08, blue, 0, 2.4, -14.66);
+  for (const side of [-1, 1]) {
+    block(0.12, 3.7, 0.13, lightMat, side * 1.42, 2.4, -14.57);
+    block(0.5, 5.2, 0.32, coral, side * 2.65, 2.9, -14.59);
+  }
+  block(7.9, 0.24, 2.1, charcoal, 0, 4.8, -14.1);
+  block(5.7, 1.6, 4.3, blue, 0, 6.9, -18.2);
+  sign('JINALY  /  01', 0, 5.48, -14.67, 5.7, 0.8);
+  sign('TEAM CAMPUS', 0, 7.02, -15.99, 4.9, 0.75);
+  // Цветовые порталы помогают различать зоны с большого расстояния.
+  for (let i = 0; i < stations.length; i++) {
+    const [x, z] = stations[i];
+    const zoneMaterial = i % 2 ? coral : blue;
+    block(6.2, 0.55, 0.55, zoneMaterial, x, 5.16, z);
+    block(0.48, 4.7, 0.42, zoneMaterial, x - 2.99, 2.75, z);
+    block(0.48, 4.7, 0.42, cream, x + 2.99, 2.75, z);
+    sign(
+      ['01 / KEEP', '02 / LEARN', '03 / START', '04 / STOP'][i],
+      x,
+      5.18,
+      z + 0.29,
+      5.5,
+      0.4,
+      i % 2 ? '#ab6058' : '#3b626e',
+    );
+  }
+  // Шанырак над центральной площадью в современной стальной интерпретации.
+  const crown = new T.Mesh(new T.TorusGeometry(2.5, 0.055, 6, 48), charcoal);
+  crown.rotation.x = Math.PI / 2;
+  crown.position.set(0, 6.5, 1);
+  group.add(crown);
+  for (const side of [-1, 1])
+    block(0.13, 6.3, 0.13, charcoal, side * 2.5, 3.3, 1);
+  for (let i = -2; i <= 2; i++) {
+    const l = Math.sqrt(6.25 - i * i) * 2;
+    block(l, 0.025, 0.045, cream, 0, 6.5, 1 + i * 0.8);
+  }
+  for (const x of [-4.6, 4.6])
+    for (const z of [-9, 2, 13]) {
+      block(0.12, 3.4, 0.12, charcoal, x, 1.8, z);
+      block(0.1, 0.08, 1.1, cream, x, 3.51, z + 0.4);
+      block(0.06, 0.02, 0.85, lightMat, x, 3.46, z + 0.5);
+    }
   for (const [mat, geos] of blocks) {
     const merged = mergeGeometries(geos);
     geos.forEach((g) => g.dispose());
@@ -350,7 +468,7 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
       sky.material.uniforms.sunPosition.value.copy(direction);
       sky.material.uniforms.nightMix.value = night ? 1 : 0;
       sky.material.uniforms.rayleigh.value = night ? 4 : sunset ? 2.9 : 1.5;
-      leaves.visible = trunks.visible = grass.visible = !s.interior;
+      leaves.visible = trunks.visible = grass.visible = false;
       lights.visible = !s.interior;
       leafMaterial.color.set(
         s.season === 'winter'
@@ -383,6 +501,7 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
           : 0.94;
     },
     dispose() {
+      labels.forEach((t) => t.dispose());
       timberMap.dispose();
       environment?.dispose();
       pmrem?.dispose();

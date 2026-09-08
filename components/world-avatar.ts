@@ -1,4 +1,5 @@
 import * as T from 'three';
+import { buildAgentSkin } from './world-agent.ts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export type AvatarMotion = {
@@ -275,6 +276,7 @@ export function createAvatar(color: string) {
   box(tablet, '#a6ddeb', 0, 0.065, -0.11, 0.3, 0.012, 0.4);
   for (let i = 0; i < 3; i++)
     box(tablet, '#e7f5ff', -0.02, 0.073, -0.2 + i * 0.09, 0.22, 0.005, 0.025);
+  const disposeAgentMaterials = buildAgentSkin(avatar, color);
   rigs.set(avatar, {
     root,
     chest,
@@ -351,6 +353,7 @@ export function createAvatar(color: string) {
     joint.add(outline);
   }
   materials.forEach((m) => m.dispose());
+  disposeAgentMaterials();
   setAvatarStyle(avatar, false);
   return avatar;
 }
@@ -360,11 +363,13 @@ export function setAvatarStyle(avatar: T.Group, anime: boolean) {
   if (!r) return;
   avatar.traverse((o) => {
     if (o.name === 'anime-outline') o.visible = anime;
+    if (o.name === 'legacy-skin') o.visible = anime;
+    if (o.name === 'agent-skin') o.visible = !anime;
   });
   r.classic.visible = !anime;
   r.anime.visible = anime;
   r.coat.visible = anime;
-  r.head.scale.setScalar(anime ? 1.17 : 0.82);
+  r.head.scale.setScalar(anime ? 1.17 : 1);
   r.scarf.visible = anime;
 }
 export function avatarShoot(avatar: T.Group) {
@@ -475,7 +480,7 @@ export function animateAvatar(
       arm = i ? 0.7 : 0.4 + reload * 0.7;
       elbow = i ? 1.1 : 1.2 + reload * 0.6;
     }
-    if (m.working || m.inventory) {
+    if (m.working || m.inventory || m.tool === 'pointer') {
       arm = i ? 0.55 : 0.85;
       elbow = i ? 1.45 : 0.9;
     }
@@ -494,7 +499,7 @@ export function animateAvatar(
     -r.arms[1].rotation.x - r.elbows[1].rotation.x - m.pitch * 0.6;
   r.gun.visible = armed && !m.working && !m.inventory;
   r.gun.position.z = follow(r.gun.position.z, -0.03 + r.recoil * 0.08);
-  r.tablet.visible = !!m.working || !!m.inventory;
+  r.tablet.visible = !!m.working || !!m.inventory || m.tool === 'pointer';
   r.scarf.rotation.x = follow(
     r.scarf.rotation.x,
     -stride * 0.45 + Math.sin(time * 5) * 0.08 * stride,

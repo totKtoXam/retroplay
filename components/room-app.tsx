@@ -1064,6 +1064,19 @@ export default function RoomApp({ id }: { id: string }) {
                 quality={quality}
                 tool={tool}
                 onTool={setTool}
+                onBoardTool={(id) => {
+                  setMode('board');
+                  setSelectedZone('');
+                  setTool(
+                    Math.max(
+                      0,
+                      TOOLS.findIndex((t) => t.id === id),
+                    ),
+                  );
+                  flash(
+                    'Инструмент выбран. Нажмите на доску, чтобы применить.',
+                  );
+                }}
                 onZone={setSelectedZone}
                 sensitivity={sensitivity}
                 invertCamera={invertCamera}
@@ -2595,9 +2608,10 @@ export default function RoomApp({ id }: { id: string }) {
                 (удерживать). <b>Shift</b> — медленный шаг.
               </p>
               <p>
-                <b>1–0 и колесо</b> — выбор инструмента.{' '}
-                <b>Удержание средней кнопки</b> — радиальное меню. Наведите на
-                инструмент и отпустите.
+                <b>1–3 и колесо</b> — краскомёт, конфетти и планшет.{' '}
+                <b>Q, I или средняя кнопка</b> — снаряжение. Выбор
+                подтверждается кликом. Инструменты ретро в этой панели сразу
+                открывают обычную доску.
               </p>
               <p>
                 <b>E</b> у доски — открыть её. <b>Tab</b> — участники и
