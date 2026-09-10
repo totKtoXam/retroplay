@@ -72,3 +72,23 @@ export const effects = sqliteTable(
   },
   (t) => [index('idx_effects_room_at').on(t.room, t.at)],
 );
+
+export const joinRequests = sqliteTable(
+  'join_requests',
+  {
+    id: text('id').primaryKey(),
+    room: text('room')
+      .notNull()
+      .references(() => rooms.id),
+    session: text('session').notNull(),
+    name: text('name').notNull(),
+    status: text('status').notNull().default('pending'),
+    created: integer('created').notNull(),
+    resolvedAt: integer('resolved_at').notNull().default(0),
+    resolvedBy: text('resolved_by').notNull().default(''),
+  },
+  (t) => [
+    index('idx_join_requests_room').on(t.room),
+    index('idx_join_requests_session').on(t.session),
+  ],
+);

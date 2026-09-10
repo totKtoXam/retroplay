@@ -29,3 +29,38 @@ export async function payload(request: Request) {
   if (text.length > 250_000) throw Error('Слишком большой запрос');
   return JSON.parse(text || '{}');
 }
+
+let tableReady = false;
+export async function ensureJoinRequestsTable() {
+  if (tableReady) return;
+  try {
+    await db()
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS join_requests (
+          id TEXT PRIMARY KEY,
+          room TEXT NOT NULL,
+          session TEXT NOT NULL,
+          name TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created INTEGER NOT NULL,
+          resolved_at INTEGER NOT NULL DEFAULT 0,
+          resolved_by TEXT NOT NULL DEFAULT ''
+        );`,
+      )
+      .run();
+    await db()
+      .prepare(
+        `CREATE INDEX IF NOT EXISTS idx_join_requests_room ON join_requests (room);`,
+      )
+      .run();
+    await db()
+      .prepare(
+        `CREATE INDEX IF NOT EXISTS idx_join_requests_session ON join_requests (session);`,
+      )
+      .run();
+    tableReady = true;
+  } catch {
+    // Already created or concurrent
+  }
+}
+

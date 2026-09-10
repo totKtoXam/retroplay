@@ -136,6 +136,8 @@ type Props = {
   onEditNote?: (n: Note) => void;
   onAddNote?: (zone: string, x?: number, y?: number) => void;
   onCursor?: (x: number, y: number) => void;
+  pendingJoinRequestsCount?: number;
+  onOpenJoinRequests?: () => void;
 };
 type Particle = {
   mesh: T.InstancedMesh;
@@ -3615,6 +3617,18 @@ export default function World(props: Props) {
           </footer>
         </DialogContent>
       </Dialog>
+      {props.host && (props.pendingJoinRequestsCount || 0) > 0 && (
+        <div className="world-join-requests-hud">
+          <button
+            type="button"
+            onClick={() => props.onOpenJoinRequests?.()}
+            title="Ожидают подтверждения"
+          >
+            <Bell size={16} className="bell-pulse" />
+            <span>Запросы на вход ({props.pendingJoinRequestsCount})</span>
+          </button>
+        </div>
+      )}
       <div className="mobile-world">
         <button onClick={() => props.onZone(near || 'good')}>
           <MoveUp />

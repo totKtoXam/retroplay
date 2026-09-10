@@ -60,6 +60,8 @@ import {
   Send,
   Crosshair,
   Heart,
+  Lock,
+  Globe,
 } from 'lucide-react';
 import {
   Dialog,
@@ -153,7 +155,25 @@ export default function RoomApp({ id }: { id: string }) {
   const [paintColor, setPaintColor] = useState('#bc91f5'),
     [environment, setEnvironment] = useState(false);
   const [room, setRoom] = useState<Room | null>(null),
-    [join, setJoin] = useState<{ title: string } | null>(null),
+    [join, setJoin] = useState<{
+      title: string;
+      isPrivate?: boolean;
+      requestStatus?: 'none' | 'pending' | 'accepted' | 'rejected';
+      requestId?: string;
+      hostName?: string;
+      membersCount?: number;
+      maxPlayers?: number;
+    } | null>(null),
+    [joinRequests, setJoinRequests] = useState<
+      {
+        id: string;
+        session: string;
+        name: string;
+        status: string;
+        created: number;
+      }[]
+    >([]),
+    [joinRequestSent, setJoinRequestSent] = useState(false),
     [name, setName] = useState(''),
     [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
@@ -264,21 +284,65 @@ export default function RoomApp({ id }: { id: string }) {
     setNotice(text);
     setTimeout(() => setNotice(''), 4000);
   }, []);
+  const nameRef = useRef(name);
+  useEffect(() => {
+    nameRef.current = name;
+  }, [name]);
+  const busyRef = useRef(busy);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+  const enterRef = useRef<((name?: string) => Promise<void>) | null>(null);
+
   const refresh = useCallback(async () => {
     const start = performance.now();
-    const data = await api<Room & { join?: boolean; title: string }>(
-      '/api/rooms/' +
-        id +
-        (roomRef.current ? '?version=' + roomRef.current.version : ''),
-    );
+    const inviteParam =
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('invite')
+        : null;
+    const query = new URLSearchParams();
+    if (roomRef.current) query.set('version', String(roomRef.current.version));
+    if (inviteParam) query.set('invite', inviteParam);
+    const qs = query.toString() ? '?' + query.toString() : '';
+
+    const data = await api<
+      Room & {
+        join?: boolean;
+        title: string;
+        isPrivate?: boolean;
+        requestStatus?: 'none' | 'pending' | 'accepted' | 'rejected';
+        requestId?: string;
+        hostName?: string;
+        membersCount?: number;
+        maxPlayers?: number;
+        joinRequests?: {
+          id: string;
+          session: string;
+          name: string;
+          status: string;
+          created: number;
+        }[];
+      }
+    >('/api/rooms/' + id + qs);
+
     const ms = Math.round(performance.now() - start);
     setPing(ms);
     pingRef.current = ms;
     if (data.join) {
       setJoin(data);
+      if (data.requestStatus === 'accepted') {
+        const savedName =
+          localStorage.getItem('jinaly-name') || nameRef.current;
+        if (savedName && !busyRef.current) {
+          void enterRef.current?.(savedName);
+        }
+      }
       return;
     }
     setJoin(null);
+    if (data.joinRequests) {
+      setJoinRequests(data.joinRequests);
+    }
     setRoom((old) =>
       !old
         ? data
@@ -569,13 +633,44 @@ export default function RoomApp({ id }: { id: string }) {
     s = room?.state,
     online = room?.members.filter((m) => now - m.lastSeen < 15000) || [],
     theme = THEMES.find((t) => t.id === s?.theme) || THEMES[0];
-  const enter = async () => {
+  const enter = async (overrideName?: string) => {
+    const playerName = (overrideName || name).trim();
+    if (!playerName) return;
     setBusy(true);
+    setError('');
     try {
-      await op({ type: 'join', name });
-      localStorage.setItem('jinaly-name', name);
+      await op({ type: 'join', name: playerName });
+      localStorage.setItem('jinaly-name', playerName);
       await refresh();
-    } catch {
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    enterRef.current = enter;
+  });
+  const sendJoinRequest = async (overrideName?: string) => {
+    const playerName = (overrideName || name).trim();
+    if (!playerName) return;
+    setBusy(true);
+    setError('');
+    try {
+      const invite =
+        typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search).get('invite') || ''
+          : '';
+      await api('/api/rooms/' + id, {
+        type: 'join_request.create',
+        name: playerName,
+        inviteToken: invite,
+      });
+      localStorage.setItem('jinaly-name', playerName);
+      setJoinRequestSent(true);
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -641,7 +736,7 @@ export default function RoomApp({ id }: { id: string }) {
       setDraft(null);
       if (mode === '3d') {
         setTimeout(() => {
-          document.querySelector('canvas')?.requestPointerLock();
+          void document.querySelector('canvas')?.requestPointerLock();
         }, 50);
       }
       flash('Карточка сохранена');
@@ -652,7 +747,16 @@ export default function RoomApp({ id }: { id: string }) {
   };
   const copyLink = async () => {
     try {
-      await navigator.clipboard.writeText(location.href);
+      const inviteUrl =
+        typeof location !== 'undefined'
+          ? location.origin +
+            '/room/' +
+            id +
+            (s?.access?.type === 'private' && s.access.inviteToken
+              ? '?invite=' + s.access.inviteToken
+              : '')
+          : '';
+      await navigator.clipboard.writeText(inviteUrl || location.href);
       flash('Ссылка скопирована');
     } catch {
       setPanel('share');
@@ -760,39 +864,143 @@ export default function RoomApp({ id }: { id: string }) {
       setError((e as Error).message);
     }
   };
-  if (join)
+  if (join) {
+    const isPrivate = !!join.isPrivate;
+    const isPending = join.requestStatus === 'pending' || joinRequestSent;
+    const isRejected = join.requestStatus === 'rejected';
+    const isFull = (join.membersCount || 0) >= (join.maxPlayers || 8);
+
     return (
       <main className="join-screen">
         <a className="brand" href="/">
           <span className="brand-symbol">Ж</span>jinaly
         </a>
         <div className="join-card">
-          <span className="join-emoji">🤝</span>
+          {isPrivate && (
+            <span className="private-room-badge">
+              <Lock size={13} /> Приватная комната
+            </span>
+          )}
+          <span className="join-emoji">{isPrivate ? '🔐' : '🤝'}</span>
           <h1>{join.title}</h1>
-          <p className="muted">
-            Команда ждёт вас. Представьтесь, чтобы присоединиться.
-          </p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void enter();
-            }}
-          >
-            <label className="field">
-              Ваше имя
-              <input
-                required
-                maxLength={40}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Как вас зовут?"
-              />
-            </label>
-            <button className="primary full-width" disabled={busy}>
-              {busy ? 'Подключаемся…' : 'Войти в комнату'}{' '}
-              <ChevronRight size={17} />
-            </button>
-          </form>
+          <div className="join-room-meta-info">
+            <span>
+              Ведущий: <b>{join.hostName || 'Ведущий'}</b>
+            </span>
+            <span>
+              Участники:{' '}
+              <b>
+                {join.membersCount || 0} / {join.maxPlayers || 8}
+              </b>
+            </span>
+          </div>
+
+          {isPrivate ? (
+            isPending ? (
+              <div className="join-waiting-box">
+                <div className="waiting-spinner" />
+                <span className="waiting-title">
+                  Ожидание одобрения ведущего…
+                </span>
+                <p className="waiting-text">
+                  Ведущий ({join.hostName || 'Ведущий'}) получил ваш запрос на
+                  вход. Комната откроется автоматически сразу после одобрения.
+                </p>
+                <a href="/" className="secondary">
+                  К списку комнат
+                </a>
+              </div>
+            ) : isRejected ? (
+              <div className="join-rejected-box">
+                <span className="rejected-icon">🚫</span>
+                <span className="rejected-title">Запрос отклонён</span>
+                <p className="rejected-text">
+                  Ведущий отклонил ваш запрос на вход в эту комнату.
+                </p>
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setJoinRequestSent(false);
+                    setError('');
+                  }}
+                >
+                  Попробовать снова
+                </button>
+                <a href="/" className="secondary">
+                  К списку комнат
+                </a>
+              </div>
+            ) : (
+              <>
+                <p className="muted">
+                  Для входа в эту комнату требуется подтверждение ведущего.
+                </p>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void sendJoinRequest(name);
+                  }}
+                >
+                  <label className="field">
+                    Ваше имя
+                    <input
+                      required
+                      maxLength={40}
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Как вас зовут?"
+                    />
+                  </label>
+                  <button
+                    className="primary full-width"
+                    disabled={busy || isFull}
+                  >
+                    {busy
+                      ? 'Отправка запроса…'
+                      : isFull
+                        ? 'Комната заполнена'
+                        : 'Отправить запрос на вход'}{' '}
+                    <ChevronRight size={17} />
+                  </button>
+                </form>
+              </>
+            )
+          ) : (
+            <>
+              <p className="muted">
+                Команда ждёт вас. Представьтесь, чтобы присоединиться.
+              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void enter();
+                }}
+              >
+                <label className="field">
+                  Ваше имя
+                  <input
+                    required
+                    maxLength={40}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Как вас зовут?"
+                  />
+                </label>
+                <button
+                  className="primary full-width"
+                  disabled={busy || isFull}
+                >
+                  {busy
+                    ? 'Подключаемся…'
+                    : isFull
+                      ? 'Комната заполнена'
+                      : 'Войти в комнату'}{' '}
+                  <ChevronRight size={17} />
+                </button>
+              </form>
+            </>
+          )}
+
           {error && (
             <p className="error-banner" role="alert">
               {error}
@@ -801,6 +1009,7 @@ export default function RoomApp({ id }: { id: string }) {
         </div>
       </main>
     );
+  }
   if (!room || !s)
     return (
       <main className="join-screen">
@@ -957,6 +1166,18 @@ export default function RoomApp({ id }: { id: string }) {
         >
           {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
         </button>
+        {host && joinRequests.length > 0 && (
+          <button
+            type="button"
+            className="join-requests-alert-btn"
+            onClick={() => setPanel('join_requests')}
+            aria-label="Запросы на вход"
+            title="Ожидают подтверждения"
+          >
+            <Bell size={16} className="bell-pulse" />
+            <span>Запросы ({joinRequests.length})</span>
+          </button>
+        )}
         <button
           className="secondary invite-button"
           onClick={() => setPanel('share')}
@@ -1158,6 +1379,8 @@ export default function RoomApp({ id }: { id: string }) {
                 onPaintColor={setPaintColor}
                 tool={tool}
                 onTool={setTool}
+                pendingJoinRequestsCount={joinRequests.length}
+                onOpenJoinRequests={() => setPanel('join_requests')}
                 onBoardTool={(id) => {
                   setMode('board');
                   setSelectedZone('');
@@ -1542,7 +1765,7 @@ export default function RoomApp({ id }: { id: string }) {
             setDraft(null);
             if (mode === '3d') {
               setTimeout(() => {
-                document.querySelector('canvas')?.requestPointerLock();
+                void document.querySelector('canvas')?.requestPointerLock();
               }, 50);
             }
           }
@@ -1594,7 +1817,7 @@ export default function RoomApp({ id }: { id: string }) {
             setDeleteConfirm(false);
             if (mode === '3d') {
               setTimeout(() => {
-                document.querySelector('canvas')?.requestPointerLock();
+                void document.querySelector('canvas')?.requestPointerLock();
               }, 50);
             }
           }
@@ -1940,6 +2163,7 @@ export default function RoomApp({ id }: { id: string }) {
                 world: 'Настройки мира',
                 fps: 'Графика и FPS',
                 share: 'Пригласить команду',
+                join_requests: 'Запросы на вход',
                 timer: 'Время для главного',
                 vote: 'Голосование',
                 group: 'Объединить идеи в тему',
@@ -1954,13 +2178,15 @@ export default function RoomApp({ id }: { id: string }) {
           <DialogDescription>
             {panel === 'share'
               ? 'Участники войдут по ссылке. Новая комната имеет отдельный адрес.'
-              : panel === 'settings'
-                ? 'Приватность и правила совместной работы'
-                : panel === 'world'
-                  ? 'Общий облик мира и правила возрождения'
-                  : panel === 'fps'
-                    ? 'Эти настройки действуют только на вашем устройстве'
-                    : 'Инструменты вашей ретроспективы'}
+              : panel === 'join_requests'
+                ? 'Управление пользователями, ожидающими входа в комнату'
+                : panel === 'settings'
+                  ? 'Приватность и правила совместной работы'
+                  : panel === 'world'
+                    ? 'Общий облик мира и правила возрождения'
+                    : panel === 'fps'
+                      ? 'Эти настройки действуют только на вашем устройстве'
+                      : 'Инструменты вашей ретроспективы'}
           </DialogDescription>
           {panel === 'tools' && (
             <>
@@ -2050,6 +2276,83 @@ export default function RoomApp({ id }: { id: string }) {
               </div>
             </>
           )}
+          {panel === 'join_requests' && (
+            <div className="join-requests-panel">
+              <div className="join-requests-header">
+                <p className="muted">
+                  Пользователи, ожидающие одобрения для входа в приватную комнату.
+                </p>
+              </div>
+              {joinRequests.length === 0 ? (
+                <p className="empty-requests">Ожидающих запросов нет</p>
+              ) : (
+                <div className="join-requests-list">
+                  {joinRequests.map((req) => (
+                    <div key={req.id} className="join-request-card">
+                      <div className="join-request-user">
+                        <span className="join-avatar">
+                          {req.name.slice(0, 1).toUpperCase()}
+                        </span>
+                        <div className="join-user-details">
+                          <strong>{req.name}</strong>
+                          <small>
+                            {new Date(req.created).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </small>
+                        </div>
+                      </div>
+                      <div className="join-request-actions">
+                        <button
+                          type="button"
+                          className="btn-accept"
+                          onClick={async () => {
+                            try {
+                              await act({
+                                type: 'join_request.accept',
+                                id: req.id,
+                              });
+                              setJoinRequests((prev) =>
+                                prev.filter((r) => r.id !== req.id),
+                              );
+                              flash(`Вход для ${req.name} разрешён`);
+                              await refresh();
+                            } catch (e) {
+                              setError((e as Error).message);
+                            }
+                          }}
+                        >
+                          <Check size={16} /> Принять
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-reject"
+                          onClick={async () => {
+                            try {
+                              await act({
+                                type: 'join_request.reject',
+                                id: req.id,
+                              });
+                              setJoinRequests((prev) =>
+                                prev.filter((r) => r.id !== req.id),
+                              );
+                              flash(`Запрос ${req.name} отклонён`);
+                              await refresh();
+                            } catch (e) {
+                              setError((e as Error).message);
+                            }
+                          }}
+                        >
+                          <X size={16} /> Отклонить
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {panel === 'share' && (
             <>
               <label className="field">
@@ -2058,20 +2361,58 @@ export default function RoomApp({ id }: { id: string }) {
                   readOnly
                   value={
                     typeof location !== 'undefined'
-                      ? location.origin + '/room/' + id
+                      ? location.origin +
+                        '/room/' +
+                        id +
+                        (s.access?.type === 'private' && s.access.inviteToken
+                          ? '?invite=' + s.access.inviteToken
+                          : '')
                       : ''
                   }
                   onFocus={(e) => e.target.select()}
                 />
               </label>
-              <button className="primary" onClick={() => void copyLink()}>
-                <Copy size={16} />
-                Скопировать ссылку
-              </button>
-              <p className="muted">
-                Код комнаты: <b>{id}</b>. Войдя по ссылке, участник получает
-                доступ к открытым заметкам этой комнаты.
-              </p>
+              <div className="share-buttons">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void copyLink()}
+                >
+                  <Copy size={16} />
+                  Скопировать ссылку
+                </button>
+                {host && s.access?.type === 'private' && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={async () => {
+                      if (
+                        confirm(
+                          'Создать новую ссылку-приглашение? Старая ссылка перестанет действовать.',
+                        )
+                      ) {
+                        await act({ type: 'access.regenerate_invite' });
+                        flash('Ссылка-приглашение обновлена');
+                      }
+                    }}
+                  >
+                    <RotateCcw size={16} />
+                    Обновить ссылку
+                  </button>
+                )}
+              </div>
+              <div className="share-access-info">
+                <span className={`access-badge ${s.access?.type || 'public'}`}>
+                  {s.access?.type === 'private'
+                    ? '🔒 Приватная комната'
+                    : '🌐 Публичная комната'}
+                </span>
+                <p className="muted">
+                  {s.access?.type === 'private'
+                    ? 'Вход только по ссылке-приглашению с подтверждением ведущего. Комната скрыта из общего списка комнат.'
+                    : 'Комната отображается в общем списке комнат. Любой пользователь может присоединиться свободно.'}
+                </p>
+              </div>
             </>
           )}
           {panel === 'world' && (
@@ -2271,6 +2612,61 @@ export default function RoomApp({ id }: { id: string }) {
                 }
               />
               <Toggle label="Звуки встречи" value={sound} onChange={setSound} />
+              {host && (
+                <div className="settings-access-box">
+                  <span className="settings-subheading">Доступ к комнате</span>
+                  <div className="access-toggle-grid">
+                    <button
+                      type="button"
+                      className={`access-toggle-card ${s.access?.type === 'public' ? 'active' : ''}`}
+                      onClick={() =>
+                        void act({
+                          type: 'access.set',
+                          accessType: 'public',
+                        })
+                      }
+                    >
+                      <div className="access-toggle-icon">🌐</div>
+                      <div>
+                        <strong>Публичная</strong>
+                        <small>В общем списке комнат</small>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className={`access-toggle-card ${s.access?.type === 'private' ? 'active' : ''}`}
+                      onClick={() =>
+                        void act({
+                          type: 'access.set',
+                          accessType: 'private',
+                        })
+                      }
+                    >
+                      <div className="access-toggle-icon">🔒</div>
+                      <div>
+                        <strong>Приватная</strong>
+                        <small>По ссылке с подтверждением</small>
+                      </div>
+                    </button>
+                  </div>
+                  <label className="field" style={{ marginTop: '0.75rem' }}>
+                    Максимум участников: <b>{s.access?.maxPlayers || 8}</b>
+                    <input
+                      type="range"
+                      min="2"
+                      max="50"
+                      value={s.access?.maxPlayers || 8}
+                      onChange={(e) => {
+                        const maxPlayers = Number(e.target.value);
+                        void act({
+                          type: 'access.max_players',
+                          maxPlayers,
+                        });
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
               <label className="field">
                 Ваше имя
                 <input
