@@ -120,3 +120,32 @@ test('Anonymous bag conceals the head across both styles and can be removed', ()
   assert.equal(a.getObjectByName('unmasked-head').visible, true);
   assert.equal(a.getObjectByName('anonymous-bag').visible, false);
 });
+
+test('Sitting and prone have expressive idle breathing and crawling locomotion', () => {
+  const a = createAvatar('#8196dd');
+  // 1. Sitting idle has natural breathing bob
+  frames(a, { stance: 'sit', speed: 0 }, 60);
+  const sitY0 = a.getObjectByName('rig').position.y;
+  assert.ok(Math.abs(sitY0 - (-0.4)) < 0.05);
+
+  // 2. Sitting with speed shuffles legs and hands
+  frames(a, { stance: 'sit', speed: 2.5 }, 30);
+  const kneeL = a.getObjectByName('kneeL').rotation.x;
+  assert.ok(kneeL < -1.1);
+
+  // 3. Prone idle has chest breathing and propped head
+  frames(a, { stance: 'lie', speed: 0 }, 30);
+  const headX = a.getObjectByName('head').rotation.x;
+  assert.ok(headX > 0.5, 'Head should be propped up looking ahead while prone');
+  const rigY = a.getObjectByName('rig').position.y;
+  assert.ok(rigY > 0.18, 'Prone character stays above ground');
+
+  // 4. Prone crawling has alternating low-crawl knee drives
+  let minKnee = 0;
+  for (let f = 0; f < 30; f++) {
+    animateAvatar(a, { ...idle, stance: 'lie', speed: 1.5, forward: 1 }, 1 / 60, f / 60);
+    minKnee = Math.min(minKnee, a.getObjectByName('kneeL').rotation.x, a.getObjectByName('kneeR').rotation.x);
+  }
+  assert.ok(minKnee < -0.1, 'Crawling bends knees forward in soldier crawl');
+});
+

@@ -357,8 +357,12 @@ export default function RoomApp({ id }: { id: string }) {
       responseTimeMs?: number,
     ) => {
       if (responseTimeMs !== undefined) {
-        setPing(responseTimeMs);
-        pingRef.current = responseTimeMs;
+        const smoothed =
+          pingRef.current === 0
+            ? responseTimeMs
+            : Math.round(0.7 * pingRef.current + 0.3 * responseTimeMs);
+        setPing(smoothed);
+        pingRef.current = smoothed;
       }
       if (data.join) {
         setJoin(data as Room & { title: string });

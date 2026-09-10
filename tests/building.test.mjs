@@ -31,25 +31,60 @@ test('Campus building 1st floor slab has ground height 0.2', () => {
   assert.equal(floor1Y, 0.2);
 });
 
-test('Stairs step up smoothly from 0.6m to 3.6m', () => {
+test('Stairs step up smoothly from 0.2m to 3.6m', () => {
   // Stair is along west wall: x in [-4.2, -2.6], z from -15.2 to -20.8
-  const step0 = getGroundHeight(-3.4, -15.5, 0.5);
-  assert.equal(step0, 0.6);
+  // Continuous smooth ramp allows walking up without jumping
+  const stepBottom = getGroundHeight(-3.4, -15.2, 0.2);
+  assert.ok(Math.abs(stepBottom - 0.2) < 0.05, 'Bottom of stairs starts at Floor 1 level 0.2m');
 
-  const stepMiddle = getGroundHeight(-3.4, -17.9, 1.8);
-  assert.equal(stepMiddle, 2.1);
+  const stepTop = getGroundHeight(-3.4, -20.8, 3.2);
+  assert.ok(Math.abs(stepTop - 3.6) < 0.05, 'Top of stairs reaches Floor 2 level 3.6m');
 
-  const stepTop = getGroundHeight(-3.4, -20.5, 3.2);
-  assert.equal(stepTop, 3.6);
+  // Verify smooth monotonic rise with delta < 0.15m per 0.2m stride
+  let prevY = stepBottom;
+  for (let z = -15.4; z >= -20.8; z -= 0.2) {
+    const y = getGroundHeight(-3.4, z, prevY);
+    assert.ok(y >= prevY, `Stairs must rise monotonically at z=${z}`);
+    assert.ok(y - prevY <= 0.15, `Stairs step delta must be smooth and walkable (<0.15m) at z=${z}`);
+    prevY = y;
+  }
 });
 
-test('Campus building 2nd floor has floor height 3.6', () => {
+test('Campus building 2nd floor has floor height 3.6 and does not fall through at edges', () => {
   const floor2Y = getGroundHeight(0, -18, 3.6);
   assert.equal(floor2Y, 3.6);
 
-  // Balcony front area on 2nd floor
+  // Balcony front area on 2nd floor (z = -14.5 and z = -13.5)
   const balconyY = getGroundHeight(2, -14.5, 3.6);
   assert.equal(balconyY, 3.6);
+  const balconyEdgeY = getGroundHeight(0, -13.5, 3.6);
+  assert.equal(balconyEdgeY, 3.6, '2nd floor must not drop to ground at balcony edge');
+});
+
+test('Jumping from above allows landing cleanly on obstacle tops without getting stuck', () => {
+  // Landing from above on Dastarkhan table (maxY = 1.05)
+  const tableY = getGroundHeight(0, -10, 2.0);
+  assert.equal(tableY, 1.05, 'Player lands on top of table');
+
+  // Standing on top of table does not horizontally block movement
+  assert.equal(isBlocked3D(0, -10, 1.05), false, 'Walking on table top must not be blocked');
+
+  // Landing on pond rock (maxY = 1.6)
+  const rockY = getGroundHeight(-19, 2, 2.5);
+  assert.equal(rockY, 1.6, 'Player lands on top of boulder');
+  assert.equal(isBlocked3D(-19, 2, 1.6), false, 'Walking on boulder top must not be blocked');
+});
+
+test('Side campus buildings are enterable with 2 floors, stairs, and open doorways', () => {
+  // West building (x = -27, z = -8)
+  assert.equal(getGroundHeight(-27, -8, 0), 0.2, 'West building Floor 1 slab is at y=0.2');
+  assert.equal(getGroundHeight(-27, -8, 3.6), 3.6, 'West building Floor 2 slab is at y=3.6');
+  assert.equal(isBlocked3D(-23.5, -8, 0.2), false, 'West building doorway is unblocked');
+
+  // East building (x = 27, z = -8)
+  assert.equal(getGroundHeight(27, -8, 0), 0.2, 'East building Floor 1 slab is at y=0.2');
+  assert.equal(getGroundHeight(27, -8, 3.6), 3.6, 'East building Floor 2 slab is at y=3.6');
+  assert.equal(isBlocked3D(23.5, -8, 0.2), false, 'East building doorway is unblocked');
 });
 
 test('Entrance canopy roof is walkable at height 2.7', () => {

@@ -160,79 +160,228 @@ STATION_COLLIDERS.push({
   label: 'dastarkhan-table',
 });
 
+/**
+ * 3D Colliders for West and East Campus Buildings.
+ * Both buildings are enterable 2-story buildings with wide plaza-facing doorways,
+ * panoramic windows, stairs, and 2nd floor balconies.
+ */
+export const SIDE_BUILDINGS_COLLIDERS: BoxCollider3D[] = [
+  // ===================== WEST BUILDING (x ~ -27, z ~ -8) =====================
+  // --- East Wall (Plaza entrance at x = -23.5: x in [-23.7, -23.3]) ---
+  { minX: -23.7, maxX: -23.3, minZ: -17.2, maxZ: -9.5, minY: 0, maxY: 3.5, label: 'west-bldg-east-wall-n' },
+  { minX: -23.7, maxX: -23.3, minZ: -6.5, maxZ: 1.2, minY: 0, maxY: 3.5, label: 'west-bldg-east-wall-s' },
+  { minX: -23.7, maxX: -23.3, minZ: -9.5, maxZ: -6.5, minY: 2.6, maxY: 3.5, label: 'west-bldg-door-lintel' },
+
+  // --- West Wall (x = -30.5: x in [-30.7, -30.3]) ---
+  { minX: -30.7, maxX: -30.3, minZ: -17.2, maxZ: -15.0, minY: 0, maxY: 3.5 },
+  { minX: -30.7, maxX: -30.3, minZ: -1.0, maxZ: 1.2, minY: 0, maxY: 3.5 },
+  { minX: -30.7, maxX: -30.3, minZ: -15.0, maxZ: -1.0, minY: 0, maxY: 0.95 },
+  { minX: -30.7, maxX: -30.3, minZ: -15.0, maxZ: -1.0, minY: 2.5, maxY: 3.5 },
+
+  // --- North Wall (z = -17.0: z in [-17.2, -16.8]) ---
+  { minX: -30.7, maxX: -28.5, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 3.5 },
+  { minX: -25.5, maxX: -23.3, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 3.5 },
+  { minX: -28.5, maxX: -25.5, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 0.95 },
+  { minX: -28.5, maxX: -25.5, minZ: -17.2, maxZ: -16.8, minY: 2.5, maxY: 3.5 },
+
+  // --- South Wall (z = 1.0: z in [0.8, 1.2]) ---
+  { minX: -30.7, maxX: -28.5, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 3.5 },
+  { minX: -25.5, maxX: -23.3, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 3.5 },
+  { minX: -28.5, maxX: -25.5, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 0.95 },
+  { minX: -28.5, maxX: -25.5, minZ: 0.8, maxZ: 1.2, minY: 2.5, maxY: 3.5 },
+
+  // --- Floor 2 Exterior Walls & Balcony (y in [3.5, 7.0]) ---
+  { minX: -23.7, maxX: -23.3, minZ: -17.2, maxZ: 1.2, minY: 3.5, maxY: 4.35, label: 'west-bldg-balcony-sill' },
+  { minX: -23.7, maxX: -23.3, minZ: -17.2, maxZ: 1.2, minY: 6.2, maxY: 7.0, label: 'west-bldg-balcony-lintel' },
+  { minX: -30.7, maxX: -30.3, minZ: -17.2, maxZ: 1.2, minY: 3.5, maxY: 4.4 },
+  { minX: -30.7, maxX: -30.3, minZ: -17.2, maxZ: 1.2, minY: 6.2, maxY: 7.0 },
+  { minX: -30.7, maxX: -23.3, minZ: -17.2, maxZ: -16.8, minY: 3.5, maxY: 4.4 },
+  { minX: -30.7, maxX: -23.3, minZ: -17.2, maxZ: -16.8, minY: 6.2, maxY: 7.0 },
+  { minX: -30.7, maxX: -23.3, minZ: 0.8, maxZ: 1.2, minY: 3.5, maxY: 4.4 },
+  { minX: -30.7, maxX: -23.3, minZ: 0.8, maxZ: 1.2, minY: 6.2, maxY: 7.0 },
+
+  // ===================== EAST BUILDING (x ~ 27, z ~ -8) =====================
+  // --- West Wall (Plaza entrance at x = 23.5: x in [23.3, 23.7]) ---
+  { minX: 23.3, maxX: 23.7, minZ: -17.2, maxZ: -9.5, minY: 0, maxY: 3.5, label: 'east-bldg-west-wall-n' },
+  { minX: 23.3, maxX: 23.7, minZ: -6.5, maxZ: 1.2, minY: 0, maxY: 3.5, label: 'east-bldg-west-wall-s' },
+  { minX: 23.3, maxX: 23.7, minZ: -9.5, maxZ: -6.5, minY: 2.6, maxY: 3.5, label: 'east-bldg-door-lintel' },
+
+  // --- East Wall (x = 30.5: x in [30.3, 30.7]) ---
+  { minX: 30.3, maxX: 30.7, minZ: -17.2, maxZ: -15.0, minY: 0, maxY: 3.5 },
+  { minX: 30.3, maxX: 30.7, minZ: -1.0, maxZ: 1.2, minY: 0, maxY: 3.5 },
+  { minX: 30.3, maxX: 30.7, minZ: -15.0, maxZ: -1.0, minY: 0, maxY: 0.95 },
+  { minX: 30.3, maxX: 30.7, minZ: -15.0, maxZ: -1.0, minY: 2.5, maxY: 3.5 },
+
+  // --- North Wall (z = -17.0: z in [-17.2, -16.8]) ---
+  { minX: 23.3, maxX: 25.5, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 3.5 },
+  { minX: 28.5, maxX: 30.7, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 3.5 },
+  { minX: 25.5, maxX: 28.5, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 0.95 },
+  { minX: 25.5, maxX: 28.5, minZ: -17.2, maxZ: -16.8, minY: 2.5, maxY: 3.5 },
+
+  // --- South Wall (z = 1.0: z in [0.8, 1.2]) ---
+  { minX: 23.3, maxX: 25.5, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 3.5 },
+  { minX: 28.5, maxX: 30.7, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 3.5 },
+  { minX: 25.5, maxX: 28.5, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 0.95 },
+  { minX: 25.5, maxX: 28.5, minZ: 0.8, maxZ: 1.2, minY: 2.5, maxY: 3.5 },
+
+  // --- Floor 2 Exterior Walls & Balcony (y in [3.5, 7.0]) ---
+  { minX: 23.3, maxX: 23.7, minZ: -17.2, maxZ: 1.2, minY: 3.5, maxY: 4.35, label: 'east-bldg-balcony-sill' },
+  { minX: 23.3, maxX: 23.7, minZ: -17.2, maxZ: 1.2, minY: 6.2, maxY: 7.0, label: 'east-bldg-balcony-lintel' },
+  { minX: 30.3, maxX: 30.7, minZ: -17.2, maxZ: 1.2, minY: 3.5, maxY: 4.4 },
+  { minX: 30.3, maxX: 30.7, minZ: -17.2, maxZ: 1.2, minY: 6.2, maxY: 7.0 },
+  { minX: 23.3, maxX: 30.7, minZ: -17.2, maxZ: -16.8, minY: 3.5, maxY: 4.4 },
+  { minX: 23.3, maxX: 30.7, minZ: -17.2, maxZ: -16.8, minY: 6.2, maxY: 7.0 },
+  { minX: 23.3, maxX: 30.7, minZ: 0.8, maxZ: 1.2, minY: 3.5, maxY: 4.4 },
+  { minX: 23.3, maxX: 30.7, minZ: 0.8, maxZ: 1.2, minY: 6.2, maxY: 7.0 },
+];
+
 // All 3D obstacle colliders combined
 export const ALL_3D_COLLIDERS: BoxCollider3D[] = [
   ...CAMPUS_WALL_COLLIDERS,
+  ...SIDE_BUILDINGS_COLLIDERS,
   ...STATION_COLLIDERS,
 ];
 
 /**
  * Returns the exact walkable ground/floor height at (x, z)
  * considering base terrain, bridge, station platforms, building floors, and stairs.
+ * Also checks tops of solid obstacles so player can cleanly land on tables/rocks/walls.
  */
 export function getGroundHeight(x: number, z: number, currentY = 0): number {
-  // 1. Campus Building Area (x: [-4.4, 4.4], z: [-22.4, -13.6])
-  if (x >= -4.4 && x <= 4.4 && z >= -22.4 && z <= -13.6) {
+  let baseGround = 0.0;
+
+  // 1. Central Campus Building Area (x: [-4.7, 4.7], z: [-22.7, -13.3])
+  if (x >= -4.7 && x <= 4.7 && z >= -22.7 && z <= -13.3) {
     // Check if player is on the interior staircase
-    // Stair extends along west wall: x in [-4.2, -2.6], z in [-20.8, -15.2]
+    // Continuous smooth incline ramp rising from 0.2m to 3.6m as -z goes from 15.2 to 20.8
     if (x >= -4.2 && x <= -2.6 && z >= -20.8 && z <= -15.2) {
-      // 7 step intervals rising from 0.6m to 3.6m
-      const stepIndex = Math.min(6, Math.max(0, Math.floor((-z - 15.2) / 0.8)));
-      const stairY = 0.6 + stepIndex * 0.5;
-      // If player is within stepping reach or on stairs
+      const progress = Math.max(0, Math.min(1, (-z - 15.2) / 5.6));
+      const stairY = 0.2 + progress * 3.4;
       if (currentY >= stairY - 0.7) {
-        return stairY;
+        baseGround = Math.max(baseGround, stairY);
       }
     }
 
-    // Check Floor 2: slab at y = 3.6
-    // Stair opening is at x in [-4.2, -2.6], z in [-19.8, -15.2]
-    const inStairOpening = x >= -4.2 && x <= -2.6 && z >= -19.8 && z <= -15.2;
-    if (!inStairOpening && currentY >= 2.6) {
-      return 3.6;
+    // Check Floor 2: slab at y = 3.6 with floor-level hysteresis
+    // Stair opening is at x in [-4.2, -2.6], z in [-20.8, -15.2]
+    const inStairOpening = x >= -4.2 && x <= -2.6 && z >= -20.8 && z <= -15.2;
+    if (!inStairOpening && currentY >= 2.2) {
+      baseGround = Math.max(baseGround, 3.6);
+    } else if (baseGround < 0.2) {
+      // Floor 1 slab: y = 0.2
+      baseGround = 0.2;
     }
-
-    // Floor 1 slab: y = 0.2
-    return 0.2;
   }
 
-  // 2. Entrance canopy / porch outside front door (x in [-2.2, 2.2], z in [-13.6, -12.4])
-  if (x >= -2.2 && x <= 2.2 && z >= -13.6 && z <= -12.4) {
+  // 2. West Campus Building (x: [-30.5, -23.5], z: [-17.0, 1.0])
+  else if (x >= -30.5 && x <= -23.5 && z >= -17.0 && z <= 1.0) {
+    // Interior stairs along west wall: x in [-30.2, -28.4], z in [-15.5, -9.5]
+    if (x >= -30.2 && x <= -28.4 && z >= -15.5 && z <= -9.5) {
+      const progress = Math.max(0, Math.min(1, (-z - 9.5) / 6.0));
+      const stairY = 0.2 + progress * 3.4;
+      if (currentY >= stairY - 0.7) {
+        baseGround = Math.max(baseGround, stairY);
+      }
+    }
+
+    const inStairOpening = x >= -30.2 && x <= -28.4 && z >= -15.5 && z <= -9.5;
+    if (!inStairOpening && currentY >= 2.2) {
+      baseGround = Math.max(baseGround, 3.6);
+    } else if (baseGround < 0.2) {
+      baseGround = 0.2;
+    }
+  }
+
+  // 3. East Campus Building (x: [23.5, 30.5], z: [-17.0, 1.0])
+  else if (x >= 23.5 && x <= 30.5 && z >= -17.0 && z <= 1.0) {
+    // Interior stairs along east wall: x in [28.4, 30.2], z in [-15.5, -9.5]
+    if (x >= 28.4 && x <= 30.2 && z >= -15.5 && z <= -9.5) {
+      const progress = Math.max(0, Math.min(1, (-z - 9.5) / 6.0));
+      const stairY = 0.2 + progress * 3.4;
+      if (currentY >= stairY - 0.7) {
+        baseGround = Math.max(baseGround, stairY);
+      }
+    }
+
+    const inStairOpening = x >= 28.4 && x <= 30.2 && z >= -15.5 && z <= -9.5;
+    if (!inStairOpening && currentY >= 2.2) {
+      baseGround = Math.max(baseGround, 3.6);
+    } else if (baseGround < 0.2) {
+      baseGround = 0.2;
+    }
+  }
+
+  // 4. Central Entrance canopy / porch outside front door (x in [-2.2, 2.2], z in [-13.6, -12.4])
+  else if (x >= -2.2 && x <= 2.2 && z >= -13.6 && z <= -12.4) {
     if (currentY >= 2.0) {
-      return 2.7; // Front entrance canopy roof (jumpable from Floor 2 window!)
-    }
-    return 0.1; // Entrance step
-  }
-
-  // 3. Wooden Bridge over the pond (x in [-21.5, -16.5], z in [-0.5, 4.5])
-  if (x >= -21.5 && x <= -16.5 && z >= -0.5 && z <= 4.5) {
-    return 0.43; // Walk smoothly on the bridge planks
-  }
-
-  // 4. Station Raised Platforms
-  for (const [sx, sz] of WORLD_STATIONS) {
-    if (x >= sx - 3.3 && x <= sx + 3.3 && z >= sz - 1.3 && z <= sz + 3.5) {
-      return 0.28;
+      baseGround = 2.7; // Front entrance canopy roof (jumpable from Floor 2 window!)
+    } else {
+      baseGround = 0.1; // Entrance step
     }
   }
 
-  // Default ground level
-  return 0.0;
+  // 5. Wooden Bridge over the pond (x in [-21.5, -16.5], z in [-0.5, 4.5])
+  else if (x >= -21.5 && x <= -16.5 && z >= -0.5 && z <= 4.5) {
+    baseGround = 0.43; // Walk smoothly on the bridge planks
+  }
+
+  // 6. Station Raised Platforms
+  else {
+    for (const [sx, sz] of WORLD_STATIONS) {
+      if (x >= sx - 3.3 && x <= sx + 3.3 && z >= sz - 1.3 && z <= sz + 3.5) {
+        baseGround = 0.28;
+        break;
+      }
+    }
+  }
+
+  // 7. Check landing surfaces on top of solid obstacle colliders (tables, rocks, railings, walls)
+  // When a player jumps from above, allow landing cleanly on top of obstacles without getting stuck inside
+  let obstacleTop = 0.0;
+  for (const c of ALL_3D_COLLIDERS) {
+    if (x >= c.minX && x <= c.maxX && z >= c.minZ && z <= c.maxZ) {
+      if (currentY >= c.maxY - 0.6) {
+        if (c.maxY > obstacleTop) {
+          obstacleTop = c.maxY;
+        }
+      }
+    }
+  }
+
+  return Math.max(baseGround, obstacleTop);
 }
 
 /**
  * Returns ceiling height at (x, z, currentY) to prevent head clipping through roofs/floors.
  */
 export function getCeilingHeight(x: number, z: number, currentY = 0): number {
-  if (x >= -4.4 && x <= 4.4 && z >= -22.4 && z <= -13.6) {
-    const inStairOpening = x >= -4.2 && x <= -2.6 && z >= -19.8 && z <= -15.2;
-    // On Floor 1 below Floor 2 ceiling
+  // Central Campus Building
+  if (x >= -4.7 && x <= 4.7 && z >= -22.7 && z <= -13.3) {
+    const inStairOpening = x >= -4.2 && x <= -2.6 && z >= -19.5 && z <= -15.2;
     if (currentY < 3.2 && !inStairOpening) {
       return 3.5;
     }
-    // On Floor 2 below roof
     return 6.8;
   }
+
+  // West Campus Building
+  if (x >= -30.5 && x <= -23.5 && z >= -17.0 && z <= 1.0) {
+    const inStairOpening = x >= -30.2 && x <= -28.4 && z >= -15.5 && z <= -9.5;
+    if (currentY < 3.2 && !inStairOpening) {
+      return 3.5;
+    }
+    return 6.8;
+  }
+
+  // East Campus Building
+  if (x >= 23.5 && x <= 30.5 && z >= -17.0 && z <= 1.0) {
+    const inStairOpening = x >= 28.4 && x <= 30.2 && z >= -15.5 && z <= -9.5;
+    if (currentY < 3.2 && !inStairOpening) {
+      return 3.5;
+    }
+    return 6.8;
+  }
+
   return Number.POSITIVE_INFINITY;
 }
 
@@ -248,6 +397,12 @@ export function isBlocked3D(
   colliders: BoxCollider3D[] = ALL_3D_COLLIDERS,
 ): boolean {
   for (const c of colliders) {
+    // If player's feet are essentially on top of this collider (within 0.1m of maxY),
+    // they are walking ON TOP of it, not colliding horizontally with its vertical face.
+    if (y >= c.maxY - 0.1) {
+      continue;
+    }
+
     // Check horizontal AABB overlap with player radius
     if (
       x + playerRadius > c.minX &&
@@ -257,7 +412,6 @@ export function isBlocked3D(
     ) {
       // Check vertical overlap:
       // Player foot is at y, head is at y + playerHeight.
-      // Collision occurs if vertical interval overlaps.
       // Small step buffer (0.35m) allows walking over minor floor transitions.
       const feetY = y + 0.35;
       const headY = y + playerHeight - 0.05;

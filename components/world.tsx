@@ -1819,19 +1819,19 @@ export default function World(props: Props) {
         dz /= len;
         const vx = dx * Math.cos(cameraYaw) + dz * Math.sin(cameraYaw),
           vz = -dx * Math.sin(cameraYaw) + dz * Math.cos(cameraYaw);
-        const nx = T.MathUtils.clamp(pos.x + vx * speed * dt, -28, 28),
-          nz = T.MathUtils.clamp(pos.z + vz * speed * dt, -28, 28);
+        const nx = T.MathUtils.clamp(pos.x + vx * speed * dt, -36, 36),
+          nz = T.MathUtils.clamp(pos.z + vz * speed * dt, -36, 36);
 
         // Try X movement with step-up assist:
         const nextGroundX = getGroundHeight(nx, pos.z, pos.y);
         const stepDeltaX = nextGroundX - pos.y;
         if (
-          stepDeltaX <= 0.45 &&
+          stepDeltaX <= 0.55 &&
           !blocked(nx, pos.z, Math.max(pos.y, nextGroundX))
         ) {
           pos.x = nx;
           if (stepDeltaX > 0.01 && pos.y < nextGroundX) {
-            pos.y = T.MathUtils.lerp(pos.y, nextGroundX, Math.min(1, 15 * dt));
+            pos.y = T.MathUtils.lerp(pos.y, nextGroundX, Math.min(1, 20 * dt));
           }
         }
 
@@ -1839,12 +1839,12 @@ export default function World(props: Props) {
         const nextGroundZ = getGroundHeight(pos.x, nz, pos.y);
         const stepDeltaZ = nextGroundZ - pos.y;
         if (
-          stepDeltaZ <= 0.45 &&
+          stepDeltaZ <= 0.55 &&
           !blocked(pos.x, nz, Math.max(pos.y, nextGroundZ))
         ) {
           pos.z = nz;
           if (stepDeltaZ > 0.01 && pos.y < nextGroundZ) {
-            pos.y = T.MathUtils.lerp(pos.y, nextGroundZ, Math.min(1, 15 * dt));
+            pos.y = T.MathUtils.lerp(pos.y, nextGroundZ, Math.min(1, 20 * dt));
           }
         }
       }
@@ -1863,6 +1863,37 @@ export default function World(props: Props) {
       if (pos.y + 1.8 >= ceilY) {
         pos.y = ceilY - 1.8;
         if (vy > 0) vy = 0;
+      }
+
+      // Anti-stuck depenetration: guarantee player never gets stuck inside colliders
+      const playerRadius = 0.32;
+      const worldColliders = (kit.colliders || ALL_3D_COLLIDERS) as BoxCollider3D[];
+      for (const c of worldColliders) {
+        if (
+          pos.x + playerRadius > c.minX &&
+          pos.x - playerRadius < c.maxX &&
+          pos.z + playerRadius > c.minZ &&
+          pos.z - playerRadius < c.maxZ
+        ) {
+          const feetY = pos.y + 0.35;
+          const headY = pos.y + 1.75;
+          if (headY > c.minY && feetY < c.maxY) {
+            if (pos.y >= c.maxY - 0.55) {
+              pos.y = c.maxY;
+              if (vy < 0) vy = 0;
+            } else {
+              const overlapLeft = (pos.x + playerRadius) - c.minX;
+              const overlapRight = c.maxX - (pos.x - playerRadius);
+              const overlapBack = (pos.z + playerRadius) - c.minZ;
+              const overlapFront = c.maxZ - (pos.z - playerRadius);
+              const minOverlap = Math.min(overlapLeft, overlapRight, overlapBack, overlapFront);
+              if (minOverlap === overlapLeft) pos.x = c.minX - playerRadius;
+              else if (minOverlap === overlapRight) pos.x = c.maxX + playerRadius;
+              else if (minOverlap === overlapBack) pos.z = c.minZ - playerRadius;
+              else pos.z = c.maxZ + playerRadius;
+            }
+          }
+        }
       }
       avatar.position.copy(pos);
       avatar.position.y += 0.27;

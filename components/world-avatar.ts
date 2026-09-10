@@ -507,32 +507,47 @@ export function animateAvatar(
   const sitting = m.stance === 'sit',
     prone = m.stance === 'lie';
   const breathing = Math.sin(time * 1.8) * 0.012;
-  r.root.position.y = follow(
-    r.root.position.y,
-    prone
-      ? 0.2
-      : sitting
-        ? -0.4
-        : breathing + Math.abs(wave) * 0.045 * stride - r.landing * 0.12,
-  );
+
+  // Root position & rotation:
+  let targetRootY: number;
+  let targetRootRotZ: number;
+  let targetChestRotX: number;
+  let targetChestRotY: number;
+  let targetHeadRotX: number;
+  let targetHeadRotY: number;
+
+  if (prone) {
+    targetRootY = 0.2 + Math.sin(time * 1.8) * 0.012 + Math.abs(Math.sin(r.phase * 2)) * 0.035 * stride;
+    targetRootRotZ = wave * 0.18 * stride + Math.sin(time * 1.2) * 0.012;
+    targetChestRotX = 0.05 + Math.sin(time * 1.8) * 0.03;
+    targetChestRotY = Math.cos(r.phase) * 0.14 * stride + Math.sin(time * 0.8) * 0.02;
+    targetHeadRotX = m.working ? 0.22 : 0.65 + Math.sin(time * 1.8) * 0.035 + Math.abs(wave) * 0.05 * stride;
+    targetHeadRotY = Math.sin(time * 0.7) * 0.06;
+  } else if (sitting) {
+    targetRootY = -0.4 + Math.sin(time * 1.6) * 0.01 + Math.abs(wave) * 0.035 * stride;
+    targetRootRotZ = -wave * 0.08 * stride + Math.sin(time * 1.1) * 0.01;
+    targetChestRotX = 0.06 + Math.sin(time * 1.6) * 0.025 - stride * 0.1;
+    targetChestRotY = wave * (m.aiming ? 0.018 : 0.065) * stride;
+    targetHeadRotX = m.working ? 0.22 : -m.pitch * 0.3 + Math.sin(time * 1.6) * 0.015;
+    targetHeadRotY = Math.sin(time * 0.6) * 0.04;
+  } else {
+    targetRootY = breathing + Math.abs(wave) * 0.045 * stride - r.landing * 0.12;
+    targetRootRotZ = -m.strafe * 0.065 * stride;
+    targetChestRotX = -sprint * 0.16 - r.landing * 0.18;
+    targetChestRotY = wave * (m.aiming ? 0.018 : 0.065) * stride;
+    targetHeadRotX = m.working ? 0.22 : -m.pitch * 0.3;
+    targetHeadRotY = 0;
+  }
+
+  r.root.position.y = follow(r.root.position.y, targetRootY);
   r.root.rotation.x = follow(r.root.rotation.x, prone ? -Math.PI / 2 : 0);
-  r.root.rotation.z = follow(
-    r.root.rotation.z,
-    prone ? wave * 0.055 * stride : -m.strafe * 0.065 * stride,
-  );
-  r.chest.rotation.x = follow(
-    r.chest.rotation.x,
-    sitting ? 0.06 : prone ? 0.04 : -sprint * 0.16 - r.landing * 0.18,
-  );
-  r.chest.rotation.y = follow(
-    r.chest.rotation.y,
-    wave * (m.aiming ? 0.018 : 0.065) * stride,
-  );
-  r.head.rotation.x = follow(
-    r.head.rotation.x,
-    m.working ? 0.22 : prone ? 0.6 : -m.pitch * 0.3,
-  );
+  r.root.rotation.z = follow(r.root.rotation.z, targetRootRotZ);
+  r.chest.rotation.x = follow(r.chest.rotation.x, targetChestRotX);
+  r.chest.rotation.y = follow(r.chest.rotation.y, targetChestRotY);
+  r.head.rotation.x = follow(r.head.rotation.x, targetHeadRotX);
+  r.head.rotation.y = follow(r.head.rotation.y, targetHeadRotY);
   r.head.rotation.z = follow(r.head.rotation.z, Math.sin(time * 1.5) * 0.018);
+
   const grenade = avatar.getObjectByName('held-grenade');
   if (grenade) {
     grenade.visible = m.tool === 'grenade';
@@ -543,43 +558,77 @@ export function animateAvatar(
     const side = i ? 1 : -1,
       step = Math.sin(r.phase + (i ? Math.PI : 0));
     let hip = step * 0.65 * stride * (m.forward < 0 ? -1 : 1),
-      knee = Math.max(0, -step) * 0.85 * stride;
+      knee = Math.max(0, -step) * 0.85 * stride,
+      legZ = 0;
     if (sitting) {
-      hip = m.crouching ? 0.92 + step * 0.12 * stride : 1.4;
-      knee = m.crouching ? -1.7 : -1.5;
+      hip = m.crouching
+        ? 0.92 + step * 0.22 * stride
+        : 1.42 + Math.sin(time * 1.6) * 0.015 + step * 0.32 * stride * (m.forward < 0 ? -1 : 1);
+      knee = m.crouching
+        ? -1.7 + Math.max(0, -step) * 0.3 * stride
+        : -1.5 + Math.sin(time * 1.6) * 0.015 + Math.max(0, -step) * 0.35 * stride;
+      legZ = side * 0.14 + (stride > 0 ? side * Math.abs(step) * 0.08 : 0);
     } else if (prone) {
-      hip = step * 0.18 * stride;
-      knee = -Math.max(0, step) * 0.7 * stride;
+      if (stride > 0.05) {
+        // Soldier low-crawl leg motion: knee bends out and drives forward alternately
+        hip = -step * 0.42 * stride;
+        knee = -Math.max(0, -step) * 1.15 * stride;
+        legZ = side * (0.14 + Math.max(0, -step) * 0.28 * stride);
+      } else {
+        // Prone idle: legs relaxed flat on ground
+        hip = 0.02 + Math.sin(time * 1.2 + i) * 0.015;
+        knee = -0.06 + Math.sin(time * 1.4 + i) * 0.02;
+        legZ = side * 0.12;
+      }
     } else if (airborne) {
       hip = i ? -0.35 : 0.65;
       knee = -0.75 - Math.max(0, m.velocityY) * 0.06;
     } else {
       knee = -knee - r.landing * 0.65;
       hip += r.landing * 0.3;
+      legZ = -m.strafe * step * 0.3 * stride;
     }
     r.legs[i].rotation.x = follow(r.legs[i].rotation.x, hip);
-    r.legs[i].rotation.z = follow(
-      r.legs[i].rotation.z,
-      sitting ? side * 0.12 : -m.strafe * step * 0.3 * stride,
-    );
+    r.legs[i].rotation.z = follow(r.legs[i].rotation.z, legZ);
     r.knees[i].rotation.x = follow(r.knees[i].rotation.x, knee);
+
     let arm = -step * 0.55 * stride,
-      elbow = 0.12 + sprint * 0.7;
+      elbow = 0.12 + sprint * 0.7,
+      armZ = side * (0.05 + sprint * 0.12);
+
     if (sitting) {
-      arm = 0.45;
-      elbow = 0.7;
-    }
-    if (prone) {
-      arm = 2.3 + step * 0.22 * stride;
-      elbow = 0.85;
-    }
-    if (airborne) {
+      if (stride > 0.05) {
+        // Shuffling/scooting forward while seated: hands push off ground
+        arm = 0.48 - step * 0.42 * stride;
+        elbow = 0.75 + Math.abs(step) * 0.28 * stride;
+        armZ = side * (0.16 + Math.abs(step) * 0.12 * stride);
+      } else {
+        // Seated idle breathing: arms rest naturally on knees
+        arm = 0.48 + Math.sin(time * 1.6) * 0.025;
+        elbow = 0.72 + Math.sin(time * 1.6) * 0.02;
+        armZ = side * 0.14;
+      }
+    } else if (prone) {
+      if (stride > 0.05) {
+        // Soldier low-crawl arms: reach forward and pull back alternately
+        arm = 2.2 + step * 0.65 * stride;
+        elbow = 1.1 + Math.max(0, step) * 0.55 * stride;
+        armZ = side * (0.26 + Math.max(0, step) * 0.22 * stride);
+      } else {
+        // Prone idle: propped on forearms looking ahead
+        arm = 2.15 + Math.sin(time * 1.8) * 0.03;
+        elbow = 1.15 + Math.sin(time * 1.8) * 0.025;
+        armZ = side * 0.25;
+      }
+    } else if (airborne) {
       arm = -0.4;
       elbow = 0.8;
     }
+
     if (armed && !prone) {
       arm = 0.65 - m.pitch * 0.55 - r.recoil * 0.2;
       elbow = 0.93 + r.recoil * 0.25;
+      armZ = -side * 0.13;
     }
     if (m.reload) {
       const reload = Math.sin(m.reload * Math.PI);
@@ -591,14 +640,7 @@ export function animateAvatar(
       elbow = i ? 1.45 : 0.9;
     }
     r.arms[i].rotation.x = follow(r.arms[i].rotation.x, arm - r.equip * 0.45);
-    r.arms[i].rotation.z = follow(
-      r.arms[i].rotation.z,
-      prone
-        ? side * 0.24
-        : armed
-          ? -side * 0.13
-          : side * (0.05 + sprint * 0.12),
-    );
+    r.arms[i].rotation.z = follow(r.arms[i].rotation.z, armZ);
     r.elbows[i].rotation.x = follow(r.elbows[i].rotation.x, elbow);
   }
   r.gun.rotation.x =

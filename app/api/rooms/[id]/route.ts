@@ -15,6 +15,9 @@ type Row = {
   version: number;
   created: number;
 };
+
+const lastCombatResolution = new Map<string, number>();
+
 async function buildRoomSnapshot(
   id: string,
   r: Row,
@@ -24,7 +27,11 @@ async function buildRoomSnapshot(
   sinceEffect?: number | null,
 ) {
   const now = Date.now();
-  await resolveCombat(id, roomState.respawnSeconds ?? 5);
+  const lastCombat = lastCombatResolution.get(id) || 0;
+  if (now - lastCombat >= 350) {
+    lastCombatResolution.set(id, now);
+    await resolveCombat(id, roomState.respawnSeconds ?? 5);
+  }
   const { results } = await db()
     .prepare(
       'SELECT session AS id,name,color,seen AS lastSeen,pose,ping,mood,hat,cursor,hp,respawn_at AS respawnAt,immune_until AS immuneUntil,life,kills,deaths,assists FROM members WHERE room=? ORDER BY seen DESC LIMIT 100',
@@ -45,6 +52,7 @@ async function buildRoomSnapshot(
     .all();
   const isAnonymous = !!roomState.anonymousPlayers;
   const isHost = self === r.host;
+  const isPrivateRoom = roomState.access?.type === 'private';
 
   let pendingJoinRequests: {
     id: string;
@@ -53,7 +61,7 @@ async function buildRoomSnapshot(
     status: string;
     created: number;
   }[] = [];
-  if (isHost) {
+  if (isHost && isPrivateRoom) {
     const jreq = await db()
       .prepare(
         'SELECT id, session, name, status, created FROM join_requests WHERE room=? AND status="pending" ORDER BY created ASC',
@@ -524,9 +532,9 @@ export async function POST(request: Request, context: Context) {
           (n) => typeof n === 'number' && Number.isFinite(n),
         )
           ? {
-              x: Math.max(-23, Math.min(23, p.x)),
-              y: Math.max(0, Math.min(5, p.y)),
-              z: Math.max(-23, Math.min(23, p.z)),
+              x: Math.max(-36, Math.min(36, p.x)),
+              y: Math.max(0, Math.min(10, p.y)),
+              z: Math.max(-36, Math.min(36, p.z)),
               yaw: p.yaw,
               stance: ['stand', 'sit', 'lie'].includes(p.stance)
                 ? p.stance

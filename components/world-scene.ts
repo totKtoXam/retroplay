@@ -138,8 +138,8 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
       material('#74a393'),
     ];
   // Каменный остров над водой, плавные уровни рельефа и длинная панорама гор.
-  cyl(29, 25, 3, '#747994', 0, -1.7, 0, decor, 64);
-  cyl(29, 29, 0.25, '#749879', 0, -0.05, 0, decor, 64);
+  cyl(40, 36, 3.2, '#747994', 0, -1.7, 0, decor, 64);
+  cyl(40, 40, 0.25, '#749879', 0, -0.05, 0, decor, 64);
   const water = new T.Mesh(
     new T.PlaneGeometry(500, 500),
     new T.MeshStandardMaterial({
