@@ -29,6 +29,7 @@ import {
   blocksProjectile,
   cameraFrame,
   eyeHeight,
+  firstProjectileHit,
   avoidCameraWalls,
   visibleInWorld,
   type Perspective,
@@ -496,14 +497,9 @@ export default function World(props: Props) {
         )
           targets.push(o);
       });
-      const hit = ray
-        .intersectObjects(targets, false)
-        .find(
-          (h) =>
-            h.distance < 65 &&
-            h.distance > 0.08 &&
-            blocksProjectile(h.object, h.face?.materialIndex),
-        );
+      ray.far = 65;
+      const hit = firstProjectileHit(ray, targets);
+      ray.far = Infinity;
       const target = hit ? hit.point : ray.ray.at(35, new T.Vector3());
       const normal = hit?.face
         ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
@@ -531,9 +527,7 @@ export default function World(props: Props) {
         0,
         camera.position.distanceTo(origin),
       );
-      const obstruction = muzzleRay
-        .intersectObjects(targets, false)
-        .find((h) => blocksProjectile(h.object, h.face?.materialIndex));
+      const obstruction = firstProjectileHit(muzzleRay, targets, 0.01);
       if (obstruction) {
         target.copy(obstruction.point);
         origin.copy(camera.position);
@@ -541,6 +535,27 @@ export default function World(props: Props) {
           normal
             .copy(obstruction.face.normal)
             .transformDirection(obstruction.object.matrixWorld);
+      }
+      // The camera ray only selects the aim point. The projectile itself starts
+      // at the muzzle, so test its shifted path as well; otherwise it can clip
+      // through the edge of a wall beside the crosshair.
+      const flight = target.clone().sub(origin);
+      const flightDistance = flight.length();
+      if (flightDistance > 0.001) {
+        const flightRay = new T.Raycaster(
+          origin,
+          flight.normalize(),
+          0,
+          flightDistance + 0.02,
+        );
+        const impact = firstProjectileHit(flightRay, targets, 0.01);
+        if (impact) {
+          target.copy(impact.point);
+          if (impact.face)
+            normal
+              .copy(impact.face.normal)
+              .transformDirection(impact.object.matrixWorld);
+        }
       }
       const e: WorldEffect = {
         id: crypto.randomUUID(),

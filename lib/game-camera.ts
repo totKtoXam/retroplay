@@ -81,6 +81,21 @@ export function blocksProjectile(object: T.Object3D, materialIndex?: number) {
   return hasSolidMaterial(object, materialIndex);
 }
 
+/** Returns the nearest solid surface intersected by a projectile ray. */
+export function firstProjectileHit(
+  ray: T.Raycaster,
+  objects: T.Object3D[],
+  minDistance = 0.08,
+) {
+  return ray
+    .intersectObjects(objects, false)
+    .find(
+      (hit) =>
+        hit.distance > minDistance &&
+        blocksProjectile(hit.object, hit.face?.materialIndex),
+    );
+}
+
 /** Whether a mesh can shorten the third-person camera boom. */
 export function blocksCamera(
   object: T.Object3D,

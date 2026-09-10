@@ -7,6 +7,7 @@ import {
   avoidCameraWalls,
   blocksCamera,
   blocksProjectile,
+  firstProjectileHit,
   visibleInWorld,
 } from '../lib/game-camera.ts';
 
@@ -104,4 +105,30 @@ test('Projectile collision checks the material of the intersected face', () => {
   assert.equal(blocksProjectile(mesh, 1), false);
   glass.visible = false;
   assert.equal(blocksProjectile(mesh, 1), false);
+});
+
+test('Projectile path is checked from the muzzle instead of only the camera', () => {
+  const edge = new T.Mesh(
+    new T.BoxGeometry(0.2, 2, 0.2),
+    new T.MeshBasicMaterial(),
+  );
+  edge.position.set(5, 0, 0.5);
+  edge.updateMatrixWorld(true);
+
+  const aim = new T.Raycaster(
+    new T.Vector3(),
+    new T.Vector3(1, 0, 0),
+    0,
+    10,
+  );
+  assert.equal(firstProjectileHit(aim, [edge]), undefined);
+
+  const muzzle = new T.Vector3(0, 0, 1);
+  const aimedPoint = new T.Vector3(10, 0, 0);
+  const direction = aimedPoint.clone().sub(muzzle);
+  const distance = direction.length();
+  const shot = new T.Raycaster(muzzle, direction.normalize(), 0, distance);
+  const hit = firstProjectileHit(shot, [edge], 0.01);
+  assert.ok(hit);
+  assert.ok(hit.distance < distance);
 });
