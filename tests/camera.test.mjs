@@ -5,6 +5,7 @@ import {
   cameraFrame,
   eyeHeight,
   avoidCameraWalls,
+  blocksProjectile,
   visibleInWorld,
 } from '../lib/game-camera.ts';
 
@@ -48,4 +49,25 @@ test('Third-person camera stops before walls and ignores hidden scenery', () => 
   assert.equal(visibleInWorld(wall), false);
   assert.ok(avoidCameraWalls(eye, desired, [wall]).equals(desired));
   assert.ok(avoidCameraWalls(eye, eye, []).equals(eye));
+});
+
+test('Projectile collision respects transparent windows and model metadata', () => {
+  const wall = new T.Mesh(
+    new T.BoxGeometry(1, 1, 1),
+    new T.MeshBasicMaterial(),
+  );
+  const glass = new T.Mesh(
+    new T.PlaneGeometry(1, 1),
+    new T.MeshBasicMaterial({ transparent: true, opacity: 0.2 }),
+  );
+  assert.equal(blocksProjectile(wall), true);
+  assert.equal(blocksProjectile(glass), false);
+
+  const model = new T.Group();
+  model.userData.projectileCollision = 'ignore';
+  model.add(wall);
+  assert.equal(blocksProjectile(wall), false);
+  model.userData.projectileCollision = 'block';
+  model.add(glass);
+  assert.equal(blocksProjectile(glass), true);
 });

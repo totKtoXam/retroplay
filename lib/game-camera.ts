@@ -39,6 +39,28 @@ export function visibleInWorld(object: T.Object3D) {
     if (!p.visible) return false;
   return true;
 }
+/**
+ * Determines whether a visible mesh should stop a projectile.  Three's
+ * Raycaster intersects transparent materials too, so the rendered material
+ * and an optional group-level override must both be considered.
+ */
+export function blocksProjectile(object: T.Object3D) {
+  if (!visibleInWorld(object) || !(object instanceof T.Mesh)) return false;
+  for (let p: T.Object3D | null = object; p; p = p.parent) {
+    const collision = p.userData.projectileCollision;
+    if (collision === 'block') return true;
+    if (collision === 'ignore') return false;
+  }
+  const materials = Array.isArray(object.material)
+    ? object.material
+    : [object.material];
+  return materials.some(
+    (material) =>
+      !material.transparent &&
+      material.opacity > 0.001 &&
+      material.side !== T.BackSide,
+  );
+}
 /** Камера сокращает расстояние до ближайшей стены, сохраняя запас перед поверхностью. */
 export function avoidCameraWalls(
   eye: T.Vector3,

@@ -248,6 +248,7 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
   group.add(grass);
   // Светящиеся дорожки и архитектурные светильники вместо ярких цветных платформ.
   const lights = new T.Group();
+  lights.userData.projectileCollision = 'ignore';
   group.add(lights);
   const lightMat = new T.MeshStandardMaterial({
     color: '#d8f1ee',
@@ -277,6 +278,15 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
     roughness: 0.1,
     transparent: true,
     opacity: 0.16,
+    side: T.DoubleSide,
+    depthWrite: false,
+  });
+  const blueGlass = new T.MeshPhysicalMaterial({
+    color: '#527d89',
+    metalness: 0.2,
+    roughness: 0.12,
+    transparent: true,
+    opacity: 0.24,
     side: T.DoubleSide,
     depthWrite: false,
   });
@@ -351,6 +361,7 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
       new T.PlaneGeometry(w, h),
       new T.MeshBasicMaterial({ map: texture }),
     );
+    mesh.userData.projectileCollision = 'ignore';
     mesh.position.set(x, y, z);
     group.add(mesh);
   };
@@ -387,10 +398,21 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
     block(7, 0.22, 8, cream, side * 27, 4.55, 14);
   }
   // Центральный корпус занимает прежний объём юрты: существующая коллизия сохраняется.
-  block(6.6, 5.8, 6.5, limestone, 0, 3, -18);
+  // The façade is built around the glazed opening.  Previously the visual
+  // window sat in front of one large solid box, so a projectile that passed
+  // the glass immediately hit its invisible backing wall.
+  block(6.6, 5.8, 0.35, limestone, 0, 3, -21.08);
+  for (const side of [-1, 1])
+    block(0.35, 5.8, 6.5, limestone, side * 3.13, 3, -18);
+  for (const x of [-2.4, 2.4])
+    block(1.8, 0.82, 0.35, limestone, x, 0.5, -14.75);
+  block(6.6, 1.35, 0.35, limestone, 0, 5.33, -14.75);
   block(7.1, 0.3, 7, cream, 0, 6, -18);
-  block(3, 3.9, 0.07, charcoal, 0, 2.4, -14.71);
-  block(2.7, 3.6, 0.08, blue, 0, 2.4, -14.66);
+  block(3, 0.1, 0.07, charcoal, 0, 0.9, -14.71);
+  block(3, 0.1, 0.07, charcoal, 0, 4.05, -14.71);
+  for (const x of [-1.45, 1.45])
+    block(0.1, 3.25, 0.07, charcoal, x, 2.48, -14.71);
+  block(2.7, 3.05, 0.08, blueGlass, 0, 2.48, -14.66);
   for (const side of [-1, 1]) {
     block(0.12, 3.7, 0.13, lightMat, side * 1.42, 2.4, -14.57);
     block(0.5, 5.2, 0.32, coral, side * 2.65, 2.9, -14.59);

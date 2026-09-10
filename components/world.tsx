@@ -25,6 +25,7 @@ import { AvatarPreview } from './avatar-preview';
 import { QUICK_SLOTS, slotForDigit } from '@/lib/loadout';
 import { ToolMagazine, CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import {
+  blocksProjectile,
   cameraFrame,
   eyeHeight,
   avoidCameraWalls,
@@ -494,6 +495,7 @@ export default function World(props: Props) {
           !hands.group.getObjectById(o.id) &&
           !avatar.getObjectById(o.id) &&
           o !== shadow &&
+          blocksProjectile(o) &&
           o.geometry.type !== 'SphereGeometry' &&
           o.geometry.type !== 'ShapeGeometry' &&
           !flights.some((f) => f.mesh === o) &&
