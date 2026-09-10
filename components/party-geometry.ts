@@ -3,7 +3,9 @@ import { GRENADES } from '../lib/game-items.ts';
 /** Shared small particle meshes; no textures or per-particle draw calls. */
 export function partyGeometry(style: string): T.BufferGeometry {
   if (style === 'snow') return new T.IcosahedronGeometry(0.09, 0);
-  if (style === 'classic') return new T.PlaneGeometry(0.08, 0.15);
+  if (style === 'classic') return new T.PlaneGeometry(0.07, 0.15);
+  if (style === 'ribbon') return new T.PlaneGeometry(0.038, 0.24);
+  if (style === 'shard') return new T.TetrahedronGeometry(0.13, 0);
   if (style === 'digital') {
     const a = new T.Shape();
     a.moveTo(-0.05, -0.08);
@@ -52,6 +54,59 @@ export const grenadeParty = (style: string) =>
     meteor: 'comets',
     paintburst: 'classic',
   })[style] || 'stars';
+
+export const fireworkParty = (style: string) =>
+  ({
+    salute: 'stars',
+    sparkler: 'comets',
+    dragon: 'petals',
+    comet: 'comets',
+    aurora: 'digital',
+    solar: 'stars',
+    galaxy: 'shanyrak',
+    flower: 'petals',
+  })[style] || 'stars';
+
+export function makeFireworkRocket(color: string) {
+  const group = new T.Group();
+  const body = new T.Mesh(
+    new T.CylinderGeometry(0.045, 0.045, 0.38, 8),
+    new T.MeshStandardMaterial({
+      color,
+      roughness: 0.3,
+      metalness: 0.6,
+      emissive: color,
+      emissiveIntensity: 0.4,
+    }),
+  );
+  body.rotation.x = Math.PI / 2;
+  group.add(body);
+
+  const nose = new T.Mesh(
+    new T.ConeGeometry(0.05, 0.16, 8),
+    new T.MeshStandardMaterial({
+      color: '#ffffff',
+      roughness: 0.2,
+      emissive: '#fff2a8',
+      emissiveIntensity: 0.7,
+    }),
+  );
+  nose.position.z = 0.26;
+  nose.rotation.x = Math.PI / 2;
+  group.add(nose);
+
+  const fins = new T.Mesh(
+    new T.BoxGeometry(0.16, 0.015, 0.1),
+    new T.MeshStandardMaterial({ color: '#2b384d', metalness: 0.5 }),
+  );
+  fins.position.z = -0.14;
+  group.add(fins);
+  const fins2 = fins.clone();
+  fins2.rotation.z = Math.PI / 2;
+  group.add(fins2);
+
+  return group;
+}
 export function makeGrenade(color: string, variant = 'pinata') {
   const group = new T.Group();
   const body = new T.Mesh(

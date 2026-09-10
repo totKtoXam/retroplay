@@ -407,6 +407,8 @@ export function createWorldArt(scene: T.Scene) {
     currentInterior = false;
   const styleObject = (object: T.Object3D, anime = currentAnime) => {
     object.traverse((o) => {
+      for (let p: T.Object3D | null = o; p; p = p.parent)
+        if (p.userData.presentationOnly) return;
       if (!(o instanceof T.Mesh) || Array.isArray(o.material)) return;
       const source =
         originals.get(o) ||

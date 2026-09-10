@@ -524,22 +524,32 @@ export default function Board({
                 (m) =>
                   m.id !== room.self &&
                   now - m.lastSeen < 15000 &&
-                  m.cursor?.mode === 'board',
+                  (m.cursor?.mode === 'board' || m.cursor?.mode === 'tablet'),
               )
-              .map((m) => (
-                <div
-                  className="live-cursor"
-                  key={m.id}
-                  style={{
-                    left: m.cursor?.x || 0,
-                    top: m.cursor?.y || 0,
-                    color: m.color,
-                  }}
-                >
-                  <span>➤</span>
-                  <small style={{ background: m.color }}>{m.name}</small>
-                </div>
-              ))}{' '}
+              .map((m) => {
+                const isAnonymous =
+                  room.state.anonymousPlayers ||
+                  room.state.anonymous ||
+                  m.hat === 'bag';
+                const displayName = isAnonymous ? 'Аноним' : m.name;
+                const displayColor = isAnonymous ? '#8892b0' : m.color;
+                return (
+                  <div
+                    className={`live-cursor ${isAnonymous ? 'cursor-anonymous' : ''}`}
+                    key={m.id}
+                    style={{
+                      left: m.cursor?.x || 0,
+                      top: m.cursor?.y || 0,
+                      color: displayColor,
+                    }}
+                  >
+                    <span>➤</span>
+                    <small style={{ background: displayColor }}>
+                      {isAnonymous ? '🛍️ ' : ''}{displayName}
+                    </small>
+                  </div>
+                );
+              })}{' '}
           </div>
         </div>
       </div>

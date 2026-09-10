@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import * as T from 'three';
+import { useResourcePack } from '../hooks/use-resource-pack';
 import {
   createAvatar,
   animateAvatar,
@@ -18,6 +19,7 @@ export function AvatarPreview({
   anime: boolean;
   anonymous?: boolean;
 }) {
+  const resourcePack = useResourcePack();
   const mount = useRef<HTMLDivElement>(null),
     turn = useRef<(angle: number) => void>(() => {});
   useEffect(() => {
@@ -74,6 +76,17 @@ export function AvatarPreview({
     disk.position.y = -0.04;
     scene.add(disk);
     const render = () => renderer.render(scene, camera);
+    let disposed = false;
+    let releasePack: (() => void) | undefined;
+    if (resourcePack === 'realistic-bodycam') {
+      void Promise.all([import('./resource-packs/realistic/materials'), import('./resource-packs/realistic/characters')]).then(([{ createRealisticMaterials }, { dressFieldCharacter }]) => {
+        if (disposed) return;
+        const library = createRealisticMaterials('low');
+        const uniform = dressFieldCharacter(avatar, library);
+        releasePack = () => { uniform.dispose(); library.dispose(); };
+        render();
+      }).catch((error) => console.error('Character preview pack failed', error));
+    }
     turn.current = (angle) => {
       avatar.rotation.y += angle;
       render();
@@ -91,6 +104,7 @@ export function AvatarPreview({
     observer.observe(host);
     resize();
     return () => {
+      disposed = true; releasePack?.();
       observer.disconnect();
       turn.current = () => {};
       const geometries = new Set<T.BufferGeometry>(),
@@ -108,7 +122,7 @@ export function AvatarPreview({
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [color, anime, anonymous]);
+  }, [color, anime, anonymous, resourcePack]);
   return (
     <div className="agent-preview">
       <div ref={mount} className="agent-preview-canvas" />
@@ -119,7 +133,7 @@ export function AvatarPreview({
         >
           ←
         </button>
-        <span>{anime ? 'SORA' : 'AERO'} / ваш персонаж</span>
+        <span>{resourcePack === 'realistic-bodycam' ? 'FIELD / 01' : anime ? 'SORA' : 'AERO'} / ваш персонаж</span>
         <button
           onClick={() => turn.current(Math.PI / 4)}
           aria-label="Повернуть персонажа вправо"

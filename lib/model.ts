@@ -104,42 +104,54 @@ export const TOOLS = [
 ];
 export const GAME_TOOLS = [
   { id: 'paint', label: 'Краскомёт', key: '1' },
-  { id: 'confetti', label: 'Конфетти', key: '2' },
-  { id: 'sticky', label: 'Стикер', key: '3' },
-  { id: 'group', label: 'Тема', key: '4' },
-  { id: 'draw', label: 'Маркер', key: '5' },
-  { id: 'shape', label: 'Фигура', key: '6' },
-  { id: 'connector', label: 'Связь', key: '7' },
+  { id: 'confetti', label: 'Дробовик конфетти', key: '2' },
+  { id: 'sticky', label: 'Стикер', key: '5' },
+  { id: 'group', label: 'Тема', key: '7' },
+  { id: 'draw', label: 'Маркер', key: '8' },
+  { id: 'shape', label: 'Фигура', key: '9' },
+  { id: 'connector', label: 'Связь', key: '0' },
   { id: 'reaction', label: 'Реакция', key: '8' },
   { id: 'action', label: 'Задача', key: '9' },
-  { id: 'pointer', label: 'Планшет', key: '3' },
-  { id: 'grenade', label: 'Гранаты', key: '4' },
+  { id: 'pointer', label: 'Планшет', key: '6' },
+  { id: 'grenade', label: 'Пиньято', key: '3' },
+  { id: 'sniper', label: 'Снайперка', key: '4' },
+  { id: 'like', label: 'Лайкомёт', key: '7' },
 ];
 export const TOOL_HINTS: Record<string, string> = {
-  paint: 'ЛКМ — выстрел краской · пятна исчезают',
-  confetti: 'ЛКМ — залп конфетти',
-  grenade: 'ЛКМ — бросок · колесо — вид гранаты',
-  sticky: 'ЛКМ по доске — новая идея',
+  paint: 'ЛКМ — выстрел краской · ПКМ — точный прицел',
+  confetti: 'ЛКМ — залп дробовика конфетти',
+  grenade: 'Зажмите ЛКМ — дуга броска · отпустите — бросить пиньято',
+  sniper: 'ЛКМ — выстрел фейерверком · ПКМ — оптический зум',
+  sticky: 'ЛКМ или E — написать стикер · Колесо/СКМ выбор зоны',
   group: 'ЛКМ по доске — объединить идеи',
   draw: 'ЛКМ по доске — рисовать маркером',
   shape: 'ЛКМ по доске — добавить фигуру',
   connector: 'ЛКМ по доске — связать карточки',
   reaction: 'ЛКМ — отправить реакцию',
   action: 'ЛКМ по доске — создать задачу',
-  pointer: 'ЛКМ по доске — открыть зону',
+  pointer: 'ЛКМ или E — заглянуть в планшет и открыть доску',
+  like: 'ЛКМ — выстрел лайком · попадание в стикер на доске добавляет +1 голос',
   text: 'Текстовый блок на доске',
   image: 'Изображение или ссылка',
 };
 export type WorldEffect = {
   id: string;
-  kind: 'paint' | 'confetti' | 'grenade';
+  kind: 'paint' | 'confetti' | 'grenade' | 'sniper' | 'like' | 'kill';
   variant?: string;
-  origin: number[];
-  target: number[];
-  normal: number[];
-  color: string;
+  origin?: number[];
+  target?: number[];
+  normal?: number[];
+  color?: string;
   at: number;
   author: string;
+  killer?: string;
+  killerName?: string;
+  victim?: string;
+  victimName?: string;
+  assister?: string;
+  assisterName?: string;
+  tool?: string;
+  headshot?: boolean;
 };
 export type Pose = {
   x: number;
@@ -166,7 +178,13 @@ export type Person = {
   lastSeen: number;
   hp?: number;
   respawnAt?: number;
+  immuneUntil?: number;
+  immuneRemaining?: number;
+  respawnRemaining?: number;
   life?: number;
+  kills?: number;
+  deaths?: number;
+  assists?: number;
   pose: Pose;
   ping: number;
   mood: string;
@@ -236,6 +254,12 @@ export type RoomState = {
   music: string;
   archived: boolean;
   template: string;
+  readyCheck?: {
+    active: boolean;
+    initiator: string;
+    startedAt: number;
+    readyUsers: string[];
+  } | null;
 };
 export type Room = {
   id: string;
@@ -247,7 +271,26 @@ export type Room = {
   created: number;
   effects?: WorldEffect[];
 };
-export const uid = () => crypto.randomUUID();
+export const uid = (): string => {
+  if (typeof crypto !== 'undefined') {
+    if (typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    if (typeof crypto.getRandomValues === 'function') {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+    }
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
 export function initialState(
   title: string,
   theme = 'nauryz',
@@ -274,6 +317,7 @@ export function initialState(
     counter: 0,
     music: '',
     archived: false,
+    readyCheck: null,
   };
 }
 export function cleanText(v: unknown, max = 4000) {
@@ -508,18 +552,52 @@ export function applyOperation(
     s.phase = 4;
   } else if (kind === 'vote') {
     const n = note();
-    const r = s.rounds.at(-1);
-    if (!r?.active) throw Error('Голосование не запущено');
+    let r = s.rounds.at(-1);
+    if (!r?.active) {
+      if (op.force || op.kind === 'blaster') {
+        r = { id: uid(), limit: 10, active: true, votes: {} };
+        s.rounds.push(r);
+      } else {
+        throw Error('Голосование не запущено');
+      }
+    }
     if (n.hidden) throw Error('Сначала раскройте заметку');
     const votes = r.votes[user] || {};
     const value = op.remove ? -1 : 1;
     if (
       value === 1 &&
       Object.values(votes).reduce((a, b) => a + b, 0) >= r.limit
-    )
-      throw Error('Все голоса использованы');
+    ) {
+      if (op.force || op.kind === 'blaster') {
+        r.limit += 5;
+      } else {
+        throw Error('Все голоса использованы');
+      }
+    }
     votes[n.id] = Math.max(0, (votes[n.id] || 0) + value);
     r.votes[user] = votes;
+  } else if (kind === 'ready.start') {
+    s.readyCheck = {
+      active: true,
+      initiator: user,
+      startedAt: Date.now(),
+      readyUsers: [user],
+    };
+  } else if (kind === 'ready.respond') {
+    if (s.readyCheck?.active) {
+      const ready = !!op.ready;
+      const set = new Set(s.readyCheck.readyUsers);
+      if (ready) {
+        set.add(user);
+      } else {
+        set.delete(user);
+      }
+      s.readyCheck.readyUsers = Array.from(set);
+    }
+  } else if (kind === 'ready.dismiss') {
+    if (s.readyCheck) {
+      s.readyCheck.active = false;
+    }
   } else if (kind === 'timer') {
     hostOnly();
     const action = oneOf(op.action, ['start', 'pause', 'reset']);

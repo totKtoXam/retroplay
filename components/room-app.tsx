@@ -58,6 +58,8 @@ import {
   Bomb,
   Monitor,
   Send,
+  Crosshair,
+  Heart,
 } from 'lucide-react';
 import {
   Dialog,
@@ -90,6 +92,9 @@ import { Choice, Toggle } from './controls';
 import { StylePicker } from './style-picker';
 import { MusicPlayer } from './music-player';
 import Board, { Card } from './board';
+import { ResourcePackPicker } from './resource-pack-picker';
+import { useResourcePack } from '../hooks/use-resource-pack';
+
 const World = lazy(() => import('./world'));
 const icons = [
   MousePointer2,
@@ -114,6 +119,7 @@ const kinds: Record<string, string> = {
   reaction: 'token',
   image: 'image',
   action: 'action',
+  like: 'sticky',
 };
 type Draft = {
   id?: string;
@@ -136,6 +142,7 @@ type Draft = {
   rotation: number;
 };
 export default function RoomApp({ id }: { id: string }) {
+  const resourcePack = useResourcePack();
   const [fpsLimit, setFpsLimit] = useState(30);
   const [editingTitle, setEditingTitle] = useState(false);
   const [quickSticky, setQuickSticky] = useState(false);
@@ -152,12 +159,13 @@ export default function RoomApp({ id }: { id: string }) {
     [notice, setNotice] = useState(''),
     [busy, setBusy] = useState(false),
     [mode, setMode] = useState('3d'),
+    [packetLoss, setPacketLoss] = useState(0),
     [tool, setTool] = useState(0),
     [panel, setPanel] = useState(''),
     [selectedZone, setSelectedZone] = useState(''),
     [draft, setDraft] = useState<Draft | null>(null),
     [comment, setComment] = useState(''),
-    [quality, setQuality] = useState('low'),
+    [quality, setQuality] = useState('balanced'),
     [fps, setFps] = useState(0),
     [ping, setPing] = useState(0),
     [monitor, setMonitor] = useState(false),
@@ -216,6 +224,8 @@ export default function RoomApp({ id }: { id: string }) {
           ListChecks,
           MousePointer2,
           Bomb,
+          Crosshair,
+          Heart,
         ]
       : icons;
   const cursor = useRef({ x: 0, y: 0, mode: '3d' });
@@ -242,6 +252,11 @@ export default function RoomApp({ id }: { id: string }) {
     lastFocus = useRef(0),
     audio = useRef<AudioContext | null>(null),
     soundRef = useRef(false);
+  const modeRef = useRef(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+  const lossHistory = useRef<boolean[]>([]);
   useEffect(() => {
     soundRef.current = sound;
   }, [sound]);
@@ -311,6 +326,7 @@ export default function RoomApp({ id }: { id: string }) {
       handle: ReturnType<typeof setTimeout>;
     eventTime.current = Date.now();
     const tick = async () => {
+      let ok = true;
       try {
         if (!document.hidden) {
           if (roomRef.current)
@@ -327,9 +343,17 @@ export default function RoomApp({ id }: { id: string }) {
           await refresh();
         }
       } catch (e) {
+        ok = false;
         if (!stop) setError((e as Error).message);
       }
-      if (!stop) handle = setTimeout(tick, 900);
+      if (!document.hidden) {
+        lossHistory.current.push(ok);
+        if (lossHistory.current.length > 40) lossHistory.current.shift();
+        const lost = lossHistory.current.filter((v) => !v).length;
+        setPacketLoss(Math.round((lost / lossHistory.current.length) * 100));
+      }
+      const interval = modeRef.current === '3d' ? 120 : 900;
+      if (!stop) handle = setTimeout(tick, interval);
     };
     void ready()
       .then(() => {
@@ -346,7 +370,10 @@ export default function RoomApp({ id }: { id: string }) {
           setInvertCamera(
             localStorage.getItem('jinaly-invert-camera') === 'true',
           );
-          setQuality(localStorage.getItem('jinaly-quality') || 'low');
+          const savedQuality = localStorage.getItem('jinaly-quality');
+          setQuality(
+            savedQuality === 'high' ? 'cinematic' : savedQuality || 'balanced',
+          );
           const savedFps = Number(localStorage.getItem('jinaly-fps-limit'));
           setFpsLimit([20, 30, 60].includes(savedFps) ? savedFps : 30);
           void tick();
@@ -515,6 +542,7 @@ export default function RoomApp({ id }: { id: string }) {
             'KeyS',
             'KeyD',
             'Tab',
+            'Backquote',
             'Space',
             'KeyC',
           ]);
@@ -611,6 +639,11 @@ export default function RoomApp({ id }: { id: string }) {
       if (draft.id) await op({ type: 'note.edit', id: draft.id, patch: data });
       else await op({ type: 'note.add', ...data });
       setDraft(null);
+      if (mode === '3d') {
+        setTimeout(() => {
+          document.querySelector('canvas')?.requestPointerLock();
+        }, 50);
+      }
       flash('Карточка сохранена');
     } catch {
     } finally {
@@ -816,6 +849,7 @@ export default function RoomApp({ id }: { id: string }) {
     );
   return (
     <main
+      data-resource-pack={resourcePack}
       className={
         'room-app mode-' +
         mode +
@@ -1118,6 +1152,7 @@ export default function RoomApp({ id }: { id: string }) {
                 quality={quality}
                 fps={fps}
                 fpsLimit={fpsLimit}
+                packetLoss={packetLoss}
                 now={now}
                 onGraphics={() => setPanel('fps')}
                 onPaintColor={setPaintColor}
@@ -1151,6 +1186,16 @@ export default function RoomApp({ id }: { id: string }) {
                 onFire={(effect) => void act({ type: 'effect', ...effect })}
                 paintColor={paintColor}
                 working={!!draft || !!selectedZone}
+                host={host}
+                onRoomSettings={(patch) =>
+                  void act({ type: 'room.settings', patch })
+                }
+                onOp={act}
+                onEditNote={editNote}
+                onAddNote={newNote}
+                onCursor={(x, y) => {
+                  cursor.current = { x, y, mode: 'tablet' };
+                }}
                 onFailure={() => {
                   setMode('board');
                   flash('WebGL недоступен. Открыта обычная доска.');
@@ -1158,10 +1203,7 @@ export default function RoomApp({ id }: { id: string }) {
                 blocked={
                   !!panel ||
                   !!draft ||
-                  !!selectedZone ||
-                  monitor ||
-                  environment ||
-                  musicOpen
+                  !!selectedZone
                 }
               />
             </Suspense>
@@ -1179,134 +1221,21 @@ export default function RoomApp({ id }: { id: string }) {
             />
           )}
           {mode === '3d' && (
-            <>
-              <div className="environment-dock">
+            <div className="game-zone-buttons">
+              {ZONES.filter(
+                (z) => s.template !== 'three' || z.id !== 'bad',
+              ).map((z) => (
                 <button
-                  className="environment-toggle"
-                  onClick={() => setEnvironment(!environment)}
+                  title={z.title}
+                  aria-label={z.title}
+                  key={z.id}
+                  onClick={() => setSelectedZone(z.id)}
                 >
-                  <Sun size={16} />
-                  <span>
-                    {
-                      (
-                        {
-                          dawn: 'Рассвет',
-                          day: 'День',
-                          sunset: 'Закат',
-                          night: 'Ночь',
-                        } as Record<string, string>
-                      )[s.time]
-                    }
-                    <small>
-                      {
-                        (
-                          {
-                            spring: 'Весна',
-                            summer: 'Лето',
-                            autumn: 'Осень',
-                            winter: 'Зима',
-                          } as Record<string, string>
-                        )[s.season]
-                      }
-                    </small>
-                  </span>
-                  <Settings2 size={14} />
+                  <span style={{ background: z.color }} />
+                  {z.short}
                 </button>
-                {environment && (
-                  <div className="environment-controls">
-                    <StylePicker
-                      compact
-                      value={s.visualStyle || 'classic'}
-                      disabled={!host}
-                      onChange={(visualStyle) =>
-                        void act({
-                          type: 'room.settings',
-                          patch: { visualStyle },
-                        })
-                      }
-                    />
-                    <span className="hud-label">ВРЕМЯ СУТОК</span>
-                    <div className="time-buttons">
-                      {[
-                        ['dawn', 'Рассвет', Sunrise],
-                        ['day', 'День', Sun],
-                        ['sunset', 'Закат', Sunset],
-                        ['night', 'Ночь', Moon],
-                      ].map(([value, label, Icon]) => {
-                        const I = Icon as typeof Sun;
-                        return (
-                          <button
-                            key={String(value)}
-                            aria-label={String(label)}
-                            title={String(label)}
-                            className={s.time === value ? 'selected' : ''}
-                            disabled={!host}
-                            onClick={() =>
-                              void act({
-                                type: 'room.settings',
-                                patch: { time: value },
-                              })
-                            }
-                          >
-                            <I size={18} />
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <span className="hud-label">ВРЕМЯ ГОДА</span>
-                    <div className="season-buttons">
-                      {[
-                        ['spring', 'Весна', '🌸'],
-                        ['summer', 'Лето', '☀️'],
-                        ['autumn', 'Осень', '🍂'],
-                        ['winter', 'Зима', '❄️'],
-                      ].map(([value, label, emoji]) => (
-                        <button
-                          key={value}
-                          title={label}
-                          className={s.season === value ? 'selected' : ''}
-                          disabled={!host}
-                          onClick={() =>
-                            void act({
-                              type: 'room.settings',
-                              patch: { season: value },
-                            })
-                          }
-                        >
-                          <span>{emoji}</span>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      className="text-button"
-                      onClick={() => {
-                        setEnvironment(false);
-                        setPanel('world');
-                      }}
-                    >
-                      Все настройки мира <ChevronRight size={13} />
-                    </button>
-                    {!host && <small>Мир настраивает ведущий</small>}
-                  </div>
-                )}
-              </div>
-              <div className="game-zone-buttons">
-                {ZONES.filter(
-                  (z) => s.template !== 'three' || z.id !== 'bad',
-                ).map((z) => (
-                  <button
-                    title={z.title}
-                    aria-label={z.title}
-                    key={z.id}
-                    onClick={() => setSelectedZone(z.id)}
-                  >
-                    <span style={{ background: z.color }} />
-                    {z.short}
-                  </button>
-                ))}
-              </div>
-            </>
+              ))}
+            </div>
           )}
           <div className="surface-top-right">
             <button className="surface-chip" onClick={() => setPanel('world')}>
@@ -1352,7 +1281,7 @@ export default function RoomApp({ id }: { id: string }) {
               />
             </div>
           )}
-          <MusicPlayer onOpenChange={setMusicOpen} />
+          {mode === 'board' && <MusicPlayer onOpenChange={setMusicOpen} />}
           <div className="tool-status" aria-live="polite">
             <span>{activeTools[tool]?.label}</span>
             <small>
@@ -1364,7 +1293,7 @@ export default function RoomApp({ id }: { id: string }) {
           </div>
           <div className="hotbar" aria-label="Инвентарь и инструменты">
             {activeTools.map((t, i) => {
-              const Icon = activeIcons[i];
+              const Icon = activeIcons[i] || MousePointer2;
               return (
                 <button
                   key={t.id}
@@ -1505,68 +1434,119 @@ export default function RoomApp({ id }: { id: string }) {
           </div>
         </SheetContent>
       </Sheet>
-      <Dialog open={monitor} onOpenChange={setMonitor}>
-        <DialogContent className="app-dialog monitor-dialog">
-          <DialogTitle>Комната в реальном времени</DialogTitle>
-          <DialogDescription>
-            {online.length} в сети · {room.members.length} участников встречи
-          </DialogDescription>
-          <div className="metrics">
-            <div>
-              <Wifi />
-              <strong>
-                {ping} <small>мс</small>
-              </strong>
-              <span>Ответ сервера</span>
-            </div>
-            <div>
-              <Monitor />
-              <strong>
-                {mode === '3d' ? fps : '—'} <small>FPS</small>
-              </strong>
-              <span>{`Лимит ${fpsLimit} FPS`}</span>
-            </div>
-            <div>
-              <Users />
-              <strong>{online.length}</strong>
-              <span>Сейчас в комнате</span>
-            </div>
-          </div>
-          <div className="participant-list">
-            {room.members.map((m) => (
-              <div key={m.id}>
-                <span
-                  className="avatar"
-                  style={{ background: m.color, color: 'white' }}
-                >
-                  {m.name[0]}
-                </span>
+      {monitor && (
+        <section
+          className="monitor-hud-overlay"
+          aria-live="polite"
+          aria-label="Комната в реальном времени"
+        >
+          <div className="monitor-card">
+            <div className="monitor-header">
+              <div className="monitor-title-wrap">
+                <h3>Комната в реальном времени</h3>
                 <span>
-                  <strong>
-                    {m.name}
-                    {m.id === room.self ? ' (вы)' : ''} {m.mood}
-                  </strong>
-                  <small>
-                    {m.id === room.host ? 'Ведущий' : 'Участник'} ·{' '}
-                    {now - m.lastSeen < 15000 ? 'в сети' : 'не в сети'} ·{' '}
-                    {m.hp ?? 100} HP {m.hp === 0 ? '· возрождение' : ''}
-                  </small>
-                </span>
-                <span className="participant-ping">
-                  {now - m.lastSeen < 15000 ? m.ping + ' мс' : '—'}
+                  {online.length} в сети · {room.members.length} участников
                 </span>
               </div>
-            ))}
+              <button
+                type="button"
+                className="monitor-close"
+                onClick={() => setMonitor(false)}
+                aria-label="Закрыть"
+                title="Закрыть (Ё)"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="monitor-metrics-bar">
+              <div className="metric-pill">
+                <Wifi size={12} />
+                <strong>{ping}</strong>
+                <small>мс</small>
+              </div>
+              <div className="metric-pill">
+                <Monitor size={12} />
+                <strong>{mode === '3d' ? fps : '—'}</strong>
+                <small>FPS</small>
+              </div>
+              <div className="metric-pill">
+                <Users size={12} />
+                <strong>{online.length}</strong>
+                <small>в сети</small>
+              </div>
+            </div>
+            <div className="monitor-table-wrap">
+              <div className="monitor-table-header">
+                <span className="col-user">УЧАСТНИК</span>
+                <span className="col-status">СТАТУС</span>
+                <span className="col-num">HP</span>
+                <span className="col-num col-k">K</span>
+                <span className="col-num col-d">D</span>
+                <span className="col-num col-a">A</span>
+                <span className="col-num col-ping">ПИНГ</span>
+              </div>
+              <div className="monitor-table-body">
+                {room.members.map((m) => (
+                  <div key={m.id} className="monitor-table-row">
+                    <div className="col-user">
+                      <span
+                        className="avatar mini-avatar"
+                        style={{ background: m.color, color: 'white' }}
+                      >
+                        {m.name[0]}
+                      </span>
+                      <span className="user-name-box">
+                        <strong className="name-text">
+                          {m.name}
+                          {m.id === room.self ? ' (вы)' : ''}
+                        </strong>
+                        <small className="role-text">
+                          {m.id === room.host ? 'Ведущий' : 'Участник'}
+                        </small>
+                      </span>
+                    </div>
+                    <span
+                      className={`col-status ${
+                        now - m.lastSeen < 15000 ? 'is-online' : 'is-offline'
+                      }`}
+                    >
+                      {now - m.lastSeen < 15000 ? 'в сети' : 'не в сети'}
+                    </span>
+                    <span
+                      className={`col-num col-hp ${
+                        m.hp === 0 ? 'is-dead' : ''
+                      }`}
+                    >
+                      {m.hp ?? 100}
+                    </span>
+                    <span className="col-num col-k">{m.kills ?? 0}</span>
+                    <span className="col-num col-d">{m.deaths ?? 0}</span>
+                    <span className="col-num col-a">{m.assists ?? 0}</span>
+                    <span className="col-num col-ping">
+                      {now - m.lastSeen < 15000 ? `${m.ping} мс` : '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="monitor-footer-note">
+              Синхронизация ~1 раз/сек · Для скрытия отпустите «Ё»
+            </p>
           </div>
-          <p className="muted">
-            Задержка — время ответа сервера. Состояние и позиции
-            синхронизируются примерно раз в секунду.
-          </p>
-        </DialogContent>
-      </Dialog>
+        </section>
+      )}
       <Dialog
         open={!!draft && quickSticky}
-        onOpenChange={(v) => !v && setDraft(null)}
+        onOpenChange={(v) => {
+          if (!v) {
+            setDraft(null);
+            if (mode === '3d') {
+              setTimeout(() => {
+                document.querySelector('canvas')?.requestPointerLock();
+              }, 50);
+            }
+          }
+        }}
       >
         <DialogContent
           className="quick-sticky-dialog"
@@ -1612,6 +1592,11 @@ export default function RoomApp({ id }: { id: string }) {
           if (!v) {
             setDraft(null);
             setDeleteConfirm(false);
+            if (mode === '3d') {
+              setTimeout(() => {
+                document.querySelector('canvas')?.requestPointerLock();
+              }, 50);
+            }
           }
         }}
       >
@@ -1981,7 +1966,7 @@ export default function RoomApp({ id }: { id: string }) {
             <>
               <div className="tool-library">
                 {activeTools.map((t, i) => {
-                  const Icon = activeIcons[i];
+                  const Icon = activeIcons[i] || MousePointer2;
                   return (
                     <button
                       key={t.id}
@@ -2182,6 +2167,7 @@ export default function RoomApp({ id }: { id: string }) {
           )}
           {panel === 'fps' && (
             <>
+              <ResourcePackPicker />
               <p className="performance-summary">
                 {fps} FPS · {me?.ping || 0} мс
               </p>
@@ -2198,17 +2184,24 @@ export default function RoomApp({ id }: { id: string }) {
                 }))}
               />
               <Choice
-                label="Качество графики на вашем устройстве"
-                value={quality}
+                label="Качество шейдеров и графики"
+                value={quality === 'high' ? 'cinematic' : quality}
                 onChange={(q) => {
                   setQuality(q);
                   localStorage.setItem('jinaly-quality', q);
                 }}
                 options={[
-                  { value: 'low', label: 'Экономное · для слабого ноутбука' },
                   {
-                    value: 'high',
-                    label: 'Детальное · динамические тени и свечение',
+                    value: 'low',
+                    label: 'Быстрое · базовые шейдеры, макс. FPS',
+                  },
+                  {
+                    value: 'balanced',
+                    label: 'Сбалансированное · мягкие тени и свечение',
+                  },
+                  {
+                    value: 'cinematic',
+                    label: 'Кинематографичное · HDR Bloom, 2K тени, максимум деталей',
                   },
                 ]}
               />
@@ -2578,12 +2571,21 @@ export default function RoomApp({ id }: { id: string }) {
                     .map((v) => v.trim())
                     .filter(Boolean);
                   if (options.length) {
-                    const values = new Uint32Array(1);
-                    crypto.getRandomValues(values);
+                    let randIndex = 0;
+                    if (
+                      typeof crypto !== 'undefined' &&
+                      typeof crypto.getRandomValues === 'function'
+                    ) {
+                      const values = new Uint32Array(1);
+                      crypto.getRandomValues(values);
+                      randIndex = values[0] % options.length;
+                    } else {
+                      randIndex = Math.floor(Math.random() * options.length);
+                    }
                     void act({
                       type: 'event',
                       kind: 'spin',
-                      value: options[values[0] % options.length],
+                      value: options[randIndex],
                     });
                   }
                 }}
@@ -2732,13 +2734,13 @@ export default function RoomApp({ id }: { id: string }) {
                 (удерживать). <b>Shift</b> — медленный шаг.
               </p>
               <p>
-                <b>1–4</b> — краскомёт, конфетти, планшет и гранаты. Колесо —
-                варианты предмета. <b>Q, I или средняя кнопка</b> — снаряжение.
-                Выбор подтверждается кликом. Инструменты ретро в этой панели
+                <b>1–5</b> — краскомёт, дробовик, пиньято, снайперка и планшет.
+                Колесо — переключение оружия, удержание колёсика — варианты снаряжения.
+                <b>Q, I</b> — снаряжение. Инструменты ретро в этой панели
                 сразу открывают обычную доску.
               </p>
               <p>
-                <b>E</b> у доски — открыть её. <b>Tab</b> — участники и
+                <b>E</b> у доски — открыть её. <b>Ё</b> — участники и
                 задержка. <b>Esc</b> — вернуть курсор.
               </p>
               <p>

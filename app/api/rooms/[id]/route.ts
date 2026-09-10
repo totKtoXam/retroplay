@@ -36,10 +36,11 @@ export async function GET(request: Request, context: Context) {
         title: JSON.parse(r.state).title,
         theme: JSON.parse(r.state).theme,
       });
+    const now = Date.now();
     await resolveCombat(id, JSON.parse(r.state).respawnSeconds ?? 5);
     const { results } = await db()
       .prepare(
-        'SELECT session AS id,name,color,seen AS lastSeen,pose,ping,mood,hat,cursor,hp,respawn_at AS respawnAt,life FROM members WHERE room=? ORDER BY seen DESC LIMIT 100',
+        'SELECT session AS id,name,color,seen AS lastSeen,pose,ping,mood,hat,cursor,hp,respawn_at AS respawnAt,immune_until AS immuneUntil,life,kills,deaths,assists FROM members WHERE room=? ORDER BY seen DESC LIMIT 100',
       )
       .bind(id)
       .all();
@@ -49,27 +50,47 @@ export async function GET(request: Request, context: Context) {
       )
       .bind(id, Date.now() - 15000)
       .all();
+    const isAnonymous = !!JSON.parse(r.state).anonymousPlayers;
     return json({
       ...r,
       self,
-      effects: effects.results.map((e) => ({
-        ...JSON.parse(String(e.payload)),
-        id: e.id,
-        author: e.author,
-        at: e.at,
-      })),
+      serverNow: now,
+      effects: effects.results.map((e) => {
+        const payload = JSON.parse(String(e.payload));
+        if (isAnonymous && payload.kind === 'kill') {
+          payload.killerName = 'Участник';
+          payload.victimName = 'Участник';
+          if (payload.assisterName) payload.assisterName = 'Участник';
+        }
+        return {
+          ...payload,
+          id: e.id,
+          author: e.author,
+          at: e.at,
+        };
+      }),
       state:
         new URL(request.url).searchParams.get('version') === String(r.version)
           ? undefined
           : publicState(JSON.parse(r.state), self),
-      members: results.map((m) => ({
-        ...m,
-        name: JSON.parse(r.state).anonymousPlayers ? 'Участник' : m.name,
-        mood: JSON.parse(r.state).anonymousPlayers ? '' : m.mood,
-        hat: JSON.parse(r.state).anonymousPlayers ? '' : m.hat,
-        pose: JSON.parse(String(m.pose)),
-        cursor: JSON.parse(String(m.cursor)),
-      })),
+      members: results.map((m) => {
+        const immuneUntil = Number(m.immuneUntil) || 0;
+        const respawnAt = Number(m.respawnAt) || 0;
+        return {
+          ...m,
+          kills: m.kills ?? 0,
+          deaths: m.deaths ?? 0,
+          assists: m.assists ?? 0,
+          immuneUntil,
+          immuneRemaining: Math.max(0, immuneUntil - now),
+          respawnRemaining: Math.max(0, respawnAt - now),
+          name: isAnonymous ? 'Участник' : m.name,
+          mood: isAnonymous ? '' : m.mood,
+          hat: isAnonymous ? '' : m.hat,
+          pose: JSON.parse(String(m.pose)),
+          cursor: JSON.parse(String(m.cursor)),
+        };
+      }),
     });
   } catch (e) {
     console.error(e);
@@ -106,7 +127,7 @@ export async function POST(request: Request, context: Context) {
       const color = colors[(count?.n || 0) % colors.length];
       await db()
         .prepare(
-          'INSERT INTO members (room,session,name,color,seen,pose,ping,mood,hat) VALUES (?,?,?,?,?,?,0,?,?) ON CONFLICT(room,session) DO UPDATE SET name=excluded.name,seen=excluded.seen',
+          'INSERT INTO members (room,session,name,color,seen,pose,ping,mood,hat,immune_until) VALUES (?,?,?,?,?,?,0,?,?,?) ON CONFLICT(room,session) DO UPDATE SET name=excluded.name,seen=excluded.seen',
         )
         .bind(
           id,
@@ -124,6 +145,7 @@ export async function POST(request: Request, context: Context) {
           }),
           '',
           '',
+          Date.now() + 5000,
         )
         .run();
       return json({ ok: true });
@@ -135,7 +157,7 @@ export async function POST(request: Request, context: Context) {
     if (!member) return json({ error: 'Сначала войдите в комнату' }, 403);
     if (op.type === 'effect') {
       if (JSON.parse(r.state).archived) return json({ ok: false });
-      if (!['paint', 'confetti', 'grenade'].includes(op.kind))
+      if (!['paint', 'confetti', 'grenade', 'sniper', 'like'].includes(op.kind))
         throw Error('Неизвестный эффект');
       for (const p of [op.origin, op.target, op.normal])
         if (
@@ -150,12 +172,19 @@ export async function POST(request: Request, context: Context) {
       if (!/^#[0-9a-f]{6}$/i.test(op.color)) throw Error('Некорректный цвет');
       const shooter = await db()
         .prepare(
-          'SELECT pose,hp,last_shot FROM members WHERE room=? AND session=?',
+          'SELECT pose,hp,last_shot,immune_until FROM members WHERE room=? AND session=?',
         )
         .bind(id, self)
-        .first<{ pose: string; hp: number; last_shot: number }>();
+        .first<{
+          pose: string;
+          hp: number;
+          last_shot: number;
+          immune_until?: number;
+        }>();
       if (!shooter || shooter.hp <= 0)
         return json({ ok: false, reason: 'respawning' });
+      if ((Number(shooter.immune_until) || 0) > Date.now())
+        return json({ ok: false, reason: 'immune' });
       const position = JSON.parse(shooter.pose);
       if (
         Math.hypot(
@@ -287,6 +316,7 @@ export async function POST(request: Request, context: Context) {
                 'paint',
                 'confetti',
                 'grenade',
+                'sniper',
                 'pointer',
                 'other',
               ].includes(p.tool)

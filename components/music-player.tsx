@@ -1,56 +1,35 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useSyncExternalStore } from 'react';
 import { Music2, Play, Pause, Volume2, Headphones } from 'lucide-react';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Soundtrack, TRACKS } from '@/lib/soundtrack';
+import {
+  TRACKS,
+  getMusicState,
+  subscribeMusic,
+  playMusic,
+  pauseMusic,
+  setMusicVolume,
+} from '@/lib/soundtrack';
 
 export function MusicPlayer({
   onOpenChange,
 }: {
   onOpenChange: (open: boolean) => void;
 }) {
-  const [playing, setPlaying] = useState(false),
-    [track, setTrack] = useState('evening'),
-    [volume, setVolume] = useState(0.25),
-    [error, setError] = useState('');
-  const player = useRef<Soundtrack | null>(null),
-    request = useRef(0);
-  useEffect(
-    () => () => {
-      request.current++;
-      void player.current?.dispose();
-    },
-    [],
+  const { playing, track, volume, error } = useSyncExternalStore(
+    subscribeMusic,
+    getMusicState,
+    getMusicState,
   );
-  const play = async (id = track) => {
-    const version = ++request.current;
-    try {
-      const p = player.current || (player.current = new Soundtrack());
-      p.volume(volume);
-      await p.play(id);
-      if (version === request.current) {
-        setPlaying(true);
-        setError('');
-      }
-    } catch {
-      setError('Браузер не запустил звук. Нажмите воспроизведение ещё раз.');
-      setPlaying(false);
-    }
-  };
-  const pause = () => {
-    request.current++;
-    player.current?.stop();
-    setPlaying(false);
-  };
   return (
     <div className={`music-dock ${playing ? 'is-playing' : ''}`}>
       <button
         className="music-play"
-        onClick={() => (playing ? pause() : void play())}
+        onClick={() => (playing ? pauseMusic() : void playMusic())}
         aria-label={playing ? 'Приостановить музыку' : 'Включить музыку'}
         title={playing ? 'Приостановить музыку' : 'Включить музыку'}
       >
@@ -85,8 +64,7 @@ export function MusicPlayer({
                 className={track === t.id ? 'selected' : ''}
                 aria-pressed={track === t.id}
                 onClick={() => {
-                  setTrack(t.id);
-                  void play(t.id);
+                  void playMusic(t.id);
                 }}
               >
                 <span>{track === t.id && playing ? '♫' : '▷'}</span>
@@ -107,16 +85,14 @@ export function MusicPlayer({
               max="100"
               value={Math.round(volume * 100)}
               onChange={(e) => {
-                const v = Number(e.target.value) / 100;
-                setVolume(v);
-                player.current?.volume(v);
+                setMusicVolume(Number(e.target.value) / 100);
               }}
             />
             <output>{Math.round(volume * 100)}%</output>
           </label>
           <button
             className="primary full-width"
-            onClick={() => (playing ? pause() : void play())}
+            onClick={() => (playing ? pauseMusic() : void playMusic())}
           >
             {playing ? <Pause size={16} /> : <Play size={16} />}{' '}
             {playing ? 'Пауза' : 'Включить музыку'}

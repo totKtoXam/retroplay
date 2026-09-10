@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import * as T from 'three';
 import {
   Dialog,
@@ -11,18 +11,32 @@ import {
   ZONES,
   GAME_TOOLS,
   TOOL_HINTS,
+  uid,
   type Pose,
   type Room,
+  type RoomState,
   type WorldEffect,
+  type Note,
 } from '@/lib/model';
+import Board from './board';
 import { createWorldScene, STATIONS } from './world-scene';
+import { useResourcePack } from '../hooks/use-resource-pack';
+import { createVisualProvider } from './resource-packs/provider';
+import { createFieldOptics } from './resource-packs/realistic/post';
+import { visualBudget } from '../lib/resource-packs';
 import { createFirstPersonHands } from './world-hands';
 import { ItemWheel } from './item-wheel';
-import { PAINTS, CONFETTI, GRENADES } from '@/lib/game-items';
-import { partyGeometry, grenadeParty, makeGrenade } from './party-geometry';
+import { PAINTS, CONFETTI, GRENADES, FIREWORKS, inHitRange } from '@/lib/game-items';
+import {
+  partyGeometry,
+  grenadeParty,
+  fireworkParty,
+  makeGrenade,
+  makeFireworkRocket,
+} from './party-geometry';
 import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
-import { QUICK_SLOTS, slotForDigit } from '@/lib/loadout';
+import { QUICK_SLOTS, slotForDigit, cycleSlot } from '@/lib/loadout';
 import { ToolMagazine, CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import {
   cameraFrame,
@@ -55,15 +69,52 @@ import {
   PartyPopper,
   Tablet,
   Bomb,
+  Sparkles,
+  StickyNote,
   X,
+  Eye,
+  User,
+  Sun,
+  Sunrise,
+  Sunset,
+  Moon,
+  Music2,
+  Play,
+  Pause,
+  Volume2,
+  Headphones,
+  Heart,
+  Bell,
+  Check,
+  CheckSquare,
+  Clock,
+  Pencil,
+  MousePointer,
+  Link2,
+  ThumbsUp,
 } from 'lucide-react';
+import {
+  TRACKS,
+  getMusicState,
+  subscribeMusic,
+  playMusic,
+  pauseMusic,
+  setMusicVolume,
+} from '@/lib/soundtrack';
+
+const SNIPER_ZOOM_LEVELS = [2, 4, 8, 12] as const;
+const SNIPER_ZOOM_FOVS = [36, 22, 12, 7.5] as const;
+
 type Props = {
   room: Room;
+  host?: boolean;
+  onRoomSettings?: (patch: Partial<RoomState>) => void;
   quality: string;
   fps: number;
   fpsLimit: number;
   now: number;
   onGraphics: () => void;
+  packetLoss?: number;
   onPaintColor: (color: string) => void;
   tool: number;
   onTool: (n: number) => void;
@@ -81,6 +132,10 @@ type Props = {
   blocked: boolean;
   working?: boolean;
   paintColor: string;
+  onOp?: (op: Record<string, unknown>) => Promise<unknown>;
+  onEditNote?: (n: Note) => void;
+  onAddNote?: (zone: string, x?: number, y?: number) => void;
+  onCursor?: (x: number, y: number) => void;
 };
 type Particle = {
   mesh: T.InstancedMesh;
@@ -88,6 +143,20 @@ type Particle = {
   positions: T.Vector3[];
   rotations: T.Euler[];
   born: number;
+  lifetime?: number;
+};
+type KillMessage = {
+  id: string;
+  killer: string;
+  killerName: string;
+  victim: string;
+  victimName: string;
+  assister?: string;
+  assisterName?: string;
+  color?: string;
+  tool?: string;
+  headshot?: boolean;
+  at: number;
 };
 type Flight = {
   mesh: T.Object3D;
@@ -99,6 +168,7 @@ type Flight = {
   duration: number;
   color: string;
   kind: string;
+  author?: string;
 };
 function readPerspective(): Perspective {
   try {
@@ -117,7 +187,22 @@ function subscribePerspective(callback: () => void) {
     window.removeEventListener('jinaly-perspective', callback);
   };
 }
+function getSlotIcon(slotIndex: number) {
+  if (slotIndex === 0) return Palette;
+  if (slotIndex === 1) return PartyPopper;
+  if (slotIndex === 10) return Bomb;
+  if (slotIndex === 11) return Sparkles;
+  if (slotIndex === 2) return StickyNote;
+  if (slotIndex === 9) return Tablet;
+  if (slotIndex === 12) return Heart;
+  return Crosshair;
+}
+
 export default function World(props: Props) {
+  const resourcePack = useResourcePack();
+  const packRef = useRef(resourcePack);
+  packRef.current = resourcePack;
+  const [packStatus, setPackStatus] = useState<'default' | 'loading' | 'ready' | 'error'>('default');
   const mount = useRef<HTMLDivElement>(null),
     latest = useRef(props);
   useEffect(() => {
@@ -126,13 +211,278 @@ export default function World(props: Props) {
   const [contextWheel, setContextWheel] = useState(false);
   const [confettiStyle, setConfettiStyle] = useState('classic');
   const [grenadeStyle, setGrenadeStyle] = useState('pinata');
+  const [fireworkStyle, setFireworkStyle] = useState('salute');
   const [tabletZone, setTabletZone] = useState('good');
-  const selection = useRef({ confettiStyle, grenadeStyle, tabletZone });
+  const [tabletInWorld, setTabletInWorld] = useState(false);
+  const [tabletTab, setTabletTab] = useState<'board' | 'env' | 'music'>('board');
+  const [tabletTool, setTabletTool] = useState('pointer');
+  const [actionItemsOpen, setActionItemsOpen] = useState(false);
+  const [tabletSearch, setTabletSearch] = useState('');
+  const [tabletZoneFilter, setTabletZoneFilter] = useState<string>('all');
+  const [sniperZoomIndex, setSniperZoomIndex] = useState(1);
+  const sniperZoomIndexRef = useRef(1);
+  sniperZoomIndexRef.current = sniperZoomIndex;
+  const music = useSyncExternalStore(
+    subscribeMusic,
+    getMusicState,
+    getMusicState,
+  );
+  const tabletInWorldRef = useRef(false);
+  const tabletInspectRef = useRef(0);
+
+  const openTabletInWorld = useCallback(() => {
+    tabletInWorldRef.current = true;
+    setTabletInWorld(true);
+    if (document.pointerLockElement) document.exitPointerLock();
+    const start = performance.now();
+    const duration = 380;
+    const step = (now: number) => {
+      const elapsed = now - start;
+      const t = Math.min(1, elapsed / duration);
+      tabletInspectRef.current = t;
+      if (t < 1 && tabletInWorldRef.current) {
+        requestAnimationFrame(step);
+      }
+    };
+    requestAnimationFrame(step);
+  }, []);
+
+  const closeTabletInWorld = useCallback(() => {
+    tabletInWorldRef.current = false;
+    setTabletInWorld(false);
+    const start = performance.now();
+    const duration = 260;
+    const initialT = tabletInspectRef.current;
+    const step = (now: number) => {
+      const elapsed = now - start;
+      const p = Math.min(1, elapsed / duration);
+      tabletInspectRef.current = initialT * (1 - p);
+      if (p < 1) {
+        requestAnimationFrame(step);
+      } else {
+        tabletInspectRef.current = 0;
+        engine.current?.capture();
+      }
+    };
+    requestAnimationFrame(step);
+  }, []);
+  const selection = useRef({
+    confettiStyle,
+    grenadeStyle,
+    fireworkStyle,
+    tabletZone,
+  });
   useEffect(() => {
-    selection.current = { confettiStyle, grenadeStyle, tabletZone };
-  }, [confettiStyle, grenadeStyle, tabletZone]);
+    selection.current = {
+      confettiStyle,
+      grenadeStyle,
+      fireworkStyle,
+      tabletZone,
+    };
+  }, [confettiStyle, grenadeStyle, fireworkStyle, tabletZone]);
   const self = props.room.members.find((m) => m.id === props.room.self);
   const dead = self?.hp === 0;
+  const [killfeed, setKillfeed] = useState<KillMessage[]>([]);
+  const [personalAlert, setPersonalAlert] = useState<{
+    text: string;
+    sub?: string;
+    type: 'kill' | 'assist' | 'death';
+    key: number;
+  } | null>(null);
+  const seenKillsRef = useRef<Set<string>>(new Set());
+  const initialKillsProcessed = useRef(false);
+
+  useEffect(() => {
+    if (!props.room.effects) return;
+    const now = Date.now();
+    if (!initialKillsProcessed.current) {
+      initialKillsProcessed.current = true;
+      for (const e of props.room.effects) {
+        if (e.kind === 'kill') seenKillsRef.current.add(e.id);
+      }
+      return;
+    }
+
+    const newKills: KillMessage[] = [];
+    for (const e of props.room.effects) {
+      if (e.kind === 'kill' && !seenKillsRef.current.has(e.id)) {
+        seenKillsRef.current.add(e.id);
+        if (now - (e.at || now) < 8000) {
+          const item: KillMessage = {
+            id: e.id,
+            killer: e.killer || e.author,
+            killerName: e.killerName || 'Игрок',
+            victim: e.victim || '',
+            victimName: e.victimName || 'Игрок',
+            assister: e.assister,
+            assisterName: e.assisterName,
+            color: e.color || '#ff647c',
+            tool: e.tool || 'paint',
+            headshot: e.headshot,
+            at: e.at || now,
+          };
+          newKills.push(item);
+
+          if (item.killer === props.room.self) {
+            queueMicrotask(() => {
+              setPersonalAlert({
+                type: 'kill',
+                text: item.headshot
+                  ? `ВЫ УСТРАНИЛИ В ГОЛОВУ! 💀 ${item.victimName}`
+                  : `ВЫ УСТРАНИЛИ: ${item.victimName}`,
+                sub: item.assisterName ? `Помог: ${item.assisterName}` : undefined,
+                key: Date.now(),
+              });
+            });
+          } else if (item.assister === props.room.self) {
+            queueMicrotask(() => {
+              setPersonalAlert({
+                type: 'assist',
+                text: `ПОМОЩЬ В УСТРАНЕНИИ: ${item.victimName}`,
+                sub: `Устранил: ${item.killerName}`,
+                key: Date.now(),
+              });
+            });
+          } else if (item.victim === props.room.self) {
+            queueMicrotask(() => {
+              setPersonalAlert({
+                type: 'death',
+                text: item.headshot
+                  ? `ХЕДШОТ! ВАС УСТРАНИЛ В ГОЛОВУ: ${item.killerName}`
+                  : `ВАС УСТРАНИЛ: ${item.killerName}`,
+                sub: item.assisterName ? `Помощь: ${item.assisterName}` : undefined,
+                key: Date.now(),
+              });
+            });
+          }
+        }
+      }
+    }
+
+    if (newKills.length > 0) {
+      queueMicrotask(() => {
+        setKillfeed((prev) => [...prev, ...newKills].slice(-5));
+      });
+    }
+  }, [props.room.effects, props.room.self]);
+
+  useEffect(() => {
+    if (killfeed.length === 0) return;
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setKillfeed((prev) => prev.filter((k) => now - k.at < 5000));
+    }, 400);
+    return () => clearInterval(timer);
+  }, [killfeed.length]);
+
+  useEffect(() => {
+    if (!personalAlert) return;
+    const timer = setTimeout(() => {
+      setPersonalAlert(null);
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [personalAlert]);
+
+  const [hitEffect, setHitEffect] = useState<{
+    color: string;
+    key: number;
+  } | null>(null);
+  const lastHitColorRef = useRef<string | null>(null);
+  const lastGlowTimeRef = useRef<number>(0);
+  const triggerHitGlow = (color: string) => {
+    const now = Date.now();
+    lastHitColorRef.current = color;
+    lastGlowTimeRef.current = now;
+    setHitEffect({ color, key: now });
+  };
+  const hitGlowHandler = useRef(triggerHitGlow);
+  useEffect(() => {
+    hitGlowHandler.current = triggerHitGlow;
+  });
+
+  const [shieldSeconds, setShieldSeconds] = useState(0);
+  const immuneExpireRef = useRef(0);
+  const immuneRemaining = self?.immuneRemaining ?? 0;
+
+  useEffect(() => {
+    if (immuneRemaining > 0 && !dead) {
+      const target = performance.now() + immuneRemaining;
+      if (
+        Math.abs(immuneExpireRef.current - target) > 400 ||
+        immuneExpireRef.current <= performance.now()
+      ) {
+        immuneExpireRef.current = target;
+      }
+    } else if (immuneRemaining === 0) {
+      immuneExpireRef.current = 0;
+    }
+  }, [immuneRemaining, dead]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const remainingMs = immuneExpireRef.current - performance.now();
+      if (remainingMs > 0 && !dead) {
+        setShieldSeconds(Math.ceil(remainingMs / 1000));
+      } else {
+        setShieldSeconds((prev) => (prev !== 0 ? 0 : prev));
+      }
+    }, 100);
+    return () => clearInterval(timer);
+  }, [dead]);
+
+  const [respawnSeconds, setRespawnSeconds] = useState(0);
+  const respawnExpireRef = useRef(0);
+  const respawnRemaining = self?.respawnRemaining ?? 0;
+
+  useEffect(() => {
+    if (dead && respawnRemaining > 0) {
+      const target = performance.now() + respawnRemaining;
+      if (
+        Math.abs(respawnExpireRef.current - target) > 400 ||
+        respawnExpireRef.current <= performance.now()
+      ) {
+        respawnExpireRef.current = target;
+      }
+    } else if (!dead) {
+      respawnExpireRef.current = 0;
+    }
+  }, [dead, respawnRemaining]);
+
+  useEffect(() => {
+    if (!dead) return;
+    const timer = setInterval(() => {
+      const remainingMs = respawnExpireRef.current - performance.now();
+      setRespawnSeconds(remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0);
+    }, 100);
+    return () => clearInterval(timer);
+  }, [dead]);
+
+  const currentHp = self?.hp ?? 100;
+  const prevHpRef = useRef(currentHp);
+
+  useEffect(() => {
+    if (prevHpRef.current > currentHp) {
+      const now = Date.now();
+      if (now - lastGlowTimeRef.current > 400) {
+        const enemyEffects = (props.room.effects || []).filter(
+          (e) => e.author !== props.room.self,
+        );
+        const latestEnemyEffect = enemyEffects[enemyEffects.length - 1];
+        const color =
+          lastHitColorRef.current || latestEnemyEffect?.color || '#ff647c';
+        triggerHitGlow(color);
+      }
+    }
+    prevHpRef.current = currentHp;
+  }, [currentHp, props.room.effects, props.room.self]);
+
+  useEffect(() => {
+    if (!hitEffect) return;
+    const t = setTimeout(() => {
+      setHitEffect(null);
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [hitEffect]);
   const magazine = useRef(new ToolMagazine());
   const [showAgent, setShowAgent] = useState(false);
   const [rounds, setRounds] = useState({ ...CAPACITY }),
@@ -147,6 +497,7 @@ export default function World(props: Props) {
     [captureError, setCaptureError] = useState('');
   const engine = useRef<{
     kit: ReturnType<typeof createWorldScene>;
+    visuals: ReturnType<typeof createVisualProvider>;
     fire: (e: WorldEffect) => void;
     distance: (delta: number) => void;
     reset: () => void;
@@ -173,7 +524,7 @@ export default function World(props: Props) {
     try {
       localStorage.setItem('jinaly-perspective', value);
       window.dispatchEvent(new Event('jinaly-perspective'));
-    } catch {}
+    } catch { }
   };
   const lock = () => engine.current?.capture();
   useEffect(() => {
@@ -197,17 +548,22 @@ export default function World(props: Props) {
     }
     const kit = createWorldScene(renderer),
       { scene } = kit;
-    renderer.setPixelRatio(
-      Math.min(devicePixelRatio, props.quality === 'high' ? 1.5 : 1),
-    );
+    const isCinematic = props.quality === 'cinematic' || props.quality === 'high';
+    const isBalanced = props.quality === 'balanced' || (!isCinematic && props.quality !== 'low');
+    const pixelRatio = isCinematic
+      ? Math.min(devicePixelRatio, 1.5)
+      : isBalanced
+        ? Math.min(devicePixelRatio, 1.25)
+        : 1.0;
+    renderer.setPixelRatio(pixelRatio);
     renderer.outputColorSpace = T.SRGBColorSpace;
     renderer.toneMapping = T.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.94;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = T.PCFSoftShadowMap;
-    renderer.shadowMap.autoUpdate = props.quality === 'high';
+    renderer.toneMappingExposure = isCinematic ? 1.08 : isBalanced ? 0.98 : 0.92;
+    renderer.shadowMap.enabled = props.quality !== 'low';
+    renderer.shadowMap.type = isCinematic ? T.PCFSoftShadowMap : T.PCFShadowMap;
+    renderer.shadowMap.autoUpdate = props.quality !== 'low';
     kit.sunlight.shadow.mapSize.setScalar(
-      props.quality === 'high' ? 2048 : 1024,
+      isCinematic ? 2048 : isBalanced ? 1024 : 512,
     );
     renderer.shadowMap.needsUpdate = true;
     host.appendChild(renderer.domElement);
@@ -239,23 +595,49 @@ export default function World(props: Props) {
     const hands = createFirstPersonHands(camera);
     let composer: EffectComposer | undefined,
       bloom: UnrealBloomPass | undefined;
-    if (props.quality === 'high') {
+    if (isCinematic || isBalanced) {
       composer = new EffectComposer(renderer);
       composer.addPass(new RenderPass(scene, camera));
-      bloom = new UnrealBloomPass(new T.Vector2(1, 1), 0.22, 0.45, 1.05);
+      const bloomStrength = isCinematic ? 0.28 : 0.14;
+      const bloomRadius = isCinematic ? 0.52 : 0.35;
+      const bloomThreshold = isCinematic ? 0.72 : 0.85;
+      bloom = new UnrealBloomPass(
+        new T.Vector2(1, 1),
+        bloomStrength,
+        bloomRadius,
+        bloomThreshold,
+      );
       composer.addPass(bloom);
       composer.addPass(new OutputPass());
     }
+    const optics = createFieldOptics();
+    composer?.addPass(optics);
+    const defaultExposure = renderer.toneMappingExposure;
+    const visuals = createVisualProvider({ scene, hands: hands.group, quality: props.quality, stations: STATIONS,
+      restore: () => { kit.update(latest.current.room.state); renderer.toneMappingExposure = defaultExposure; },
+      status: setPackStatus,
+    });
+    void visuals.select(packRef.current, latest.current.room.state);
     const avatar = kit.avatarFactory(
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.color || '#718cdd',
     );
     avatar.traverse((o) => {
-      if (o instanceof T.Mesh) o.castShadow = props.quality === 'high';
+      if (o instanceof T.Mesh) o.castShadow = props.quality !== 'low';
     });
     scene.add(avatar);
     const remoteAvatars = new Map<string, T.Group>(),
-      labels = new Map<string, T.Sprite>();
+      labels = new Map<string, T.Sprite>(),
+      remoteMotion = new Map<
+        string,
+        {
+          lastX: number;
+          lastY: number;
+          lastZ: number;
+          lastYaw: number;
+          lastTime: number;
+        }
+      >();
     const addLabel = (name: string, color: string) => {
       const c = document.createElement('canvas');
       c.width = 256;
@@ -323,6 +705,9 @@ export default function World(props: Props) {
       activeControl = false,
       softLook = false,
       mouseInWorld = false;
+    let grenadeAiming = false;
+    let continuousShots = 0;
+    const deadTimers = new Map<string, number>();
     const keys = new Set<string>(),
       ray = new T.Raycaster(),
       mouse = new T.Vector2(0, 0),
@@ -332,47 +717,121 @@ export default function World(props: Props) {
       seen = new Set<string>();
     const dummy = new T.Object3D(),
       paintGeo = new T.SphereGeometry(0.105, 7, 5),
+      paintDropletGeo = new T.SphereGeometry(0.04, 6, 4),
       confettiGeo = new T.PlaneGeometry(0.07, 0.13),
       normalUp = new T.Vector3(0, 0, 1);
-    const partyGeometries = new Map(
-      CONFETTI.map((c) => [c.id, partyGeometry(c.id)]),
+    const partyGeometries = new Map([
+      ...[...CONFETTI, ...FIREWORKS].map(
+        (c) => [c.id, partyGeometry(c.id)] as [string, T.BufferGeometry],
+      ),
+      ['ribbon', partyGeometry('ribbon')],
+      ['shard', partyGeometry('shard')],
+    ]);
+
+    const trajectoryGeo = new T.BufferGeometry();
+    const trajectoryMat = new T.LineBasicMaterial({
+      color: '#ffe066',
+      transparent: true,
+      opacity: 0.85,
+    });
+    const trajectoryLine = new T.Line(trajectoryGeo, trajectoryMat);
+    trajectoryLine.visible = false;
+    scene.add(trajectoryLine);
+
+    const landingMarker = new T.Mesh(
+      new T.RingGeometry(0.18, 0.42, 16),
+      new T.MeshBasicMaterial({
+        color: '#ffe066',
+        transparent: true,
+        opacity: 0.8,
+        side: T.DoubleSide,
+      }),
     );
+    landingMarker.rotation.x = -Math.PI / 2;
+    landingMarker.visible = false;
+    scene.add(landingMarker);
+
     const burst = (
       at: T.Vector3,
       color: string,
       now: number,
       style = 'classic',
     ) => {
-      const count = props.quality === 'high' ? 70 : 40;
+      const isPaint = style === 'paint';
+      const isFirework = FIREWORKS.some((f) => f.id === style);
+      const isCinematicQuality =
+        props.quality === 'cinematic' || props.quality === 'high';
+      const isBalancedQuality =
+        props.quality === 'balanced' ||
+        (!isCinematicQuality && props.quality !== 'low');
+      const count = isPaint
+        ? isCinematicQuality
+          ? 16
+          : isBalancedQuality
+            ? 10
+            : 6
+        : isFirework
+          ? isCinematicQuality
+            ? 96
+            : isBalancedQuality
+              ? 60
+              : 36
+          : isCinematicQuality
+            ? 80
+            : isBalancedQuality
+              ? 48
+              : 26;
+      const geo =
+        style === 'paint'
+          ? paintDropletGeo
+          : partyGeometries.get(style) || confettiGeo;
       const mesh = new T.InstancedMesh(
-        partyGeometries.get(style) || confettiGeo,
+        geo,
         new T.MeshBasicMaterial({ side: T.DoubleSide, transparent: true }),
         count,
       );
       const velocity: T.Vector3[] = [],
         positions: T.Vector3[] = [],
         rotations: T.Euler[] = [];
+      const spreadFactor = isPaint ? 0.95 : 1;
       for (let i = 0; i < count; i++) {
         const a = i * 2.399;
-        velocity.push(
-          new T.Vector3(
-            Math.cos(a) * (1 + (i % 5) * 0.3),
-            1.8 + (i % 7) * 0.35,
-            Math.sin(a) * (1 + (i % 4) * 0.4),
-          ),
-        );
+        if (isFirework) {
+          const phi = Math.acos(1 - 2 * ((i + 0.5) / count));
+          const theta = Math.PI * (1 + 5 ** 0.5) * i;
+          const spd = 2.4 + (i % 5) * 0.55;
+          velocity.push(
+            new T.Vector3(
+              Math.sin(phi) * Math.cos(theta) * spd,
+              Math.sin(phi) * Math.sin(theta) * spd + 0.7,
+              Math.cos(phi) * spd,
+            ),
+          );
+        } else {
+          velocity.push(
+            new T.Vector3(
+              Math.cos(a) * (1.1 + (i % 5) * 0.35) * spreadFactor,
+              isPaint ? 0.85 + (i % 7) * 0.25 : 1.8 + (i % 7) * 0.35,
+              Math.sin(a) * (1.1 + (i % 4) * 0.35) * spreadFactor,
+            ),
+          );
+        }
         positions.push(at.clone());
         rotations.push(new T.Euler(a, a * 0.7, a * 1.2));
         mesh.setColorAt(
           i,
           new T.Color(
-            style === 'snow'
-              ? '#e7f7ff'
-              : style === 'hearts'
-                ? ['#ff647c', '#ffb1c8'][i % 2]
-                : style === 'digital'
-                  ? ['#7fe0b8', '#b6ffe5'][i % 2]
-                  : [color, '#c8b6ff', '#80d8fa', '#ffbfd8', '#ffe29b'][i % 5],
+            style === 'paint'
+              ? color
+              : isFirework
+                ? [color, '#ffffff', '#ffd166', '#ff84c8', '#64d4ef'][i % 5]
+                : style === 'snow'
+                  ? '#e7f7ff'
+                  : style === 'hearts'
+                    ? ['#ff647c', '#ffb1c8'][i % 2]
+                    : style === 'digital'
+                      ? ['#7fe0b8', '#b6ffe5'][i % 2]
+                      : [color, '#c8b6ff', '#80d8fa', '#ffbfd8', '#ffe29b'][i % 5],
           ),
         );
         dummy.position.copy(at);
@@ -381,13 +840,22 @@ export default function World(props: Props) {
         mesh.setMatrixAt(i, dummy.matrix);
       }
       scene.add(mesh);
-      bursts.push({ mesh, velocity, positions, rotations, born: now });
+      bursts.push({
+        mesh,
+        velocity,
+        positions,
+        rotations,
+        born: now,
+        lifetime: isPaint ? 1.6 : isFirework ? 2.5 : 4,
+      });
     };
     const splat = (
       at: T.Vector3,
       normal: T.Vector3,
       color: string,
       now: number,
+      parent: T.Object3D = scene,
+      scale = 1,
     ) => {
       const shape = new T.Shape();
       for (let i = 0; i <= 32; i++) {
@@ -408,13 +876,92 @@ export default function World(props: Props) {
           polygonOffsetFactor: -3,
         }),
       );
-      decal.position.copy(at).addScaledVector(normal, 0.035);
-      decal.quaternion.setFromUnitVectors(normalUp, normal.normalize());
-      scene.add(decal);
+      if (scale !== 1) decal.scale.setScalar(scale);
+
+      if (parent !== scene) {
+        parent.updateMatrixWorld(true);
+        const localPos = parent.worldToLocal(at.clone());
+        localPos.y = Math.max(0.35, Math.min(1.65, localPos.y));
+        const localNorm = new T.Vector3(localPos.x, 0, localPos.z).normalize();
+        if (localNorm.lengthSq() < 0.05) localNorm.set(0, 0, 1);
+        decal.position.copy(localPos).addScaledVector(localNorm, 0.04);
+        decal.quaternion.setFromUnitVectors(normalUp, localNorm);
+      } else {
+        decal.position.copy(at).addScaledVector(normal, 0.035);
+        decal.quaternion.setFromUnitVectors(normalUp, normal.normalize());
+      }
+      parent.add(decal);
       splats.push({ mesh: decal, born: now });
+    };
+    const smearPlayerWithPaint = (
+      playerGroup: T.Object3D,
+      hitPoint: T.Vector3,
+      hitNormal: T.Vector3,
+      color: string,
+      now: number,
+    ) => {
+      splat(hitPoint, hitNormal, color, now, playerGroup, 0.55);
+      const dropletOffset = new T.Vector3(
+        (Math.random() - 0.5) * 0.16,
+        -0.14 - Math.random() * 0.12,
+        (Math.random() - 0.5) * 0.16,
+      );
+      splat(
+        hitPoint.clone().add(dropletOffset),
+        hitNormal,
+        color,
+        now,
+        playerGroup,
+        0.28,
+      );
+      burst(hitPoint, color, now, 'paint');
+    };
+    const checkSceneryHit = (at: T.Vector3, normal: T.Vector3) => {
+      const rayOrigin = at.clone().addScaledVector(normal, 0.25);
+      const rayDir = normal.clone().negate().normalize();
+      if (rayDir.lengthSq() < 0.01) rayDir.set(0, -1, 0);
+      const testRay = new T.Raycaster(rayOrigin, rayDir, 0.01, 0.6);
+      const sceneryTargets: T.Object3D[] = [];
+      scene.traverse((o) => {
+        if (
+          o instanceof T.Mesh &&
+          visibleInWorld(o) &&
+          !avatar.getObjectById(o.id) &&
+          !hands.group.getObjectById(o.id) &&
+          o !== shadow &&
+          o.geometry.type !== 'SphereGeometry' &&
+          o.geometry.type !== 'ShapeGeometry' &&
+          !flights.some((f) => f.mesh === o) &&
+          !bursts.some((b) => b.mesh === o) &&
+          !Array.from(remoteAvatars.values()).some((r) => r.getObjectById(o.id))
+        ) {
+          sceneryTargets.push(o);
+        }
+      });
+      const hits = testRay.intersectObjects(sceneryTargets, false);
+      if (hits.length > 0 && hits[0].face) {
+        return {
+          point: hits[0].point,
+          normal: hits[0].face.normal
+            .clone()
+            .transformDirection(hits[0].object.matrixWorld),
+        };
+      }
+      if (at.y <= 0.25 && at.y >= -0.1) {
+        return {
+          point: new T.Vector3(at.x, 0.02, at.z),
+          normal: new T.Vector3(0, 1, 0),
+        };
+      }
+      return null;
     };
     const spawn = (e: WorldEffect) => {
       if (
+        e.kind === 'kill' ||
+        !e.origin ||
+        !e.target ||
+        !e.normal ||
+        !e.color ||
         seen.has(e.id) ||
         Date.now() - e.at > (e.kind === 'paint' ? 14000 : 5000)
       )
@@ -432,7 +979,14 @@ export default function World(props: Props) {
       const ball =
         e.kind === 'grenade'
           ? makeGrenade(e.color, e.variant)
-          : new T.Mesh(paintGeo, new T.MeshBasicMaterial({ color: e.color }));
+          : e.kind === 'sniper'
+            ? makeFireworkRocket(e.color)
+            : e.kind === 'like'
+              ? new T.Mesh(
+                  partyGeometry('hearts'),
+                  new T.MeshBasicMaterial({ color: '#ff647c', side: T.DoubleSide }),
+                )
+              : new T.Mesh(paintGeo, new T.MeshBasicMaterial({ color: e.color }));
       ball.position.copy(start);
       scene.add(ball);
       flights.push({
@@ -444,10 +998,13 @@ export default function World(props: Props) {
         duration:
           e.kind === 'grenade'
             ? 1100
-            : Math.max(130, start.distanceTo(target) * 22),
+            : e.kind === 'sniper'
+              ? Math.max(80, start.distanceTo(target) * 11)
+              : Math.max(130, start.distanceTo(target) * 22),
         variant: e.variant || 'classic',
         color: e.color,
         kind: e.kind,
+        author: e.author,
       });
     };
     const updateAmmo = () => {
@@ -456,8 +1013,13 @@ export default function World(props: Props) {
     };
     const beginReload = () => {
       const tool = GAME_TOOLS[latest.current.tool]?.id;
-      if (tool === 'paint' || tool === 'confetti') {
-        magazine.current.reload(tool, performance.now());
+      if (
+        tool === 'paint' ||
+        tool === 'confetti' ||
+        tool === 'sniper' ||
+        tool === 'like'
+      ) {
+        magazine.current.reload(tool as Blaster, performance.now());
         aimHeld = false;
         setAiming(false);
         updateAmmo();
@@ -467,25 +1029,63 @@ export default function World(props: Props) {
     const isDead = () =>
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.hp === 0;
+    const isImmune = () => {
+      return immuneExpireRef.current > performance.now();
+    };
     const shoot = () => {
       const p = latest.current;
-      if (p.blocked || middle || isDead() || p.room.state.archived) return;
+      if (p.blocked || middle || isDead() || isImmune() || p.room.state.archived)
+        return;
       const tool = GAME_TOOLS[p.tool]?.id;
-      if (tool !== 'paint' && tool !== 'confetti' && tool !== 'grenade') return;
+      if (
+        tool !== 'paint' &&
+        tool !== 'confetti' &&
+        tool !== 'grenade' &&
+        tool !== 'sniper' &&
+        tool !== 'like'
+      )
+        return;
       const now = performance.now();
       if (tool === 'grenade') {
-        if (now - lastGrenade < 1500) return;
+        if (now - lastGrenade < 1200) return;
         lastGrenade = now;
       }
-      if (tool !== 'grenade' && !magazine.current.fire(tool, now)) {
+      if (
+        tool !== 'grenade' &&
+        !magazine.current.fire(tool as Blaster, now)
+      ) {
         if (magazine.current.reloading) setReloading(true);
         return;
       }
       updateAmmo();
-      ray.setFromCamera(
-        document.pointerLockElement || softLook ? new T.Vector2(0, 0) : mouse,
-        camera,
+
+      const screenCoord = (
+        document.pointerLockElement || softLook
+          ? new T.Vector2(0, 0)
+          : mouse.clone()
       );
+      if (tool === 'paint' && !aimHeld) {
+        const spread = Math.min(0.048, 0.016 + continuousShots * 0.0032);
+        continuousShots++;
+        const ang = Math.random() * Math.PI * 2;
+        const mag = Math.sqrt(Math.random()) * spread;
+        screenCoord.add(new T.Vector2(Math.cos(ang) * mag, Math.sin(ang) * mag));
+      } else if (tool === 'sniper' && !aimHeld) {
+        const isMoving =
+          keys.has('KeyW') ||
+          keys.has('KeyA') ||
+          keys.has('KeyS') ||
+          keys.has('KeyD');
+        const spread = 0.2 + (isMoving ? 0.09 : 0);
+        const ang = Math.random() * Math.PI * 2;
+        const mag = (0.35 + Math.random() * 0.65) * spread;
+        screenCoord.add(new T.Vector2(Math.cos(ang) * mag, Math.sin(ang) * mag));
+        continuousShots = 0;
+      } else {
+        continuousShots = 0;
+      }
+
+      ray.setFromCamera(screenCoord, camera);
       const targets: T.Object3D[] = [];
       scene.traverse((o) => {
         if (
@@ -494,6 +1094,7 @@ export default function World(props: Props) {
           !hands.group.getObjectById(o.id) &&
           !avatar.getObjectById(o.id) &&
           o !== shadow &&
+          o !== landingMarker &&
           o.geometry.type !== 'SphereGeometry' &&
           o.geometry.type !== 'ShapeGeometry' &&
           !flights.some((f) => f.mesh === o) &&
@@ -503,8 +1104,10 @@ export default function World(props: Props) {
       });
       const hit = ray
         .intersectObjects(targets, false)
-        .find((h) => h.distance < 65 && h.distance > 0.08);
-      const target = hit ? hit.point : ray.ray.at(35, new T.Vector3());
+        .find((h) => h.distance < 75 && h.distance > 0.08);
+      const target = hit
+        ? hit.point
+        : ray.ray.at(tool === 'sniper' ? 65 : 35, new T.Vector3());
       const normal = hit?.face
         ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
         : new T.Vector3(0, 1, 0);
@@ -512,18 +1115,18 @@ export default function World(props: Props) {
         perspectiveRef.current === 'first'
           ? hands.group.localToWorld(new T.Vector3(0, 0.025, -0.69))
           : pos
-              .clone()
-              .add(
-                new T.Vector3(
-                  Math.cos(cameraYaw) * 0.38,
-                  currentStance === 'lie'
-                    ? 0.5
-                    : currentStance === 'sit'
-                      ? 1.05
-                      : 1.5,
-                  -Math.sin(cameraYaw) * 0.38,
-                ),
-              );
+            .clone()
+            .add(
+              new T.Vector3(
+                Math.cos(cameraYaw) * 0.38,
+                currentStance === 'lie'
+                  ? 0.5
+                  : currentStance === 'sit'
+                    ? 1.05
+                    : 1.5,
+                -Math.sin(cameraYaw) * 0.38,
+              ),
+            );
       // Ствол не должен стрелять через препятствие, находящееся ближе центра прицела.
       const muzzleRay = new T.Raycaster(
         camera.position,
@@ -542,30 +1145,117 @@ export default function World(props: Props) {
             .copy(obstruction.face.normal)
             .transformDirection(obstruction.object.matrixWorld);
       }
+      if (tool === 'like') {
+        const boardHits = ray.intersectObjects(
+          kit.boards.map((b) => b.panel),
+          false,
+        );
+        const boardHit = boardHits.find(
+          (h) => h.distance < 75 && h.distance > 0.08,
+        );
+        if (boardHit && boardHit.uv) {
+          const zoneId = (boardHit.object.userData as { zone?: string })?.zone;
+          const notes = p.room.state.notes.filter(
+            (n) =>
+              n.zone === zoneId &&
+              !['draw', 'connector', 'frame'].includes(n.kind),
+          );
+          const cx = boardHit.uv.x * 1024;
+          const cy = (1 - boardHit.uv.y) * 512;
+          if (cx >= 25 && cx <= 1025 && cy >= 126 && cy <= 494) {
+            const col = Math.floor((cx - 25) / 250);
+            const row = Math.floor((cy - 126) / 184);
+            if (col >= 0 && col < 4 && row >= 0 && row < 2) {
+              const noteIdx = col + row * 4;
+              const targetNote = notes.slice(0, 8)[noteIdx];
+              if (targetNote) {
+                void p.onOp?.({ type: 'vote', id: targetNote.id, force: true });
+                setPersonalAlert({
+                  text: '💖 +1 ГОЛОС!',
+                  sub: targetNote.text
+                    ? `"${targetNote.text.slice(0, 30)}"`
+                    : 'Стикер',
+                  type: 'assist',
+                  key: Date.now(),
+                });
+                burst(boardHit.point, '#ff647c', now, 'hearts');
+              }
+            }
+          }
+        }
+      }
+      const color =
+        tool === 'like'
+          ? '#ff647c'
+          : tool === 'grenade'
+            ? GRENADES.find((g) => g.id === selection.current.grenadeStyle)!.color
+            : tool === 'confetti'
+              ? CONFETTI.find((c) => c.id === selection.current.confettiStyle)!.color
+              : tool === 'sniper'
+                ? FIREWORKS.find((f) => f.id === selection.current.fireworkStyle)!.color
+                : p.paintColor;
+      const variant =
+        tool === 'like'
+          ? 'hearts'
+          : tool === 'grenade'
+            ? selection.current.grenadeStyle
+            : tool === 'confetti'
+              ? selection.current.confettiStyle
+              : tool === 'sniper'
+                ? selection.current.fireworkStyle
+                : 'classic';
       const e: WorldEffect = {
-        id: crypto.randomUUID(),
+        id: uid(),
         kind: tool,
         origin: origin.toArray(),
         target: target.toArray(),
         normal: normal.toArray(),
-        color:
-          tool === 'grenade'
-            ? GRENADES.find((g) => g.id === selection.current.grenadeStyle)!
-                .color
-            : tool === 'confetti'
-              ? CONFETTI.find((c) => c.id === selection.current.confettiStyle)!
-                  .color
-              : p.paintColor,
-        variant:
-          tool === 'grenade'
-            ? selection.current.grenadeStyle
-            : selection.current.confettiStyle,
+        color,
+        variant,
         author: p.room.self,
         at: Date.now(),
       };
       spawn(e);
+      if (tool === 'confetti') {
+        const dir = target.clone().sub(origin).normalize();
+        const perpX = new T.Vector3()
+          .crossVectors(dir, new T.Vector3(0, 1, 0))
+          .normalize();
+        if (perpX.lengthSq() < 0.01) perpX.set(1, 0, 0);
+        const perpY = new T.Vector3().crossVectors(perpX, dir).normalize();
+        const dist = origin.distanceTo(target);
+
+        for (let s = 0; s < 6; s++) {
+          const spreadAngle = (s / 6) * Math.PI * 2 + Math.random() * 0.4;
+          const spreadRadius = 0.065 + Math.random() * 0.065;
+          const spreadDir = dir
+            .clone()
+            .addScaledVector(perpX, Math.cos(spreadAngle) * spreadRadius)
+            .addScaledVector(perpY, Math.sin(spreadAngle) * spreadRadius)
+            .normalize();
+          const pelletTarget = origin.clone().addScaledVector(spreadDir, dist);
+          const pelletBall = new T.Mesh(
+            paintDropletGeo,
+            new T.MeshBasicMaterial({ color }),
+          );
+          pelletBall.position.copy(origin);
+          scene.add(pelletBall);
+          flights.push({
+            mesh: pelletBall,
+            origin: origin.clone(),
+            target: pelletTarget,
+            normal: normal.clone(),
+            born: performance.now(),
+            duration: Math.max(120, dist * 20),
+            variant,
+            color,
+            kind: 'confetti',
+            author: p.room.self,
+          });
+        }
+      }
       avatarShoot(avatar);
-      hands.shoot();
+      hands.shoot(tool);
       p.onFire(e);
       setShots((v) => v + 1);
     };
@@ -593,6 +1283,7 @@ export default function World(props: Props) {
       }
     };
     engine.current = {
+      visuals,
       capture,
       closeInventory: (resume = true) => {
         middle = false;
@@ -671,6 +1362,12 @@ export default function World(props: Props) {
     const clear = () => {
       keys.clear();
       left = false;
+      continuousShots = 0;
+      if (grenadeAiming) {
+        grenadeAiming = false;
+        trajectoryLine.visible = false;
+        landingMarker.visible = false;
+      }
       aimHeld = false;
       setAiming(false);
       if (crouchHeld) {
@@ -700,6 +1397,11 @@ export default function World(props: Props) {
         return;
       }
       if (e.code === 'Escape') {
+        if (tabletInWorldRef.current) {
+          e.preventDefault();
+          closeTabletInWorld();
+          return;
+        }
         middle = false;
         setRadial(false);
         setContextWheel(false);
@@ -730,6 +1432,7 @@ export default function World(props: Props) {
           'ShiftLeft',
           'ShiftRight',
           'Tab',
+          'Backquote',
           'KeyE',
           'KeyF',
           'KeyV',
@@ -744,7 +1447,8 @@ export default function World(props: Props) {
         e.preventDefault();
       keys.add(e.code);
       if (e.repeat) return;
-      if (e.code === 'Tab') latest.current.onMonitor(true);
+      if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
+        latest.current.onMonitor(true);
       if (e.code === 'KeyR') beginReload();
       if (e.code.startsWith('Control') && !crouchHeld) {
         beforeCrouch = currentStance;
@@ -769,17 +1473,10 @@ export default function World(props: Props) {
         lastC = now;
         setStance(currentStance);
       }
-      if (
-        e.code === 'KeyE' &&
-        (nearZone || GAME_TOOLS[latest.current.tool]?.id === 'pointer')
-      ) {
+      if (e.code === 'KeyE' && nearZone) {
         engine.current?.pause();
         if (document.pointerLockElement) document.exitPointerLock();
-        latest.current.onUseTool(
-          GAME_TOOLS[latest.current.tool]?.id === 'pointer'
-            ? selection.current.tabletZone
-            : nearZone,
-        );
+        latest.current.onUseTool(nearZone);
         clear();
       }
       if (e.code === 'KeyF') engine.current?.reset();
@@ -804,7 +1501,8 @@ export default function World(props: Props) {
         crouchHeld = false;
         setStance(currentStance);
       }
-      if (e.code === 'Tab') latest.current.onMonitor(false);
+      if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
+        latest.current.onMonitor(false);
     };
     const onMouse = (e: MouseEvent) => {
       const b = canvas.getBoundingClientRect();
@@ -821,10 +1519,10 @@ export default function World(props: Props) {
         cameraYaw -= e.movementX * 0.0023 * latest.current.sensitivity;
         pitch = T.MathUtils.clamp(
           pitch +
-            e.movementY *
-              0.002 *
-              latest.current.sensitivity *
-              (latest.current.invertCamera ? -1 : 1),
+          e.movementY *
+          0.002 *
+          latest.current.sensitivity *
+          (latest.current.invertCamera ? -1 : 1),
           -1.35,
           1.4,
         );
@@ -834,8 +1532,22 @@ export default function World(props: Props) {
       if (latest.current.blocked || middle || !enabled()) return;
       e.preventDefault();
       canvas.focus();
+      const tool = GAME_TOOLS[latest.current.tool]?.id;
+      if (tool === 'sniper' && aimHeld) {
+        if (e.deltaY < 0) {
+          setSniperZoomIndex((i) =>
+            Math.min(i + 1, SNIPER_ZOOM_LEVELS.length - 1),
+          );
+        } else if (e.deltaY > 0) {
+          setSniperZoomIndex((i) => Math.max(i - 1, 0));
+        }
+        return;
+      }
       if (e.altKey) engine.current?.distance(e.deltaY > 0 ? 1 : -1);
-      else engine.current?.openContext();
+      else {
+        const next = cycleSlot(latest.current.tool, e.deltaY > 0 ? 1 : -1);
+        latest.current.onTool(next);
+      }
     };
     const onDown = (e: MouseEvent) => {
       if (latest.current.blocked || middle) return;
@@ -851,7 +1563,7 @@ export default function World(props: Props) {
         }
         const tool = GAME_TOOLS[latest.current.tool]?.id;
         aimHeld =
-          (tool === 'paint' || tool === 'confetti') &&
+          (tool === 'paint' || tool === 'confetti' || tool === 'sniper') &&
           !magazine.current.reloading;
         setAiming(aimHeld);
       } else if (e.button === 0) {
@@ -861,8 +1573,26 @@ export default function World(props: Props) {
         }
         left = true;
         const t = GAME_TOOLS[latest.current.tool]?.id;
-        if (t === 'paint' || t === 'confetti' || t === 'grenade') shoot();
-        else {
+        if (t === 'grenade') {
+          grenadeAiming = true;
+          trajectoryLine.visible = true;
+          landingMarker.visible = true;
+        } else if (
+          t === 'paint' ||
+          t === 'confetti' ||
+          t === 'sniper' ||
+          t === 'like'
+        ) {
+          shoot();
+        } else if (t === 'pointer') {
+          if (tabletInWorldRef.current) closeTabletInWorld();
+          else openTabletInWorld();
+        } else if (t === 'sticky') {
+          engine.current?.pause();
+          if (document.pointerLockElement) document.exitPointerLock();
+          latest.current.onUseTool(selection.current.tabletZone || nearZone);
+          clear();
+        } else {
           ray.setFromCamera(
             document.pointerLockElement || softLook ? new T.Vector2() : mouse,
             camera,
@@ -881,12 +1611,20 @@ export default function World(props: Props) {
       }
     };
     const onMouseUp = (e: MouseEvent) => {
-      if (e.button === 0) left = false;
+      if (e.button === 0) {
+        left = false;
+        continuousShots = 0;
+        if (grenadeAiming) {
+          grenadeAiming = false;
+          trajectoryLine.visible = false;
+          landingMarker.visible = false;
+          shoot();
+        }
+      }
       if (e.button === 2) {
         aimHeld = false;
         setAiming(false);
       }
-      // Отпускание колеса не выбирает предмет: выбор подтверждается кликом.
     };
     const changed = () => {
       const captured = document.pointerLockElement === canvas;
@@ -936,6 +1674,11 @@ export default function World(props: Props) {
         latest.current.onFps(Math.round((frames * 1000) / (now - fpsAt)));
         frames = 0;
         fpsAt = now;
+        // Readable diagnostics for graphics QA; no access to room/game state.
+        canvas.dataset.drawCalls = String(renderer.info.render.calls);
+        canvas.dataset.triangles = String(renderer.info.render.triangles);
+        canvas.dataset.textures = String(renderer.info.memory.textures);
+        canvas.dataset.packTextureMib = (visuals.textureBytes / 1048576).toFixed(1);
       }
       const own = latest.current.room.members.find(
         (m) => m.id === latest.current.room.self,
@@ -962,7 +1705,72 @@ export default function World(props: Props) {
         aimHeld && !latest.current.blocked ? 1 : 0,
         1 - Math.exp(-18 * dt),
       );
-      if (left && enabled() && !middle && !latest.current.blocked) shoot();
+      if (left && enabled() && !middle && !latest.current.blocked) {
+        const t = GAME_TOOLS[latest.current.tool]?.id;
+        if (t === 'paint') shoot();
+      }
+      if (grenadeAiming && GAME_TOOLS[latest.current.tool]?.id === 'grenade') {
+        ray.setFromCamera(
+          document.pointerLockElement || softLook ? new T.Vector2(0, 0) : mouse,
+          camera,
+        );
+        const trajTargets: T.Object3D[] = [];
+        scene.traverse((o) => {
+          if (
+            o instanceof T.Mesh &&
+            visibleInWorld(o) &&
+            !hands.group.getObjectById(o.id) &&
+            !avatar.getObjectById(o.id) &&
+            o !== shadow &&
+            o !== landingMarker &&
+            o.geometry.type !== 'SphereGeometry' &&
+            o.geometry.type !== 'ShapeGeometry' &&
+            !flights.some((f) => f.mesh === o) &&
+            !bursts.some((b) => b.mesh === o)
+          )
+            trajTargets.push(o);
+        });
+        const hit = ray
+          .intersectObjects(trajTargets, false)
+          .find((h) => h.distance < 50 && h.distance > 0.1);
+        const arcTarget = hit ? hit.point : ray.ray.at(25, new T.Vector3());
+        const arcOrigin =
+          perspectiveRef.current === 'first'
+            ? hands.group.localToWorld(new T.Vector3(0, 0.025, -0.69))
+            : pos.clone().add(new T.Vector3(0, 1.4, 0));
+
+        const pts: T.Vector3[] = [];
+        for (let k = 0; k <= 24; k++) {
+          const t = k / 24;
+          const pt = arcOrigin.clone().lerp(arcTarget, t);
+          pt.y += Math.sin(t * Math.PI) * 3;
+          pts.push(pt);
+        }
+        trajectoryLine.geometry.setFromPoints(pts);
+        trajectoryLine.visible = true;
+
+        landingMarker.position.copy(arcTarget);
+        if (hit?.face) {
+          const norm = hit.face.normal
+            .clone()
+            .transformDirection(hit.object.matrixWorld);
+          landingMarker.position.addScaledVector(norm, 0.02);
+          landingMarker.quaternion.setFromUnitVectors(
+            new T.Vector3(0, 0, 1),
+            norm,
+          );
+        } else {
+          landingMarker.position.y = Math.max(0.02, arcTarget.y);
+          landingMarker.quaternion.setFromUnitVectors(
+            new T.Vector3(0, 0, 1),
+            new T.Vector3(0, 1, 0),
+          );
+        }
+        landingMarker.visible = true;
+      } else if (trajectoryLine.visible) {
+        trajectoryLine.visible = false;
+        landingMarker.visible = false;
+      }
       let dx = 0,
         dz = 0;
       const control =
@@ -978,9 +1786,9 @@ export default function World(props: Props) {
           1.5;
         pitch = T.MathUtils.clamp(
           pitch +
-            (Number(keys.has('ArrowDown')) - Number(keys.has('ArrowUp'))) *
-              dt *
-              0.8,
+          (Number(keys.has('ArrowDown')) - Number(keys.has('ArrowUp'))) *
+          dt *
+          0.8,
           -1.35,
           1.4,
         );
@@ -1015,6 +1823,21 @@ export default function World(props: Props) {
       avatar.position.copy(pos);
       avatar.position.y += 0.27;
       avatar.rotation.y = heading;
+
+      const myMember = latest.current.room.members.find(
+        (m) => m.id === latest.current.room.self,
+      );
+      const myHp = myMember?.hp ?? 100;
+      if (myHp === 0) {
+        if (!deadTimers.has(latest.current.room.self)) {
+          deadTimers.set(latest.current.room.self, now);
+        }
+      } else {
+        deadTimers.delete(latest.current.room.self);
+      }
+      const myDeathTime = deadTimers.get(latest.current.room.self);
+      const isMyDeathRecent = myHp === 0 && now - (myDeathTime || now) < 3800;
+
       animateAvatar(
         avatar,
         {
@@ -1032,6 +1855,7 @@ export default function World(props: Props) {
           aiming: aimHeld,
           reload: magazine.current.progress(now),
           inventory: middle,
+          hp: myHp,
         },
         dt,
         now / 1000,
@@ -1060,15 +1884,15 @@ export default function World(props: Props) {
       if (
         mode === 'first' ||
         camera.position.distanceTo(view.eye) >
-          desired.distanceTo(view.eye) + 0.1
+        desired.distanceTo(view.eye) + 0.1
       )
         camera.position.copy(desired);
       else camera.position.lerp(desired, 1 - Math.exp(-14 * dt));
       camera.lookAt(
         camera.position.clone().addScaledVector(view.direction, 30),
       );
-      avatar.visible = mode === 'third' && !isDead();
-      shadow.visible = mode === 'third' && !isDead();
+      avatar.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
+      shadow.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
       hands.update(
         dt,
         now / 1000,
@@ -1076,22 +1900,44 @@ export default function World(props: Props) {
         GAME_TOOLS[latest.current.tool]?.id || 'other',
         GAME_TOOLS[latest.current.tool]?.id === 'confetti'
           ? CONFETTI.find((c) => c.id === selection.current.confettiStyle)!
+            .color
+          : GAME_TOOLS[latest.current.tool]?.id === 'sniper'
+            ? FIREWORKS.find((f) => f.id === selection.current.fireworkStyle)!
               .color
-          : latest.current.paintColor,
+            : GAME_TOOLS[latest.current.tool]?.id === 'sticky'
+              ? ZONES.find((z) => z.id === selection.current.tabletZone)?.color || '#8db9a1'
+              : latest.current.paintColor,
         mode === 'first' && !middle && !latest.current.working && !isDead(),
         aimBlend,
         magazine.current.progress(now),
-        GAME_TOOLS[latest.current.tool]?.id === 'pointer'
+        GAME_TOOLS[latest.current.tool]?.id === 'pointer' ||
+          GAME_TOOLS[latest.current.tool]?.id === 'sticky'
           ? selection.current.tabletZone
           : selection.current.grenadeStyle,
+        tabletInspectRef.current,
       );
+      const sniperFov = SNIPER_ZOOM_FOVS[sniperZoomIndexRef.current];
+      const baseTargetFov =
+        GAME_TOOLS[latest.current.tool]?.id === 'sniper'
+          ? mode === 'first'
+            ? sniperFov
+            : sniperFov + 6
+          : mode === 'first'
+            ? 56
+            : 50;
+      const targetFov =
+        tabletInspectRef.current > 0
+          ? T.MathUtils.lerp(mode === 'first' ? 80 : 68, 52, tabletInspectRef.current)
+          : baseTargetFov;
       const fov = T.MathUtils.lerp(
         camera.fov,
-        T.MathUtils.lerp(
-          mode === 'first' ? 80 : 68,
-          mode === 'first' ? 56 : 50,
-          aimBlend,
-        ),
+        tabletInspectRef.current > 0
+          ? targetFov
+          : T.MathUtils.lerp(
+            mode === 'first' ? 80 : 68,
+            targetFov,
+            aimBlend,
+          ),
         1 - Math.exp(-8 * dt),
       );
       if (Math.abs(fov - camera.fov) > 0.01) {
@@ -1121,16 +1967,40 @@ export default function World(props: Props) {
           const label = addLabel(member.name, member.color);
           labels.set(member.id, label);
           remote.add(label);
+          if (member.pose) {
+            remote.position.set(
+              member.pose.x,
+              member.pose.y + 0.27,
+              member.pose.z,
+            );
+            remote.rotation.y = member.pose.yaw || 0;
+          }
         }
+        const isRemoteDead = (member.hp ?? 100) === 0;
+        if (isRemoteDead) {
+          if (!deadTimers.has(member.id)) {
+            deadTimers.set(member.id, now);
+          }
+        } else {
+          deadTimers.delete(member.id);
+        }
+        const remoteDeathTime = deadTimers.get(member.id);
+        const isRemoteDeathRecent =
+          isRemoteDead && now - (remoteDeathTime || now) < 3800;
+
         remote.visible =
-          Date.now() - member.lastSeen < 15000 && member.hp !== 0;
+          Date.now() - member.lastSeen < 15000 &&
+          (!isRemoteDead || isRemoteDeathRecent);
         setAvatarAnonymous(
           remote,
           !!latest.current.room.state.anonymousPlayers,
         );
-        const caption = latest.current.room.state.anonymousPlayers
-          ? `${member.hp ?? 100} HP`
-          : `${member.name.slice(0, 12)} · ${member.hp ?? 100}`;
+        const isRemoteShielded = (member.immuneRemaining || 0) > 0;
+        const caption = isRemoteDead
+          ? '💀 ПОГИБ'
+          : latest.current.room.state.anonymousPlayers
+            ? `${member.hp ?? 100} HP${isRemoteShielded ? ' 🛡️' : ''}`
+            : `${member.name.slice(0, 12)} · ${member.hp ?? 100}${isRemoteShielded ? ' 🛡️' : ''}`;
         let label = labels.get(member.id);
         if (label?.userData.caption !== caption) {
           if (label) {
@@ -1145,11 +2015,68 @@ export default function World(props: Props) {
         }
 
         const p = member.pose;
-        remote.position.lerp(
-          new T.Vector3(p.x, p.y + 0.27, p.z),
-          Math.min(1, dt * 7),
+        let motion = remoteMotion.get(member.id);
+        if (!motion) {
+          motion = {
+            lastX: p.x,
+            lastY: p.y,
+            lastZ: p.z,
+            lastYaw: p.yaw || 0,
+            lastTime: now,
+          };
+          remoteMotion.set(member.id, motion);
+        }
+        if (
+          p.x !== motion.lastX ||
+          p.y !== motion.lastY ||
+          p.z !== motion.lastZ ||
+          p.yaw !== motion.lastYaw
+        ) {
+          motion.lastX = p.x;
+          motion.lastY = p.y;
+          motion.lastZ = p.z;
+          motion.lastYaw = p.yaw || 0;
+          motion.lastTime = now;
+        }
+
+        const timeSince = Math.min(
+          0.35,
+          Math.max(0, (now - motion.lastTime) / 1000),
         );
-        remote.rotation.y = p.yaw;
+        let targetX = p.x;
+        let targetZ = p.z;
+        const targetY = p.y + 0.27;
+
+        if (p.moving && (p.speed || 0) > 0) {
+          const spd = p.speed || 3.4;
+          const fwd = p.forward ?? 1;
+          const str = p.strafe ?? 0;
+          const sinY = Math.sin(p.yaw || 0);
+          const cosY = Math.cos(p.yaw || 0);
+          const vx = (-sinY * fwd + cosY * str) * spd;
+          const vz = (-cosY * fwd - sinY * str) * spd;
+          targetX += vx * timeSince;
+          targetZ += vz * timeSince;
+        }
+
+        const distSq =
+          (remote.position.x - targetX) ** 2 +
+          (remote.position.z - targetZ) ** 2;
+        if (distSq > 36) {
+          remote.position.set(targetX, targetY, targetZ);
+          remote.rotation.y = p.yaw || 0;
+        } else {
+          const posFactor = 1 - Math.exp(-15 * dt);
+          remote.position.x += (targetX - remote.position.x) * posFactor;
+          remote.position.z += (targetZ - remote.position.z) * posFactor;
+          remote.position.y +=
+            (targetY - remote.position.y) * (1 - Math.exp(-18 * dt));
+
+          let diffYaw = ((p.yaw || 0) - remote.rotation.y) % (Math.PI * 2);
+          if (diffYaw > Math.PI) diffYaw -= Math.PI * 2;
+          if (diffYaw < -Math.PI) diffYaw += Math.PI * 2;
+          remote.rotation.y += diffYaw * (1 - Math.exp(-16 * dt));
+        }
         animateAvatar(
           remote,
           {
@@ -1166,6 +2093,7 @@ export default function World(props: Props) {
             crouching: p.crouching,
             aiming: p.aiming,
             reload: p.reload,
+            hp: member.hp ?? 100,
           },
           dt,
           now / 1000,
@@ -1177,26 +2105,153 @@ export default function World(props: Props) {
         f.mesh.position.lerpVectors(f.origin, f.target, t);
         if (f.kind === 'grenade') {
           f.mesh.position.y += Math.sin(t * Math.PI) * 3;
-          f.mesh.rotation.z = t * 7;
+          f.mesh.rotation.x = t * 10;
+          f.mesh.rotation.y = t * 7;
+          f.mesh.rotation.z = t * 14;
+        } else if (f.kind === 'sniper') {
+          const dir = f.target.clone().sub(f.origin).normalize();
+          f.mesh.quaternion.setFromUnitVectors(new T.Vector3(0, 0, 1), dir);
         }
         if (t >= 1) {
-          if (f.kind === 'paint')
-            splat(f.target, f.normal, f.color, f.born + f.duration);
-          else {
-            burst(
-              f.target,
-              f.color,
-              f.born + f.duration,
-              f.kind === 'grenade' ? grenadeParty(f.variant) : f.variant,
+          let hitPlayerGroup: T.Object3D | null = null;
+          let isHitOnPlayer = false;
+
+          const myPos = pos;
+          const myCenter = new T.Vector3(myPos.x, myPos.y + 0.95, myPos.z);
+          const hitMe =
+            f.target.distanceTo(myCenter) < 1.15 ||
+            inHitRange(
+              f.kind,
+              [f.origin.x, f.origin.y, f.origin.z],
+              [f.target.x, f.target.y, f.target.z],
+              { x: myPos.x, y: myPos.y, z: myPos.z, stance: currentStance },
             );
-            if (f.kind === 'grenade' && f.variant === 'paintburst')
-              splat(f.target, f.normal, f.color, f.born + f.duration);
+
+          if (hitMe && f.author !== latest.current.room.self) {
+            isHitOnPlayer = true;
+            hitPlayerGroup = avatar;
+            hitGlowHandler.current(f.color);
+            if (perspectiveRef.current === 'first') {
+              splat(
+                new T.Vector3(0.04, -0.02, -0.45),
+                new T.Vector3(0, 0, 1),
+                f.color,
+                f.born + f.duration,
+                hands.group,
+                0.22,
+              );
+            }
+          }
+
+          if (!isHitOnPlayer) {
+            for (const member of latest.current.room.members) {
+              if (member.id === latest.current.room.self) continue;
+              const remote = remoteAvatars.get(member.id);
+              if (!remote || !remote.visible) continue;
+              const remoteCenter = new T.Vector3(
+                member.pose.x,
+                member.pose.y + 0.95,
+                member.pose.z,
+              );
+              if (
+                f.target.distanceTo(remoteCenter) < 1.15 ||
+                inHitRange(
+                  f.kind,
+                  [f.origin.x, f.origin.y, f.origin.z],
+                  [f.target.x, f.target.y, f.target.z],
+                  {
+                    x: member.pose.x,
+                    y: member.pose.y,
+                    z: member.pose.z,
+                    stance: member.pose.stance,
+                  },
+                )
+              ) {
+                isHitOnPlayer = true;
+                hitPlayerGroup = remote;
+                break;
+              }
+            }
+          }
+
+          if (f.kind === 'paint') {
+            if (isHitOnPlayer && hitPlayerGroup) {
+              smearPlayerWithPaint(
+                hitPlayerGroup,
+                f.target,
+                f.normal,
+                f.color,
+                f.born + f.duration,
+              );
+            } else {
+              const sceneryHit = checkSceneryHit(f.target, f.normal);
+              if (sceneryHit) {
+                splat(
+                  sceneryHit.point,
+                  sceneryHit.normal,
+                  f.color,
+                  f.born + f.duration,
+                  scene,
+                  1,
+                );
+              }
+            }
+          } else {
+            if (f.kind === 'grenade') {
+              burst(f.target, f.color, f.born + f.duration, 'shard');
+              burst(f.target, '#ffd166', f.born + f.duration, 'ribbon');
+              burst(
+                f.target,
+                f.color,
+                f.born + f.duration,
+                grenadeParty(f.variant),
+              );
+            } else {
+              burst(
+                f.target,
+                f.color,
+                f.born + f.duration,
+                f.kind === 'sniper'
+                  ? fireworkParty(f.variant)
+                  : f.kind === 'like'
+                    ? 'hearts'
+                    : f.variant,
+              );
+            }
+            if (f.kind === 'grenade' && f.variant === 'paintburst') {
+              if (isHitOnPlayer && hitPlayerGroup) {
+                smearPlayerWithPaint(
+                  hitPlayerGroup,
+                  f.target,
+                  f.normal,
+                  f.color,
+                  f.born + f.duration,
+                );
+              } else {
+                const sceneryHit = checkSceneryHit(f.target, f.normal);
+                if (sceneryHit) {
+                  splat(
+                    sceneryHit.point,
+                    sceneryHit.normal,
+                    f.color,
+                    f.born + f.duration,
+                    scene,
+                    1,
+                  );
+                }
+              }
+            }
           }
           f.mesh.removeFromParent();
           f.mesh.traverse((o) => {
             if (o instanceof T.Mesh) {
               (o.material as T.Material).dispose();
-              if (f.kind === 'grenade') o.geometry.dispose();
+              if (
+                f.kind === 'grenade' ||
+                f.kind === 'sniper' ||
+                f.kind === 'like'
+              )
+                o.geometry.dispose();
             }
           });
           flights.splice(i, 1);
@@ -1216,20 +2271,35 @@ export default function World(props: Props) {
       }
       for (let i = bursts.length - 1; i >= 0; i--) {
         const b = bursts[i],
-          age = (now - b.born) / 1000;
+          age = (now - b.born) / 1000,
+          maxAge = b.lifetime || 4;
         for (let j = 0; j < b.positions.length; j++) {
-          b.velocity[j].y -= 2.4 * dt;
-          b.positions[j].addScaledVector(b.velocity[j], dt);
-          b.rotations[j].x += dt * 3;
-          b.rotations[j].z += dt * (j % 2 ? 2 : -2);
+          b.velocity[j].x *= Math.max(0, 1 - 0.75 * dt);
+          b.velocity[j].z *= Math.max(0, 1 - 0.75 * dt);
+          if (b.velocity[j].y > -1.8) {
+            b.velocity[j].y -= 2.2 * dt;
+          } else {
+            b.velocity[j].y = T.MathUtils.lerp(b.velocity[j].y, -1.8, 2.5 * dt);
+          }
+          const flutter = Math.sin(age * 5.5 + j * 1.7) * 0.45;
+          const swirl = Math.cos(age * 4.2 + j * 2.1) * 0.35;
+          b.positions[j].x += (b.velocity[j].x + flutter) * dt;
+          b.positions[j].y += b.velocity[j].y * dt;
+          b.positions[j].z += (b.velocity[j].z + swirl) * dt;
+          b.rotations[j].x += dt * (3.8 + (j % 4) * 0.9);
+          b.rotations[j].y += dt * (2.4 + (j % 3) * 0.7);
+          b.rotations[j].z += dt * ((j % 2 ? 3.2 : -3.2) + (j % 5) * 0.4);
           dummy.position.copy(b.positions[j]);
           dummy.rotation.copy(b.rotations[j]);
           dummy.updateMatrix();
           b.mesh.setMatrixAt(j, dummy.matrix);
         }
         b.mesh.instanceMatrix.needsUpdate = true;
-        (b.mesh.material as T.MeshBasicMaterial).opacity = Math.min(1, 4 - age);
-        if (age > 4) {
+        (b.mesh.material as T.MeshBasicMaterial).opacity = Math.min(
+          1,
+          (maxAge - age) / (maxAge * 0.35),
+        );
+        if (age > maxAge) {
           b.mesh.removeFromParent();
           (b.mesh.material as T.Material).dispose();
           bursts.splice(i, 1);
@@ -1247,9 +2317,14 @@ export default function World(props: Props) {
           strafe: dx,
           forward: -dz,
           pitch,
-          tool: ['paint', 'confetti', 'grenade', 'pointer'].includes(
-            GAME_TOOLS[latest.current.tool]?.id,
-          )
+          tool: [
+            'paint',
+            'confetti',
+            'grenade',
+            'sniper',
+            'sticky',
+            'pointer',
+          ].includes(GAME_TOOLS[latest.current.tool]?.id)
             ? GAME_TOOLS[latest.current.tool].id
             : 'other',
           variant: selection.current.grenadeStyle,
@@ -1262,10 +2337,23 @@ export default function World(props: Props) {
       }
       kit.clouds.position.x = Math.sin(now * 0.000015) * 2;
       kit.animate(now / 1000);
-      if (composer) {
+      const meteredExposure = visuals.update(dt, camera, latest.current.room.state,
+        latest.current.room.members.map((m) => m.id).join(','));
+      if (meteredExposure !== undefined)
+        renderer.toneMappingExposure = T.MathUtils.damp(renderer.toneMappingExposure, meteredExposure, 1.6, dt);
+      optics.enabled = visuals.active;
+      optics.uniforms.time.value = now / 1000;
+      if (visuals.active && !composer) {
+        composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(new OutputPass());
+        composer.addPass(optics);
+        const size = renderer.getSize(new T.Vector2()); composer.setSize(size.x, size.y);
+      }
+      if (composer && (isCinematic || isBalanced || visuals.active)) {
         if (bloom)
           bloom.strength =
-            latest.current.room.state.visualStyle === 'anime' ? 0.1 : 0.22;
+            visuals.active ? visualBudget(props.quality).bloom : latest.current.room.state.visualStyle === 'anime' ? 0.1 : 0.22;
         composer.render(dt);
       } else renderer.render(scene, camera);
     };
@@ -1288,6 +2376,7 @@ export default function World(props: Props) {
       canvas.removeEventListener('contextmenu', context);
       canvas.removeEventListener('auxclick', context);
       canvas.removeEventListener('webglcontextlost', context);
+      visuals.dispose();
       scene.traverse((o) => {
         if (
           o instanceof T.Mesh ||
@@ -1305,8 +2394,13 @@ export default function World(props: Props) {
         }
       });
       paintGeo.dispose();
+      paintDropletGeo.dispose();
       confettiGeo.dispose();
       partyGeometries.forEach((g) => g.dispose());
+      trajectoryGeo.dispose();
+      trajectoryMat.dispose();
+      landingMarker.geometry.dispose();
+      (landingMarker.material as T.Material).dispose();
       kit.dispose();
       composer?.passes.forEach((pass) => pass.dispose());
       composer?.dispose();
@@ -1316,6 +2410,7 @@ export default function World(props: Props) {
   }, [props.quality]);
   useEffect(() => {
     engine.current?.kit.update(latest.current.room.state);
+    engine.current?.visuals.invalidate();
     engine.current?.shadow();
   }, [
     props.room.state.theme,
@@ -1330,29 +2425,305 @@ export default function World(props: Props) {
   useEffect(() => {
     for (const effect of props.room.effects || []) engine.current?.fire(effect);
   }, [props.room.effects]);
+  useEffect(() => {
+    void engine.current?.visuals.select(resourcePack, latest.current.room.state);
+  }, [resourcePack]);
   const current = GAME_TOOLS[props.tool];
   return (
     <div
       className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''}`}
     >
-      <div ref={mount} className="world-canvas" />
-      <div className="crosshair modern-crosshair">
+      <div ref={mount} className="world-canvas" data-visual-pack={packStatus === 'ready' ? 'realistic-bodycam' : 'default'} />
+      {packStatus === 'ready' && <div className="field-camera-mark" aria-hidden="true"><span>JNL / FIELD 01</span><span>● LIVE VIEW · {perspective === 'first' ? 'FPP' : 'TPP'}</span></div>}
+      {packStatus === 'loading' && <div role="status" className="pack-status">Подготовка визуального пакета…</div>}
+      {packStatus === 'error' && <div role="alert" className="pack-status">Пакет не загрузился. Игра продолжается с Default.</div>}
+      {hitEffect && (
+        <div
+          key={hitEffect.key}
+          className="hit-glow-vignette"
+          style={
+            {
+              '--hit-color': hitEffect.color,
+            } as React.CSSProperties
+          }
+          aria-hidden="true"
+        />
+      )}
+      <div
+        className={`crosshair modern-crosshair ${current?.id === 'sniper' ? 'is-hidden' : ''
+          }`}
+      >
         <i />
         <i />
       </div>
-      <button
-        className="world-location world-performance"
-        onClick={props.onGraphics}
-        aria-label="Настройки FPS"
-      >
-        <span className="live-dot" />
-        <div>
-          <strong>
-            {props.fps} FPS <span> / {props.fpsLimit}</span>
-          </strong>
-          <span>{self?.ping || 0} мс · Графика и FPS ↗</span>
+      {current?.id === 'sniper' && aiming && perspective === 'first' && !dead && (
+        <div className="sniper-scope-overlay" aria-hidden="true">
+          <div className="scope-vignette" />
+          <div className="scope-reticle">
+            <div className="scope-line-h" />
+            <div className="scope-line-v" />
+            <div className="scope-mils-v">
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="scope-mils-h">
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="scope-center-point" />
+            <div className="scope-circle" />
+            <div className="scope-outer-ring" />
+            <div className="scope-info-left">
+              <span>ZOOM: {SNIPER_ZOOM_LEVELS[sniperZoomIndex]}×</span>
+              <span>FOV: {SNIPER_ZOOM_FOVS[sniperZoomIndex]}°</span>
+              <div className="scope-zoom-pips">
+                {SNIPER_ZOOM_LEVELS.map((z, idx) => (
+                  <span
+                    key={z}
+                    className={`scope-zoom-pip ${idx === sniperZoomIndex ? 'active' : ''
+                      }`}
+                  >
+                    {z}×
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="scope-info-right">
+              <span>FIREWORK</span>
+              <span>CAL: 75mm</span>
+              <small className="scope-zoom-hint">Колесо: зум</small>
+            </div>
+          </div>
         </div>
-      </button>
+      )}
+      <div className="world-hud-top-left">
+        <button
+          className="world-location world-performance"
+          onClick={props.onGraphics}
+          aria-label="Настройки FPS"
+        >
+          <span
+            className={`live-dot ${(props.packetLoss ?? 0) > 5
+                ? 'loss-bad'
+                : (props.packetLoss ?? 0) > 0
+                  ? 'loss-warn'
+                  : ''
+              }`}
+          />
+          <div>
+            <strong>
+              {props.fps} FPS <span> / {props.fpsLimit}</span>
+            </strong>
+            <span>
+              {self?.ping || 0} мс · {props.packetLoss ?? 0}% потерь · Графика ↗
+            </span>
+          </div>
+        </button>
+        <fieldset className="view-switch" aria-label="Режим обзора">
+          <button
+            type="button"
+            aria-pressed={perspective === 'first'}
+            onClick={() => choosePerspective('first')}
+            title="1-е лицо (FPP) [V]"
+            aria-label="1-е лицо (FPP)"
+          >
+            <Eye size={15} />
+          </button>
+          <button
+            type="button"
+            aria-pressed={perspective === 'third'}
+            onClick={() => choosePerspective('third')}
+            title="3-е лицо (TPP) [V]"
+            aria-label="3-е лицо (TPP)"
+          >
+            <User size={15} />
+          </button>
+          <kbd>V</kbd>
+        </fieldset>
+      </div>
+      <div className="world-hud-top-center">
+        <button
+          className={`ready-check-trigger-btn ${props.room.state.readyCheck?.active ? 'is-active' : ''}`}
+          onClick={() => {
+            if (!props.room.state.readyCheck?.active) {
+              void props.onOp?.({ type: 'ready.start' });
+            }
+          }}
+          title="Проверить готовность всех игроков к ретроспективе"
+        >
+          <span className="ready-bell-icon">🔔</span>
+          <span>
+            {props.room.state.readyCheck?.active
+              ? `Готовность: ${props.room.state.readyCheck.readyUsers.length}/${props.room.members.length}`
+              : 'Готовы к ретро?'}
+          </span>
+        </button>
+      </div>
+      {props.room.state.readyCheck?.active && (
+        <div className="ready-check-modal-overlay">
+          <div className="ready-check-modal-card">
+            <header className="ready-check-card-header">
+              <div className="ready-check-title">
+                <span className="ready-icon">⚡</span>
+                <strong>Готовы к ретроспективе?</strong>
+              </div>
+              <button
+                className="ready-check-close"
+                onClick={() => void props.onOp?.({ type: 'ready.dismiss' })}
+                title="Закрыть проверку"
+              >
+                <X size={15} />
+              </button>
+            </header>
+            <div className="ready-check-card-body">
+              <div className="ready-check-progress-bar">
+                <div
+                  className="ready-check-progress-fill"
+                  style={{
+                    width: `${Math.round(
+                      (props.room.state.readyCheck.readyUsers.length /
+                        Math.max(1, props.room.members.length)) *
+                        100,
+                    )}%`,
+                  }}
+                />
+              </div>
+              <div className="ready-check-members-grid">
+                {props.room.members.map((m) => {
+                  const isReady = props.room.state.readyCheck?.readyUsers.includes(m.id);
+                  const isAnonymous =
+                    props.room.state.anonymousPlayers ||
+                    props.room.state.anonymous ||
+                    m.hat === 'bag';
+                  const displayName = isAnonymous ? 'Аноним' : m.name;
+                  return (
+                    <div
+                      key={m.id}
+                      className={`ready-member-item ${isReady ? 'is-ready' : 'is-pending'}`}
+                    >
+                      <span className="ready-status-badge">
+                        {isReady ? '✅' : '⏳'}
+                      </span>
+                      <span
+                        className="ready-member-name"
+                        style={{ color: isAnonymous ? '#94a3b8' : m.color }}
+                      >
+                        {isAnonymous ? '🛍️ ' : ''}{displayName}
+                        {m.id === props.room.self ? ' (Вы)' : ''}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <footer className="ready-check-card-footer">
+              {(() => {
+                const myReady = props.room.state.readyCheck.readyUsers.includes(props.room.self);
+                return (
+                  <button
+                    className={`ready-toggle-btn ${myReady ? 'ready-confirmed' : 'ready-action'}`}
+                    onClick={() =>
+                      void props.onOp?.({
+                        type: 'ready.respond',
+                        ready: !myReady,
+                      })
+                    }
+                  >
+                    {myReady ? '✓ Я готов (отменить)' : '✓ Я готов к ретро!'}
+                  </button>
+                );
+              })()}
+              {props.host && (
+                <button
+                  className="ready-dismiss-btn"
+                  onClick={() => void props.onOp?.({ type: 'ready.dismiss' })}
+                >
+                  Завершить опрос
+                </button>
+              )}
+            </footer>
+          </div>
+        </div>
+      )}
+      {shieldSeconds > 0 && !dead && (
+        <div
+          className="spawn-immunity-hud"
+          title="Бессмертие после возрождения (5 секунд)"
+        >
+          <span className="immunity-icon">🛡️</span>
+          <span>ЩИТ ВОЗРОЖДЕНИЯ</span>
+          <strong>{shieldSeconds}с</strong>
+        </div>
+      )}
+      <div
+        className="combat-stats-hud"
+        title="Убийства / Смерти / Помощи (K/D/A)"
+      >
+        <div className="combat-stat-col stat-k">
+          <small>K</small>
+          <strong>{self?.kills ?? 0}</strong>
+        </div>
+        <div className="combat-stat-divider" />
+        <div className="combat-stat-col stat-d">
+          <small>D</small>
+          <strong>{self?.deaths ?? 0}</strong>
+        </div>
+        <div className="combat-stat-divider" />
+        <div className="combat-stat-col stat-a">
+          <small>A</small>
+          <strong>{self?.assists ?? 0}</strong>
+        </div>
+      </div>
+      <div className="killfeed-container" aria-live="polite">
+        {killfeed.map((msg) => (
+          <div
+            key={msg.id}
+            className={`killfeed-item ${msg.killer === props.room.self
+                ? 'is-my-kill'
+                : msg.victim === props.room.self
+                  ? 'is-my-death'
+                  : msg.assister === props.room.self
+                    ? 'is-my-assist'
+                    : ''
+              } ${msg.headshot ? 'is-headshot' : ''}`}
+            style={
+              {
+                '--killer-color': msg.color || '#ff647c',
+              } as React.CSSProperties
+            }
+          >
+            <span className="killfeed-killer">{msg.killerName}</span>
+            {msg.assisterName && (
+              <span className="killfeed-assist">(+ {msg.assisterName})</span>
+            )}
+            <span className="killfeed-weapon">
+              {msg.headshot
+                ? '🎯💀'
+                : msg.tool === 'grenade'
+                  ? '💣'
+                  : msg.tool === 'confetti'
+                    ? '🎉'
+                    : msg.tool === 'sniper'
+                      ? '🎆'
+                      : '🎯'}
+            </span>
+            <span className="killfeed-victim">{msg.victimName}</span>
+          </div>
+        ))}
+      </div>
+      {personalAlert && (
+        <div
+          key={personalAlert.key}
+          className={`combat-personal-alert alert-${personalAlert.type}`}
+        >
+          <strong>{personalAlert.text}</strong>
+          {personalAlert.sub && <small>{personalAlert.sub}</small>}
+        </div>
+      )}
       <div className={`health-hud ${dead ? 'depleted' : ''}`}>
         <strong>{self?.hp ?? 100}</strong>
         <span>HP</span>
@@ -1366,30 +2737,493 @@ export default function World(props: Props) {
       {dead && (
         <div className="respawn-overlay">
           <span>ПЕРЕРЫВ НА КОНФЕТТИ</span>
-          <strong>
-            {Math.max(
-              0,
-              Math.ceil(((self?.respawnAt || 0) - props.now) / 1000),
-            )}
-          </strong>
+          <strong>{respawnSeconds || 1}</strong>
           <p>Возрождение через несколько секунд</p>
         </div>
       )}
-      <fieldset className="view-switch" aria-label="Режим обзора">
-        <button
-          aria-pressed={perspective === 'first'}
-          onClick={() => choosePerspective('first')}
+      {tabletInWorld && (
+        <div
+          className="diegetic-tablet-container"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeTabletInWorld();
+          }}
         >
-          1-е лицо <span>FPP</span>
-        </button>
-        <button
-          aria-pressed={perspective === 'third'}
-          onClick={() => choosePerspective('third')}
-        >
-          3-е лицо <span>TPP</span>
-        </button>
-        <kbd>V</kbd>
-      </fieldset>
+          <div
+            className="diegetic-tablet-device"
+            role="region"
+            aria-label="Планшет ретроспективы"
+          >
+            <div className="tablet-camera-dot" />
+            <header className="tablet-system-bar">
+              <div className="tablet-system-left">
+                <span className="tablet-dot-live" />
+                <span className="tablet-room-badge">RETRO PAD · 3D</span>
+              </div>
+              <div className="tablet-system-title">
+                <strong>{props.room.state.title || 'Ретроспектива'}</strong>
+              </div>
+              <div className="tablet-system-right">
+                <span className="tablet-esc-hint">
+                  <kbd>Esc</kbd> закрыть
+                </span>
+                <button
+                  className="tablet-close-btn"
+                  onClick={closeTabletInWorld}
+                  title="Закрыть планшет (Esc)"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            </header>
+
+            <nav className="tablet-nav-tabs" aria-label="Разделы планшета">
+              <button
+                className={`tablet-tab-btn ${tabletTab === 'board' ? 'active' : ''}`}
+                onClick={() => setTabletTab('board')}
+              >
+                📋 Доска ретро
+              </button>
+              <button
+                className={`tablet-tab-btn ${tabletTab === 'env' ? 'active' : ''}`}
+                onClick={() => setTabletTab('env')}
+              >
+                🌲 Ландшафт
+              </button>
+              <button
+                className={`tablet-tab-btn ${tabletTab === 'music' ? 'active' : ''}`}
+                onClick={() => setTabletTab('music')}
+              >
+                🎵 Музыка
+              </button>
+            </nav>
+
+            {tabletTab === 'board' && (
+              <div className="tablet-board-layout">
+                <div className="tablet-retro-toolbar">
+                  <div className="tablet-retro-tools-group">
+                    <button
+                      className={`tablet-tool-btn ${tabletTool === 'pointer' ? 'active' : ''}`}
+                      onClick={() => setTabletTool('pointer')}
+                      title="Выбор и перемещение"
+                    >
+                      <MousePointer size={14} />
+                      <span>Выбор</span>
+                    </button>
+                    <button
+                      className={`tablet-tool-btn ${tabletTool === 'sticky' ? 'active' : ''}`}
+                      onClick={() => setTabletTool('sticky')}
+                      title="Добавить стикер"
+                    >
+                      <StickyNote size={14} />
+                      <span>Стикер</span>
+                    </button>
+                    <button
+                      className={`tablet-tool-btn ${tabletTool === 'draw' ? 'active' : ''}`}
+                      onClick={() => setTabletTool('draw')}
+                      title="Маркер (зажмите мышь на холсте)"
+                    >
+                      <Pencil size={14} />
+                      <span>Маркер</span>
+                    </button>
+                    <button
+                      className={`tablet-tool-btn ${tabletTool === 'connector' ? 'active' : ''}`}
+                      onClick={() => setTabletTool('connector')}
+                      title="Соединить карточки стрелкой"
+                    >
+                      <Link2 size={14} />
+                      <span>Связь</span>
+                    </button>
+                    <button
+                      className={`tablet-tool-btn ${tabletTool === 'reaction' ? 'active' : ''}`}
+                      onClick={() => setTabletTool('reaction')}
+                      title="Быстрая реакция"
+                    >
+                      <ThumbsUp size={14} />
+                      <span>Реакция</span>
+                    </button>
+                  </div>
+
+                  <div className="tablet-retro-actions-group">
+                    <button
+                      className="tablet-confetti-btn"
+                      onClick={() => {
+                        void props.onOp?.({
+                          type: 'event',
+                          kind: 'confetti',
+                          value: 'classic',
+                        });
+                      }}
+                      title="Запустить праздничное конфетти"
+                    >
+                      <PartyPopper size={14} />
+                      <span>Салют</span>
+                    </button>
+
+                    {(() => {
+                      const activeRound = props.room.state.rounds.at(-1)?.active
+                        ? props.room.state.rounds.at(-1)
+                        : null;
+                      const myVotes = activeRound
+                        ? Object.values(
+                            activeRound.votes[props.room.self] || {},
+                          ).reduce((a, b) => a + b, 0)
+                        : 0;
+                      return (
+                        <div className="tablet-vote-status">
+                          <span className="vote-badge">
+                            🗳️{' '}
+                            {activeRound
+                              ? `${myVotes}/${activeRound.limit}`
+                              : 'Голоса'}
+                          </span>
+                          {props.host && (
+                            <button
+                              className="tablet-vote-toggle"
+                              onClick={() => {
+                                if (activeRound?.active) {
+                                  void props.onOp?.({ type: 'vote.end' });
+                                } else {
+                                  void props.onOp?.({
+                                    type: 'vote.start',
+                                    limit: 5,
+                                  });
+                                }
+                              }}
+                            >
+                              {activeRound?.active ? 'Стоп' : 'Старт'}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {(() => {
+                      const actionNotes = props.room.state.notes.filter(
+                        (n) => n.kind === 'action' || n.kind === 'task',
+                      );
+                      const doneCount = actionNotes.filter(
+                        (n) => n.done,
+                      ).length;
+                      return (
+                        <button
+                          className={`tablet-action-items-toggle ${actionItemsOpen ? 'active' : ''}`}
+                          onClick={() => setActionItemsOpen(!actionItemsOpen)}
+                          title="Список задач (Action Items)"
+                        >
+                          <CheckSquare size={14} />
+                          <span>
+                            Задачи ({doneCount}/{actionNotes.length})
+                          </span>
+                        </button>
+                      );
+                    })()}
+                  </div>
+
+                  <div className="tablet-search-box">
+                    <input
+                      placeholder="Поиск карточек…"
+                      value={tabletSearch}
+                      onChange={(e) => setTabletSearch(e.target.value)}
+                      aria-label="Поиск по доске"
+                    />
+                  </div>
+                </div>
+
+                <div className="tablet-board-viewport-container">
+                  <Board
+                    room={props.room}
+                    tool={tabletTool}
+                    onEdit={props.onEditNote || (() => {})}
+                    onAdd={props.onAddNote || (() => {})}
+                    onOp={props.onOp || (async () => {})}
+                    search={tabletSearch}
+                    onCursor={props.onCursor}
+                  />
+
+                  {actionItemsOpen && (
+                    <aside
+                      className="tablet-action-items-drawer"
+                      role="dialog"
+                      aria-label="Action Items задачи"
+                    >
+                      <header className="action-drawer-header">
+                        <div>
+                          <strong>📋 Action Items (Задачи)</strong>
+                          <small>
+                            {
+                              props.room.state.notes
+                                .filter(
+                                  (n) =>
+                                    n.kind === 'action' || n.kind === 'task',
+                                )
+                                .filter((n) => n.done).length
+                            }{' '}
+                            из{' '}
+                            {
+                              props.room.state.notes.filter(
+                                (n) =>
+                                  n.kind === 'action' || n.kind === 'task',
+                              ).length
+                            }{' '}
+                            завершено
+                          </small>
+                        </div>
+                        <button
+                          className="action-drawer-close"
+                          onClick={() => setActionItemsOpen(false)}
+                          aria-label="Закрыть задачи"
+                        >
+                          <X size={15} />
+                        </button>
+                      </header>
+
+                      <div className="action-drawer-list">
+                        {props.room.state.notes
+                          .filter(
+                            (n) => n.kind === 'action' || n.kind === 'task',
+                          )
+                          .map((n) => (
+                            <div
+                              key={n.id}
+                              className={`action-drawer-item ${n.done ? 'is-done' : ''}`}
+                            >
+                              <label className="action-checkbox-label">
+                                <input
+                                  type="checkbox"
+                                  checked={n.done}
+                                  onChange={() =>
+                                    void props.onOp?.({
+                                      type: 'note.edit',
+                                      id: n.id,
+                                      patch: { done: !n.done },
+                                    })
+                                  }
+                                />
+                                <span className="action-check-visual">
+                                  {n.done && <Check size={12} />}
+                                </span>
+                              </label>
+                              <div className="action-item-body">
+                                <p className="action-text">
+                                  {n.text || 'Новая задача'}
+                                </p>
+                                <div className="action-tags">
+                                  {n.owner && (
+                                    <span className="action-owner">
+                                      👤 {n.owner}
+                                    </span>
+                                  )}
+                                  {n.due && (
+                                    <span className="action-due">
+                                      <Clock size={10} /> {n.due}
+                                    </span>
+                                  )}
+                                  <span
+                                    className="action-zone-badge"
+                                    style={{
+                                      background:
+                                        (ZONES.find((z) => z.id === n.zone)
+                                          ?.color || '#334155') + '33',
+                                    }}
+                                  >
+                                    {ZONES.find((z) => z.id === n.zone)
+                                      ?.short || n.zone}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                className="action-edit-btn"
+                                onClick={() => props.onEditNote?.(n)}
+                                title="Редактировать задачу"
+                              >
+                                <Pencil size={12} />
+                              </button>
+                            </div>
+                          ))}
+                        {props.room.state.notes.filter(
+                          (n) => n.kind === 'action' || n.kind === 'task',
+                        ).length === 0 && (
+                          <div className="action-drawer-empty">
+                            <span>
+                              Пока нет задач. Зафиксируйте шаги команды!
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <footer className="action-drawer-footer">
+                        <button
+                          className="action-create-btn"
+                          onClick={() => {
+                            void props.onOp?.({
+                              type: 'note.add',
+                              kind: 'action',
+                              zone: 'good',
+                              text: 'Новая задача ретроспективы',
+                              done: false,
+                            });
+                          }}
+                        >
+                          + Добавить задачу
+                        </button>
+                      </footer>
+                    </aside>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {tabletTab === 'env' && (
+              <div className="tablet-env-view">
+                <div className="tablet-settings-section">
+                  <h3>Время суток</h3>
+                  <div className="tablet-settings-chips">
+                    {[
+                      { id: 'dawn', label: 'Рассвет', icon: Sunrise },
+                      { id: 'day', label: 'День', icon: Sun },
+                      { id: 'sunset', label: 'Закат', icon: Sunset },
+                      { id: 'night', label: 'Ночь', icon: Moon },
+                    ].map((item) => {
+                      const Icon = item.icon;
+                      const active = props.room.state.time === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          className={`tablet-setting-chip ${active ? 'active' : ''}`}
+                          onClick={() =>
+                            props.onRoomSettings?.({ time: item.id })
+                          }
+                        >
+                          <Icon size={16} />
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="tablet-settings-section">
+                  <h3>Сезон и ландшафт</h3>
+                  <div className="tablet-settings-chips">
+                    {[
+                      { id: 'spring', label: 'Весна', emoji: '🌱' },
+                      { id: 'summer', label: 'Лето', emoji: '☀️' },
+                      { id: 'autumn', label: 'Осень', emoji: '🍁' },
+                      { id: 'winter', label: 'Зима', emoji: '❄️' },
+                    ].map((item) => {
+                      const active = props.room.state.season === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          className={`tablet-setting-chip ${active ? 'active' : ''}`}
+                          onClick={() =>
+                            props.onRoomSettings?.({ season: item.id })
+                          }
+                        >
+                          <span>{item.emoji}</span>
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="tablet-settings-section">
+                  <h3>Визуальный стиль</h3>
+                  <div className="tablet-settings-chips">
+                    {[
+                      { id: 'classic', label: 'Классический' },
+                      { id: 'anime', label: 'Аниме / Шейдеры' },
+                    ].map((item) => {
+                      const active =
+                        (props.room.state.visualStyle || 'classic') === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          className={`tablet-setting-chip ${active ? 'active' : ''}`}
+                          onClick={() =>
+                            props.onRoomSettings?.({
+                              visualStyle: item.id as 'classic' | 'anime',
+                            })
+                          }
+                        >
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {tabletTab === 'music' && (
+              <div className="tablet-music-view">
+                <div className="tablet-settings-section">
+                  <h3>Фоновый саундтрек</h3>
+                  <div className="tablet-settings-chips">
+                    {TRACKS.map((t) => {
+                      const active = music.track === t.id;
+                      return (
+                        <button
+                          key={t.id}
+                          className={`tablet-setting-chip ${active ? 'active' : ''}`}
+                          onClick={() => {
+                            if (active) {
+                              pauseMusic();
+                            } else {
+                              void playMusic(t.id);
+                            }
+                          }}
+                        >
+                          <Music2 size={16} />
+                          <span>{t.title}</span>
+                          {active && <span className="playing-pulse">●</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="tablet-music-controls-row">
+                  <button
+                    className="tablet-music-play-toggle"
+                    onClick={() => {
+                      if (music.playing) {
+                        pauseMusic();
+                      } else {
+                        void playMusic(music.track || 'steppe');
+                      }
+                    }}
+                  >
+                    {music.playing ? <Pause size={18} /> : <Play size={18} />}
+                    <span>{music.playing ? 'Пауза' : 'Воспроизведение'}</span>
+                  </button>
+
+                  <div className="tablet-music-volume">
+                    <Volume2 size={16} />
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={music.volume}
+                      onChange={(e) =>
+                        setMusicVolume(parseFloat(e.target.value))
+                      }
+                      aria-label="Громкость музыки"
+                    />
+                    <span>{Math.round(music.volume * 100)}%</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <footer className="tablet-home-bar" onClick={closeTabletInWorld}>
+              <div className="tablet-home-pill" />
+            </footer>
+          </div>
+        </div>
+      )}
       <div className="camera-toolbar">
         <span>
           <Camera size={14} />
@@ -1458,7 +3292,7 @@ export default function World(props: Props) {
           <span>Работать с идеями</span>
         </button>
       )}
-      {['paint', 'confetti'].includes(current?.id) && (
+      {['paint', 'confetti', 'sniper'].includes(current?.id) && (
         <div
           className={`ammo-panel ${reloading ? 'is-reloading' : ''}`}
           aria-live="polite"
@@ -1489,8 +3323,14 @@ export default function World(props: Props) {
           <Palette size={21} style={{ color: props.paintColor }} />
         ) : current?.id === 'confetti' ? (
           <PartyPopper size={21} />
+        ) : current?.id === 'grenade' ? (
+          <Bomb size={21} />
+        ) : current?.id === 'sniper' ? (
+          <Sparkles size={21} />
+        ) : current?.id === 'sticky' ? (
+          <StickyNote size={21} />
         ) : (
-          <MousePointer2 size={21} />
+          <Tablet size={21} />
         )}
       </div>
       {active && captureError && (
@@ -1516,24 +3356,37 @@ export default function World(props: Props) {
           <kbd>Shift</kbd> шаг
         </span>
         <span>
-          <kbd>Tab</kbd> кто в сети
+          <kbd>Ё</kbd> кто в сети
         </span>
         <span>
-          <kbd>1–4</kbd> предмет · <kbd>Q</kbd> снаряжение
+          <kbd>1–6</kbd> оружие · <kbd>Колесо</kbd> сменить · <kbd>СКМ</kbd> стили
         </span>
       </div>
       <div className="quick-loadout" aria-label="Быстрые предметы">
-        {QUICK_SLOTS.map((slot, i) => {
-          const Icon = [Crosshair, PartyPopper, Tablet, Bomb][i];
+        {QUICK_SLOTS.map((slot) => {
+          const Icon = getSlotIcon(slot.index);
           return (
             <button
               key={slot.key}
               aria-pressed={props.tool === slot.index}
-              onClick={() => props.onTool(slot.index)}
+              onClick={() => {
+                if (slot.index === 9) {
+                  if (props.tool === 9) {
+                    if (tabletInWorld) closeTabletInWorld();
+                    else openTabletInWorld();
+                  } else {
+                    props.onTool(9);
+                    openTabletInWorld();
+                  }
+                } else {
+                  if (tabletInWorld) closeTabletInWorld();
+                  props.onTool(slot.index);
+                }
+              }}
               title={slot.hint}
             >
               <kbd>{slot.key}</kbd>
-              <Icon size={24} />
+              <Icon size={20} />
               <span>{slot.label}</span>
             </button>
           );
@@ -1548,7 +3401,14 @@ export default function World(props: Props) {
       </div>
       <button
         className="item-options-button"
-        onClick={() => engine.current?.openContext()}
+        onClick={() => {
+          if (current.id === 'pointer') {
+            if (tabletInWorld) closeTabletInWorld();
+            else openTabletInWorld();
+          } else {
+            engine.current?.openContext();
+          }
+        }}
       >
         <span style={{ color: props.paintColor }}>
           {current.id === 'paint'
@@ -1557,16 +3417,24 @@ export default function World(props: Props) {
               ? CONFETTI.find((c) => c.id === confettiStyle)?.icon
               : current.id === 'grenade'
                 ? GRENADES.find((g) => g.id === grenadeStyle)?.icon
-                : '▤'}
+                : current.id === 'sniper'
+                  ? FIREWORKS.find((f) => f.id === fireworkStyle)?.icon
+                  : current.id === 'sticky'
+                    ? ZONES.find((z) => z.id === tabletZone)?.emoji || '📝'
+                    : '📱'}
         </span>
         {current.id === 'paint'
           ? 'Выбрать краску'
           : current.id === 'confetti'
             ? CONFETTI.find((c) => c.id === confettiStyle)?.label
             : current.id === 'grenade'
-              ? GRENADES.find((c) => c.id === grenadeStyle)?.label
-              : tabletZone}
-        <kbd>Колесо</kbd>
+              ? GRENADES.find((g) => g.id === grenadeStyle)?.label
+              : current.id === 'sniper'
+                ? FIREWORKS.find((f) => f.id === fireworkStyle)?.label
+                : current.id === 'sticky'
+                  ? ZONES.find((z) => z.id === tabletZone)?.short || 'Стикер'
+                  : 'Открыть доску ↗'}
+        <kbd>{current.id === 'pointer' ? 'ЛКМ' : 'СКМ'}</kbd>
       </button>
       {contextWheel && (
         <ItemWheel
@@ -1577,8 +3445,12 @@ export default function World(props: Props) {
               : current.id === 'confetti'
                 ? 'Набор конфетти'
                 : current.id === 'grenade'
-                  ? 'Гранаты'
-                  : 'Планшет'
+                  ? 'Пиньято'
+                  : current.id === 'sniper'
+                    ? 'Фейерверки'
+                    : current.id === 'sticky'
+                      ? 'Зона стикера'
+                      : 'Планшет'
           }
           items={
             current.id === 'paint'
@@ -1587,12 +3459,23 @@ export default function World(props: Props) {
                 ? CONFETTI
                 : current.id === 'grenade'
                   ? GRENADES
-                  : ['good', 'bad', 'stop', 'start'].map((id) => ({
-                      id,
-                      label: id,
-                      color: ZONES.find((z) => z.id === id)!.color,
-                      icon: '▤',
-                    }))
+                  : current.id === 'sniper'
+                    ? FIREWORKS
+                    : current.id === 'sticky'
+                      ? ZONES.map((z) => ({
+                        id: z.id,
+                        label: z.title,
+                        color: z.color,
+                        icon: z.emoji,
+                      }))
+                      : [
+                        {
+                          id: 'board',
+                          label: 'Открыть доску',
+                          color: '#64d4ef',
+                          icon: '📱',
+                        },
+                      ]
           }
           selected={
             current.id === 'paint'
@@ -1601,14 +3484,20 @@ export default function World(props: Props) {
                 ? confettiStyle
                 : current.id === 'grenade'
                   ? grenadeStyle
-                  : tabletZone
+                  : current.id === 'sniper'
+                    ? fireworkStyle
+                    : current.id === 'sticky'
+                      ? tabletZone
+                      : 'board'
           }
           onSelect={(id) => {
             if (current.id === 'paint')
               props.onPaintColor(PAINTS.find((p) => p.id === id)!.color);
             else if (current.id === 'confetti') setConfettiStyle(id);
             else if (current.id === 'grenade') setGrenadeStyle(id);
-            else setTabletZone(id);
+            else if (current.id === 'sniper') setFireworkStyle(id);
+            else if (current.id === 'sticky') setTabletZone(id);
+            else if (current.id === 'pointer') openTabletInWorld();
             engine.current?.closeInventory();
           }}
           onClose={() => engine.current?.closeInventory(false)}
@@ -1658,8 +3547,8 @@ export default function World(props: Props) {
             />
           )}
           <div className="equipment-items">
-            {QUICK_SLOTS.map((slot, i) => {
-              const Icon = [Crosshair, PartyPopper, Tablet, Bomb][i];
+            {QUICK_SLOTS.map((slot) => {
+              const Icon = getSlotIcon(slot.index);
               return (
                 <button
                   key={slot.key}
@@ -1692,8 +3581,11 @@ export default function World(props: Props) {
                   'paint',
                   'confetti',
                   'grenade',
+                  'sniper',
+                  'sticky',
                   'reaction',
                   'pointer',
+                  'like',
                 ].includes(t.id),
             ).map((t) => (
               <button

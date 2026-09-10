@@ -1,20 +1,28 @@
 export async function api<T = Record<string, unknown>>(
   path: string,
   body?: unknown,
+  timeoutMs = 6000,
 ): Promise<T> {
-  const r = await fetch(path, {
-    method: body ? 'POST' : 'GET',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = (await r.json()) as Record<string, unknown>;
-  if (!r.ok)
-    throw Error(
-      typeof data.error === 'string'
-        ? data.error
-        : 'Не удалось выполнить запрос',
-    );
-  return data as T;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const r = await fetch(path, {
+      method: body ? 'POST' : 'GET',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+    const data = (await r.json()) as Record<string, unknown>;
+    if (!r.ok)
+      throw Error(
+        typeof data.error === 'string'
+          ? data.error
+          : 'Не удалось выполнить запрос',
+      );
+    return data as T;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 export async function ready() {
   return api('/api/session', {});

@@ -194,3 +194,69 @@ export class Soundtrack {
     await this.context.close();
   }
 }
+
+export type MusicState = {
+  playing: boolean;
+  track: string;
+  volume: number;
+  error?: string;
+};
+
+let sharedPlayer: Soundtrack | null = null;
+let currentMusicState: MusicState = {
+  playing: false,
+  track: 'evening',
+  volume: 0.25,
+};
+const musicListeners = new Set<() => void>();
+
+function notifyMusic() {
+  musicListeners.forEach((l) => l());
+}
+
+export function getMusicState(): MusicState {
+  return currentMusicState;
+}
+
+export function subscribeMusic(listener: () => void) {
+  musicListeners.add(listener);
+  return () => {
+    musicListeners.delete(listener);
+  };
+}
+
+export async function playMusic(id = currentMusicState.track) {
+  try {
+    if (!sharedPlayer) sharedPlayer = new Soundtrack();
+    sharedPlayer.volume(currentMusicState.volume);
+    await sharedPlayer.play(id);
+    currentMusicState = {
+      ...currentMusicState,
+      playing: true,
+      track: id,
+      error: undefined,
+    };
+    notifyMusic();
+  } catch {
+    currentMusicState = {
+      ...currentMusicState,
+      playing: false,
+      error: 'Браузер не запустил звук. Нажмите воспроизведение ещё раз.',
+    };
+    notifyMusic();
+  }
+}
+
+export function pauseMusic() {
+  sharedPlayer?.stop();
+  currentMusicState = { ...currentMusicState, playing: false };
+  notifyMusic();
+}
+
+export function setMusicVolume(v: number) {
+  const vol = Math.max(0, Math.min(1, v));
+  currentMusicState = { ...currentMusicState, volume: vol };
+  sharedPlayer?.volume(vol);
+  notifyMusic();
+}
+

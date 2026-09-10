@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -31,6 +31,36 @@ export function ItemWheel({
     240 + Math.sin(a) * r,
   ];
   const active = items[hover];
+
+  useEffect(() => {
+    const handleUp = (e: MouseEvent) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (active) onSelect(active.id);
+      }
+    };
+    window.addEventListener('mouseup', handleUp, true);
+    return () => window.removeEventListener('mouseup', handleUp, true);
+  }, [active, onSelect]);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = e.clientX - cx;
+    const dy = e.clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 25) {
+      let angle = Math.atan2(dy, dx) + Math.PI / 2;
+      if (angle < 0) angle += Math.PI * 2;
+      const sector = (Math.PI * 2) / items.length;
+      const index =
+        Math.floor((angle + sector / 2) / sector) % items.length;
+      if (index >= 0 && index < items.length) setHover(index);
+    }
+  };
+
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent
@@ -57,10 +87,11 @@ export function ItemWheel({
       >
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>
-          Колесо / стрелки — выбор · ЛКМ / Enter — применить · Esc — отменить
+          Удерживайте колёсико и наведите курсор · отпустите для выбора
         </DialogDescription>
         <div
           className="item-wheel"
+          onMouseMove={handleMouseMove}
           onWheel={(e) => {
             e.stopPropagation();
             setHover(

@@ -18,6 +18,7 @@ export type AvatarMotion = {
   aiming?: boolean;
   crouching?: boolean;
   reload?: number;
+  hp?: number;
 };
 type Rig = {
   root: T.Group;
@@ -255,9 +256,10 @@ export function createAvatar(color: string) {
   box(chest, '#434765', 0, 0.16, 0.225, 0.33, 0.35, 0.17);
   box(chest, '#b2aad9', 0, 0.18, 0.326, 0.24, 0.15, 0.035);
   const gun = pivot(elbows[1], 'gun', 0, -0.29, -0.03);
-  box(gun, '#434d72', 0, 0.025, 0, 0.13, 0.24, 0.12);
+  const gunPaint = pivot(gun, 'gun-paint', 0, 0, 0);
+  box(gunPaint, '#434d72', 0, 0.025, 0, 0.13, 0.24, 0.12);
   add(
-    gun,
+    gunPaint,
     new T.CylinderGeometry(0.09, 0.12, 0.48, 10),
     '#b2bce1',
     0,
@@ -265,14 +267,54 @@ export function createAvatar(color: string) {
     -0.06,
   ).rotation.x = Math.PI / 2;
   add(
-    gun,
+    gunPaint,
     new T.CylinderGeometry(0.13, 0.13, 0.08, 10),
     '#b18afa',
     0,
     0.18,
     -0.32,
   ).rotation.x = Math.PI / 2;
-  ball(gun, '#df9dd1', 0, 0.27, 0.015, 0.125);
+  ball(gunPaint, '#df9dd1', 0, 0.27, 0.015, 0.125);
+
+  const gunShotgun = pivot(gun, 'gun-shotgun', 0, 0, 0);
+  box(gunShotgun, '#32374e', 0, 0.025, 0, 0.15, 0.22, 0.15);
+  add(
+    gunShotgun,
+    new T.CylinderGeometry(0.075, 0.08, 0.52, 10),
+    '#9ea8c8',
+    0,
+    0.17,
+    -0.12,
+  ).rotation.x = Math.PI / 2;
+  add(
+    gunShotgun,
+    new T.CylinderGeometry(0.065, 0.07, 0.45, 10),
+    '#25293d',
+    0,
+    0.09,
+    -0.10,
+  ).rotation.x = Math.PI / 2;
+  box(gunShotgun, '#e5be6b', 0, 0.17, -0.38, 0.12, 0.12, 0.06);
+
+  const gunSniper = pivot(gun, 'gun-sniper', 0, 0, 0);
+  box(gunSniper, '#232838', 0, 0.02, 0, 0.11, 0.20, 0.18);
+  add(
+    gunSniper,
+    new T.CylinderGeometry(0.045, 0.05, 0.85, 10),
+    '#828fae',
+    0,
+    0.17,
+    -0.28,
+  ).rotation.x = Math.PI / 2;
+  add(
+    gunSniper,
+    new T.CylinderGeometry(0.055, 0.055, 0.38, 10),
+    '#181b25',
+    0,
+    0.28,
+    -0.10,
+  ).rotation.x = Math.PI / 2;
+  box(gunSniper, '#64d4ef', 0, 0.28, -0.30, 0.06, 0.06, 0.02);
   const tablet = pivot(elbows[0], 'tablet', 0, -0.29, 0);
   box(tablet, '#39415b', 0, 0.04, -0.11, 0.36, 0.035, 0.47);
   box(tablet, '#a6ddeb', 0, 0.065, -0.11, 0.3, 0.012, 0.4);
@@ -427,8 +469,8 @@ export function animateAvatar(
 ) {
   const r = rigs.get(avatar);
   if (!r) return;
-  const blend = 1 - Math.exp(-12 * dt),
-    follow = (a: number, b: number) => T.MathUtils.lerp(a, b, blend);
+  const follow = (a: number, b: number, rate = 12) =>
+    T.MathUtils.lerp(a, b, 1 - Math.exp(-rate * dt));
   const airborne = m.airborne;
   if (r.airborne && !airborne) r.landing = 1;
   r.airborne = airborne;
@@ -441,6 +483,24 @@ export function animateAvatar(
   r.equip = Math.max(0, r.equip - dt * 4);
   r.speed = follow(r.speed, m.speed);
   r.phase += dt * (r.speed * 2.6 + 1.3);
+  const isDead = m.hp === 0;
+  if (isDead) {
+    r.root.position.y = follow(r.root.position.y, 0.12, 9);
+    r.root.rotation.x = follow(r.root.rotation.x, -Math.PI / 2, 7);
+    r.root.rotation.z = follow(r.root.rotation.z, 0.35, 6);
+    r.head.rotation.x = follow(r.head.rotation.x, 0.4, 8);
+    r.head.rotation.y = follow(r.head.rotation.y, 0.3, 8);
+    r.arms[0].rotation.x = follow(r.arms[0].rotation.x, -0.3, 6);
+    r.arms[1].rotation.x = follow(r.arms[1].rotation.x, -0.5, 6);
+    r.knees[0].rotation.x = follow(r.knees[0].rotation.x, -0.4, 6);
+    r.knees[1].rotation.x = follow(r.knees[1].rotation.x, -0.2, 6);
+    r.gun.visible = false;
+    r.tablet.visible = false;
+    const g = avatar.getObjectByName('held-grenade');
+    if (g) g.visible = false;
+    return;
+  }
+
   const stride = Math.min(1, r.speed / 3.3),
     sprint = Math.max(0, (r.speed - 3.4) / 3.1),
     wave = Math.sin(r.phase);
@@ -478,7 +538,7 @@ export function animateAvatar(
     grenade.visible = m.tool === 'grenade';
     if (grenade.visible) setGrenadeStyle(grenade, m.variant || 'pinata');
   }
-  const armed = ['paint', 'confetti', 'grenade'].includes(m.tool);
+  const armed = ['paint', 'confetti', 'grenade', 'sniper'].includes(m.tool);
   for (let i = 0; i < 2; i++) {
     const side = i ? 1 : -1,
       step = Math.sin(r.phase + (i ? Math.PI : 0));
@@ -545,6 +605,14 @@ export function animateAvatar(
     -r.arms[1].rotation.x - r.elbows[1].rotation.x - m.pitch * 0.6;
   r.gun.visible = armed && m.tool !== 'grenade' && !m.working && !m.inventory;
   r.gun.position.z = follow(r.gun.position.z, -0.03 + r.recoil * 0.08);
+
+  const gunPaint = r.gun.getObjectByName('gun-paint');
+  if (gunPaint) gunPaint.visible = m.tool === 'paint';
+  const gunShotgun = r.gun.getObjectByName('gun-shotgun');
+  if (gunShotgun) gunShotgun.visible = m.tool === 'confetti';
+  const gunSniper = r.gun.getObjectByName('gun-sniper');
+  if (gunSniper) gunSniper.visible = m.tool === 'sniper';
+
   r.tablet.visible = !!m.working || !!m.inventory || m.tool === 'pointer';
   r.scarf.rotation.x = follow(
     r.scarf.rotation.x,

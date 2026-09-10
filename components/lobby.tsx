@@ -27,6 +27,8 @@ import { THEMES, PHASES } from '@/lib/model';
 import { api, ready } from '@/lib/client';
 import { Choice } from './controls';
 import { StylePicker } from './style-picker';
+import { ResourcePackPicker } from './resource-pack-picker';
+import { useResourcePack } from '../hooks/use-resource-pack';
 type Summary = {
   id: string;
   title: string;
@@ -39,6 +41,8 @@ type Summary = {
   host: string;
 };
 export default function Lobby() {
+  const resourcePack = useResourcePack();
+  const [packsOpen, setPacksOpen] = useState(false);
   const [create, setCreate] = useState(false),
     [name, setName] = useState(''),
     [title, setTitle] = useState(''),
@@ -164,7 +168,8 @@ export default function Lobby() {
       (filter === 'all' || (filter === 'archive' ? r.archived : !r.archived)),
   );
   return (
-    <main className="lobby">
+    <main className="lobby" data-resource-pack={resourcePack}>
+      <Dialog open={packsOpen} onOpenChange={setPacksOpen}><DialogContent><DialogTitle>Визуальный пакет</DialogTitle><DialogDescription>Выберите оформление игры на этом устройстве.</DialogDescription><ResourcePackPicker /></DialogContent></Dialog>
       <header className="main-header">
         <a className="brand" href="/">
           <span className="brand-symbol">Ж</span>jinaly
@@ -196,6 +201,7 @@ export default function Lobby() {
           <button onClick={() => setHelp(true)}>
             <BookOpen size={18} /> Как играть
           </button>
+          <button onClick={() => setPacksOpen(true)}><Settings2 size={18} /> Визуальный пакет</button>
           <div className="nav-bottom">
             <Mountain size={23} />
             <p>
