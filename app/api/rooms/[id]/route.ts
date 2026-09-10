@@ -25,6 +25,7 @@ async function buildRoomSnapshot(
   self: string,
   clientVersion?: number | null,
   sinceEffect?: number | null,
+  updateStmt?: ReturnType<ReturnType<typeof db>['prepare']>,
 ) {
   const now = Date.now();
   const lastCombat = lastCombatResolution.get(id) || 0;
@@ -32,24 +33,36 @@ async function buildRoomSnapshot(
     lastCombatResolution.set(id, now);
     await resolveCombat(id, roomState.respawnSeconds ?? 5);
   }
-  const { results } = await db()
-    .prepare(
-      'SELECT session AS id,name,color,seen AS lastSeen,pose,ping,mood,hat,cursor,hp,respawn_at AS respawnAt,immune_until AS immuneUntil,life,kills,deaths,assists FROM members WHERE room=? ORDER BY seen DESC LIMIT 100',
-    )
-    .bind(id)
-    .all();
 
   const minEffectTime =
     typeof sinceEffect === 'number' && Number.isFinite(sinceEffect) && sinceEffect > 0
       ? Math.max(now - 15000, sinceEffect)
       : now - 15000;
 
-  const effects = await db()
+  const selectMembers = db()
+    .prepare(
+      'SELECT session AS id,name,color,seen AS lastSeen,pose,ping,mood,hat,cursor,hp,respawn_at AS respawnAt,immune_until AS immuneUntil,life,kills,deaths,assists FROM members WHERE room=? ORDER BY seen DESC LIMIT 100',
+    )
+    .bind(id);
+
+  const selectEffects = db()
     .prepare(
       'SELECT id,author,payload,at FROM effects WHERE room=? AND at>? ORDER BY at DESC LIMIT 80',
     )
-    .bind(id, minEffectTime)
-    .all();
+    .bind(id, minEffectTime);
+
+  let results: any[];
+  let effectsResults: any[];
+
+  if (updateStmt) {
+    const batchRes = await db().batch([updateStmt, selectMembers, selectEffects]);
+    results = (batchRes[1].results as any[]) || [];
+    effectsResults = (batchRes[2].results as any[]) || [];
+  } else {
+    const batchRes = await db().batch([selectMembers, selectEffects]);
+    results = (batchRes[0].results as any[]) || [];
+    effectsResults = (batchRes[1].results as any[]) || [];
+  }
   const isAnonymous = !!roomState.anonymousPlayers;
   const isHost = self === r.host;
   const isPrivateRoom = roomState.access?.type === 'private';
@@ -82,7 +95,7 @@ async function buildRoomSnapshot(
     self,
     serverNow: now,
     joinRequests: pendingJoinRequests,
-    effects: effects.results.map((e) => {
+    effects: effectsResults.map((e) => {
       const payload = JSON.parse(String(e.payload));
       if (isAnonymous && payload.kind === 'kill') {
         payload.killerName = 'Участник';
@@ -588,7 +601,7 @@ export async function POST(request: Request, context: Context) {
       const lifeVal = Number.isInteger(op.life) ? op.life : 0;
       const now = Date.now();
 
-      await db()
+      const updateStmt = db()
         .prepare(
           `UPDATE members
            SET seen = ?,
@@ -607,8 +620,7 @@ export async function POST(request: Request, context: Context) {
           poseJson,
           id,
           self,
-        )
-        .run();
+        );
 
       const clientVersion = typeof op.version === 'number' ? op.version : null;
       const sinceEffect = typeof op.sinceEffect === 'number' ? op.sinceEffect : null;
@@ -620,6 +632,7 @@ export async function POST(request: Request, context: Context) {
         self,
         clientVersion,
         sinceEffect,
+        updateStmt,
       );
 
       return json({ ok: true, now, ...snapshot });
