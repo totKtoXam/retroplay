@@ -6123,6 +6123,28 @@ h1 > span {
 .killfeed-item.is-headshot .killfeed-weapon {
   color: #facc15;
 }
+.killfeed-item.is-noscope {
+  border-right: 3px solid #f97316;
+  background: linear-gradient(90deg, rgba(14, 23, 38, 0.88), rgba(124, 45, 18, 0.35));
+}
+.killfeed-item.is-noscope .killfeed-weapon {
+  font-weight: 800;
+  font-size: 11px;
+  color: #fb923c;
+  background: rgba(234, 88, 12, 0.22);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(251, 146, 60, 0.4);
+  letter-spacing: 0.04em;
+}
+.immunity-glow-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9;
+  box-shadow: inset 0 0 70px rgba(56, 189, 248, 0.35);
+  animation: pulse-shield 1.5s ease-in-out infinite alternate;
+}
 @keyframes killfeed-in {
   0% {
     opacity: 0;
@@ -8144,6 +8166,64 @@ h1 > span {
   font-size: 13px;
   color: #cbd5e1;
   max-width: 320px;
+}
+
+.aim-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.aim-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.aim-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  gap: 12px;
+}
+.aim-weapon-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e2e8f0;
+}
+.aim-mode-pills {
+  display: flex;
+  gap: 4px;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 3px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.aim-pill {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.aim-pill:hover {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.06);
+}
+.aim-pill.active {
+  background: #3b82f6;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 

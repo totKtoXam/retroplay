@@ -471,6 +471,9 @@ export async function POST(request: Request, context: Context) {
         target: op.target,
         normal: op.normal,
         color: op.color,
+        scoped: typeof op.scoped === 'boolean' ? op.scoped : undefined,
+        noScope: typeof op.noScope === 'boolean' ? op.noScope : undefined,
+        pelletsHit: typeof op.pelletsHit === 'number' ? op.pelletsHit : undefined,
       };
       const effectId =
         typeof op.id === 'string' && /^[a-f0-9-]{36}$/.test(op.id)

@@ -152,6 +152,9 @@ export type WorldEffect = {
   assisterName?: string;
   tool?: string;
   headshot?: boolean;
+  scoped?: boolean;
+  noScope?: boolean;
+  pelletsHit?: number;
 };
 export type Pose = {
   x: number;

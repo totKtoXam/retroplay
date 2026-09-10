@@ -19,14 +19,14 @@ import {
   type Note,
 } from '@/lib/model';
 import Board from './board';
+import { ItemWheel } from './item-wheel';
 import { createWorldScene, STATIONS } from './world-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
 import { createFieldOptics } from './resource-packs/realistic/post';
 import { visualBudget } from '../lib/resource-packs';
 import { createFirstPersonHands } from './world-hands';
-import { ItemWheel } from './item-wheel';
-import { PAINTS, CONFETTI, GRENADES, FIREWORKS, inHitRange } from '@/lib/game-items';
+import { PAINTS, CONFETTI, GRENADES, FIREWORKS, inHitRange, SHOTGUN_PELLET_OFFSETS } from '@/lib/game-items';
 import {
   partyGeometry,
   grenadeParty,
@@ -112,6 +112,75 @@ import {
 const SNIPER_ZOOM_LEVELS = [2, 4, 8, 12] as const;
 const SNIPER_ZOOM_FOVS = [36, 22, 12, 7.5] as const;
 
+export type AimMode = 'hold' | 'toggle';
+export type WeaponAimModes = {
+  paint: AimMode;
+  confetti: AimMode;
+  sniper: AimMode;
+};
+export const DEFAULT_AIM_MODES: WeaponAimModes = {
+  paint: 'hold',
+  confetti: 'hold',
+  sniper: 'hold',
+};
+export function readAimModes(): WeaponAimModes {
+  if (typeof window === 'undefined') return { ...DEFAULT_AIM_MODES };
+  try {
+    const raw = localStorage.getItem('jinaly-aim-modes');
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<WeaponAimModes>;
+      return {
+        paint: parsed.paint === 'toggle' ? 'toggle' : 'hold',
+        confetti: parsed.confetti === 'toggle' ? 'toggle' : 'hold',
+        sniper: parsed.sniper === 'toggle' ? 'toggle' : 'hold',
+      };
+    }
+  } catch {}
+  return { ...DEFAULT_AIM_MODES };
+}
+
+function createShieldAuraMesh(): T.Group {
+  const group = new T.Group();
+  // Translucent glowing geodesic bubble
+  const sphereGeo = new T.IcosahedronGeometry(0.9, 2);
+  const sphereMat = new T.MeshStandardMaterial({
+    color: '#38bdf8',
+    emissive: '#0284c7',
+    emissiveIntensity: 0.9,
+    roughness: 0.15,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.38,
+    blending: T.AdditiveBlending,
+    depthWrite: false,
+    side: T.DoubleSide,
+  });
+  const sphere = new T.Mesh(sphereGeo, sphereMat);
+  group.add(sphere);
+
+  // Equatorial glowing energy ring
+  const ringGeo = new T.RingGeometry(0.85, 0.98, 28);
+  const ringMat = new T.MeshBasicMaterial({
+    color: '#bae6fd',
+    transparent: true,
+    opacity: 0.75,
+    blending: T.AdditiveBlending,
+    depthWrite: false,
+    side: T.DoubleSide,
+  });
+  const ring = new T.Mesh(ringGeo, ringMat);
+  ring.rotation.x = Math.PI / 2.8;
+  group.add(ring);
+
+  // Vertical orbit ring
+  const ring2 = new T.Mesh(ringGeo.clone(), ringMat.clone());
+  ring2.rotation.y = Math.PI / 2.5;
+  group.add(ring2);
+
+  group.userData = { sphere, ring, ring2 };
+  return group;
+}
+
 type Props = {
   room: Room;
   host?: boolean;
@@ -130,6 +199,7 @@ type Props = {
   onBoardTool: (tool: string) => void;
   sensitivity: number;
   invertCamera: boolean;
+  aimModes?: WeaponAimModes;
   onPose: (p: Pose) => void;
   onMonitor: (v: boolean) => void;
   onFps: (v: number) => void;
@@ -165,6 +235,9 @@ type KillMessage = {
   color?: string;
   tool?: string;
   headshot?: boolean;
+  scoped?: boolean;
+  noScope?: boolean;
+  pelletsHit?: number;
   at: number;
 };
 type Flight = {
@@ -328,17 +401,28 @@ export default function World(props: Props) {
             color: e.color || '#ff647c',
             tool: e.tool || 'paint',
             headshot: e.headshot,
+            scoped: e.scoped,
+            noScope: e.noScope,
+            pelletsHit: e.pelletsHit,
             at: e.at || now,
           };
           newKills.push(item);
 
           if (item.killer === props.room.self) {
             queueMicrotask(() => {
+              let text = `ВЫ УСТРАНИЛИ: ${item.victimName}`;
+              if (item.tool === 'sniper' && item.noScope) {
+                text = item.headshot
+                  ? `ВЫ УСТРАНИЛИ NO-SCOPE В ГОЛОВУ! 🎯🔥💀 ${item.victimName}`
+                  : `ВЫ УСТРАНИЛИ NO-SCOPE! 🎯🔥 ${item.victimName}`;
+              } else if (item.headshot) {
+                text = `ВЫ УСТРАНИЛИ В ГОЛОВУ! 💀 ${item.victimName}`;
+              } else if (item.tool === 'confetti' && (item.pelletsHit || 0) >= 7) {
+                text = `ВЫ УСТРАНИЛИ В УПОР! 💥🎉 ${item.victimName}`;
+              }
               setPersonalAlert({
                 type: 'kill',
-                text: item.headshot
-                  ? `ВЫ УСТРАНИЛИ В ГОЛОВУ! 💀 ${item.victimName}`
-                  : `ВЫ УСТРАНИЛИ: ${item.victimName}`,
+                text,
                 sub: item.assisterName ? `Помог: ${item.assisterName}` : undefined,
                 key: Date.now(),
               });
@@ -354,11 +438,17 @@ export default function World(props: Props) {
             });
           } else if (item.victim === props.room.self) {
             queueMicrotask(() => {
+              let text = `ВАС УСТРАНИЛ: ${item.killerName}`;
+              if (item.tool === 'sniper' && item.noScope) {
+                text = item.headshot
+                  ? `NO-SCOPE В ГОЛОВУ! ВАС УСТРАНИЛ: ${item.killerName} 🎯🔥💀`
+                  : `NO-SCOPE! ВАС УСТРАНИЛ: ${item.killerName} 🎯🔥`;
+              } else if (item.headshot) {
+                text = `ХЕДШОТ! ВАС УСТРАНИЛ В ГОЛОВУ: ${item.killerName}`;
+              }
               setPersonalAlert({
                 type: 'death',
-                text: item.headshot
-                  ? `ХЕДШОТ! ВАС УСТРАНИЛ В ГОЛОВУ: ${item.killerName}`
-                  : `ВАС УСТРАНИЛ: ${item.killerName}`,
+                text,
                 sub: item.assisterName ? `Помощь: ${item.assisterName}` : undefined,
                 key: Date.now(),
               });
@@ -497,6 +587,11 @@ export default function World(props: Props) {
   const [rounds, setRounds] = useState({ ...CAPACITY }),
     [reloading, setReloading] = useState(false),
     [aiming, setAiming] = useState(false);
+  const aimModes = props.aimModes || readAimModes();
+  const aimModesRef = useRef<WeaponAimModes>(aimModes);
+  useEffect(() => {
+    aimModesRef.current = props.aimModes || readAimModes();
+  }, [props.aimModes]);
   const [locked, setLocked] = useState(false),
     [radial, setRadial] = useState(false),
     [near, setNear] = useState(''),
@@ -635,7 +730,11 @@ export default function World(props: Props) {
       if (o instanceof T.Mesh) o.castShadow = props.quality !== 'low';
     });
     scene.add(avatar);
+    const localShield = createShieldAuraMesh();
+    localShield.visible = false;
+    scene.add(localShield);
     const remoteAvatars = new Map<string, T.Group>(),
+      remoteShields = new Map<string, T.Group>(),
       labels = new Map<string, T.Sprite>(),
       remoteMotion = new Map<
         string,
@@ -1010,7 +1109,7 @@ export default function World(props: Props) {
           e.kind === 'grenade'
             ? 1100
             : e.kind === 'sniper'
-              ? Math.max(80, start.distanceTo(target) * 11)
+              ? Math.max(25, start.distanceTo(target) * 1.8)
               : Math.max(130, start.distanceTo(target) * 22),
         variant: e.variant || 'classic',
         color: e.color,
@@ -1066,9 +1165,21 @@ export default function World(props: Props) {
         !magazine.current.fire(tool as Blaster, now)
       ) {
         if (magazine.current.reloading) setReloading(true);
+        if (tool === 'sniper') {
+          aimHeld = false;
+          setAiming(false);
+        }
         return;
       }
       updateAmmo();
+
+      if (tool === 'sniper' && magazine.current.rounds.sniper === 0) {
+        aimHeld = false;
+        setAiming(false);
+        magazine.current.reload('sniper', now);
+        setReloading(true);
+        updateAmmo();
+      }
 
       const screenCoord = (
         document.pointerLockElement || softLook
@@ -1215,6 +1326,8 @@ export default function World(props: Props) {
               : tool === 'sniper'
                 ? selection.current.fireworkStyle
                 : 'classic';
+      const isScoped = tool === 'sniper' ? !!aimHeld : undefined;
+      const isNoScope = tool === 'sniper' ? !aimHeld : undefined;
       const e: WorldEffect = {
         id: uid(),
         kind: tool,
@@ -1225,6 +1338,8 @@ export default function World(props: Props) {
         variant,
         author: p.room.self,
         at: Date.now(),
+        scoped: isScoped,
+        noScope: isNoScope,
       };
       spawn(e);
       if (tool === 'confetti') {
@@ -1236,13 +1351,14 @@ export default function World(props: Props) {
         const perpY = new T.Vector3().crossVectors(perpX, dir).normalize();
         const dist = origin.distanceTo(target);
 
-        for (let s = 0; s < 6; s++) {
-          const spreadAngle = (s / 6) * Math.PI * 2 + Math.random() * 0.4;
-          const spreadRadius = 0.065 + Math.random() * 0.065;
+        const coneHalfAngle = 0.082;
+        for (let s = 0; s < 8; s++) {
+          const [ang, rFrac] = SHOTGUN_PELLET_OFFSETS[s];
+          const spreadRadius = Math.tan(coneHalfAngle) * rFrac;
           const spreadDir = dir
             .clone()
-            .addScaledVector(perpX, Math.cos(spreadAngle) * spreadRadius)
-            .addScaledVector(perpY, Math.sin(spreadAngle) * spreadRadius)
+            .addScaledVector(perpX, Math.cos(ang) * spreadRadius)
+            .addScaledVector(perpY, Math.sin(ang) * spreadRadius)
             .normalize();
           const pelletTarget = origin.clone().addScaledVector(spreadDir, dist);
           const pelletBall = new T.Mesh(
@@ -1257,7 +1373,7 @@ export default function World(props: Props) {
             target: pelletTarget,
             normal: normal.clone(),
             born: performance.now(),
-            duration: Math.max(120, dist * 20),
+            duration: Math.max(65, dist * 16),
             variant,
             color,
             kind: 'confetti',
@@ -1498,7 +1614,11 @@ export default function World(props: Props) {
         );
       if (e.code.startsWith('Digit')) {
         const slot = slotForDigit(e.code);
-        if (slot !== undefined) latest.current.onTool(slot);
+        if (slot !== undefined) {
+          latest.current.onTool(slot);
+          aimHeld = false;
+          setAiming(false);
+        }
       }
     };
     const onUp = (e: KeyboardEvent) => {
@@ -1561,6 +1681,8 @@ export default function World(props: Props) {
       else {
         const next = cycleSlot(latest.current.tool, e.deltaY > 0 ? 1 : -1);
         latest.current.onTool(next);
+        aimHeld = false;
+        setAiming(false);
       }
     };
     const onDown = (e: MouseEvent) => {
@@ -1576,10 +1698,22 @@ export default function World(props: Props) {
           return;
         }
         const tool = GAME_TOOLS[latest.current.tool]?.id;
-        aimHeld =
-          (tool === 'paint' || tool === 'confetti' || tool === 'sniper') &&
-          !magazine.current.reloading;
-        setAiming(aimHeld);
+        if (tool === 'paint' || tool === 'confetti' || tool === 'sniper') {
+          if (magazine.current.reloading) return;
+          if (tool === 'sniper' && magazine.current.rounds.sniper === 0) {
+            aimHeld = false;
+            setAiming(false);
+            beginReload();
+            return;
+          }
+          const mode = aimModesRef.current[tool as keyof WeaponAimModes] || 'hold';
+          if (mode === 'toggle') {
+            aimHeld = !aimHeld;
+          } else {
+            aimHeld = true;
+          }
+          setAiming(aimHeld);
+        }
       } else if (e.button === 0) {
         if (document.pointerLockElement !== canvas && !softLook) {
           capture();
@@ -1636,8 +1770,12 @@ export default function World(props: Props) {
         }
       }
       if (e.button === 2) {
-        aimHeld = false;
-        setAiming(false);
+        const tool = GAME_TOOLS[latest.current.tool]?.id;
+        const mode = (tool && aimModesRef.current[tool as keyof WeaponAimModes]) || 'hold';
+        if (mode === 'hold') {
+          aimHeld = false;
+          setAiming(false);
+        }
       }
     };
     const changed = () => {
@@ -1990,6 +2128,15 @@ export default function World(props: Props) {
       );
       avatar.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
       shadow.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
+      const isLocalShielded = immuneExpireRef.current > performance.now();
+      localShield.visible = isLocalShielded && mode === 'third' && (!isDead() || isMyDeathRecent);
+      if (localShield.visible) {
+        localShield.position.set(pos.x, pos.y + 1.05, pos.z);
+        localShield.rotation.y += dt * 1.5;
+        localShield.rotation.z += dt * 0.8;
+        const pulse = 1.0 + Math.sin(now * 0.007) * 0.06;
+        localShield.scale.set(pulse * 0.95, pulse * 1.25, pulse * 0.95);
+      }
       hands.update(
         dt,
         now / 1000,
@@ -2061,6 +2208,11 @@ export default function World(props: Props) {
             if (o instanceof T.Mesh) o.castShadow = props.quality === 'high';
           });
           scene.add(remote);
+          const remoteShield = createShieldAuraMesh();
+          remoteShield.position.set(0, 0.85, 0);
+          remoteShield.visible = false;
+          remote.add(remoteShield);
+          remoteShields.set(member.id, remoteShield);
           const label = addLabel(member.name, member.color);
           labels.set(member.id, label);
           remote.add(label);
@@ -2093,6 +2245,17 @@ export default function World(props: Props) {
           !!latest.current.room.state.anonymousPlayers,
         );
         const isRemoteShielded = (member.immuneRemaining || 0) > 0;
+        const remoteShield = remoteShields.get(member.id);
+        if (remoteShield) {
+          remoteShield.visible = isRemoteShielded && remote.visible;
+          if (remoteShield.visible) {
+            remoteShield.rotation.y += dt * 1.5;
+            remoteShield.rotation.z += dt * 0.8;
+            const seed = (member.id.charCodeAt(0) || 1) * 0.7;
+            const pulse = 1.0 + Math.sin(now * 0.007 + seed) * 0.06;
+            remoteShield.scale.set(pulse * 0.95, pulse * 1.25, pulse * 0.95);
+          }
+        }
         const caption = isRemoteDead
           ? '💀 ПОГИБ'
           : latest.current.room.state.anonymousPlayers
@@ -2747,6 +2910,9 @@ export default function World(props: Props) {
         </div>
       )}
       {shieldSeconds > 0 && !dead && (
+        <div className="immunity-glow-vignette" aria-hidden="true" />
+      )}
+      {shieldSeconds > 0 && !dead && (
         <div
           className="spawn-immunity-hud"
           title="Бессмертие после возрождения (5 секунд)"
@@ -2786,7 +2952,7 @@ export default function World(props: Props) {
                   : msg.assister === props.room.self
                     ? 'is-my-assist'
                     : ''
-              } ${msg.headshot ? 'is-headshot' : ''}`}
+              } ${msg.headshot ? 'is-headshot' : ''} ${msg.noScope ? 'is-noscope' : ''}`}
             style={
               {
                 '--killer-color': msg.color || '#ff647c',
@@ -2797,16 +2963,18 @@ export default function World(props: Props) {
             {msg.assisterName && (
               <span className="killfeed-assist">(+ {msg.assisterName})</span>
             )}
-            <span className="killfeed-weapon">
-              {msg.headshot
-                ? '🎯💀'
-                : msg.tool === 'grenade'
-                  ? '💣'
-                  : msg.tool === 'confetti'
-                    ? '🎉'
-                    : msg.tool === 'sniper'
-                      ? '🎆'
-                      : '🎯'}
+            <span className={`killfeed-weapon ${msg.noScope ? 'is-noscope' : ''}`}>
+              {msg.tool === 'sniper' && msg.noScope
+                ? (msg.headshot ? '🎯🔥💀 NO-SCOPE' : '🎯🔥 NO-SCOPE')
+                : msg.headshot
+                  ? '🎯💀'
+                  : msg.tool === 'grenade'
+                    ? '💣'
+                    : msg.tool === 'confetti'
+                      ? '🎉'
+                      : msg.tool === 'sniper'
+                        ? '🎆'
+                        : '🎯'}
             </span>
             <span className="killfeed-victim">{msg.victimName}</span>
           </div>
@@ -3587,7 +3755,7 @@ export default function World(props: Props) {
                       ? tabletZone
                       : 'board'
           }
-          onSelect={(id) => {
+          onSelect={(id: string) => {
             if (current.id === 'paint')
               props.onPaintColor(PAINTS.find((p) => p.id === id)!.color);
             else if (current.id === 'confetti') setConfettiStyle(id);

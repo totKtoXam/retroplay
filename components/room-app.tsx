@@ -97,6 +97,7 @@ import { MusicPlayer } from './music-player';
 import Board, { Card } from './board';
 import { ResourcePackPicker } from './resource-pack-picker';
 import { useResourcePack } from '../hooks/use-resource-pack';
+import { readAimModes, type WeaponAimModes } from './world';
 
 const World = lazy(() => import('./world'));
 const icons = [
@@ -173,6 +174,7 @@ export default function RoomApp({ id }: { id: string }) {
   const [musicOpen, setMusicOpen] = useState(false),
     [sensitivity, setSensitivity] = useState(1),
     [invertCamera, setInvertCamera] = useState(false);
+  const [aimModes, setAimModes] = useState<WeaponAimModes>(() => readAimModes());
   const [paintColor, setPaintColor] = useState('#bc91f5'),
     [environment, setEnvironment] = useState(false);
   const [room, setRoom] = useState<Room | null>(null),
@@ -581,6 +583,7 @@ export default function RoomApp({ id }: { id: string }) {
           setInvertCamera(
             localStorage.getItem('jinaly-invert-camera') === 'true',
           );
+          setAimModes(readAimModes());
           const savedQuality = localStorage.getItem('jinaly-quality');
           setQuality(
             savedQuality === 'high' ? 'cinematic' : savedQuality || 'balanced',
@@ -1544,6 +1547,7 @@ export default function RoomApp({ id }: { id: string }) {
                 onZone={(zone) => newNote(zone, undefined, undefined, true)}
                 sensitivity={sensitivity}
                 invertCamera={invertCamera}
+                aimModes={aimModes}
                 onUseTool={(zone) => newNote(zone, undefined, undefined, true)}
                 onPose={(p) => {
                   if (
@@ -2318,7 +2322,7 @@ export default function RoomApp({ id }: { id: string }) {
                 history: 'История изменений',
                 settings: 'Настройки встречи',
                 world: 'Настройки мира',
-                fps: 'Графика и FPS',
+                fps: 'Графика и управление',
                 share: 'Пригласить команду',
                 join_requests: 'Запросы на вход',
                 timer: 'Время для главного',
@@ -2342,7 +2346,7 @@ export default function RoomApp({ id }: { id: string }) {
                   : panel === 'world'
                     ? 'Общий облик мира и правила возрождения'
                     : panel === 'fps'
-                      ? 'Эти настройки действуют только на вашем устройстве'
+                      ? 'Настройки графики и поведения управления для вашего устройства'
                       : 'Инструменты вашей ретроспективы'}
           </DialogDescription>
           {panel === 'tools' && (
@@ -2727,6 +2731,44 @@ export default function RoomApp({ id }: { id: string }) {
                   localStorage.setItem('jinaly-invert-camera', String(v));
                 }}
               />
+              <div className="aim-settings-section">
+                <span className="field-label">Прицеливание (ПКМ)</span>
+                <div className="aim-settings-list">
+                  {[
+                    { id: 'paint', name: 'Краскострел' },
+                    { id: 'confetti', name: 'Дробовик' },
+                    { id: 'sniper', name: 'Снайперка' },
+                  ].map((w) => (
+                    <div key={w.id} className="aim-setting-row">
+                      <span className="aim-weapon-name">{w.name}</span>
+                      <div className="aim-mode-pills">
+                        <button
+                          type="button"
+                          className={`aim-pill ${aimModes[w.id as keyof WeaponAimModes] === 'hold' ? 'active' : ''}`}
+                          onClick={() => {
+                            const next = { ...aimModes, [w.id]: 'hold' as const };
+                            setAimModes(next);
+                            localStorage.setItem('jinaly-aim-modes', JSON.stringify(next));
+                          }}
+                        >
+                          Зажать
+                        </button>
+                        <button
+                          type="button"
+                          className={`aim-pill ${aimModes[w.id as keyof WeaponAimModes] === 'toggle' ? 'active' : ''}`}
+                          onClick={() => {
+                            const next = { ...aimModes, [w.id]: 'toggle' as const };
+                            setAimModes(next);
+                            localStorage.setItem('jinaly-aim-modes', JSON.stringify(next));
+                          }}
+                        >
+                          Переключение
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </>
           )}
           {panel === 'settings' && (
