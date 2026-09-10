@@ -12,6 +12,7 @@ import {
   GAME_TOOLS,
   TOOL_HINTS,
   uid,
+  filterNewEffects,
   type Pose,
   type Room,
   type RoomState,
@@ -19,14 +20,14 @@ import {
   type Note,
 } from '@/lib/model';
 import Board from './board';
-import { ItemWheel } from './item-wheel';
 import { createWorldScene, STATIONS } from './world-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
 import { createFieldOptics } from './resource-packs/realistic/post';
 import { visualBudget } from '../lib/resource-packs';
 import { createFirstPersonHands } from './world-hands';
-import { PAINTS, CONFETTI, GRENADES, FIREWORKS, inHitRange, SHOTGUN_PELLET_OFFSETS } from '@/lib/game-items';
+import { ItemWheel } from './item-wheel';
+import { PAINTS, CONFETTI, GRENADES, FIREWORKS, inHitRange } from '@/lib/game-items';
 import {
   partyGeometry,
   grenadeParty,
@@ -45,13 +46,6 @@ import {
   visibleInWorld,
   type Perspective,
 } from '@/lib/game-camera';
-import {
-  ALL_3D_COLLIDERS,
-  BoxCollider3D,
-  getGroundHeight,
-  getCeilingHeight,
-  isBlocked3D,
-} from '@/lib/world-collision';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -112,75 +106,6 @@ import {
 const SNIPER_ZOOM_LEVELS = [2, 4, 8, 12] as const;
 const SNIPER_ZOOM_FOVS = [36, 22, 12, 7.5] as const;
 
-export type AimMode = 'hold' | 'toggle';
-export type WeaponAimModes = {
-  paint: AimMode;
-  confetti: AimMode;
-  sniper: AimMode;
-};
-export const DEFAULT_AIM_MODES: WeaponAimModes = {
-  paint: 'hold',
-  confetti: 'hold',
-  sniper: 'hold',
-};
-export function readAimModes(): WeaponAimModes {
-  if (typeof window === 'undefined') return { ...DEFAULT_AIM_MODES };
-  try {
-    const raw = localStorage.getItem('jinaly-aim-modes');
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<WeaponAimModes>;
-      return {
-        paint: parsed.paint === 'toggle' ? 'toggle' : 'hold',
-        confetti: parsed.confetti === 'toggle' ? 'toggle' : 'hold',
-        sniper: parsed.sniper === 'toggle' ? 'toggle' : 'hold',
-      };
-    }
-  } catch {}
-  return { ...DEFAULT_AIM_MODES };
-}
-
-function createShieldAuraMesh(): T.Group {
-  const group = new T.Group();
-  // Translucent glowing geodesic bubble
-  const sphereGeo = new T.IcosahedronGeometry(0.9, 2);
-  const sphereMat = new T.MeshStandardMaterial({
-    color: '#38bdf8',
-    emissive: '#0284c7',
-    emissiveIntensity: 0.9,
-    roughness: 0.15,
-    metalness: 0.1,
-    transparent: true,
-    opacity: 0.38,
-    blending: T.AdditiveBlending,
-    depthWrite: false,
-    side: T.DoubleSide,
-  });
-  const sphere = new T.Mesh(sphereGeo, sphereMat);
-  group.add(sphere);
-
-  // Equatorial glowing energy ring
-  const ringGeo = new T.RingGeometry(0.85, 0.98, 28);
-  const ringMat = new T.MeshBasicMaterial({
-    color: '#bae6fd',
-    transparent: true,
-    opacity: 0.75,
-    blending: T.AdditiveBlending,
-    depthWrite: false,
-    side: T.DoubleSide,
-  });
-  const ring = new T.Mesh(ringGeo, ringMat);
-  ring.rotation.x = Math.PI / 2.8;
-  group.add(ring);
-
-  // Vertical orbit ring
-  const ring2 = new T.Mesh(ringGeo.clone(), ringMat.clone());
-  ring2.rotation.y = Math.PI / 2.5;
-  group.add(ring2);
-
-  group.userData = { sphere, ring, ring2 };
-  return group;
-}
-
 type Props = {
   room: Room;
   host?: boolean;
@@ -199,7 +124,6 @@ type Props = {
   onBoardTool: (tool: string) => void;
   sensitivity: number;
   invertCamera: boolean;
-  aimModes?: WeaponAimModes;
   onPose: (p: Pose) => void;
   onMonitor: (v: boolean) => void;
   onFps: (v: number) => void;
@@ -213,8 +137,6 @@ type Props = {
   onEditNote?: (n: Note) => void;
   onAddNote?: (zone: string, x?: number, y?: number) => void;
   onCursor?: (x: number, y: number) => void;
-  pendingJoinRequestsCount?: number;
-  onOpenJoinRequests?: () => void;
 };
 type Particle = {
   mesh: T.InstancedMesh;
@@ -235,9 +157,6 @@ type KillMessage = {
   color?: string;
   tool?: string;
   headshot?: boolean;
-  scoped?: boolean;
-  noScope?: boolean;
-  pelletsHit?: number;
   at: number;
 };
 type Flight = {
@@ -283,7 +202,7 @@ function getSlotIcon(slotIndex: number) {
 export default function World(props: Props) {
   const resourcePack = useResourcePack();
   const packRef = useRef(resourcePack);
-  packRef.current = resourcePack;
+  useEffect(() => { packRef.current = resourcePack; }, [resourcePack]);
   const [packStatus, setPackStatus] = useState<'default' | 'loading' | 'ready' | 'error'>('default');
   const mount = useRef<HTMLDivElement>(null),
     latest = useRef(props);
@@ -354,6 +273,7 @@ export default function World(props: Props) {
     fireworkStyle,
     tabletZone,
   });
+  const seenEffectsRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     selection.current = {
       confettiStyle,
@@ -362,6 +282,14 @@ export default function World(props: Props) {
       tabletZone,
     };
   }, [confettiStyle, grenadeStyle, fireworkStyle, tabletZone]);
+  useEffect(() => {
+    if (!props.room.effects) return;
+    const freshEffects = filterNewEffects(
+      props.room.effects,
+      seenEffectsRef.current,
+    );
+    for (const effect of freshEffects) engine.current?.fire(effect);
+  }, [props.room.effects]);
   const self = props.room.members.find((m) => m.id === props.room.self);
   const dead = self?.hp === 0;
   const [killfeed, setKillfeed] = useState<KillMessage[]>([]);
@@ -401,28 +329,17 @@ export default function World(props: Props) {
             color: e.color || '#ff647c',
             tool: e.tool || 'paint',
             headshot: e.headshot,
-            scoped: e.scoped,
-            noScope: e.noScope,
-            pelletsHit: e.pelletsHit,
             at: e.at || now,
           };
           newKills.push(item);
 
           if (item.killer === props.room.self) {
             queueMicrotask(() => {
-              let text = `ВЫ УСТРАНИЛИ: ${item.victimName}`;
-              if (item.tool === 'sniper' && item.noScope) {
-                text = item.headshot
-                  ? `ВЫ УСТРАНИЛИ NO-SCOPE В ГОЛОВУ! 🎯🔥💀 ${item.victimName}`
-                  : `ВЫ УСТРАНИЛИ NO-SCOPE! 🎯🔥 ${item.victimName}`;
-              } else if (item.headshot) {
-                text = `ВЫ УСТРАНИЛИ В ГОЛОВУ! 💀 ${item.victimName}`;
-              } else if (item.tool === 'confetti' && (item.pelletsHit || 0) >= 7) {
-                text = `ВЫ УСТРАНИЛИ В УПОР! 💥🎉 ${item.victimName}`;
-              }
               setPersonalAlert({
                 type: 'kill',
-                text,
+                text: item.headshot
+                  ? `ВЫ УСТРАНИЛИ В ГОЛОВУ! 💀 ${item.victimName}`
+                  : `ВЫ УСТРАНИЛИ: ${item.victimName}`,
                 sub: item.assisterName ? `Помог: ${item.assisterName}` : undefined,
                 key: Date.now(),
               });
@@ -438,17 +355,11 @@ export default function World(props: Props) {
             });
           } else if (item.victim === props.room.self) {
             queueMicrotask(() => {
-              let text = `ВАС УСТРАНИЛ: ${item.killerName}`;
-              if (item.tool === 'sniper' && item.noScope) {
-                text = item.headshot
-                  ? `NO-SCOPE В ГОЛОВУ! ВАС УСТРАНИЛ: ${item.killerName} 🎯🔥💀`
-                  : `NO-SCOPE! ВАС УСТРАНИЛ: ${item.killerName} 🎯🔥`;
-              } else if (item.headshot) {
-                text = `ХЕДШОТ! ВАС УСТРАНИЛ В ГОЛОВУ: ${item.killerName}`;
-              }
               setPersonalAlert({
                 type: 'death',
-                text,
+                text: item.headshot
+                  ? `ХЕДШОТ! ВАС УСТРАНИЛ В ГОЛОВУ: ${item.killerName}`
+                  : `ВАС УСТРАНИЛ: ${item.killerName}`,
                 sub: item.assisterName ? `Помощь: ${item.assisterName}` : undefined,
                 key: Date.now(),
               });
@@ -587,11 +498,6 @@ export default function World(props: Props) {
   const [rounds, setRounds] = useState({ ...CAPACITY }),
     [reloading, setReloading] = useState(false),
     [aiming, setAiming] = useState(false);
-  const aimModes = props.aimModes || readAimModes();
-  const aimModesRef = useRef<WeaponAimModes>(aimModes);
-  useEffect(() => {
-    aimModesRef.current = props.aimModes || readAimModes();
-  }, [props.aimModes]);
   const [locked, setLocked] = useState(false),
     [radial, setRadial] = useState(false),
     [near, setNear] = useState(''),
@@ -660,6 +566,7 @@ export default function World(props: Props) {
         ? Math.min(devicePixelRatio, 1.25)
         : 1.0;
     renderer.setPixelRatio(pixelRatio);
+    renderer.info.autoReset = false;
     renderer.outputColorSpace = T.SRGBColorSpace;
     renderer.toneMapping = T.ACESFilmicToneMapping;
     renderer.toneMappingExposure = isCinematic ? 1.08 : isBalanced ? 0.98 : 0.92;
@@ -730,11 +637,7 @@ export default function World(props: Props) {
       if (o instanceof T.Mesh) o.castShadow = props.quality !== 'low';
     });
     scene.add(avatar);
-    const localShield = createShieldAuraMesh();
-    localShield.visible = false;
-    scene.add(localShield);
     const remoteAvatars = new Map<string, T.Group>(),
-      remoteShields = new Map<string, T.Group>(),
       labels = new Map<string, T.Sprite>(),
       remoteMotion = new Map<
         string,
@@ -794,8 +697,6 @@ export default function World(props: Props) {
       viewHeight = eyeHeight(initial?.stance || 'stand'),
       pitch = 0.16,
       distance = 6.5,
-      currentCamDist = 6.5,
-      obstacleHoldTimer = 0,
       vy = 0,
       currentStance: 'stand' | 'sit' | 'lie' = initial?.stance || 'stand',
       lastC = -1000,
@@ -868,6 +769,7 @@ export default function World(props: Props) {
       style = 'classic',
     ) => {
       const isPaint = style === 'paint';
+      if (isPaint) visuals.impact(at, color);
       const isFirework = FIREWORKS.some((f) => f.id === style);
       const isCinematicQuality =
         props.quality === 'cinematic' || props.quality === 'high';
@@ -1109,7 +1011,7 @@ export default function World(props: Props) {
           e.kind === 'grenade'
             ? 1100
             : e.kind === 'sniper'
-              ? Math.max(25, start.distanceTo(target) * 1.8)
+              ? Math.max(80, start.distanceTo(target) * 11)
               : Math.max(130, start.distanceTo(target) * 22),
         variant: e.variant || 'classic',
         color: e.color,
@@ -1165,21 +1067,9 @@ export default function World(props: Props) {
         !magazine.current.fire(tool as Blaster, now)
       ) {
         if (magazine.current.reloading) setReloading(true);
-        if (tool === 'sniper') {
-          aimHeld = false;
-          setAiming(false);
-        }
         return;
       }
       updateAmmo();
-
-      if (tool === 'sniper' && magazine.current.rounds.sniper === 0) {
-        aimHeld = false;
-        setAiming(false);
-        magazine.current.reload('sniper', now);
-        setReloading(true);
-        updateAmmo();
-      }
 
       const screenCoord = (
         document.pointerLockElement || softLook
@@ -1326,8 +1216,6 @@ export default function World(props: Props) {
               : tool === 'sniper'
                 ? selection.current.fireworkStyle
                 : 'classic';
-      const isScoped = tool === 'sniper' ? !!aimHeld : undefined;
-      const isNoScope = tool === 'sniper' ? !aimHeld : undefined;
       const e: WorldEffect = {
         id: uid(),
         kind: tool,
@@ -1338,8 +1226,6 @@ export default function World(props: Props) {
         variant,
         author: p.room.self,
         at: Date.now(),
-        scoped: isScoped,
-        noScope: isNoScope,
       };
       spawn(e);
       if (tool === 'confetti') {
@@ -1351,14 +1237,13 @@ export default function World(props: Props) {
         const perpY = new T.Vector3().crossVectors(perpX, dir).normalize();
         const dist = origin.distanceTo(target);
 
-        const coneHalfAngle = 0.082;
-        for (let s = 0; s < 8; s++) {
-          const [ang, rFrac] = SHOTGUN_PELLET_OFFSETS[s];
-          const spreadRadius = Math.tan(coneHalfAngle) * rFrac;
+        for (let s = 0; s < 6; s++) {
+          const spreadAngle = (s / 6) * Math.PI * 2 + Math.random() * 0.4;
+          const spreadRadius = 0.065 + Math.random() * 0.065;
           const spreadDir = dir
             .clone()
-            .addScaledVector(perpX, Math.cos(ang) * spreadRadius)
-            .addScaledVector(perpY, Math.sin(ang) * spreadRadius)
+            .addScaledVector(perpX, Math.cos(spreadAngle) * spreadRadius)
+            .addScaledVector(perpY, Math.sin(spreadAngle) * spreadRadius)
             .normalize();
           const pelletTarget = origin.clone().addScaledVector(spreadDir, dist);
           const pelletBall = new T.Mesh(
@@ -1373,7 +1258,7 @@ export default function World(props: Props) {
             target: pelletTarget,
             normal: normal.clone(),
             born: performance.now(),
-            duration: Math.max(65, dist * 16),
+            duration: Math.max(120, dist * 20),
             variant,
             color,
             kind: 'confetti',
@@ -1584,8 +1469,7 @@ export default function World(props: Props) {
         setStance('sit');
       }
       if (isDead()) return;
-      const groundYNow = getGroundHeight(pos.x, pos.z, pos.y);
-      if (e.code === 'Space' && Math.abs(pos.y - groundYNow) <= 0.08) {
+      if (e.code === 'Space' && pos.y <= 0.01) {
         currentStance = 'stand';
         setStance('stand');
         vy = 5.7;
@@ -1614,11 +1498,7 @@ export default function World(props: Props) {
         );
       if (e.code.startsWith('Digit')) {
         const slot = slotForDigit(e.code);
-        if (slot !== undefined) {
-          latest.current.onTool(slot);
-          aimHeld = false;
-          setAiming(false);
-        }
+        if (slot !== undefined) latest.current.onTool(slot);
       }
     };
     const onUp = (e: KeyboardEvent) => {
@@ -1648,12 +1528,10 @@ export default function World(props: Props) {
         document.pointerLockElement === canvas ||
         (softLook && mouseInWorld)
       ) {
-        const mx = T.MathUtils.clamp(e.movementX, -120, 120);
-        const my = T.MathUtils.clamp(e.movementY, -120, 120);
-        cameraYaw -= mx * 0.0023 * latest.current.sensitivity;
+        cameraYaw -= e.movementX * 0.0023 * latest.current.sensitivity;
         pitch = T.MathUtils.clamp(
           pitch +
-          my *
+          e.movementY *
           0.002 *
           latest.current.sensitivity *
           (latest.current.invertCamera ? -1 : 1),
@@ -1681,8 +1559,6 @@ export default function World(props: Props) {
       else {
         const next = cycleSlot(latest.current.tool, e.deltaY > 0 ? 1 : -1);
         latest.current.onTool(next);
-        aimHeld = false;
-        setAiming(false);
       }
     };
     const onDown = (e: MouseEvent) => {
@@ -1698,22 +1574,10 @@ export default function World(props: Props) {
           return;
         }
         const tool = GAME_TOOLS[latest.current.tool]?.id;
-        if (tool === 'paint' || tool === 'confetti' || tool === 'sniper') {
-          if (magazine.current.reloading) return;
-          if (tool === 'sniper' && magazine.current.rounds.sniper === 0) {
-            aimHeld = false;
-            setAiming(false);
-            beginReload();
-            return;
-          }
-          const mode = aimModesRef.current[tool as keyof WeaponAimModes] || 'hold';
-          if (mode === 'toggle') {
-            aimHeld = !aimHeld;
-          } else {
-            aimHeld = true;
-          }
-          setAiming(aimHeld);
-        }
+        aimHeld =
+          (tool === 'paint' || tool === 'confetti' || tool === 'sniper') &&
+          !magazine.current.reloading;
+        setAiming(aimHeld);
       } else if (e.button === 0) {
         if (document.pointerLockElement !== canvas && !softLook) {
           capture();
@@ -1770,12 +1634,8 @@ export default function World(props: Props) {
         }
       }
       if (e.button === 2) {
-        const tool = GAME_TOOLS[latest.current.tool]?.id;
-        const mode = (tool && aimModesRef.current[tool as keyof WeaponAimModes]) || 'hold';
-        if (mode === 'hold') {
-          aimHeld = false;
-          setAiming(false);
-        }
+        aimHeld = false;
+        setAiming(false);
       }
     };
     const changed = () => {
@@ -1800,8 +1660,14 @@ export default function World(props: Props) {
     canvas.addEventListener('contextmenu', context);
     canvas.addEventListener('auxclick', context);
     canvas.addEventListener('webglcontextlost', context);
-    const blocked = (x: number, z: number, y = pos.y) =>
-      isBlocked3D(x, z, y, 0.32, 1.8, kit.colliders as BoxCollider3D[]);
+    const blocked = (x: number, z: number) =>
+      kit.colliders.some((c) => {
+        if (latest.current.room.state.interior && c.z === -18) return false;
+        return (
+          Math.abs(x - c.x) < c.w / 2 + 0.28 &&
+          Math.abs(z - c.z) < c.d / 2 + 0.28
+        );
+      });
     let life =
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.life || 0;
@@ -1957,82 +1823,15 @@ export default function World(props: Props) {
         dz /= len;
         const vx = dx * Math.cos(cameraYaw) + dz * Math.sin(cameraYaw),
           vz = -dx * Math.sin(cameraYaw) + dz * Math.cos(cameraYaw);
-        const nx = T.MathUtils.clamp(pos.x + vx * speed * dt, -36, 36),
-          nz = T.MathUtils.clamp(pos.z + vz * speed * dt, -36, 36);
-
-        // Try X movement with step-up assist:
-        const nextGroundX = getGroundHeight(nx, pos.z, pos.y);
-        const stepDeltaX = nextGroundX - pos.y;
-        if (
-          stepDeltaX <= 0.55 &&
-          !blocked(nx, pos.z, Math.max(pos.y, nextGroundX))
-        ) {
-          pos.x = nx;
-          if (stepDeltaX > 0.01 && pos.y < nextGroundX) {
-            pos.y = T.MathUtils.lerp(pos.y, nextGroundX, Math.min(1, 20 * dt));
-          }
-        }
-
-        // Try Z movement with step-up assist:
-        const nextGroundZ = getGroundHeight(pos.x, nz, pos.y);
-        const stepDeltaZ = nextGroundZ - pos.y;
-        if (
-          stepDeltaZ <= 0.55 &&
-          !blocked(pos.x, nz, Math.max(pos.y, nextGroundZ))
-        ) {
-          pos.z = nz;
-          if (stepDeltaZ > 0.01 && pos.y < nextGroundZ) {
-            pos.y = T.MathUtils.lerp(pos.y, nextGroundZ, Math.min(1, 20 * dt));
-          }
-        }
+        const nx = T.MathUtils.clamp(pos.x + vx * speed * dt, -22, 22),
+          nz = T.MathUtils.clamp(pos.z + vz * speed * dt, -23, 23);
+        if (!blocked(nx, pos.z)) pos.x = nx;
+        if (!blocked(pos.x, nz)) pos.z = nz;
       }
       heading = followCameraHeading(heading, cameraYaw, dt);
-
-      // Dynamic ground height detection & gravity:
-      const groundY = getGroundHeight(pos.x, pos.z, pos.y);
       vy -= 13 * dt;
-      pos.y = pos.y + vy * dt;
-      if (pos.y <= groundY) {
-        pos.y = groundY;
-        vy = 0;
-      }
-      // Ceiling collision to prevent head clipping through floors/roofs:
-      const ceilY = getCeilingHeight(pos.x, pos.z, pos.y);
-      if (pos.y + 1.8 >= ceilY) {
-        pos.y = ceilY - 1.8;
-        if (vy > 0) vy = 0;
-      }
-
-      // Anti-stuck depenetration: guarantee player never gets stuck inside colliders
-      const playerRadius = 0.32;
-      const worldColliders = (kit.colliders || ALL_3D_COLLIDERS) as BoxCollider3D[];
-      for (const c of worldColliders) {
-        if (
-          pos.x + playerRadius > c.minX &&
-          pos.x - playerRadius < c.maxX &&
-          pos.z + playerRadius > c.minZ &&
-          pos.z - playerRadius < c.maxZ
-        ) {
-          const feetY = pos.y + 0.35;
-          const headY = pos.y + 1.75;
-          if (headY > c.minY && feetY < c.maxY) {
-            if (pos.y >= c.maxY - 0.55) {
-              pos.y = c.maxY;
-              if (vy < 0) vy = 0;
-            } else {
-              const overlapLeft = (pos.x + playerRadius) - c.minX;
-              const overlapRight = c.maxX - (pos.x - playerRadius);
-              const overlapBack = (pos.z + playerRadius) - c.minZ;
-              const overlapFront = c.maxZ - (pos.z - playerRadius);
-              const minOverlap = Math.min(overlapLeft, overlapRight, overlapBack, overlapFront);
-              if (minOverlap === overlapLeft) pos.x = c.minX - playerRadius;
-              else if (minOverlap === overlapRight) pos.x = c.maxX + playerRadius;
-              else if (minOverlap === overlapBack) pos.z = c.minZ - playerRadius;
-              else pos.z = c.maxZ + playerRadius;
-            }
-          }
-        }
-      }
+      pos.y = Math.max(0, pos.y + vy * dt);
+      if (pos.y === 0) vy = 0;
       avatar.position.copy(pos);
       avatar.position.y += 0.27;
       avatar.rotation.y = heading;
@@ -2057,7 +1856,7 @@ export default function World(props: Props) {
           speed: moving ? speed : 0,
           strafe: dx,
           forward: -dz,
-          airborne: Math.abs(pos.y - groundY) > 0.03,
+          airborne: pos.y > 0.005,
           velocityY: vy,
           stance: currentStance,
           tool: GAME_TOOLS[latest.current.tool]?.id || 'pointer',
@@ -2073,8 +1872,8 @@ export default function World(props: Props) {
         dt,
         now / 1000,
       );
-      shadow.position.set(pos.x, groundY + 0.02, pos.z);
-      shadow.scale.setScalar(Math.max(0.5, 1 - (pos.y - groundY) * 0.1));
+      shadow.position.set(pos.x, 0.24, pos.z);
+      shadow.scale.setScalar(Math.max(0.5, 1 - pos.y * 0.1));
       viewHeight = T.MathUtils.lerp(
         viewHeight,
         eyeHeight(currentStance),
@@ -2089,54 +1888,23 @@ export default function World(props: Props) {
         mode,
         distance,
       );
-      if (mode === 'first') {
-        camera.position.copy(view.position);
-        currentCamDist = 0.01;
-        obstacleHoldTimer = 0;
-      } else {
-        const desired = avoidCameraWalls(
-          view.eye,
-          view.position,
-          cameraObstacles,
-        );
-        const hitDist = desired.distanceTo(view.eye);
-        const fullDist = view.position.distanceTo(view.eye);
-        const isObstructed = hitDist < fullDist - 0.05;
-
-        if (isObstructed) {
-          if (hitDist < currentCamDist) {
-            // Rapidly tuck camera in to avoid clipping into wall
-            currentCamDist = T.MathUtils.damp(currentCamDist, hitDist, 24, dt);
-          } else {
-            // Camera wants to move further away: apply gentle damping
-            currentCamDist = T.MathUtils.damp(currentCamDist, hitDist, 14, dt);
-          }
-          obstacleHoldTimer = 0.08; // 80ms hysteresis hold to avoid edge flickers
-        } else {
-          if (obstacleHoldTimer > 0) {
-            obstacleHoldTimer -= dt;
-          } else {
-            // Smoothly ease back out to full distance
-            currentCamDist = T.MathUtils.damp(currentCamDist, fullDist, 9, dt);
-          }
-        }
-        const camDir = view.position.clone().sub(view.eye).normalize();
-        camera.position.copy(view.eye).addScaledVector(camDir, currentCamDist);
-      }
+      const desired =
+        mode === 'third'
+          ? avoidCameraWalls(view.eye, view.position, cameraObstacles)
+          : view.position;
+      // При приближении к стене сокращаем дистанцию сразу, возвращаем её плавно.
+      if (
+        mode === 'first' ||
+        camera.position.distanceTo(view.eye) >
+        desired.distanceTo(view.eye) + 0.1
+      )
+        camera.position.copy(desired);
+      else camera.position.lerp(desired, 1 - Math.exp(-14 * dt));
       camera.lookAt(
         camera.position.clone().addScaledVector(view.direction, 30),
       );
       avatar.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
       shadow.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
-      const isLocalShielded = immuneExpireRef.current > performance.now();
-      localShield.visible = isLocalShielded && mode === 'third' && (!isDead() || isMyDeathRecent);
-      if (localShield.visible) {
-        localShield.position.set(pos.x, pos.y + 1.05, pos.z);
-        localShield.rotation.y += dt * 1.5;
-        localShield.rotation.z += dt * 0.8;
-        const pulse = 1.0 + Math.sin(now * 0.007) * 0.06;
-        localShield.scale.set(pulse * 0.95, pulse * 1.25, pulse * 0.95);
-      }
       hands.update(
         dt,
         now / 1000,
@@ -2208,11 +1976,6 @@ export default function World(props: Props) {
             if (o instanceof T.Mesh) o.castShadow = props.quality === 'high';
           });
           scene.add(remote);
-          const remoteShield = createShieldAuraMesh();
-          remoteShield.position.set(0, 0.85, 0);
-          remoteShield.visible = false;
-          remote.add(remoteShield);
-          remoteShields.set(member.id, remoteShield);
           const label = addLabel(member.name, member.color);
           labels.set(member.id, label);
           remote.add(label);
@@ -2245,17 +2008,6 @@ export default function World(props: Props) {
           !!latest.current.room.state.anonymousPlayers,
         );
         const isRemoteShielded = (member.immuneRemaining || 0) > 0;
-        const remoteShield = remoteShields.get(member.id);
-        if (remoteShield) {
-          remoteShield.visible = isRemoteShielded && remote.visible;
-          if (remoteShield.visible) {
-            remoteShield.rotation.y += dt * 1.5;
-            remoteShield.rotation.z += dt * 0.8;
-            const seed = (member.id.charCodeAt(0) || 1) * 0.7;
-            const pulse = 1.0 + Math.sin(now * 0.007 + seed) * 0.06;
-            remoteShield.scale.set(pulse * 0.95, pulse * 1.25, pulse * 0.95);
-          }
-        }
         const caption = isRemoteDead
           ? '💀 ПОГИБ'
           : latest.current.room.state.anonymousPlayers
@@ -2610,6 +2362,11 @@ export default function World(props: Props) {
         composer.addPass(optics);
         const size = renderer.getSize(new T.Vector2()); composer.setSize(size.x, size.y);
       }
+      if (!visuals.active && !isCinematic && !isBalanced && composer) {
+        composer.passes.filter((pass) => pass !== optics).forEach((pass) => pass.dispose());
+        composer.dispose(); composer = undefined;
+      }
+      renderer.info.reset();
       if (composer && (isCinematic || isBalanced || visuals.active)) {
         if (bloom)
           bloom.strength =
@@ -2683,7 +2440,9 @@ export default function World(props: Props) {
     engine.current?.kit.setNotes(latest.current.room.state);
   }, [props.room.version]);
   useEffect(() => {
-    for (const effect of props.room.effects || []) engine.current?.fire(effect);
+    if (!engine.current) return;
+    const freshEffects = filterNewEffects(props.room.effects || [], seenEffectsRef.current);
+    for (const effect of freshEffects) engine.current.fire(effect);
   }, [props.room.effects]);
   useEffect(() => {
     void engine.current?.visuals.select(resourcePack, latest.current.room.state);
@@ -2695,7 +2454,7 @@ export default function World(props: Props) {
     >
       <div ref={mount} className="world-canvas" data-visual-pack={packStatus === 'ready' ? 'realistic-bodycam' : 'default'} />
       {packStatus === 'ready' && <div className="field-camera-mark" aria-hidden="true"><span>JNL / FIELD 01</span><span>● LIVE VIEW · {perspective === 'first' ? 'FPP' : 'TPP'}</span></div>}
-      {packStatus === 'loading' && <div role="status" className="pack-status">Подготовка визуального пакета…</div>}
+      {packStatus === 'loading' && <output className="pack-status">Подготовка визуального пакета…</output>}
       {packStatus === 'error' && <div role="alert" className="pack-status">Пакет не загрузился. Игра продолжается с Default.</div>}
       {hitEffect && (
         <div
@@ -2910,9 +2669,6 @@ export default function World(props: Props) {
         </div>
       )}
       {shieldSeconds > 0 && !dead && (
-        <div className="immunity-glow-vignette" aria-hidden="true" />
-      )}
-      {shieldSeconds > 0 && !dead && (
         <div
           className="spawn-immunity-hud"
           title="Бессмертие после возрождения (5 секунд)"
@@ -2952,7 +2708,7 @@ export default function World(props: Props) {
                   : msg.assister === props.room.self
                     ? 'is-my-assist'
                     : ''
-              } ${msg.headshot ? 'is-headshot' : ''} ${msg.noScope ? 'is-noscope' : ''}`}
+              } ${msg.headshot ? 'is-headshot' : ''}`}
             style={
               {
                 '--killer-color': msg.color || '#ff647c',
@@ -2963,18 +2719,16 @@ export default function World(props: Props) {
             {msg.assisterName && (
               <span className="killfeed-assist">(+ {msg.assisterName})</span>
             )}
-            <span className={`killfeed-weapon ${msg.noScope ? 'is-noscope' : ''}`}>
-              {msg.tool === 'sniper' && msg.noScope
-                ? (msg.headshot ? '🎯🔥💀 NO-SCOPE' : '🎯🔥 NO-SCOPE')
-                : msg.headshot
-                  ? '🎯💀'
-                  : msg.tool === 'grenade'
-                    ? '💣'
-                    : msg.tool === 'confetti'
-                      ? '🎉'
-                      : msg.tool === 'sniper'
-                        ? '🎆'
-                        : '🎯'}
+            <span className="killfeed-weapon">
+              {msg.headshot
+                ? '🎯💀'
+                : msg.tool === 'grenade'
+                  ? '💣'
+                  : msg.tool === 'confetti'
+                    ? '🎉'
+                    : msg.tool === 'sniper'
+                      ? '🎆'
+                      : '🎯'}
             </span>
             <span className="killfeed-victim">{msg.victimName}</span>
           </div>
@@ -3755,7 +3509,7 @@ export default function World(props: Props) {
                       ? tabletZone
                       : 'board'
           }
-          onSelect={(id: string) => {
+          onSelect={(id) => {
             if (current.id === 'paint')
               props.onPaintColor(PAINTS.find((p) => p.id === id)!.color);
             else if (current.id === 'confetti') setConfettiStyle(id);
@@ -3880,18 +3634,6 @@ export default function World(props: Props) {
           </footer>
         </DialogContent>
       </Dialog>
-      {props.host && (props.pendingJoinRequestsCount || 0) > 0 && (
-        <div className="world-join-requests-hud">
-          <button
-            type="button"
-            onClick={() => props.onOpenJoinRequests?.()}
-            title="Ожидают подтверждения"
-          >
-            <Bell size={16} className="bell-pulse" />
-            <span>Запросы на вход ({props.pendingJoinRequestsCount})</span>
-          </button>
-        </div>
-      )}
       <div className="mobile-world">
         <button onClick={() => props.onZone(near || 'good')}>
           <MoveUp />

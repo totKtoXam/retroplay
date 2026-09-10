@@ -152,9 +152,6 @@ export type WorldEffect = {
   assisterName?: string;
   tool?: string;
   headshot?: boolean;
-  scoped?: boolean;
-  noScope?: boolean;
-  pelletsHit?: number;
 };
 export type Pose = {
   x: number;
@@ -228,18 +225,6 @@ export type Round = {
   active: boolean;
   votes: Record<string, Record<string, number>>;
 };
-export type RoomVisibility = 'public' | 'hidden';
-export type RoomJoinPolicy = 'free' | 'host_approval';
-export type RoomAccessType = 'public' | 'private';
-
-export type RoomAccess = {
-  type: RoomAccessType;
-  visibility: RoomVisibility;
-  joinPolicy: RoomJoinPolicy;
-  inviteToken: string;
-  maxPlayers: number;
-};
-
 export type RoomState = {
   anonymousPlayers?: boolean;
   respawnSeconds?: number;
@@ -269,7 +254,6 @@ export type RoomState = {
   music: string;
   archived: boolean;
   template: string;
-  access?: RoomAccess;
   readyCheck?: {
     active: boolean;
     initiator: string;
@@ -307,14 +291,34 @@ export const uid = (): string => {
     return v.toString(16);
   });
 };
+export function filterNewEffects<T extends { id?: string; at?: number }>(
+  effects: T[],
+  seen: Map<string, number>,
+  ttlMs = 15000,
+): T[] {
+  const fresh: T[] = [];
+  const now = Date.now();
+  for (const [key, when] of seen) {
+    if (now - when > ttlMs) seen.delete(key);
+  }
+  for (const effect of effects) {
+    if (!effect.id) {
+      if (typeof effect.at === 'number' && now - effect.at > ttlMs) continue;
+      fresh.push(effect);
+      continue;
+    }
+    const lastSeen = seen.get(effect.id);
+    if (lastSeen && now - lastSeen <= ttlMs) continue;
+    seen.set(effect.id, now);
+    fresh.push(effect);
+  }
+  return fresh;
+}
 export function initialState(
   title: string,
   theme = 'nauryz',
   template = 'four',
-  accessType: RoomAccessType = 'public',
-  maxPlayers = 8,
 ): RoomState {
-  const isPrivate = accessType === 'private';
   return {
     title,
     theme,
@@ -337,13 +341,6 @@ export function initialState(
     music: '',
     archived: false,
     readyCheck: null,
-    access: {
-      type: isPrivate ? 'private' : 'public',
-      visibility: isPrivate ? 'hidden' : 'public',
-      joinPolicy: isPrivate ? 'host_approval' : 'free',
-      inviteToken: uid().replaceAll('-', ''),
-      maxPlayers: Math.max(2, Math.min(50, Number(maxPlayers) || 8)),
-    },
   };
 }
 export function cleanText(v: unknown, max = 4000) {
@@ -680,52 +677,6 @@ export function applyOperation(
   } else if (kind === 'archive') {
     hostOnly();
     s.archived = !!op.value;
-  } else if (kind === 'access.set') {
-    hostOnly();
-    const type: RoomAccessType = op.accessType === 'private' ? 'private' : 'public';
-    if (!s.access) {
-      s.access = {
-        type,
-        visibility: type === 'private' ? 'hidden' : 'public',
-        joinPolicy: type === 'private' ? 'host_approval' : 'free',
-        inviteToken: uid().replaceAll('-', ''),
-        maxPlayers: 8,
-      };
-    } else {
-      s.access.type = type;
-      s.access.visibility = type === 'private' ? 'hidden' : 'public';
-      s.access.joinPolicy = type === 'private' ? 'host_approval' : 'free';
-      if (!s.access.inviteToken) {
-        s.access.inviteToken = uid().replaceAll('-', '');
-      }
-    }
-  } else if (kind === 'access.regenerate_invite') {
-    hostOnly();
-    if (!s.access) {
-      s.access = {
-        type: 'private',
-        visibility: 'hidden',
-        joinPolicy: 'host_approval',
-        inviteToken: uid().replaceAll('-', ''),
-        maxPlayers: 8,
-      };
-    } else {
-      s.access.inviteToken = uid().replaceAll('-', '');
-    }
-  } else if (kind === 'access.max_players') {
-    hostOnly();
-    const max = Math.max(2, Math.min(50, finite(op.maxPlayers, 2, 50)));
-    if (!s.access) {
-      s.access = {
-        type: 'public',
-        visibility: 'public',
-        joinPolicy: 'free',
-        inviteToken: uid().replaceAll('-', ''),
-        maxPlayers: max,
-      };
-    } else {
-      s.access.maxPlayers = max;
-    }
   } else if (kind === 'import') {
     hostOnly();
     if (!Array.isArray(op.notes) || op.notes.length > 200)
@@ -739,27 +690,8 @@ export function applyOperation(
   } else throw Error('Неизвестная команда');
   return s;
 }
-export function publicState(
-  state: RoomState,
-  self: string,
-  host?: string,
-): RoomState {
+export function publicState(state: RoomState, self: string): RoomState {
   const s = structuredClone(state);
-  if (!s.access) {
-    s.access = {
-      type: 'public',
-      visibility: 'public',
-      joinPolicy: 'free',
-      inviteToken: uid().replaceAll('-', ''),
-      maxPlayers: 8,
-    };
-  }
-  if (host && self !== host && s.access) {
-    s.access = {
-      ...s.access,
-      inviteToken: '',
-    };
-  }
   s.notes = s.notes.map((n) =>
     n.hidden && n.author !== self
       ? {

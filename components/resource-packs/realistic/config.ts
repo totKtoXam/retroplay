@@ -2,7 +2,14 @@
 export const REALISTIC_CONFIG = {
   id: 'realistic-bodycam',
   environment: 'Alatau / Field Research Annex 01',
-  materials: ['concrete', 'steel', 'rubber', 'canvas', 'plaster', 'wetstone'] as const,
+  materials: [
+    'concrete',
+    'steel',
+    'rubber',
+    'canvas',
+    'plaster',
+    'wetstone',
+  ] as const,
   characters: 'Field technician / existing rig',
   weapons: 'Workshop series / existing mounts',
   audio: 'inherit-default',

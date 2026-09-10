@@ -1,71 +1,9 @@
 import { db, session, json, payload } from '@/db/server';
-import { initialState, cleanText, THEMES, type RoomAccessType } from '@/lib/model';
+import { initialState, cleanText, THEMES } from '@/lib/model';
 export async function GET(request: Request) {
   const self = await session(request);
   if (!self) return json({ error: 'Откройте приложение заново' }, 401);
   try {
-    const url = new URL(request.url);
-    const browse = url.searchParams.get('browse');
-
-    if (browse === 'public') {
-      const { results } = await db()
-        .prepare(
-          `SELECT r.id, r.host, r.state, r.version, r.created,
-            (SELECT COUNT(*) FROM members m WHERE m.room = r.id) AS membersCount,
-            (SELECT m.name FROM members m WHERE m.room = r.id AND m.session = r.host LIMIT 1) AS hostName
-          FROM rooms r
-          ORDER BY r.created DESC LIMIT 100`,
-        )
-        .all<{
-          id: string;
-          host: string;
-          state: string;
-          version: number;
-          created: number;
-          membersCount: number;
-          hostName: string | null;
-        }>();
-
-      const publicRooms = results
-        .map((r) => {
-          const s = JSON.parse(r.state);
-          const isHidden =
-            s.access &&
-            (s.access.visibility === 'hidden' || s.access.type === 'private');
-          if (isHidden) return null;
-
-          const maxPlayers = s.access?.maxPlayers || 8;
-          const membersCount = Number(r.membersCount) || 0;
-          let status: 'available' | 'full' | 'in_progress' | 'closed' = 'available';
-          if (s.archived) {
-            status = 'closed';
-          } else if (membersCount >= maxPlayers) {
-            status = 'full';
-          } else if (s.phase > 0 || s.timer?.running) {
-            status = 'in_progress';
-          }
-
-          return {
-            id: r.id,
-            host: r.host,
-            hostName: r.hostName || 'Ведущий',
-            title: s.title,
-            theme: s.theme,
-            season: s.season,
-            archived: !!s.archived,
-            phase: s.phase,
-            created: r.created,
-            membersCount,
-            maxPlayers,
-            status,
-            accessType: 'public' as const,
-          };
-        })
-        .filter((r): r is NonNullable<typeof r> => r !== null);
-
-      return json({ rooms: publicRooms });
-    }
-
     const { results } = await db()
       .prepare(
         'SELECT r.id,r.host,r.state,r.version,r.created FROM rooms r JOIN members m ON m.room=r.id WHERE m.session=? ORDER BY r.created DESC LIMIT 100',
@@ -117,15 +55,10 @@ export async function POST(request: Request) {
       .first<{ n: number }>();
     if ((count?.n || 0) >= 100) throw Error('Достигнут лимит 100 комнат');
     const id = crypto.randomUUID().replaceAll('-', '').slice(0, 16);
-    const accessType: RoomAccessType =
-      p.access === 'private' ? 'private' : 'public';
-    const maxPlayers = Math.max(2, Math.min(50, Number(p.maxPlayers) || 8));
     const s = initialState(
       title,
       p.theme,
       p.template === 'three' ? 'three' : 'four',
-      accessType,
-      maxPlayers,
     );
     if (
       p.visualStyle !== undefined &&
@@ -161,10 +94,7 @@ export async function POST(request: Request) {
           '',
         ),
     ]);
-    return json(
-      { id, accessType, inviteToken: s.access?.inviteToken },
-      201,
-    );
+    return json({ id }, 201);
   } catch (e) {
     return json(
       { error: e instanceof Error ? e.message : 'Не удалось создать комнату' },

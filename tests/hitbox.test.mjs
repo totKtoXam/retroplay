@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { inHitRange, isHeadshot, calculatePelletsHit } from '../lib/game-items.ts';
+import { inHitRange, isHeadshot } from '../lib/game-items.ts';
 
 test('Headshot is strictly registered on head, not on chest or torso', () => {
   const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
@@ -72,59 +72,3 @@ test('Sitting stance headshot vs chest detection', () => {
   assert.ok(inHitRange('paint', chest.origin, chest.target, pose));
   assert.equal(isHeadshot('paint', chest.origin, chest.target, pose), false);
 });
-
-test('Shotgun point-blank blast delivers all 8 pellets and lethal 104 damage', () => {
-  const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
-
-  // Firing directly into center mass from 2.5m (close quarters <= 3.2m)
-  const pointBlank = calculatePelletsHit([0, 1.15, 2.5], [0, 1.15, -2.5], pose);
-  assert.equal(pointBlank.pelletsHit, 8, 'All 8 pellets must hit at point blank range');
-  assert.equal(pointBlank.damage, 104, 'Point blank shotgun hit must deal 104 lethal damage (100+ HP kill)');
-
-  // From 1.5m
-  const ultraClose = calculatePelletsHit([0, 1.15, 1.5], [0, 1.15, -1.5], pose);
-  assert.equal(ultraClose.pelletsHit, 8);
-  assert.equal(ultraClose.damage, 104);
-});
-
-test('Shotgun conical dispersion reduces pellet count and damage at medium and long range', () => {
-  const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
-
-  // At 6.0m: cone opens up (~0.49m radius), partial pellets strike torso
-  const midRange = calculatePelletsHit([0, 1.15, 6.0], [0, 1.15, -6.0], pose);
-  assert.ok(midRange.pelletsHit >= 4 && midRange.pelletsHit <= 7, `Expected 4-7 pellets at 6m, got ${midRange.pelletsHit}`);
-  assert.equal(midRange.damage, midRange.pelletsHit * 13);
-
-  // At 16.0m: wide cone (~1.31m radius), only tightest central pellets strike
-  const longRange = calculatePelletsHit([0, 1.15, 16.0], [0, 1.15, -16.0], pose);
-  assert.ok(longRange.pelletsHit >= 1 && longRange.pelletsHit <= 3, `Expected 1-3 pellets at 16m, got ${longRange.pelletsHit}`);
-  assert.equal(longRange.damage, longRange.pelletsHit * 13);
-
-  // Far beyond effective shotgun range (30m)
-  const outOfRange = calculatePelletsHit([0, 1.15, 30.0], [0, 1.15, -30.0], pose);
-  assert.equal(outOfRange.pelletsHit, 0);
-  assert.equal(outOfRange.damage, 0);
-});
-
-test('Shotgun misses target off-center or backwards', () => {
-  const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
-
-  // Firing 5m to the side
-  const wideMiss = calculatePelletsHit([5, 1.15, 5], [5, 1.15, -5], pose);
-  assert.equal(wideMiss.pelletsHit, 0);
-  assert.equal(wideMiss.damage, 0);
-
-  // Firing away from victim (backwards)
-  const backwards = calculatePelletsHit([0, 1.15, 2.5], [0, 1.15, 10], pose);
-  assert.equal(backwards.pelletsHit, 0);
-  assert.equal(backwards.damage, 0);
-});
-
-test('Shotgun point-blank against sitting stance adapts capsule height', () => {
-  const sittingPose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'sit' };
-  // Sitting center of mass around y = 0.95
-  const sitHit = calculatePelletsHit([0, 0.95, 2.0], [0, 0.95, -2.0], sittingPose);
-  assert.equal(sitHit.pelletsHit, 8);
-  assert.equal(sitHit.damage, 104);
-});
-

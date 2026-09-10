@@ -83,6 +83,9 @@ const fire = (
   color: '#ff647c',
 });
 const first = fire();
+// Current gameplay grants five seconds of protection on join and respawn.
+// Wait for that existing rule instead of expecting damage during immunity.
+await wait(Math.max(0, (await member()).immuneRemaining || 0) + 80);
 await req(host, path, first);
 assert.equal((await member()).hp, 80);
 await Promise.all([
@@ -122,7 +125,7 @@ assert.equal(
 );
 await req(guest, path, { type: 'presence', pose, life: 1 });
 assert.equal((await member()).pose.z, 0);
-await wait(1500);
+await wait(Math.max(1500, (await member()).immuneRemaining || 0) + 80);
 const grenade = fire('grenade', 'pinata');
 await req(host, path, grenade);
 assert.equal((await member()).hp, 100, 'grenade fuse is delayed');

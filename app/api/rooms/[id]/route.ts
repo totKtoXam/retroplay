@@ -1,6 +1,6 @@
 import { resolveCombat } from '@/db/combat';
 import { effectStyle, effectCooldown } from '@/lib/game-items';
-import { db, session, json, payload, ensureJoinRequestsTable } from '@/db/server';
+import { db, session, json, payload } from '@/db/server';
 import {
   applyOperation,
   publicState,
@@ -15,128 +15,8 @@ type Row = {
   version: number;
   created: number;
 };
-
-const lastCombatResolution = new Map<string, number>();
-
-async function buildRoomSnapshot(
-  id: string,
-  r: Row,
-  roomState: RoomState,
-  self: string,
-  clientVersion?: number | null,
-  sinceEffect?: number | null,
-  updateStmt?: ReturnType<ReturnType<typeof db>['prepare']>,
-) {
-  const now = Date.now();
-  const lastCombat = lastCombatResolution.get(id) || 0;
-  if (now - lastCombat >= 350) {
-    lastCombatResolution.set(id, now);
-    await resolveCombat(id, roomState.respawnSeconds ?? 5);
-  }
-
-  const minEffectTime =
-    typeof sinceEffect === 'number' && Number.isFinite(sinceEffect) && sinceEffect > 0
-      ? Math.max(now - 15000, sinceEffect)
-      : now - 15000;
-
-  const selectMembers = db()
-    .prepare(
-      'SELECT session AS id,name,color,seen AS lastSeen,pose,ping,mood,hat,cursor,hp,respawn_at AS respawnAt,immune_until AS immuneUntil,life,kills,deaths,assists FROM members WHERE room=? ORDER BY seen DESC LIMIT 100',
-    )
-    .bind(id);
-
-  const selectEffects = db()
-    .prepare(
-      'SELECT id,author,payload,at FROM effects WHERE room=? AND at>? ORDER BY at DESC LIMIT 80',
-    )
-    .bind(id, minEffectTime);
-
-  let results: any[];
-  let effectsResults: any[];
-
-  if (updateStmt) {
-    const batchRes = await db().batch([updateStmt, selectMembers, selectEffects]);
-    results = (batchRes[1].results as any[]) || [];
-    effectsResults = (batchRes[2].results as any[]) || [];
-  } else {
-    const batchRes = await db().batch([selectMembers, selectEffects]);
-    results = (batchRes[0].results as any[]) || [];
-    effectsResults = (batchRes[1].results as any[]) || [];
-  }
-  const isAnonymous = !!roomState.anonymousPlayers;
-  const isHost = self === r.host;
-  const isPrivateRoom = roomState.access?.type === 'private';
-
-  let pendingJoinRequests: {
-    id: string;
-    session: string;
-    name: string;
-    status: string;
-    created: number;
-  }[] = [];
-  if (isHost && isPrivateRoom) {
-    const jreq = await db()
-      .prepare(
-        'SELECT id, session, name, status, created FROM join_requests WHERE room=? AND status="pending" ORDER BY created ASC',
-      )
-      .bind(id)
-      .all<{
-        id: string;
-        session: string;
-        name: string;
-        status: string;
-        created: number;
-      }>();
-    pendingJoinRequests = jreq.results;
-  }
-
-  return {
-    ...r,
-    self,
-    serverNow: now,
-    joinRequests: pendingJoinRequests,
-    effects: effectsResults.map((e) => {
-      const payload = JSON.parse(String(e.payload));
-      if (isAnonymous && payload.kind === 'kill') {
-        payload.killerName = 'Участник';
-        payload.victimName = 'Участник';
-        if (payload.assisterName) payload.assisterName = 'Участник';
-      }
-      return {
-        ...payload,
-        id: e.id,
-        author: e.author,
-        at: e.at,
-      };
-    }),
-    state:
-      clientVersion != null && clientVersion === r.version
-        ? undefined
-        : publicState(roomState, self, r.host),
-    members: results.map((m) => {
-      const immuneUntil = Number(m.immuneUntil) || 0;
-      const respawnAt = Number(m.respawnAt) || 0;
-      return {
-        ...m,
-        kills: m.kills ?? 0,
-        deaths: m.deaths ?? 0,
-        assists: m.assists ?? 0,
-        immuneUntil,
-        immuneRemaining: Math.max(0, immuneUntil - now),
-        respawnRemaining: Math.max(0, respawnAt - now),
-        name: isAnonymous ? 'Участник' : m.name,
-        mood: isAnonymous ? '' : m.mood,
-        hat: isAnonymous ? '' : m.hat,
-        pose: JSON.parse(String(m.pose)),
-        cursor: JSON.parse(String(m.cursor)),
-      };
-    }),
-  };
-}
-
 export async function GET(request: Request, context: Context) {
   try {
-    await ensureJoinRequestsTable();
     const { id } = await context.params;
     const self = await session(request);
     if (!self) return json({ error: 'Откройте приложение заново' }, 401);
@@ -146,97 +26,72 @@ export async function GET(request: Request, context: Context) {
       .first<Row>();
     if (!r)
       return json({ error: 'Комната не найдена. Проверьте ссылку.' }, 404);
-
-    const roomState = JSON.parse(r.state) as RoomState;
-    const access = roomState.access || {
-      type: 'public',
-      visibility: 'public',
-      joinPolicy: 'free',
-      inviteToken: '',
-      maxPlayers: 8,
-    };
-    const isHost = self === r.host;
-
     const member = await db()
       .prepare('SELECT session FROM members WHERE room=? AND session=?')
       .bind(id, self)
       .first();
-
-    if (!member) {
-      if (access.type === 'private' && !isHost) {
-        const invite = new URL(request.url).searchParams.get('invite');
-        if (!invite || invite !== access.inviteToken) {
-          return json(
-            { error: 'Комната не найдена или ссылка-приглашение недействительна.' },
-            404,
-          );
-        }
-        const req = await db()
-          .prepare(
-            'SELECT id, status, created FROM join_requests WHERE room=? AND session=? ORDER BY created DESC LIMIT 1',
-          )
-          .bind(id, self)
-          .first<{ id: string; status: string; created: number }>();
-
-        const hostMember = await db()
-          .prepare('SELECT name FROM members WHERE room=? AND session=?')
-          .bind(id, r.host)
-          .first<{ name: string }>();
-
-        const count = await db()
-          .prepare('SELECT COUNT(*) AS n FROM members WHERE room=?')
-          .bind(id)
-          .first<{ n: number }>();
-
-        return json({
-          join: true,
-          isPrivate: true,
-          requestStatus: req ? req.status : 'none',
-          requestId: req?.id,
-          title: roomState.title,
-          theme: roomState.theme,
-          hostName: hostMember?.name || 'Ведущий',
-          membersCount: count?.n || 0,
-          maxPlayers: access.maxPlayers || 8,
-        });
-      }
-
-      const hostMember = await db()
-        .prepare('SELECT name FROM members WHERE room=? AND session=?')
-        .bind(id, r.host)
-        .first<{ name: string }>();
-
-      const count = await db()
-        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=?')
-        .bind(id)
-        .first<{ n: number }>();
-
+    if (!member)
       return json({
         join: true,
-        isPrivate: false,
-        title: roomState.title,
-        theme: roomState.theme,
-        hostName: hostMember?.name || 'Ведущий',
-        membersCount: count?.n || 0,
-        maxPlayers: access.maxPlayers || 8,
+        title: JSON.parse(r.state).title,
+        theme: JSON.parse(r.state).theme,
       });
-    }
-
-    const url = new URL(request.url);
-    const versionParam = url.searchParams.get('version');
-    const clientVersion = versionParam !== null ? Number(versionParam) : null;
-    const sinceParam = url.searchParams.get('sinceEffect');
-    const sinceEffect = sinceParam !== null ? Number(sinceParam) : null;
-
-    const snapshot = await buildRoomSnapshot(
-      id,
-      r,
-      roomState,
+    const now = Date.now();
+    await resolveCombat(id, JSON.parse(r.state).respawnSeconds ?? 5);
+    const { results } = await db()
+      .prepare(
+        'SELECT session AS id,name,color,seen AS lastSeen,pose,ping,mood,hat,cursor,hp,respawn_at AS respawnAt,immune_until AS immuneUntil,life,kills,deaths,assists FROM members WHERE room=? ORDER BY seen DESC LIMIT 100',
+      )
+      .bind(id)
+      .all();
+    const effects = await db()
+      .prepare(
+        'SELECT id,author,payload,at FROM effects WHERE room=? AND at>? ORDER BY at DESC LIMIT 80',
+      )
+      .bind(id, Date.now() - 15000)
+      .all();
+    const isAnonymous = !!JSON.parse(r.state).anonymousPlayers;
+    return json({
+      ...r,
       self,
-      clientVersion,
-      sinceEffect,
-    );
-    return json(snapshot);
+      serverNow: now,
+      effects: effects.results.map((e) => {
+        const payload = JSON.parse(String(e.payload));
+        if (isAnonymous && payload.kind === 'kill') {
+          payload.killerName = 'Участник';
+          payload.victimName = 'Участник';
+          if (payload.assisterName) payload.assisterName = 'Участник';
+        }
+        return {
+          ...payload,
+          id: e.id,
+          author: e.author,
+          at: e.at,
+        };
+      }),
+      state:
+        new URL(request.url).searchParams.get('version') === String(r.version)
+          ? undefined
+          : publicState(JSON.parse(r.state), self),
+      members: results.map((m) => {
+        const immuneUntil = Number(m.immuneUntil) || 0;
+        const respawnAt = Number(m.respawnAt) || 0;
+        return {
+          ...m,
+          kills: m.kills ?? 0,
+          deaths: m.deaths ?? 0,
+          assists: m.assists ?? 0,
+          immuneUntil,
+          immuneRemaining: Math.max(0, immuneUntil - now),
+          respawnRemaining: Math.max(0, respawnAt - now),
+          name: isAnonymous ? 'Участник' : m.name,
+          mood: isAnonymous ? '' : m.mood,
+          hat: isAnonymous ? '' : m.hat,
+          pose: JSON.parse(String(m.pose)),
+          cursor: JSON.parse(String(m.cursor)),
+        };
+      }),
+    });
   } catch (e) {
     console.error(e);
     return json(
@@ -247,7 +102,6 @@ export async function GET(request: Request, context: Context) {
 }
 export async function POST(request: Request, context: Context) {
   try {
-    await ensureJoinRequestsTable();
     const { id } = await context.params,
       self = await session(request);
     if (!self) return json({ error: 'Откройте приложение заново' }, 401);
@@ -257,106 +111,6 @@ export async function POST(request: Request, context: Context) {
       .bind(id)
       .first<Row>();
     if (!r) return json({ error: 'Комната не найдена' }, 404);
-
-    const roomState = JSON.parse(r.state) as RoomState;
-    const access = roomState.access || {
-      type: 'public',
-      visibility: 'public',
-      joinPolicy: 'free',
-      inviteToken: '',
-      maxPlayers: 8,
-    };
-    const maxPlayers = access.maxPlayers || 8;
-
-    if (op.type === 'join_request.create' || op.type === 'join_request') {
-      const name = cleanText(op.name, 40);
-      if (!name) throw Error('Введите ваше имя');
-      if (roomState.archived) throw Error('Комната закрыта');
-
-      if (access.type === 'private' && self !== r.host) {
-        if (!op.inviteToken || op.inviteToken !== access.inviteToken) {
-          throw Error('Недействительная ссылка-приглашение');
-        }
-      }
-
-      const count = await db()
-        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=?')
-        .bind(id)
-        .first<{ n: number }>();
-      if ((count?.n || 0) >= maxPlayers) throw Error('Комната заполнена');
-
-      const existing = await db()
-        .prepare(
-          'SELECT id, status FROM join_requests WHERE room=? AND session=? AND status="pending"',
-        )
-        .bind(id, self)
-        .first<{ id: string; status: string }>();
-      if (existing) {
-        return json({ ok: true, id: existing.id, status: 'pending' });
-      }
-
-      const reqId = crypto.randomUUID();
-      await db()
-        .prepare(
-          'INSERT INTO join_requests (id, room, session, name, status, created) VALUES (?, ?, ?, ?, "pending", ?)',
-        )
-        .bind(reqId, id, self, name, Date.now())
-        .run();
-      return json({ ok: true, id: reqId, status: 'pending' });
-    }
-
-    if (op.type === 'join_request.status') {
-      const req = await db()
-        .prepare(
-          'SELECT id, status, created FROM join_requests WHERE room=? AND session=? ORDER BY created DESC LIMIT 1',
-        )
-        .bind(id, self)
-        .first<{ id: string; status: string; created: number }>();
-      return json({ status: req?.status || 'none', id: req?.id });
-    }
-
-    if (op.type === 'join_request.accept') {
-      if (self !== r.host)
-        throw Error('Только ведущий может принимать запросы на вход');
-      const req = await db()
-        .prepare(
-          'SELECT id, session, name, status FROM join_requests WHERE id=? AND room=?',
-        )
-        .bind(op.id, id)
-        .first<{ id: string; session: string; name: string; status: string }>();
-      if (!req || req.status !== 'pending')
-        throw Error('Запрос не найден или уже обработан');
-
-      if (roomState.archived) throw Error('Комната закрыта');
-
-      const count = await db()
-        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=?')
-        .bind(id)
-        .first<{ n: number }>();
-      if ((count?.n || 0) >= maxPlayers)
-        throw Error('В комнате не осталось свободного места');
-
-      await db()
-        .prepare(
-          'UPDATE join_requests SET status="accepted", resolved_at=?, resolved_by=? WHERE id=?',
-        )
-        .bind(Date.now(), self, op.id)
-        .run();
-      return json({ ok: true });
-    }
-
-    if (op.type === 'join_request.reject') {
-      if (self !== r.host)
-        throw Error('Только ведущий может отклонять запросы на вход');
-      await db()
-        .prepare(
-          'UPDATE join_requests SET status="rejected", resolved_at=?, resolved_by=? WHERE id=?',
-        )
-        .bind(Date.now(), self, op.id)
-        .run();
-      return json({ ok: true });
-    }
-
     if (op.type === 'join') {
       const name = cleanText(op.name, 40);
       if (!name) throw Error('Введите ваше имя');
@@ -368,27 +122,7 @@ export async function POST(request: Request, context: Context) {
         .prepare('SELECT session FROM members WHERE room=? AND session=?')
         .bind(id, self)
         .first();
-      if (!exists && (count?.n || 0) >= maxPlayers)
-        throw Error('Комната заполнена');
-
-      if (
-        (access.joinPolicy === 'host_approval' || access.type === 'private') &&
-        self !== r.host &&
-        !exists
-      ) {
-        const approved = await db()
-          .prepare(
-            'SELECT id FROM join_requests WHERE room=? AND session=? AND status="accepted"',
-          )
-          .bind(id, self)
-          .first();
-        if (!approved)
-          return json(
-            { error: 'Для входа в эту комнату требуется одобрение ведущего' },
-            403,
-          );
-      }
-
+      if (!exists && (count?.n || 0) >= 100) throw Error('Комната заполнена');
       const colors = ['#368c78', '#c38464', '#827ba9', '#5b8ba6', '#b59848'];
       const color = colors[(count?.n || 0) % colors.length];
       await db()
@@ -471,9 +205,6 @@ export async function POST(request: Request, context: Context) {
         target: op.target,
         normal: op.normal,
         color: op.color,
-        scoped: typeof op.scoped === 'boolean' ? op.scoped : undefined,
-        noScope: typeof op.noScope === 'boolean' ? op.noScope : undefined,
-        pelletsHit: typeof op.pelletsHit === 'number' ? op.pelletsHit : undefined,
       };
       const effectId =
         typeof op.id === 'string' && /^[a-f0-9-]{36}$/.test(op.id)
@@ -527,19 +258,26 @@ export async function POST(request: Request, context: Context) {
     }
     if (op.type === 'presence') {
       const cursor = op.cursor;
-      const cursorJson =
+      if (
         cursor &&
         typeof cursor.x === 'number' &&
         typeof cursor.y === 'number' &&
         Number.isFinite(cursor.x) &&
         Number.isFinite(cursor.y)
-          ? JSON.stringify({
+      ) {
+        await db()
+          .prepare('UPDATE members SET cursor=? WHERE room=? AND session=?')
+          .bind(
+            JSON.stringify({
               x: Math.max(0, Math.min(1540, cursor.x)),
               y: Math.max(0, Math.min(1630, cursor.y)),
               mode: cursor.mode === 'board' ? 'board' : '3d',
-            })
-          : null;
-
+            }),
+            id,
+            self,
+          )
+          .run();
+      }
       const p = op.pose;
       const pose =
         p &&
@@ -548,9 +286,9 @@ export async function POST(request: Request, context: Context) {
           (n) => typeof n === 'number' && Number.isFinite(n),
         )
           ? {
-              x: Math.max(-36, Math.min(36, p.x)),
-              y: Math.max(0, Math.min(10, p.y)),
-              z: Math.max(-36, Math.min(36, p.z)),
+              x: Math.max(-23, Math.min(23, p.x)),
+              y: Math.max(0, Math.min(5, p.y)),
+              z: Math.max(-23, Math.min(23, p.z)),
               yaw: p.yaw,
               stance: ['stand', 'sit', 'lie'].includes(p.stance)
                 ? p.stance
@@ -594,51 +332,32 @@ export async function POST(request: Request, context: Context) {
                   : 0,
             }
           : null;
-
       const ping =
         typeof op.ping === 'number'
           ? Math.max(0, Math.min(60000, Math.round(op.ping)))
           : 0;
-
-      const poseJson = pose ? JSON.stringify(pose) : null;
-      const lifeVal = Number.isInteger(op.life) ? op.life : 0;
-      const now = Date.now();
-
-      const updateStmt = db()
-        .prepare(
-          `UPDATE members
-           SET seen = ?,
-               ping = ?,
-               cursor = CASE WHEN ? IS NOT NULL THEN ? ELSE cursor END,
-               pose = CASE WHEN hp > 0 AND life = ? AND ? IS NOT NULL THEN ? ELSE pose END
-           WHERE room = ? AND session = ?`,
-        )
-        .bind(
-          now,
-          ping,
-          cursorJson,
-          cursorJson,
-          lifeVal,
-          poseJson,
-          poseJson,
-          id,
-          self,
-        );
-
-      const clientVersion = typeof op.version === 'number' ? op.version : null;
-      const sinceEffect = typeof op.sinceEffect === 'number' ? op.sinceEffect : null;
-
-      const snapshot = await buildRoomSnapshot(
-        id,
-        r,
-        roomState,
-        self,
-        clientVersion,
-        sinceEffect,
-        updateStmt,
-      );
-
-      return json({ ok: true, now, ...snapshot });
+      if (pose)
+        await db()
+          .prepare(
+            'UPDATE members SET seen=?,pose=CASE WHEN hp>0 AND life=? THEN ? ELSE pose END,ping=? WHERE room=? AND session=?',
+          )
+          .bind(
+            Date.now(),
+            Number.isInteger(op.life) ? op.life : 0,
+            JSON.stringify(pose),
+            ping,
+            id,
+            self,
+          )
+          .run();
+      else
+        await db()
+          .prepare(
+            'UPDATE members SET seen=?,ping=? WHERE room=? AND session=?',
+          )
+          .bind(Date.now(), ping, id, self)
+          .run();
+      return json({ ok: true, now: Date.now() });
     }
     if (op.type === 'profile') {
       const name = cleanText(op.name, 40);
@@ -703,7 +422,7 @@ export async function POST(request: Request, context: Context) {
         return json({
           ok: true,
           version: r.version + 1,
-          state: publicState(updated, self, r.host),
+          state: publicState(updated, self),
         });
     }
     return json(
