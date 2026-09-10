@@ -15,6 +15,104 @@ type Row = {
   version: number;
   created: number;
 };
+async function buildRoomSnapshot(
+  id: string,
+  r: Row,
+  roomState: RoomState,
+  self: string,
+  clientVersion?: number | null,
+  sinceEffect?: number | null,
+) {
+  const now = Date.now();
+  await resolveCombat(id, roomState.respawnSeconds ?? 5);
+  const { results } = await db()
+    .prepare(
+      'SELECT session AS id,name,color,seen AS lastSeen,pose,ping,mood,hat,cursor,hp,respawn_at AS respawnAt,immune_until AS immuneUntil,life,kills,deaths,assists FROM members WHERE room=? ORDER BY seen DESC LIMIT 100',
+    )
+    .bind(id)
+    .all();
+
+  const minEffectTime =
+    typeof sinceEffect === 'number' && Number.isFinite(sinceEffect) && sinceEffect > 0
+      ? Math.max(now - 15000, sinceEffect)
+      : now - 15000;
+
+  const effects = await db()
+    .prepare(
+      'SELECT id,author,payload,at FROM effects WHERE room=? AND at>? ORDER BY at DESC LIMIT 80',
+    )
+    .bind(id, minEffectTime)
+    .all();
+  const isAnonymous = !!roomState.anonymousPlayers;
+  const isHost = self === r.host;
+
+  let pendingJoinRequests: {
+    id: string;
+    session: string;
+    name: string;
+    status: string;
+    created: number;
+  }[] = [];
+  if (isHost) {
+    const jreq = await db()
+      .prepare(
+        'SELECT id, session, name, status, created FROM join_requests WHERE room=? AND status="pending" ORDER BY created ASC',
+      )
+      .bind(id)
+      .all<{
+        id: string;
+        session: string;
+        name: string;
+        status: string;
+        created: number;
+      }>();
+    pendingJoinRequests = jreq.results;
+  }
+
+  return {
+    ...r,
+    self,
+    serverNow: now,
+    joinRequests: pendingJoinRequests,
+    effects: effects.results.map((e) => {
+      const payload = JSON.parse(String(e.payload));
+      if (isAnonymous && payload.kind === 'kill') {
+        payload.killerName = 'Участник';
+        payload.victimName = 'Участник';
+        if (payload.assisterName) payload.assisterName = 'Участник';
+      }
+      return {
+        ...payload,
+        id: e.id,
+        author: e.author,
+        at: e.at,
+      };
+    }),
+    state:
+      clientVersion != null && clientVersion === r.version
+        ? undefined
+        : publicState(roomState, self, r.host),
+    members: results.map((m) => {
+      const immuneUntil = Number(m.immuneUntil) || 0;
+      const respawnAt = Number(m.respawnAt) || 0;
+      return {
+        ...m,
+        kills: m.kills ?? 0,
+        deaths: m.deaths ?? 0,
+        assists: m.assists ?? 0,
+        immuneUntil,
+        immuneRemaining: Math.max(0, immuneUntil - now),
+        respawnRemaining: Math.max(0, respawnAt - now),
+        name: isAnonymous ? 'Участник' : m.name,
+        mood: isAnonymous ? '' : m.mood,
+        hat: isAnonymous ? '' : m.hat,
+        pose: JSON.parse(String(m.pose)),
+        cursor: JSON.parse(String(m.cursor)),
+      };
+    }),
+  };
+}
+
 export async function GET(request: Request, context: Context) {
   try {
     await ensureJoinRequestsTable();
@@ -103,75 +201,21 @@ export async function GET(request: Request, context: Context) {
       });
     }
 
-    const now = Date.now();
-    await resolveCombat(id, roomState.respawnSeconds ?? 5);
-    const { results } = await db()
-      .prepare(
-        'SELECT session AS id,name,color,seen AS lastSeen,pose,ping,mood,hat,cursor,hp,respawn_at AS respawnAt,immune_until AS immuneUntil,life,kills,deaths,assists FROM members WHERE room=? ORDER BY seen DESC LIMIT 100',
-      )
-      .bind(id)
-      .all();
-    const effects = await db()
-      .prepare(
-        'SELECT id,author,payload,at FROM effects WHERE room=? AND at>? ORDER BY at DESC LIMIT 80',
-      )
-      .bind(id, Date.now() - 15000)
-      .all();
-    const isAnonymous = !!roomState.anonymousPlayers;
+    const url = new URL(request.url);
+    const versionParam = url.searchParams.get('version');
+    const clientVersion = versionParam !== null ? Number(versionParam) : null;
+    const sinceParam = url.searchParams.get('sinceEffect');
+    const sinceEffect = sinceParam !== null ? Number(sinceParam) : null;
 
-    let pendingJoinRequests: { id: string; session: string; name: string; status: string; created: number }[] = [];
-    if (isHost) {
-      const jreq = await db()
-        .prepare(
-          'SELECT id, session, name, status, created FROM join_requests WHERE room=? AND status="pending" ORDER BY created ASC',
-        )
-        .bind(id)
-        .all<{ id: string; session: string; name: string; status: string; created: number }>();
-      pendingJoinRequests = jreq.results;
-    }
-
-    return json({
-      ...r,
+    const snapshot = await buildRoomSnapshot(
+      id,
+      r,
+      roomState,
       self,
-      serverNow: now,
-      joinRequests: pendingJoinRequests,
-      effects: effects.results.map((e) => {
-        const payload = JSON.parse(String(e.payload));
-        if (isAnonymous && payload.kind === 'kill') {
-          payload.killerName = 'Участник';
-          payload.victimName = 'Участник';
-          if (payload.assisterName) payload.assisterName = 'Участник';
-        }
-        return {
-          ...payload,
-          id: e.id,
-          author: e.author,
-          at: e.at,
-        };
-      }),
-      state:
-        new URL(request.url).searchParams.get('version') === String(r.version)
-          ? undefined
-          : publicState(roomState, self, r.host),
-      members: results.map((m) => {
-        const immuneUntil = Number(m.immuneUntil) || 0;
-        const respawnAt = Number(m.respawnAt) || 0;
-        return {
-          ...m,
-          kills: m.kills ?? 0,
-          deaths: m.deaths ?? 0,
-          assists: m.assists ?? 0,
-          immuneUntil,
-          immuneRemaining: Math.max(0, immuneUntil - now),
-          respawnRemaining: Math.max(0, respawnAt - now),
-          name: isAnonymous ? 'Участник' : m.name,
-          mood: isAnonymous ? '' : m.mood,
-          hat: isAnonymous ? '' : m.hat,
-          pose: JSON.parse(String(m.pose)),
-          cursor: JSON.parse(String(m.cursor)),
-        };
-      }),
-    });
+      clientVersion,
+      sinceEffect,
+    );
+    return json(snapshot);
   } catch (e) {
     console.error(e);
     return json(
@@ -459,26 +503,19 @@ export async function POST(request: Request, context: Context) {
     }
     if (op.type === 'presence') {
       const cursor = op.cursor;
-      if (
+      const cursorJson =
         cursor &&
         typeof cursor.x === 'number' &&
         typeof cursor.y === 'number' &&
         Number.isFinite(cursor.x) &&
         Number.isFinite(cursor.y)
-      ) {
-        await db()
-          .prepare('UPDATE members SET cursor=? WHERE room=? AND session=?')
-          .bind(
-            JSON.stringify({
+          ? JSON.stringify({
               x: Math.max(0, Math.min(1540, cursor.x)),
               y: Math.max(0, Math.min(1630, cursor.y)),
               mode: cursor.mode === 'board' ? 'board' : '3d',
-            }),
-            id,
-            self,
-          )
-          .run();
-      }
+            })
+          : null;
+
       const p = op.pose;
       const pose =
         p &&
@@ -533,32 +570,51 @@ export async function POST(request: Request, context: Context) {
                   : 0,
             }
           : null;
+
       const ping =
         typeof op.ping === 'number'
           ? Math.max(0, Math.min(60000, Math.round(op.ping)))
           : 0;
-      if (pose)
-        await db()
-          .prepare(
-            'UPDATE members SET seen=?,pose=CASE WHEN hp>0 AND life=? THEN ? ELSE pose END,ping=? WHERE room=? AND session=?',
-          )
-          .bind(
-            Date.now(),
-            Number.isInteger(op.life) ? op.life : 0,
-            JSON.stringify(pose),
-            ping,
-            id,
-            self,
-          )
-          .run();
-      else
-        await db()
-          .prepare(
-            'UPDATE members SET seen=?,ping=? WHERE room=? AND session=?',
-          )
-          .bind(Date.now(), ping, id, self)
-          .run();
-      return json({ ok: true, now: Date.now() });
+
+      const poseJson = pose ? JSON.stringify(pose) : null;
+      const lifeVal = Number.isInteger(op.life) ? op.life : 0;
+      const now = Date.now();
+
+      await db()
+        .prepare(
+          `UPDATE members
+           SET seen = ?,
+               ping = ?,
+               cursor = CASE WHEN ? IS NOT NULL THEN ? ELSE cursor END,
+               pose = CASE WHEN hp > 0 AND life = ? AND ? IS NOT NULL THEN ? ELSE pose END
+           WHERE room = ? AND session = ?`,
+        )
+        .bind(
+          now,
+          ping,
+          cursorJson,
+          cursorJson,
+          lifeVal,
+          poseJson,
+          poseJson,
+          id,
+          self,
+        )
+        .run();
+
+      const clientVersion = typeof op.version === 'number' ? op.version : null;
+      const sinceEffect = typeof op.sinceEffect === 'number' ? op.sinceEffect : null;
+
+      const snapshot = await buildRoomSnapshot(
+        id,
+        r,
+        roomState,
+        self,
+        clientVersion,
+        sinceEffect,
+      );
+
+      return json({ ok: true, now, ...snapshot });
     }
     if (op.type === 'profile') {
       const name = cleanText(op.name, 40);

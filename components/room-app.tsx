@@ -88,6 +88,7 @@ import {
   type Room,
   type Note,
   type Pose,
+  type WorldEffect,
 } from '@/lib/model';
 import { api, ready, download, parseCSV } from '@/lib/client';
 import { Choice, Toggle } from './controls';
@@ -123,6 +124,26 @@ const kinds: Record<string, string> = {
   action: 'action',
   like: 'sticky',
 };
+function compressPose(p: Pose): Pose {
+  return {
+    x: Math.round(p.x * 100) / 100,
+    y: Math.round(p.y * 100) / 100,
+    z: Math.round(p.z * 100) / 100,
+    yaw: Math.round(p.yaw * 1000) / 1000,
+    stance: p.stance,
+    moving: !!p.moving,
+    speed: p.speed != null ? Math.round(p.speed * 100) / 100 : undefined,
+    strafe: p.strafe != null ? Math.round(p.strafe * 100) / 100 : undefined,
+    forward: p.forward != null ? Math.round(p.forward * 100) / 100 : undefined,
+    pitch: p.pitch != null ? Math.round(p.pitch * 1000) / 1000 : undefined,
+    tool: p.tool,
+    variant: p.variant,
+    working: !!p.working,
+    crouching: !!p.crouching,
+    aiming: !!p.aiming,
+    reload: p.reload != null ? Math.round(p.reload * 100) / 100 : undefined,
+  };
+}
 type Draft = {
   id?: string;
   kind: string;
@@ -293,6 +314,107 @@ export default function RoomApp({ id }: { id: string }) {
     busyRef.current = busy;
   }, [busy]);
   const enterRef = useRef<((name?: string) => Promise<void>) | null>(null);
+  const lastEffectAtRef = useRef(0);
+  const lastActivityRef = useRef(0);
+
+  useEffect(() => {
+    lastActivityRef.current = Date.now();
+    const onActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+    window.addEventListener('keydown', onActivity, { passive: true });
+    window.addEventListener('pointerdown', onActivity, { passive: true });
+    window.addEventListener('mousemove', onActivity, { passive: true });
+    window.addEventListener('wheel', onActivity, { passive: true });
+    return () => {
+      window.removeEventListener('keydown', onActivity);
+      window.removeEventListener('pointerdown', onActivity);
+      window.removeEventListener('mousemove', onActivity);
+      window.removeEventListener('wheel', onActivity);
+    };
+  }, []);
+
+  const handleRoomData = useCallback(
+    (
+      data: Room & {
+        join?: boolean;
+        title?: string;
+        isPrivate?: boolean;
+        requestStatus?: 'none' | 'pending' | 'accepted' | 'rejected';
+        requestId?: string;
+        hostName?: string;
+        membersCount?: number;
+        maxPlayers?: number;
+        joinRequests?: {
+          id: string;
+          session: string;
+          name: string;
+          status: string;
+          created: number;
+        }[];
+        effects?: WorldEffect[];
+      },
+      responseTimeMs?: number,
+    ) => {
+      if (responseTimeMs !== undefined) {
+        setPing(responseTimeMs);
+        pingRef.current = responseTimeMs;
+      }
+      if (data.join) {
+        setJoin(data as Room & { title: string });
+        if (data.requestStatus === 'accepted') {
+          const savedName =
+            localStorage.getItem('jinaly-name') || nameRef.current;
+          if (savedName && !busyRef.current) {
+            void enterRef.current?.(savedName);
+          }
+        }
+        return;
+      }
+      setJoin(null);
+      if (data.joinRequests) {
+        setJoinRequests(data.joinRequests);
+      }
+      if (Array.isArray(data.effects) && data.effects.length > 0) {
+        let maxAt = lastEffectAtRef.current;
+        for (const e of data.effects) {
+          if (e.at && e.at > maxAt) maxAt = e.at;
+        }
+        lastEffectAtRef.current = maxAt;
+      }
+      setRoom((old) => {
+        if (!old) return data;
+        const cutoff = Date.now() - 15000;
+        const oldEffects = (old.effects || []).filter(
+          (e) => (e.at || 0) > cutoff,
+        );
+        const newEffects = data.effects || [];
+        const seenIds = new Set(oldEffects.map((e) => e.id));
+        const mergedEffects = [...oldEffects];
+        for (const e of newEffects) {
+          if (!seenIds.has(e.id)) {
+            seenIds.add(e.id);
+            mergedEffects.push(e);
+          }
+        }
+        if (data.version >= old.version) {
+          return {
+            ...data,
+            state: data.state || old.state,
+            effects: mergedEffects,
+          };
+        } else {
+          return {
+            ...old,
+            members: data.members,
+            effects: mergedEffects,
+          };
+        }
+      });
+      setError('');
+    },
+    [],
+  );
 
   const refresh = useCallback(async () => {
     const start = performance.now();
@@ -303,6 +425,12 @@ export default function RoomApp({ id }: { id: string }) {
     const query = new URLSearchParams();
     if (roomRef.current) query.set('version', String(roomRef.current.version));
     if (inviteParam) query.set('invite', inviteParam);
+    if (lastEffectAtRef.current > 0) {
+      query.set(
+        'sinceEffect',
+        String(Math.max(0, lastEffectAtRef.current - 100)),
+      );
+    }
     const qs = query.toString() ? '?' + query.toString() : '';
 
     const data = await api<
@@ -322,36 +450,13 @@ export default function RoomApp({ id }: { id: string }) {
           status: string;
           created: number;
         }[];
+        effects?: WorldEffect[];
       }
     >('/api/rooms/' + id + qs);
 
     const ms = Math.round(performance.now() - start);
-    setPing(ms);
-    pingRef.current = ms;
-    if (data.join) {
-      setJoin(data);
-      if (data.requestStatus === 'accepted') {
-        const savedName =
-          localStorage.getItem('jinaly-name') || nameRef.current;
-        if (savedName && !busyRef.current) {
-          void enterRef.current?.(savedName);
-        }
-      }
-      return;
-    }
-    setJoin(null);
-    if (data.joinRequests) {
-      setJoinRequests(data.joinRequests);
-    }
-    setRoom((old) =>
-      !old
-        ? data
-        : data.version >= old.version
-          ? { ...data, state: data.state || old.state }
-          : { ...old, members: data.members },
-    );
-    setError('');
-  }, [id]);
+    handleRoomData(data, ms);
+  }, [id, handleRoomData]);
   const op = useCallback(
     async (body: Record<string, unknown>) => {
       try {
@@ -393,18 +498,46 @@ export default function RoomApp({ id }: { id: string }) {
       let ok = true;
       try {
         if (!document.hidden) {
-          if (roomRef.current)
-            await api('/api/rooms/' + id, {
+          if (roomRef.current) {
+            const start = performance.now();
+            const sinceEffectTime =
+              lastEffectAtRef.current > 0
+                ? Math.max(0, lastEffectAtRef.current - 100)
+                : undefined;
+            const res = await api<
+              Room & {
+                ok?: boolean;
+                members?: Room['members'];
+                joinRequests?: {
+                  id: string;
+                  session: string;
+                  name: string;
+                  status: string;
+                  created: number;
+                }[];
+                effects?: WorldEffect[];
+              }
+            >('/api/rooms/' + id, {
               type: 'presence',
               life:
                 roomRef.current.members.find(
                   (m) => m.id === roomRef.current?.self,
                 )?.life || 0,
-              pose: pose.current,
+              pose: compressPose(pose.current),
               ping: pingRef.current,
               cursor: cursor.current,
+              version: roomRef.current.version,
+              sinceEffect: sinceEffectTime,
             });
-          await refresh();
+            const ms = Math.round(performance.now() - start);
+            if (res && res.members) {
+              handleRoomData(res, ms);
+            } else {
+              await refresh();
+            }
+          } else {
+            await refresh();
+          }
         }
       } catch (e) {
         ok = false;
@@ -416,7 +549,17 @@ export default function RoomApp({ id }: { id: string }) {
         const lost = lossHistory.current.filter((v) => !v).length;
         setPacketLoss(Math.round((lost / lossHistory.current.length) * 100));
       }
-      const interval = modeRef.current === '3d' ? 120 : 900;
+      const idleTime = lastActivityRef.current
+        ? Date.now() - lastActivityRef.current
+        : 0;
+      const interval =
+        modeRef.current === '3d'
+          ? idleTime > 2000
+            ? 300
+            : 120
+          : idleTime > 3000
+            ? 1400
+            : 800;
       if (!stop) handle = setTimeout(tick, interval);
     };
     void ready()
@@ -450,7 +593,7 @@ export default function RoomApp({ id }: { id: string }) {
       clearTimeout(handle);
       clearInterval(clock);
     };
-  }, [id, refresh]);
+  }, [id, refresh, handleRoomData]);
   const beep = useCallback((frequency = 520) => {
     if (!soundRef.current) return;
     try {
@@ -1399,6 +1542,14 @@ export default function RoomApp({ id }: { id: string }) {
                 invertCamera={invertCamera}
                 onUseTool={(zone) => newNote(zone, undefined, undefined, true)}
                 onPose={(p) => {
+                  if (
+                    p.moving ||
+                    p.aiming ||
+                    p.working ||
+                    (p.speed && p.speed > 0.1)
+                  ) {
+                    lastActivityRef.current = Date.now();
+                  }
                   pose.current = p;
                 }}
                 onMonitor={setMonitor}
@@ -1417,6 +1568,7 @@ export default function RoomApp({ id }: { id: string }) {
                 onEditNote={editNote}
                 onAddNote={newNote}
                 onCursor={(x, y) => {
+                  lastActivityRef.current = Date.now();
                   cursor.current = { x, y, mode: 'tablet' };
                 }}
                 onFailure={() => {
@@ -1439,6 +1591,7 @@ export default function RoomApp({ id }: { id: string }) {
               onOp={act}
               search={search}
               onCursor={(x, y) => {
+                lastActivityRef.current = Date.now();
                 cursor.current = { x, y, mode };
               }}
             />
