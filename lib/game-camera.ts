@@ -39,6 +39,60 @@ export function visibleInWorld(object: T.Object3D) {
     if (!p.visible) return false;
   return true;
 }
+
+function collisionOverride(
+  object: T.Object3D,
+  property: 'projectileCollision' | 'cameraCollision',
+) {
+  for (let p: T.Object3D | null = object; p; p = p.parent) {
+    const collision = p.userData[property];
+    if (collision === 'block' || collision === 'ignore') return collision;
+  }
+  return undefined;
+}
+
+function isSolidMaterial(material: T.Material | undefined) {
+  return !!(
+    material &&
+    material.visible &&
+    !material.transparent &&
+    material.opacity > 0.001 &&
+    material.side !== T.BackSide
+  );
+}
+
+function hasSolidMaterial(object: T.Mesh, materialIndex?: number) {
+  const materials = Array.isArray(object.material)
+    ? object.material
+    : [object.material];
+  return materialIndex === undefined
+    ? materials.some(isSolidMaterial)
+    : isSolidMaterial(materials[materialIndex]);
+}
+/**
+ * Determines whether a visible mesh should stop a projectile.  Three's
+ * Raycaster intersects transparent materials too, so the rendered material
+ * and an optional group-level override must both be considered.
+ */
+export function blocksProjectile(object: T.Object3D, materialIndex?: number) {
+  if (!visibleInWorld(object) || !(object instanceof T.Mesh)) return false;
+  const override = collisionOverride(object, 'projectileCollision');
+  if (override) return override === 'block';
+  return hasSolidMaterial(object, materialIndex);
+}
+
+/** Whether a mesh can shorten the third-person camera boom. */
+export function blocksCamera(
+  object: T.Object3D,
+  materialIndex?: number,
+): object is T.Mesh {
+  if (!visibleInWorld(object) || !(object instanceof T.Mesh)) return false;
+  const override = collisionOverride(object, 'cameraCollision');
+  if (override) return override === 'block';
+  for (let p: T.Object3D | null = object; p; p = p.parent)
+    if (p.userData.noCameraCollision) return false;
+  return hasSolidMaterial(object, materialIndex);
+}
 /** Камера сокращает расстояние до ближайшей стены, сохраняя запас перед поверхностью. */
 export function avoidCameraWalls(
   eye: T.Vector3,
@@ -51,7 +105,7 @@ export function avoidCameraWalls(
   const ray = new T.Raycaster(eye, delta.normalize(), 0, distance + 0.18);
   const hit = ray
     .intersectObjects(objects.filter(visibleInWorld), false)
-    .find((h) => visibleInWorld(h.object));
+    .find((h) => blocksCamera(h.object, h.face?.materialIndex));
   return hit
     ? eye.clone().addScaledVector(delta, Math.max(0.08, hit.distance - 0.22))
     : desired.clone();
