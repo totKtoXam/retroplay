@@ -25,6 +25,7 @@ import { AvatarPreview } from './avatar-preview';
 import { QUICK_SLOTS, slotForDigit } from '@/lib/loadout';
 import { ToolMagazine, CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import {
+  blocksCamera,
   blocksProjectile,
   cameraFrame,
   eyeHeight,
@@ -224,14 +225,7 @@ export default function World(props: Props) {
     const cameraObstacles: T.Object3D[] = [];
     scene.updateMatrixWorld(true);
     scene.traverse((o) => {
-      if (
-        o instanceof T.Mesh &&
-        !(o instanceof T.InstancedMesh) &&
-        !Array.isArray(o.material) &&
-        !o.userData.noCameraCollision &&
-        o.material.side !== T.BackSide &&
-        !o.material.transparent
-      ) {
+      if (blocksCamera(o)) {
         o.geometry.computeBoundingBox();
         cameraObstacles.push(o);
       }
@@ -411,6 +405,7 @@ export default function World(props: Props) {
       );
       decal.position.copy(at).addScaledVector(normal, 0.035);
       decal.quaternion.setFromUnitVectors(normalUp, normal.normalize());
+      decal.userData.projectileCollision = 'ignore';
       scene.add(decal);
       splats.push({ mesh: decal, born: now });
     };
@@ -496,8 +491,6 @@ export default function World(props: Props) {
           !avatar.getObjectById(o.id) &&
           o !== shadow &&
           blocksProjectile(o) &&
-          o.geometry.type !== 'SphereGeometry' &&
-          o.geometry.type !== 'ShapeGeometry' &&
           !flights.some((f) => f.mesh === o) &&
           !bursts.some((b) => b.mesh === o)
         )
@@ -505,7 +498,12 @@ export default function World(props: Props) {
       });
       const hit = ray
         .intersectObjects(targets, false)
-        .find((h) => h.distance < 65 && h.distance > 0.08);
+        .find(
+          (h) =>
+            h.distance < 65 &&
+            h.distance > 0.08 &&
+            blocksProjectile(h.object, h.face?.materialIndex),
+        );
       const target = hit ? hit.point : ray.ray.at(35, new T.Vector3());
       const normal = hit?.face
         ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
@@ -535,7 +533,7 @@ export default function World(props: Props) {
       );
       const obstruction = muzzleRay
         .intersectObjects(targets, false)
-        .find((h) => visibleInWorld(h.object));
+        .find((h) => blocksProjectile(h.object, h.face?.materialIndex));
       if (obstruction) {
         target.copy(obstruction.point);
         origin.copy(camera.position);
