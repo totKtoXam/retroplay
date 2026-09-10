@@ -12,6 +12,7 @@ import {
   GAME_TOOLS,
   TOOL_HINTS,
   uid,
+  filterNewEffects,
   type Pose,
   type Room,
   type RoomState,
@@ -201,7 +202,7 @@ function getSlotIcon(slotIndex: number) {
 export default function World(props: Props) {
   const resourcePack = useResourcePack();
   const packRef = useRef(resourcePack);
-  packRef.current = resourcePack;
+  useEffect(() => { packRef.current = resourcePack; }, [resourcePack]);
   const [packStatus, setPackStatus] = useState<'default' | 'loading' | 'ready' | 'error'>('default');
   const mount = useRef<HTMLDivElement>(null),
     latest = useRef(props);
@@ -272,6 +273,7 @@ export default function World(props: Props) {
     fireworkStyle,
     tabletZone,
   });
+  const seenEffectsRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     selection.current = {
       confettiStyle,
@@ -280,6 +282,14 @@ export default function World(props: Props) {
       tabletZone,
     };
   }, [confettiStyle, grenadeStyle, fireworkStyle, tabletZone]);
+  useEffect(() => {
+    if (!props.room.effects) return;
+    const freshEffects = filterNewEffects(
+      props.room.effects,
+      seenEffectsRef.current,
+    );
+    for (const effect of freshEffects) engine.current?.fire(effect);
+  }, [props.room.effects]);
   const self = props.room.members.find((m) => m.id === props.room.self);
   const dead = self?.hp === 0;
   const [killfeed, setKillfeed] = useState<KillMessage[]>([]);
@@ -556,6 +566,7 @@ export default function World(props: Props) {
         ? Math.min(devicePixelRatio, 1.25)
         : 1.0;
     renderer.setPixelRatio(pixelRatio);
+    renderer.info.autoReset = false;
     renderer.outputColorSpace = T.SRGBColorSpace;
     renderer.toneMapping = T.ACESFilmicToneMapping;
     renderer.toneMappingExposure = isCinematic ? 1.08 : isBalanced ? 0.98 : 0.92;
@@ -758,6 +769,7 @@ export default function World(props: Props) {
       style = 'classic',
     ) => {
       const isPaint = style === 'paint';
+      if (isPaint) visuals.impact(at, color);
       const isFirework = FIREWORKS.some((f) => f.id === style);
       const isCinematicQuality =
         props.quality === 'cinematic' || props.quality === 'high';
@@ -2350,6 +2362,11 @@ export default function World(props: Props) {
         composer.addPass(optics);
         const size = renderer.getSize(new T.Vector2()); composer.setSize(size.x, size.y);
       }
+      if (!visuals.active && !isCinematic && !isBalanced && composer) {
+        composer.passes.filter((pass) => pass !== optics).forEach((pass) => pass.dispose());
+        composer.dispose(); composer = undefined;
+      }
+      renderer.info.reset();
       if (composer && (isCinematic || isBalanced || visuals.active)) {
         if (bloom)
           bloom.strength =
@@ -2423,7 +2440,9 @@ export default function World(props: Props) {
     engine.current?.kit.setNotes(latest.current.room.state);
   }, [props.room.version]);
   useEffect(() => {
-    for (const effect of props.room.effects || []) engine.current?.fire(effect);
+    if (!engine.current) return;
+    const freshEffects = filterNewEffects(props.room.effects || [], seenEffectsRef.current);
+    for (const effect of freshEffects) engine.current.fire(effect);
   }, [props.room.effects]);
   useEffect(() => {
     void engine.current?.visuals.select(resourcePack, latest.current.room.state);
@@ -2435,7 +2454,7 @@ export default function World(props: Props) {
     >
       <div ref={mount} className="world-canvas" data-visual-pack={packStatus === 'ready' ? 'realistic-bodycam' : 'default'} />
       {packStatus === 'ready' && <div className="field-camera-mark" aria-hidden="true"><span>JNL / FIELD 01</span><span>● LIVE VIEW · {perspective === 'first' ? 'FPP' : 'TPP'}</span></div>}
-      {packStatus === 'loading' && <div role="status" className="pack-status">Подготовка визуального пакета…</div>}
+      {packStatus === 'loading' && <output className="pack-status">Подготовка визуального пакета…</output>}
       {packStatus === 'error' && <div role="alert" className="pack-status">Пакет не загрузился. Игра продолжается с Default.</div>}
       {hitEffect && (
         <div

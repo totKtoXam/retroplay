@@ -291,6 +291,29 @@ export const uid = (): string => {
     return v.toString(16);
   });
 };
+export function filterNewEffects<T extends { id?: string; at?: number }>(
+  effects: T[],
+  seen: Map<string, number>,
+  ttlMs = 15000,
+): T[] {
+  const fresh: T[] = [];
+  const now = Date.now();
+  for (const [key, when] of seen) {
+    if (now - when > ttlMs) seen.delete(key);
+  }
+  for (const effect of effects) {
+    if (!effect.id) {
+      if (typeof effect.at === 'number' && now - effect.at > ttlMs) continue;
+      fresh.push(effect);
+      continue;
+    }
+    const lastSeen = seen.get(effect.id);
+    if (lastSeen && now - lastSeen <= ttlMs) continue;
+    seen.set(effect.id, now);
+    fresh.push(effect);
+  }
+  return fresh;
+}
 export function initialState(
   title: string,
   theme = 'nauryz',

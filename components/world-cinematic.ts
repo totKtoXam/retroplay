@@ -352,6 +352,7 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
       new T.MeshBasicMaterial({ map: texture }),
     );
     mesh.position.set(x, y, z);
+    mesh.userData.presentationLabel = text;
     group.add(mesh);
   };
   // Боковые корпуса стоят за границами прогулочной зоны, сохраняя четыре доступных стенда.

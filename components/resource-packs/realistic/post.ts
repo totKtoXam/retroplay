@@ -5,9 +5,16 @@ import { REALISTIC_CONFIG } from './config.ts';
 export function createFieldOptics() {
   const p = REALISTIC_CONFIG.post;
   const pass = new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, time: { value: 0 }, saturation: { value: p.saturation },
-      grain: { value: p.grain }, vignette: { value: p.vignette }, aberration: { value: p.aberration } },
-    vertexShader: 'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+    uniforms: {
+      tDiffuse: { value: null },
+      time: { value: 0 },
+      saturation: { value: p.saturation },
+      grain: { value: p.grain },
+      vignette: { value: p.vignette },
+      aberration: { value: p.aberration },
+    },
+    vertexShader:
+      'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }',
     fragmentShader: `
       uniform sampler2D tDiffuse;
       uniform float time, saturation, grain, vignette, aberration;
