@@ -36,6 +36,7 @@ import {
 } from './party-geometry';
 import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
+import { attachCustomSkins, applyAvatarSkin, AVATAR_SKINS, PRESET_BANDANA_COLORS } from './world-skins';
 import { QUICK_SLOTS, slotForDigit, cycleSlot } from '@/lib/loadout';
 import { ToolMagazine, CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import {
@@ -51,6 +52,7 @@ import {
   getGroundHeight,
   getCeilingHeight,
   isBlocked3D,
+  rayCastWorldObstacle,
 } from '@/lib/world-collision';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -139,47 +141,7 @@ export function readAimModes(): WeaponAimModes {
   return { ...DEFAULT_AIM_MODES };
 }
 
-function createShieldAuraMesh(): T.Group {
-  const group = new T.Group();
-  // Translucent glowing geodesic bubble
-  const sphereGeo = new T.IcosahedronGeometry(0.9, 2);
-  const sphereMat = new T.MeshStandardMaterial({
-    color: '#38bdf8',
-    emissive: '#0284c7',
-    emissiveIntensity: 0.9,
-    roughness: 0.15,
-    metalness: 0.1,
-    transparent: true,
-    opacity: 0.38,
-    blending: T.AdditiveBlending,
-    depthWrite: false,
-    side: T.DoubleSide,
-  });
-  const sphere = new T.Mesh(sphereGeo, sphereMat);
-  group.add(sphere);
-
-  // Equatorial glowing energy ring
-  const ringGeo = new T.RingGeometry(0.85, 0.98, 28);
-  const ringMat = new T.MeshBasicMaterial({
-    color: '#bae6fd',
-    transparent: true,
-    opacity: 0.75,
-    blending: T.AdditiveBlending,
-    depthWrite: false,
-    side: T.DoubleSide,
-  });
-  const ring = new T.Mesh(ringGeo, ringMat);
-  ring.rotation.x = Math.PI / 2.8;
-  group.add(ring);
-
-  // Vertical orbit ring
-  const ring2 = new T.Mesh(ringGeo.clone(), ringMat.clone());
-  ring2.rotation.y = Math.PI / 2.5;
-  group.add(ring2);
-
-  group.userData = { sphere, ring, ring2 };
-  return group;
-}
+// Shield aura mesh removed — immunity is now indicated only by HUD text/icon
 
 type Props = {
   room: Room;
@@ -369,7 +331,7 @@ export default function World(props: Props) {
     text: string;
     sub?: string;
     type: 'kill' | 'assist' | 'death';
-    key: number;
+    key: string | number;
   } | null>(null);
   const seenKillsRef = useRef<Set<string>>(new Set());
   const initialKillsProcessed = useRef(false);
@@ -424,7 +386,7 @@ export default function World(props: Props) {
                 type: 'kill',
                 text,
                 sub: item.assisterName ? `Помог: ${item.assisterName}` : undefined,
-                key: Date.now(),
+                key: `kill-${Date.now()}-${Math.random()}`,
               });
             });
           } else if (item.assister === props.room.self) {
@@ -433,7 +395,7 @@ export default function World(props: Props) {
                 type: 'assist',
                 text: `ПОМОЩЬ В УСТРАНЕНИИ: ${item.victimName}`,
                 sub: `Устранил: ${item.killerName}`,
-                key: Date.now(),
+                key: `assist-${Date.now()}-${Math.random()}`,
               });
             });
           } else if (item.victim === props.room.self) {
@@ -450,7 +412,7 @@ export default function World(props: Props) {
                 type: 'death',
                 text,
                 sub: item.assisterName ? `Помощь: ${item.assisterName}` : undefined,
-                key: Date.now(),
+                key: `death-${Date.now()}-${Math.random()}`,
               });
             });
           }
@@ -730,11 +692,16 @@ export default function World(props: Props) {
       if (o instanceof T.Mesh) o.castShadow = props.quality !== 'low';
     });
     scene.add(avatar);
-    const localShield = createShieldAuraMesh();
-    localShield.visible = false;
-    scene.add(localShield);
+    // Attach custom skins & bandana to local avatar
+    const localSkinResult = attachCustomSkins(avatar);
+    const localBandanaMat = localSkinResult.bandanaMat;
+    {
+      const savedSkin = typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-custom-skin') || 'agent' : 'agent';
+      const savedBandana = typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') || '#3b82f6' : '#3b82f6';
+      applyAvatarSkin(avatar, savedSkin, savedBandana, localBandanaMat);
+    }
     const remoteAvatars = new Map<string, T.Group>(),
-      remoteShields = new Map<string, T.Group>(),
+      remoteBandanaMats = new Map<string, T.MeshStandardMaterial>(),
       labels = new Map<string, T.Sprite>(),
       remoteMotion = new Map<
         string,
@@ -763,7 +730,7 @@ export default function World(props: Props) {
       const tex = new T.CanvasTexture(c);
       tex.colorSpace = T.SRGBColorSpace;
       const sprite = new T.Sprite(
-        new T.SpriteMaterial({ map: tex, transparent: true, depthTest: false }),
+        new T.SpriteMaterial({ map: tex, transparent: true, depthTest: true }),
       );
       sprite.scale.set(1.8, 0.45, 1);
       sprite.position.y = 2.55;
@@ -1650,12 +1617,19 @@ export default function World(props: Props) {
       ) {
         const mx = T.MathUtils.clamp(e.movementX, -120, 120);
         const my = T.MathUtils.clamp(e.movementY, -120, 120);
-        cameraYaw -= mx * 0.0023 * latest.current.sensitivity;
+        // Scale sensitivity down when sniper is scoped
+        const tool = GAME_TOOLS[latest.current.tool]?.id;
+        const isSniperZoom = tool === 'sniper' && aimHeld;
+        const zoomScale = isSniperZoom
+          ? Math.max(0.12, 1 / (SNIPER_ZOOM_LEVELS[sniperZoomIndexRef.current] * 0.75))
+          : 1;
+        const sens = latest.current.sensitivity * zoomScale;
+        cameraYaw -= mx * 0.0023 * sens;
         pitch = T.MathUtils.clamp(
           pitch +
           my *
           0.002 *
-          latest.current.sensitivity *
+          sens *
           (latest.current.invertCamera ? -1 : 1),
           -1.35,
           1.4,
@@ -2128,15 +2102,7 @@ export default function World(props: Props) {
       );
       avatar.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
       shadow.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
-      const isLocalShielded = immuneExpireRef.current > performance.now();
-      localShield.visible = isLocalShielded && mode === 'third' && (!isDead() || isMyDeathRecent);
-      if (localShield.visible) {
-        localShield.position.set(pos.x, pos.y + 1.05, pos.z);
-        localShield.rotation.y += dt * 1.5;
-        localShield.rotation.z += dt * 0.8;
-        const pulse = 1.0 + Math.sin(now * 0.007) * 0.06;
-        localShield.scale.set(pulse * 0.95, pulse * 1.25, pulse * 0.95);
-      }
+      // (shield aura removed — immunity is HUD-only now)
       hands.update(
         dt,
         now / 1000,
@@ -2208,11 +2174,10 @@ export default function World(props: Props) {
             if (o instanceof T.Mesh) o.castShadow = props.quality === 'high';
           });
           scene.add(remote);
-          const remoteShield = createShieldAuraMesh();
-          remoteShield.position.set(0, 0.85, 0);
-          remoteShield.visible = false;
-          remote.add(remoteShield);
-          remoteShields.set(member.id, remoteShield);
+          // Attach custom skins to remote avatar
+          const remoteSkinResult = attachCustomSkins(remote);
+          remoteBandanaMats.set(member.id, remoteSkinResult.bandanaMat);
+          applyAvatarSkin(remote, member.skin || 'agent', member.bandanaColor || member.color, remoteSkinResult.bandanaMat);
           const label = addLabel(member.name, member.color);
           labels.set(member.id, label);
           remote.add(label);
@@ -2245,23 +2210,16 @@ export default function World(props: Props) {
           !!latest.current.room.state.anonymousPlayers,
         );
         const isRemoteShielded = (member.immuneRemaining || 0) > 0;
-        const remoteShield = remoteShields.get(member.id);
-        if (remoteShield) {
-          remoteShield.visible = isRemoteShielded && remote.visible;
-          if (remoteShield.visible) {
-            remoteShield.rotation.y += dt * 1.5;
-            remoteShield.rotation.z += dt * 0.8;
-            const seed = (member.id.charCodeAt(0) || 1) * 0.7;
-            const pulse = 1.0 + Math.sin(now * 0.007 + seed) * 0.06;
-            remoteShield.scale.set(pulse * 0.95, pulse * 1.25, pulse * 0.95);
-          }
-        }
+        // Update remote skin if changed
+        applyAvatarSkin(remote, member.skin || 'agent', member.bandanaColor || member.color, remoteBandanaMats.get(member.id));
         const caption = isRemoteDead
           ? '💀 ПОГИБ'
           : latest.current.room.state.anonymousPlayers
             ? `${member.hp ?? 100} HP${isRemoteShielded ? ' 🛡️' : ''}`
             : `${member.name.slice(0, 12)} · ${member.hp ?? 100}${isRemoteShielded ? ' 🛡️' : ''}`;
         let label = labels.get(member.id);
+        // Hide label when host setting hidePlayerStatus is on
+        const shouldHideLabel = !!latest.current.room.state.hidePlayerStatus;
         if (label?.userData.caption !== caption) {
           if (label) {
             label.removeFromParent();
@@ -2273,6 +2231,7 @@ export default function World(props: Props) {
           labels.set(member.id, label);
           remote.add(label);
         }
+        if (label) label.visible = !shouldHideLabel && remote.visible;
 
         const p = member.pose;
         let motion = remoteMotion.get(member.id);
@@ -2909,9 +2868,7 @@ export default function World(props: Props) {
           </div>
         </div>
       )}
-      {shieldSeconds > 0 && !dead && (
-        <div className="immunity-glow-vignette" aria-hidden="true" />
-      )}
+      {/* Immunity glow vignette removed */}
       {shieldSeconds > 0 && !dead && (
         <div
           className="spawn-immunity-hud"
@@ -2942,9 +2899,9 @@ export default function World(props: Props) {
         </div>
       </div>
       <div className="killfeed-container" aria-live="polite">
-        {killfeed.map((msg) => (
+        {killfeed.map((msg, idx) => (
           <div
-            key={msg.id}
+            key={`${msg.id}-${idx}`}
             className={`killfeed-item ${msg.killer === props.room.self
                 ? 'is-my-kill'
                 : msg.victim === props.room.self

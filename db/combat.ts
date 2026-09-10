@@ -52,12 +52,12 @@ export async function resolveCombat(room: string, respawnSeconds = 5) {
   await ensureCombatColumns();
   const now = Date.now();
 
-  // Revive dead members whose respawn time reached; grant 5 seconds spawn protection
+  // Revive dead members whose respawn time reached; grant spawn protection waiting for first movement (-1)
   await db()
     .prepare(
       'UPDATE members SET hp=100,respawn_at=0,life=life+1,immune_until=?,recent_damage="{}",pose=? WHERE room=? AND hp=0 AND respawn_at>0 AND respawn_at<=?',
     )
-    .bind(now + 5000, spawn, room, now)
+    .bind(-1, spawn, room, now)
     .run();
 
   const pending = await db()
@@ -122,14 +122,14 @@ export async function resolveCombat(room: string, respawnSeconds = 5) {
     if (authorMember) {
       authorName = authorMember.name || 'Игрок';
       authorColor = authorMember.color || '#ff647c';
-      authorImmune = (authorMember.immune_until || 0) > now;
+      authorImmune = authorMember.immune_until === -1 || (authorMember.immune_until || 0) > now;
     }
 
     // Prepare batch statements
     const statements: Parameters<ReturnType<typeof db>['batch']>[0] = [];
 
     for (const p of hits) {
-      const victimImmune = (p.immune_until || 0) > now;
+      const victimImmune = p.immune_until === -1 || (p.immune_until || 0) > now;
       const pose = JSON.parse(String(p.pose)) as Pose;
       const isHead = isHeadshot(
         e.kind,

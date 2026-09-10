@@ -1,3 +1,5 @@
+import { rayCastWorldObstacle } from './world-collision';
+
 export const PAINTS = [
   ['coral', 'Коралл', '#ff647c'],
   ['amber', 'Янтарь', '#ffb851'],
@@ -218,7 +220,30 @@ export function inHitRange(
     hitRadius = 0.46;
   }
 
-  return segmentSegmentDist(origin, target, spineBottom, spineTop) < hitRadius;
+  if (segmentSegmentDist(origin, target, spineBottom, spineTop) >= hitRadius) {
+    return false;
+  }
+
+  // Check if a solid building/world wall occludes the trajectory before reaching victim
+  const victimCenter: [number, number, number] = [
+    (spineBottom[0] + spineTop[0]) * 0.5,
+    (spineBottom[1] + spineTop[1]) * 0.5,
+    (spineBottom[2] + spineTop[2]) * 0.5,
+  ];
+  const wallHit = rayCastWorldObstacle(origin, victimCenter);
+  if (
+    wallHit &&
+    wallHit.distance <
+      Math.hypot(
+        victimCenter[0] - origin[0],
+        victimCenter[1] - origin[1],
+        victimCenter[2] - origin[2],
+      ) - 0.35
+  ) {
+    return false; // Shot is obstructed by a solid wall
+  }
+
+  return true;
 }
 
 /** Check if projectile ray hit the player head (headshot). */
@@ -320,6 +345,12 @@ export function calculatePelletsHit(
   // If outside cone envelope + body radius, 0 hits
   if (dPerp > coneRadius + hitRadius) {
     return { pelletsHit: 0, damage: 0 };
+  }
+
+  // Check if a solid building/world wall occludes the shotgun blast before reaching victim
+  const wallHit = rayCastWorldObstacle(origin, [centerX, centerY, centerZ]);
+  if (wallHit && wallHit.distance < dist - 0.35) {
+    return { pelletsHit: 0, damage: 0 }; // Shotgun blast is blocked by a solid wall
   }
 
   // Compute local perpendicular basis for the shot ray

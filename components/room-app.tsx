@@ -98,6 +98,7 @@ import Board, { Card } from './board';
 import { ResourcePackPicker } from './resource-pack-picker';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { readAimModes, type WeaponAimModes } from './world';
+import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from './world-skins';
 
 const World = lazy(() => import('./world'));
 const icons = [
@@ -2407,8 +2408,8 @@ export default function RoomApp({ id }: { id: string }) {
                 Отменить последнее действие
               </button>
               <div className="history-list">
-                {history.map((h) => (
-                  <div key={h.version}>
+                {history.map((h, idx) => (
+                  <div key={`${h.version}-${idx}`}>
                     <strong>{h.name || 'Участник'}</strong>
                     <span>
                       {(
@@ -2735,9 +2736,9 @@ export default function RoomApp({ id }: { id: string }) {
                 <span className="field-label">Прицеливание (ПКМ)</span>
                 <div className="aim-settings-list">
                   {[
-                    { id: 'paint', name: 'Краскострел' },
-                    { id: 'confetti', name: 'Дробовик' },
-                    { id: 'sniper', name: 'Снайперка' },
+                    { id: 'paint', name: '🎨 Краскострел' },
+                    { id: 'confetti', name: '💥 Дробовик' },
+                    { id: 'sniper', name: '🎯 Снайперка' },
                   ].map((w) => (
                     <div key={w.id} className="aim-setting-row">
                       <span className="aim-weapon-name">{w.name}</span>
@@ -2782,6 +2783,18 @@ export default function RoomApp({ id }: { id: string }) {
                   void act({
                     type: 'room.settings',
                     patch: { anonymousPlayers },
+                  })
+                }
+              />
+              <Toggle
+                label="Скрыть статус-бар игроков"
+                description="Имя и HP над персонажем не отображаются — нельзя видеть через стены"
+                value={!!s.hidePlayerStatus}
+                disabled={!host}
+                onChange={(hidePlayerStatus) =>
+                  void act({
+                    type: 'room.settings',
+                    patch: { hidePlayerStatus },
                   })
                 }
               />
@@ -3104,6 +3117,67 @@ export default function RoomApp({ id }: { id: string }) {
                     {mood}
                   </button>
                 ))}
+              </div>
+              {/* ====== Skin picker ====== */}
+              <p className="field" style={{marginTop: 18}}>Выбор скина</p>
+              <div className="skin-picker-grid">
+                {AVATAR_SKINS.map((sk) => (
+                  <button
+                    key={sk.id}
+                    className={`skin-card ${(typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-custom-skin') : '') === sk.id ? 'selected' : ''}`}
+                    title={sk.description}
+                    onClick={() => {
+                      localStorage.setItem('jinaly-custom-skin', sk.id);
+                      void act({
+                        type: 'profile',
+                        name: me?.name || 'Участник',
+                        mood: me?.mood,
+                        hat: sk.id,
+                      });
+                    }}
+                  >
+                    <span className="skin-icon">{sk.icon}</span>
+                    <span className="skin-name">{sk.name}</span>
+                  </button>
+                ))}
+              </div>
+              {/* ====== Bandana / accent color picker ====== */}
+              <p className="field" style={{marginTop: 14}}>Цвет банданы / акцента</p>
+              <div className="bandana-color-swatches">
+                {PRESET_BANDANA_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    className={`bandana-swatch ${(typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') : '') === c ? 'selected' : ''}`}
+                    style={{ background: c }}
+                    title={c}
+                    onClick={() => {
+                      localStorage.setItem('jinaly-bandana-color', c);
+                      void act({
+                        type: 'profile',
+                        name: me?.name || 'Участник',
+                        mood: me?.mood,
+                        hat: me?.hat,
+                        color: c,
+                      });
+                    }}
+                  />
+                ))}
+                <input
+                  type="color"
+                  className="bandana-color-input"
+                  value={typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') || '#3b82f6' : '#3b82f6'}
+                  onChange={(e) => {
+                    localStorage.setItem('jinaly-bandana-color', e.target.value);
+                    void act({
+                      type: 'profile',
+                      name: me?.name || 'Участник',
+                      mood: me?.mood,
+                      hat: me?.hat,
+                      color: e.target.value,
+                    });
+                  }}
+                  title="Свой цвет"
+                />
               </div>
               <div className="widget-grid">
                 <button

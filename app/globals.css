@@ -6137,14 +6137,7 @@ h1 > span {
   border: 1px solid rgba(251, 146, 60, 0.4);
   letter-spacing: 0.04em;
 }
-.immunity-glow-vignette {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 9;
-  box-shadow: inset 0 0 70px rgba(56, 189, 248, 0.35);
-  animation: pulse-shield 1.5s ease-in-out infinite alternate;
-}
+/* immunity glow vignette removed */
 @keyframes killfeed-in {
   0% {
     opacity: 0;
@@ -8185,16 +8178,18 @@ h1 > span {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  gap: 12px;
+  padding: 8px 14px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 10px;
+  gap: 14px;
 }
 .aim-weapon-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: #e2e8f0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  letter-spacing: 0.02em;
 }
 .aim-mode-pills {
   display: flex;
@@ -8227,3 +8222,87 @@ h1 > span {
 }
 
 
+/* === Skin picker grid === */
+.skin-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.skin-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 2px solid rgba(148, 163, 184, 0.15);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.skin-card:hover {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(30, 41, 59, 0.8);
+}
+.skin-card.selected {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);
+}
+.skin-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+.skin-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e2e8f0;
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* === Bandana / accent color swatches === */
+.bandana-color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+  align-items: center;
+}
+.bandana-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  padding: 0;
+}
+.bandana-swatch:hover {
+  transform: scale(1.15);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+.bandana-swatch.selected {
+  border-color: #ffffff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+  transform: scale(1.2);
+}
+.bandana-color-input {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px dashed rgba(255, 255, 255, 0.3);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.bandana-color-input::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.bandana-color-input::-webkit-color-swatch {
+  border-radius: 50%;
+  border: none;
+}

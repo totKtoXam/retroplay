@@ -122,7 +122,8 @@ async function buildRoomSnapshot(
         deaths: m.deaths ?? 0,
         assists: m.assists ?? 0,
         immuneUntil,
-        immuneRemaining: Math.max(0, immuneUntil - now),
+        immuneRemaining:
+          immuneUntil === -1 ? 5000 : Math.max(0, immuneUntil - now),
         respawnRemaining: Math.max(0, respawnAt - now),
         name: isAnonymous ? 'Участник' : m.name,
         mood: isAnonymous ? '' : m.mood,
@@ -449,7 +450,10 @@ export async function POST(request: Request, context: Context) {
         }>();
       if (!shooter || shooter.hp <= 0)
         return json({ ok: false, reason: 'respawning' });
-      if ((Number(shooter.immune_until) || 0) > Date.now())
+      if (
+        (Number(shooter.immune_until) || 0) > Date.now() ||
+        shooter.immune_until === -1
+      )
         return json({ ok: false, reason: 'immune' });
       const position = JSON.parse(shooter.pose);
       if (
@@ -604,13 +608,19 @@ export async function POST(request: Request, context: Context) {
       const lifeVal = Number.isInteger(op.life) ? op.life : 0;
       const now = Date.now();
 
+      const hasMoved =
+        pose &&
+        (pose.moving ||
+          Math.hypot(pose.x, pose.z - 4) > 0.45);
+
       const updateStmt = db()
         .prepare(
           `UPDATE members
            SET seen = ?,
                ping = ?,
                cursor = CASE WHEN ? IS NOT NULL THEN ? ELSE cursor END,
-               pose = CASE WHEN hp > 0 AND life = ? AND ? IS NOT NULL THEN ? ELSE pose END
+               pose = CASE WHEN hp > 0 AND life = ? AND ? IS NOT NULL THEN ? ELSE pose END,
+               immune_until = CASE WHEN hp > 0 AND immune_until = -1 AND ? = 1 THEN ? ELSE immune_until END
            WHERE room = ? AND session = ?`,
         )
         .bind(
@@ -621,6 +631,8 @@ export async function POST(request: Request, context: Context) {
           lifeVal,
           poseJson,
           poseJson,
+          hasMoved ? 1 : 0,
+          now + 5000,
           id,
           self,
         );
@@ -643,14 +655,19 @@ export async function POST(request: Request, context: Context) {
     if (op.type === 'profile') {
       const name = cleanText(op.name, 40);
       if (!name) throw Error('Введите имя');
+      const color =
+        typeof op.color === 'string' && /^#[0-9a-f]{6}$/i.test(op.color)
+          ? op.color
+          : null;
       await db()
         .prepare(
-          'UPDATE members SET name=?,mood=?,hat=? WHERE room=? AND session=?',
+          'UPDATE members SET name=?,mood=?,hat=?,color=COALESCE(?,color) WHERE room=? AND session=?',
         )
         .bind(
           name,
           cleanText(op.mood || '', 20),
           cleanText(op.hat || '', 20),
+          color,
           id,
           self,
         )
