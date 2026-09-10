@@ -45,6 +45,13 @@ import {
   visibleInWorld,
   type Perspective,
 } from '@/lib/game-camera';
+import {
+  ALL_3D_COLLIDERS,
+  BoxCollider3D,
+  getGroundHeight,
+  getCeilingHeight,
+  isBlocked3D,
+} from '@/lib/world-collision';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -688,6 +695,8 @@ export default function World(props: Props) {
       viewHeight = eyeHeight(initial?.stance || 'stand'),
       pitch = 0.16,
       distance = 6.5,
+      currentCamDist = 6.5,
+      obstacleHoldTimer = 0,
       vy = 0,
       currentStance: 'stand' | 'sit' | 'lie' = initial?.stance || 'stand',
       lastC = -1000,
@@ -1459,7 +1468,8 @@ export default function World(props: Props) {
         setStance('sit');
       }
       if (isDead()) return;
-      if (e.code === 'Space' && pos.y <= 0.01) {
+      const groundYNow = getGroundHeight(pos.x, pos.z, pos.y);
+      if (e.code === 'Space' && Math.abs(pos.y - groundYNow) <= 0.08) {
         currentStance = 'stand';
         setStance('stand');
         vy = 5.7;
@@ -1518,10 +1528,12 @@ export default function World(props: Props) {
         document.pointerLockElement === canvas ||
         (softLook && mouseInWorld)
       ) {
-        cameraYaw -= e.movementX * 0.0023 * latest.current.sensitivity;
+        const mx = T.MathUtils.clamp(e.movementX, -120, 120);
+        const my = T.MathUtils.clamp(e.movementY, -120, 120);
+        cameraYaw -= mx * 0.0023 * latest.current.sensitivity;
         pitch = T.MathUtils.clamp(
           pitch +
-          e.movementY *
+          my *
           0.002 *
           latest.current.sensitivity *
           (latest.current.invertCamera ? -1 : 1),
@@ -1650,14 +1662,8 @@ export default function World(props: Props) {
     canvas.addEventListener('contextmenu', context);
     canvas.addEventListener('auxclick', context);
     canvas.addEventListener('webglcontextlost', context);
-    const blocked = (x: number, z: number) =>
-      kit.colliders.some((c) => {
-        if (latest.current.room.state.interior && c.z === -18) return false;
-        return (
-          Math.abs(x - c.x) < c.w / 2 + 0.28 &&
-          Math.abs(z - c.z) < c.d / 2 + 0.28
-        );
-      });
+    const blocked = (x: number, z: number, y = pos.y) =>
+      isBlocked3D(x, z, y, 0.32, 1.8, kit.colliders as BoxCollider3D[]);
     let life =
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.life || 0;
@@ -1813,15 +1819,51 @@ export default function World(props: Props) {
         dz /= len;
         const vx = dx * Math.cos(cameraYaw) + dz * Math.sin(cameraYaw),
           vz = -dx * Math.sin(cameraYaw) + dz * Math.cos(cameraYaw);
-        const nx = T.MathUtils.clamp(pos.x + vx * speed * dt, -22, 22),
-          nz = T.MathUtils.clamp(pos.z + vz * speed * dt, -23, 23);
-        if (!blocked(nx, pos.z)) pos.x = nx;
-        if (!blocked(pos.x, nz)) pos.z = nz;
+        const nx = T.MathUtils.clamp(pos.x + vx * speed * dt, -28, 28),
+          nz = T.MathUtils.clamp(pos.z + vz * speed * dt, -28, 28);
+
+        // Try X movement with step-up assist:
+        const nextGroundX = getGroundHeight(nx, pos.z, pos.y);
+        const stepDeltaX = nextGroundX - pos.y;
+        if (
+          stepDeltaX <= 0.45 &&
+          !blocked(nx, pos.z, Math.max(pos.y, nextGroundX))
+        ) {
+          pos.x = nx;
+          if (stepDeltaX > 0.01 && pos.y < nextGroundX) {
+            pos.y = T.MathUtils.lerp(pos.y, nextGroundX, Math.min(1, 15 * dt));
+          }
+        }
+
+        // Try Z movement with step-up assist:
+        const nextGroundZ = getGroundHeight(pos.x, nz, pos.y);
+        const stepDeltaZ = nextGroundZ - pos.y;
+        if (
+          stepDeltaZ <= 0.45 &&
+          !blocked(pos.x, nz, Math.max(pos.y, nextGroundZ))
+        ) {
+          pos.z = nz;
+          if (stepDeltaZ > 0.01 && pos.y < nextGroundZ) {
+            pos.y = T.MathUtils.lerp(pos.y, nextGroundZ, Math.min(1, 15 * dt));
+          }
+        }
       }
       heading = followCameraHeading(heading, cameraYaw, dt);
+
+      // Dynamic ground height detection & gravity:
+      const groundY = getGroundHeight(pos.x, pos.z, pos.y);
       vy -= 13 * dt;
-      pos.y = Math.max(0, pos.y + vy * dt);
-      if (pos.y === 0) vy = 0;
+      pos.y = pos.y + vy * dt;
+      if (pos.y <= groundY) {
+        pos.y = groundY;
+        vy = 0;
+      }
+      // Ceiling collision to prevent head clipping through floors/roofs:
+      const ceilY = getCeilingHeight(pos.x, pos.z, pos.y);
+      if (pos.y + 1.8 >= ceilY) {
+        pos.y = ceilY - 1.8;
+        if (vy > 0) vy = 0;
+      }
       avatar.position.copy(pos);
       avatar.position.y += 0.27;
       avatar.rotation.y = heading;
@@ -1846,7 +1888,7 @@ export default function World(props: Props) {
           speed: moving ? speed : 0,
           strafe: dx,
           forward: -dz,
-          airborne: pos.y > 0.005,
+          airborne: Math.abs(pos.y - groundY) > 0.03,
           velocityY: vy,
           stance: currentStance,
           tool: GAME_TOOLS[latest.current.tool]?.id || 'pointer',
@@ -1862,8 +1904,8 @@ export default function World(props: Props) {
         dt,
         now / 1000,
       );
-      shadow.position.set(pos.x, 0.24, pos.z);
-      shadow.scale.setScalar(Math.max(0.5, 1 - pos.y * 0.1));
+      shadow.position.set(pos.x, groundY + 0.02, pos.z);
+      shadow.scale.setScalar(Math.max(0.5, 1 - (pos.y - groundY) * 0.1));
       viewHeight = T.MathUtils.lerp(
         viewHeight,
         eyeHeight(currentStance),
@@ -1878,18 +1920,40 @@ export default function World(props: Props) {
         mode,
         distance,
       );
-      const desired =
-        mode === 'third'
-          ? avoidCameraWalls(view.eye, view.position, cameraObstacles)
-          : view.position;
-      // При приближении к стене сокращаем дистанцию сразу, возвращаем её плавно.
-      if (
-        mode === 'first' ||
-        camera.position.distanceTo(view.eye) >
-        desired.distanceTo(view.eye) + 0.1
-      )
-        camera.position.copy(desired);
-      else camera.position.lerp(desired, 1 - Math.exp(-14 * dt));
+      if (mode === 'first') {
+        camera.position.copy(view.position);
+        currentCamDist = 0.01;
+        obstacleHoldTimer = 0;
+      } else {
+        const desired = avoidCameraWalls(
+          view.eye,
+          view.position,
+          cameraObstacles,
+        );
+        const hitDist = desired.distanceTo(view.eye);
+        const fullDist = view.position.distanceTo(view.eye);
+        const isObstructed = hitDist < fullDist - 0.05;
+
+        if (isObstructed) {
+          if (hitDist < currentCamDist) {
+            // Rapidly tuck camera in to avoid clipping into wall
+            currentCamDist = T.MathUtils.damp(currentCamDist, hitDist, 24, dt);
+          } else {
+            // Camera wants to move further away: apply gentle damping
+            currentCamDist = T.MathUtils.damp(currentCamDist, hitDist, 14, dt);
+          }
+          obstacleHoldTimer = 0.08; // 80ms hysteresis hold to avoid edge flickers
+        } else {
+          if (obstacleHoldTimer > 0) {
+            obstacleHoldTimer -= dt;
+          } else {
+            // Smoothly ease back out to full distance
+            currentCamDist = T.MathUtils.damp(currentCamDist, fullDist, 9, dt);
+          }
+        }
+        const camDir = view.position.clone().sub(view.eye).normalize();
+        camera.position.copy(view.eye).addScaledVector(camDir, currentCamDist);
+      }
       camera.lookAt(
         camera.position.clone().addScaledVector(view.direction, 30),
       );

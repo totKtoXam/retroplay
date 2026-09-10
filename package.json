@@ -13,7 +13,7 @@
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/model.test.mjs tests/avatar.test.mjs tests/camera.test.mjs tests/magazine.test.mjs tests/loadout.test.mjs tests/hitbox.test.mjs tests/access.test.mjs",
+    "test": "node --experimental-strip-types --test tests/model.test.mjs tests/avatar.test.mjs tests/camera.test.mjs tests/magazine.test.mjs tests/loadout.test.mjs tests/hitbox.test.mjs tests/access.test.mjs tests/building.test.mjs",
     "test:integration": "node tests/integration.mjs && node tests/access.integration.mjs && node tests/network.integration.mjs",
     "db:local": "wrangler d1 migrations apply site-creator-d1 --local --config wrangler.local.json"
   },
