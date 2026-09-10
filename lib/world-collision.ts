@@ -168,71 +168,33 @@ STATION_COLLIDERS.push({
 export const SIDE_BUILDINGS_COLLIDERS: BoxCollider3D[] = [
   // ===================== WEST BUILDING (x ~ -27, z ~ -8) =====================
   // --- East Wall (Plaza entrance at x = -23.5: x in [-23.7, -23.3]) ---
-  { minX: -23.7, maxX: -23.3, minZ: -17.2, maxZ: -9.5, minY: 0, maxY: 3.5, label: 'west-bldg-east-wall-n' },
-  { minX: -23.7, maxX: -23.3, minZ: -6.5, maxZ: 1.2, minY: 0, maxY: 3.5, label: 'west-bldg-east-wall-s' },
-  { minX: -23.7, maxX: -23.3, minZ: -9.5, maxZ: -6.5, minY: 2.6, maxY: 3.5, label: 'west-bldg-door-lintel' },
+  { minX: -23.7, maxX: -23.3, minZ: -17.2, maxZ: -9.5, minY: 0, maxY: 7.0, label: 'west-bldg-east-wall-n' },
+  { minX: -23.7, maxX: -23.3, minZ: -6.5, maxZ: 1.2, minY: 0, maxY: 7.0, label: 'west-bldg-east-wall-s' },
+  { minX: -23.7, maxX: -23.3, minZ: -9.5, maxZ: -6.5, minY: 2.6, maxY: 7.0, label: 'west-bldg-door-lintel' },
 
-  // --- West Wall (x = -30.5: x in [-30.7, -30.3]) ---
-  { minX: -30.7, maxX: -30.3, minZ: -17.2, maxZ: -15.0, minY: 0, maxY: 3.5 },
-  { minX: -30.7, maxX: -30.3, minZ: -1.0, maxZ: 1.2, minY: 0, maxY: 3.5 },
-  { minX: -30.7, maxX: -30.3, minZ: -15.0, maxZ: -1.0, minY: 0, maxY: 0.95 },
-  { minX: -30.7, maxX: -30.3, minZ: -15.0, maxZ: -1.0, minY: 2.5, maxY: 3.5 },
+  // --- West Wall (x = -30.5: x in [-30.7, -30.3]) Solid ground to roof ---
+  { minX: -30.7, maxX: -30.3, minZ: -17.2, maxZ: 1.2, minY: 0, maxY: 7.0, label: 'west-bldg-west-wall' },
 
-  // --- North Wall (z = -17.0: z in [-17.2, -16.8]) ---
-  { minX: -30.7, maxX: -28.5, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 3.5 },
-  { minX: -25.5, maxX: -23.3, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 3.5 },
-  { minX: -28.5, maxX: -25.5, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 0.95 },
-  { minX: -28.5, maxX: -25.5, minZ: -17.2, maxZ: -16.8, minY: 2.5, maxY: 3.5 },
+  // --- North Wall (z = -17.0: z in [-17.2, -16.8]) Solid ground to roof ---
+  { minX: -30.7, maxX: -23.3, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 7.0, label: 'west-bldg-north-wall' },
 
-  // --- South Wall (z = 1.0: z in [0.8, 1.2]) ---
-  { minX: -30.7, maxX: -28.5, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 3.5 },
-  { minX: -25.5, maxX: -23.3, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 3.5 },
-  { minX: -28.5, maxX: -25.5, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 0.95 },
-  { minX: -28.5, maxX: -25.5, minZ: 0.8, maxZ: 1.2, minY: 2.5, maxY: 3.5 },
-
-  // --- Floor 2 Exterior Walls & Balcony (y in [3.5, 7.0]) ---
-  { minX: -23.7, maxX: -23.3, minZ: -17.2, maxZ: 1.2, minY: 3.5, maxY: 4.35, label: 'west-bldg-balcony-sill' },
-  { minX: -23.7, maxX: -23.3, minZ: -17.2, maxZ: 1.2, minY: 6.2, maxY: 7.0, label: 'west-bldg-balcony-lintel' },
-  { minX: -30.7, maxX: -30.3, minZ: -17.2, maxZ: 1.2, minY: 3.5, maxY: 4.4 },
-  { minX: -30.7, maxX: -30.3, minZ: -17.2, maxZ: 1.2, minY: 6.2, maxY: 7.0 },
-  { minX: -30.7, maxX: -23.3, minZ: -17.2, maxZ: -16.8, minY: 3.5, maxY: 4.4 },
-  { minX: -30.7, maxX: -23.3, minZ: -17.2, maxZ: -16.8, minY: 6.2, maxY: 7.0 },
-  { minX: -30.7, maxX: -23.3, minZ: 0.8, maxZ: 1.2, minY: 3.5, maxY: 4.4 },
-  { minX: -30.7, maxX: -23.3, minZ: 0.8, maxZ: 1.2, minY: 6.2, maxY: 7.0 },
+  // --- South Wall (z = 1.0: z in [0.8, 1.2]) Solid ground to roof ---
+  { minX: -30.7, maxX: -23.3, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 7.0, label: 'west-bldg-south-wall' },
 
   // ===================== EAST BUILDING (x ~ 27, z ~ -8) =====================
   // --- West Wall (Plaza entrance at x = 23.5: x in [23.3, 23.7]) ---
-  { minX: 23.3, maxX: 23.7, minZ: -17.2, maxZ: -9.5, minY: 0, maxY: 3.5, label: 'east-bldg-west-wall-n' },
-  { minX: 23.3, maxX: 23.7, minZ: -6.5, maxZ: 1.2, minY: 0, maxY: 3.5, label: 'east-bldg-west-wall-s' },
-  { minX: 23.3, maxX: 23.7, minZ: -9.5, maxZ: -6.5, minY: 2.6, maxY: 3.5, label: 'east-bldg-door-lintel' },
+  { minX: 23.3, maxX: 23.7, minZ: -17.2, maxZ: -9.5, minY: 0, maxY: 7.0, label: 'east-bldg-west-wall-n' },
+  { minX: 23.3, maxX: 23.7, minZ: -6.5, maxZ: 1.2, minY: 0, maxY: 7.0, label: 'east-bldg-west-wall-s' },
+  { minX: 23.3, maxX: 23.7, minZ: -9.5, maxZ: -6.5, minY: 2.6, maxY: 7.0, label: 'east-bldg-door-lintel' },
 
-  // --- East Wall (x = 30.5: x in [30.3, 30.7]) ---
-  { minX: 30.3, maxX: 30.7, minZ: -17.2, maxZ: -15.0, minY: 0, maxY: 3.5 },
-  { minX: 30.3, maxX: 30.7, minZ: -1.0, maxZ: 1.2, minY: 0, maxY: 3.5 },
-  { minX: 30.3, maxX: 30.7, minZ: -15.0, maxZ: -1.0, minY: 0, maxY: 0.95 },
-  { minX: 30.3, maxX: 30.7, minZ: -15.0, maxZ: -1.0, minY: 2.5, maxY: 3.5 },
+  // --- East Wall (x = 30.5: x in [30.3, 30.7]) Solid ground to roof ---
+  { minX: 30.3, maxX: 30.7, minZ: -17.2, maxZ: 1.2, minY: 0, maxY: 7.0, label: 'east-bldg-east-wall' },
 
-  // --- North Wall (z = -17.0: z in [-17.2, -16.8]) ---
-  { minX: 23.3, maxX: 25.5, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 3.5 },
-  { minX: 28.5, maxX: 30.7, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 3.5 },
-  { minX: 25.5, maxX: 28.5, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 0.95 },
-  { minX: 25.5, maxX: 28.5, minZ: -17.2, maxZ: -16.8, minY: 2.5, maxY: 3.5 },
+  // --- North Wall (z = -17.0: z in [-17.2, -16.8]) Solid ground to roof ---
+  { minX: 23.3, maxX: 30.7, minZ: -17.2, maxZ: -16.8, minY: 0, maxY: 7.0, label: 'east-bldg-north-wall' },
 
-  // --- South Wall (z = 1.0: z in [0.8, 1.2]) ---
-  { minX: 23.3, maxX: 25.5, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 3.5 },
-  { minX: 28.5, maxX: 30.7, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 3.5 },
-  { minX: 25.5, maxX: 28.5, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 0.95 },
-  { minX: 25.5, maxX: 28.5, minZ: 0.8, maxZ: 1.2, minY: 2.5, maxY: 3.5 },
-
-  // --- Floor 2 Exterior Walls & Balcony (y in [3.5, 7.0]) ---
-  { minX: 23.3, maxX: 23.7, minZ: -17.2, maxZ: 1.2, minY: 3.5, maxY: 4.35, label: 'east-bldg-balcony-sill' },
-  { minX: 23.3, maxX: 23.7, minZ: -17.2, maxZ: 1.2, minY: 6.2, maxY: 7.0, label: 'east-bldg-balcony-lintel' },
-  { minX: 30.3, maxX: 30.7, minZ: -17.2, maxZ: 1.2, minY: 3.5, maxY: 4.4 },
-  { minX: 30.3, maxX: 30.7, minZ: -17.2, maxZ: 1.2, minY: 6.2, maxY: 7.0 },
-  { minX: 23.3, maxX: 30.7, minZ: -17.2, maxZ: -16.8, minY: 3.5, maxY: 4.4 },
-  { minX: 23.3, maxX: 30.7, minZ: -17.2, maxZ: -16.8, minY: 6.2, maxY: 7.0 },
-  { minX: 23.3, maxX: 30.7, minZ: 0.8, maxZ: 1.2, minY: 3.5, maxY: 4.4 },
-  { minX: 23.3, maxX: 30.7, minZ: 0.8, maxZ: 1.2, minY: 6.2, maxY: 7.0 },
+  // --- South Wall (z = 1.0: z in [0.8, 1.2]) Solid ground to roof ---
+  { minX: 23.3, maxX: 30.7, minZ: 0.8, maxZ: 1.2, minY: 0, maxY: 7.0, label: 'east-bldg-south-wall' },
 ];
 
 // All 3D obstacle colliders combined
@@ -422,3 +384,86 @@ export function isBlocked3D(
   }
   return false;
 }
+
+/**
+ * Traces a line segment from origin to target against all solid 3D world colliders.
+ * Returns the closest intersection point if obstructed by a wall/building, or null if line of sight is clear.
+ */
+export function rayCastWorldObstacle(
+  origin: number[] | { x: number; y: number; z: number },
+  target: number[] | { x: number; y: number; z: number },
+  colliders: BoxCollider3D[] = ALL_3D_COLLIDERS,
+): { hit: boolean; point: [number, number, number]; distance: number } | null {
+  const ox = Array.isArray(origin) ? origin[0] : origin.x;
+  const oy = Array.isArray(origin) ? origin[1] : origin.y;
+  const oz = Array.isArray(origin) ? origin[2] : origin.z;
+
+  const tx = Array.isArray(target) ? target[0] : target.x;
+  const ty = Array.isArray(target) ? target[1] : target.y;
+  const tz = Array.isArray(target) ? target[2] : target.z;
+
+  const dx = tx - ox;
+  const dy = ty - oy;
+  const dz = tz - oz;
+  const fullDist = Math.hypot(dx, dy, dz);
+  if (fullDist < 1e-4) return null;
+
+  let closestT = 1.0;
+  let hasHit = false;
+
+  for (const c of colliders) {
+    let tmin = 0.0;
+    let tmax = 1.0;
+
+    // X slab
+    if (Math.abs(dx) > 1e-6) {
+      let t1 = (c.minX - ox) / dx;
+      let t2 = (c.maxX - ox) / dx;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      tmin = Math.max(tmin, t1);
+      tmax = Math.min(tmax, t2);
+      if (tmin > tmax) continue;
+    } else if (ox < c.minX || ox > c.maxX) {
+      continue;
+    }
+
+    // Y slab
+    if (Math.abs(dy) > 1e-6) {
+      let t1 = (c.minY - oy) / dy;
+      let t2 = (c.maxY - oy) / dy;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      tmin = Math.max(tmin, t1);
+      tmax = Math.min(tmax, t2);
+      if (tmin > tmax) continue;
+    } else if (oy < c.minY || oy > c.maxY) {
+      continue;
+    }
+
+    // Z slab
+    if (Math.abs(dz) > 1e-6) {
+      let t1 = (c.minZ - oz) / dz;
+      let t2 = (c.maxZ - oz) / dz;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      tmin = Math.max(tmin, t1);
+      tmax = Math.min(tmax, t2);
+      if (tmin > tmax) continue;
+    } else if (oz < c.minZ || oz > c.maxZ) {
+      continue;
+    }
+
+    // Ignore intersections that are behind the ray or past an already closer hit
+    if (tmin >= 0.005 && tmin < closestT) {
+      closestT = tmin;
+      hasHit = true;
+    }
+  }
+
+  if (!hasHit) return null;
+
+  return {
+    hit: true,
+    point: [ox + dx * closestT, oy + dy * closestT, oz + dz * closestT],
+    distance: fullDist * closestT,
+  };
+}
+

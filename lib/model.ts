@@ -189,6 +189,8 @@ export type Person = {
   ping: number;
   mood: string;
   hat: string;
+  skin?: string;
+  bandanaColor?: string;
   cursor?: { x?: number; y?: number; mode?: string };
 };
 export type Note = {
@@ -227,6 +229,7 @@ export type Round = {
 };
 export type RoomState = {
   anonymousPlayers?: boolean;
+  hidePlayerStatus?: boolean;
   respawnSeconds?: number;
   title: string;
   theme: string;
@@ -553,6 +556,7 @@ export function applyOperation(
       'privateWriting',
       'anonymous',
       'anonymousPlayers',
+      'hidePlayerStatus',
       'layoutLocked',
     ] as const)
       if (key in p) s[key] = !!p[key];

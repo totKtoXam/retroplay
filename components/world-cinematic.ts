@@ -438,6 +438,8 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
     const merged = mergeGeometries(geos);
     geos.forEach((g) => g.dispose());
     if (merged) {
+      merged.computeBoundingBox();
+      merged.computeBoundingSphere();
       const m = new T.Mesh(merged, mat);
       m.castShadow = !mat.transparent;
       m.receiveShadow = true;
