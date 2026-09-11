@@ -16,8 +16,6 @@ import {
   Link2,
   Sun,
   Settings2,
-  Play,
-  Pause,
   RotateCcw,
   Check,
   MousePointer2,
@@ -95,7 +93,14 @@ import { ResourcePackPicker } from './resource-pack-picker';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { readAimModes, type WeaponAimModes } from './world';
 import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from './world-skins';
-import { ExportPanel, HelpPanel, SharePanel } from './room-panels';
+import {
+  ExportPanel,
+  HelpPanel,
+  HistoryPanel,
+  SharePanel,
+  TimerPanel,
+  VotePanel,
+} from './room-panels';
 
 const World = lazy(() => import('./world'));
 const icons = [
@@ -2404,55 +2409,17 @@ export default function RoomApp({ id }: { id: string }) {
             </>
           )}
           {panel === 'history' && (
-            <>
-              <p className="muted">
-                Последние 40 изменений. Отмена доступна только для вашего
-                последнего действия, пока другие участники не внесли изменения.
-              </p>
-              <button
-                className="secondary"
-                onClick={() =>
-                  void act({ type: 'undo' }).then((r) => {
-                    if (r) {
-                      flash('Последнее действие отменено');
-                      setPanel('');
-                    }
-                  })
-                }
-              >
-                <RotateCcw size={16} />
-                Отменить последнее действие
-              </button>
-              <div className="history-list">
-                {history.map((h, idx) => (
-                  <div key={`${h.version}-${idx}`}>
-                    <strong>{h.name || 'Участник'}</strong>
-                    <span>
-                      {(
-                        {
-                          'note.add': 'Добавлена карточка',
-                          'note.edit': 'Изменена карточка',
-                          'note.delete': 'Удалена карточка',
-                          'note.comment': 'Комментарий',
-                          'note.react': 'Реакция',
-                          'room.settings': 'Настройки комнаты',
-                          'vote.start': 'Начат раунд',
-                          'vote.end': 'Завершён раунд',
-                          vote: 'Голос',
-                          phase: 'Этап встречи',
-                          timer: 'Таймер',
-                          reveal: 'Раскрыты заметки',
-                          'group.add': 'Добавлена тема',
-                          undo: 'Отмена действия',
-                          archive: 'Завершение встречи',
-                        } as Record<string, string>
-                      )[h.action] || 'Действие в комнате'}
-                    </span>
-                    <small>{new Date(h.at).toLocaleTimeString('ru-RU')}</small>
-                  </div>
-                ))}
-              </div>
-            </>
+            <HistoryPanel
+              history={history}
+              onUndo={() =>
+                void act({ type: 'undo' }).then((r) => {
+                  if (r) {
+                    flash('Последнее действие отменено');
+                    setPanel('');
+                  }
+                })
+              }
+            />
           )}
           {panel === 'join_requests' && (
             <div className="join-requests-panel">
@@ -2877,129 +2844,38 @@ export default function RoomApp({ id }: { id: string }) {
             </>
           )}
           {panel === 'timer' && (
-            <>
-              <div className="large-timer">{timeText}</div>
-              <Choice
-                label="Продолжительность"
-                value={seconds}
-                onChange={setSeconds}
-                options={[
-                  { value: '60', label: '1 минута' },
-                  { value: '180', label: '3 минуты' },
-                  { value: '300', label: '5 минут' },
-                  { value: '600', label: '10 минут' },
-                  { value: '900', label: '15 минут' },
-                ]}
-              />
-              <div className="button-row">
-                <button
-                  disabled={!host}
-                  className="primary"
-                  onClick={() =>
-                    void act({
-                      type: 'timer',
-                      action: s.timer.running ? 'pause' : 'start',
-                      seconds: s.timer.running ? undefined : Number(seconds),
-                    })
-                  }
-                >
-                  {s.timer.running ? <Pause size={17} /> : <Play size={17} />}{' '}
-                  {s.timer.running ? 'Пауза' : 'Запустить'}
-                </button>
-                <button
-                  disabled={!host}
-                  className="secondary"
-                  onClick={() =>
-                    void act({
-                      type: 'timer',
-                      action: 'start',
-                      seconds: s.timer.remaining,
-                    })
-                  }
-                >
-                  Продолжить
-                </button>
-                <button
-                  disabled={!host}
-                  className="secondary"
-                  onClick={() =>
-                    void act({
-                      type: 'timer',
-                      action: 'reset',
-                      seconds: Number(seconds),
-                    })
-                  }
-                >
-                  <RotateCcw size={16} />
-                  Сброс
-                </button>
-              </div>
-              {!host && <p className="muted">Таймером управляет ведущий.</p>}
-            </>
+            <TimerPanel
+              timeText={timeText}
+              seconds={seconds}
+              onSecondsChange={setSeconds}
+              host={host}
+              timer={s.timer}
+              onTimer={(action, timerSeconds) =>
+                void act({
+                  type: 'timer',
+                  action,
+                  seconds: timerSeconds,
+                })
+              }
+            />
           )}
           {panel === 'vote' && (
-            <>
-              <p className="muted">
-                {round?.active
-                  ? `Осталось ${round.limit - used} из ${round.limit} голосов. Нажимайте 👍 на карточках. До завершения раунда вы видите только свои голоса.`
-                  : 'Выберите важные темы для обсуждения. Результаты раскроются после завершения раунда.'}
-              </p>
-              {host && !round?.active && (
-                <>
-                  <label className="field">
-                    Голосов на участника
-                    <input
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={voteLimit}
-                      onChange={(e) => setVoteLimit(e.target.value)}
-                    />
-                  </label>
-                  <button
-                    className="primary"
-                    onClick={() =>
-                      void act({ type: 'vote.start', limit: Number(voteLimit) })
-                    }
-                  >
-                    <Vote size={17} />
-                    Начать раунд
-                  </button>
-                </>
-              )}
-              {host && round?.active && (
-                <button
-                  className="primary"
-                  onClick={() => void act({ type: 'vote.end' })}
-                >
-                  Завершить и показать результаты
-                </button>
-              )}
-              <div className="vote-results">
-                {[...s.notes]
-                  .filter((n) => voteCount(s, n.id) > 0)
-                  .sort((a, b) => voteCount(s, b.id) - voteCount(s, a.id))
-                  .map((n, i) => (
-                    <button
-                      key={n.id}
-                      onClick={() => {
-                        setPanel('');
-                        editNote(n);
-                      }}
-                    >
-                      <span>{i + 1}</span>
-                      <p>{n.text}</p>
-                      <b>{voteCount(s, n.id)}</b>
-                    </button>
-                  ))}
-              </div>
-              {s.rounds.length > 0 && (
-                <p className="muted">
-                  Раунд {s.rounds.length} ·{' '}
-                  {round?.active ? 'идёт голосование' : 'результаты открыты'}
-                </p>
-              )}
-            </>
+            <VotePanel
+              round={round}
+              used={used}
+              host={host}
+              voteLimit={voteLimit}
+              onVoteLimitChange={setVoteLimit}
+              onStartVote={() =>
+                void act({ type: 'vote.start', limit: Number(voteLimit) })
+              }
+              onEndVote={() => void act({ type: 'vote.end' })}
+              s={s}
+              onOpenNote={(n) => {
+                setPanel('');
+                editNote(n);
+              }}
+            />
           )}
           {panel === 'group' && (
             <>

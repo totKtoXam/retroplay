@@ -1,7 +1,22 @@
 'use client';
 
-import { ChevronRight, Copy, Download, RotateCcw } from 'lucide-react';
-import type { RoomAccess } from '@/lib/model';
+import {
+  ChevronRight,
+  Copy,
+  Download,
+  Pause,
+  Play,
+  RotateCcw,
+  Vote,
+} from 'lucide-react';
+import {
+  voteCount,
+  type Note,
+  type RoomAccess,
+  type RoomState,
+  type Round,
+} from '@/lib/model';
+import { Choice } from './controls';
 
 export function HelpPanel() {
   return (
@@ -173,6 +188,206 @@ export function SharePanel({
             : 'Комната отображается в общем списке комнат. Любой пользователь может присоединиться свободно.'}
         </p>
       </div>
+    </>
+  );
+}
+
+export function HistoryPanel({
+  history,
+  onUndo,
+}: {
+  history: { version: number; action: string; name: string; at: number }[];
+  onUndo: () => void;
+}) {
+  return (
+    <>
+      <p className="muted">
+        Последние 40 изменений. Отмена доступна только для вашего
+        последнего действия, пока другие участники не внесли изменения.
+      </p>
+      <button
+        className="secondary"
+        onClick={() => onUndo()}
+      >
+        <RotateCcw size={16} />
+        Отменить последнее действие
+      </button>
+      <div className="history-list">
+        {history.map((h, idx) => (
+          <div key={`${h.version}-${idx}`}>
+            <strong>{h.name || 'Участник'}</strong>
+            <span>
+              {(
+                {
+                  'note.add': 'Добавлена карточка',
+                  'note.edit': 'Изменена карточка',
+                  'note.delete': 'Удалена карточка',
+                  'note.comment': 'Комментарий',
+                  'note.react': 'Реакция',
+                  'room.settings': 'Настройки комнаты',
+                  'vote.start': 'Начат раунд',
+                  'vote.end': 'Завершён раунд',
+                  vote: 'Голос',
+                  phase: 'Этап встречи',
+                  timer: 'Таймер',
+                  reveal: 'Раскрыты заметки',
+                  'group.add': 'Добавлена тема',
+                  undo: 'Отмена действия',
+                  archive: 'Завершение встречи',
+                } as Record<string, string>
+              )[h.action] || 'Действие в комнате'}
+            </span>
+            <small>{new Date(h.at).toLocaleTimeString('ru-RU')}</small>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+export function TimerPanel({
+  timeText,
+  seconds,
+  onSecondsChange,
+  host,
+  timer,
+  onTimer,
+}: {
+  timeText: string;
+  seconds: string;
+  onSecondsChange: (value: string) => void;
+  host: boolean;
+  timer: { running: boolean; remaining: number };
+  onTimer: (action: 'start' | 'pause' | 'reset', seconds?: number) => void;
+}) {
+  return (
+    <>
+      <div className="large-timer">{timeText}</div>
+      <Choice
+        label="Продолжительность"
+        value={seconds}
+        onChange={onSecondsChange}
+        options={[
+          { value: '60', label: '1 минута' },
+          { value: '180', label: '3 минуты' },
+          { value: '300', label: '5 минут' },
+          { value: '600', label: '10 минут' },
+          { value: '900', label: '15 минут' },
+        ]}
+      />
+      <div className="button-row">
+        <button
+          disabled={!host}
+          className="primary"
+          onClick={() =>
+            onTimer(
+              timer.running ? 'pause' : 'start',
+              timer.running ? undefined : Number(seconds),
+            )
+          }
+        >
+          {timer.running ? <Pause size={17} /> : <Play size={17} />}{' '}
+          {timer.running ? 'Пауза' : 'Запустить'}
+        </button>
+        <button
+          disabled={!host}
+          className="secondary"
+          onClick={() => onTimer('start', timer.remaining)}
+        >
+          Продолжить
+        </button>
+        <button
+          disabled={!host}
+          className="secondary"
+          onClick={() => onTimer('reset', Number(seconds))}
+        >
+          <RotateCcw size={16} />
+          Сброс
+        </button>
+      </div>
+      {!host && <p className="muted">Таймером управляет ведущий.</p>}
+    </>
+  );
+}
+
+export function VotePanel({
+  round,
+  used,
+  host,
+  voteLimit,
+  onVoteLimitChange,
+  onStartVote,
+  onEndVote,
+  s,
+  onOpenNote,
+}: {
+  round: Round | undefined;
+  used: number;
+  host: boolean;
+  voteLimit: string;
+  onVoteLimitChange: (value: string) => void;
+  onStartVote: () => void;
+  onEndVote: () => void;
+  s: RoomState;
+  onOpenNote: (note: Note) => void;
+}) {
+  return (
+    <>
+      <p className="muted">
+        {round?.active
+          ? `Осталось ${round.limit - used} из ${round.limit} голосов. Нажимайте 👍 на карточках. До завершения раунда вы видите только свои голоса.`
+          : 'Выберите важные темы для обсуждения. Результаты раскроются после завершения раунда.'}
+      </p>
+      {host && !round?.active && (
+        <>
+          <label className="field">
+            Голосов на участника
+            <input
+              type="number"
+              min="1"
+              max="20"
+              value={voteLimit}
+              onChange={(e) => onVoteLimitChange(e.target.value)}
+            />
+          </label>
+          <button
+            className="primary"
+            onClick={() => onStartVote()}
+          >
+            <Vote size={17} />
+            Начать раунд
+          </button>
+        </>
+      )}
+      {host && round?.active && (
+        <button
+          className="primary"
+          onClick={() => onEndVote()}
+        >
+          Завершить и показать результаты
+        </button>
+      )}
+      <div className="vote-results">
+        {[...s.notes]
+          .filter((n) => voteCount(s, n.id) > 0)
+          .sort((a, b) => voteCount(s, b.id) - voteCount(s, a.id))
+          .map((n, i) => (
+            <button
+              key={n.id}
+              onClick={() => onOpenNote(n)}
+            >
+              <span>{i + 1}</span>
+              <p>{n.text}</p>
+              <b>{voteCount(s, n.id)}</b>
+            </button>
+          ))}
+      </div>
+      {s.rounds.length > 0 && (
+        <p className="muted">
+          Раунд {s.rounds.length} ·{' '}
+          {round?.active ? 'идёт голосование' : 'результаты открыты'}
+        </p>
+      )}
     </>
   );
 }
