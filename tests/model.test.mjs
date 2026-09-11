@@ -71,6 +71,30 @@ test('Vote budget and removal; active round hides other votes', () => {
   s = run(s, { type: 'vote.end' });
   assert.equal(publicState(s, 'host').rounds[0].votes.guest[id], 1);
 });
+test('Blaster votes open one capped round and cannot raise the budget', () => {
+  let s = run(initialState('A'), { type: 'note.add', text: 'Like' });
+  const id = s.notes[0].id;
+  for (let i = 0; i < 10; i++)
+    s = run(s, { type: 'vote', id, force: true }, 'guest');
+  assert.equal(s.rounds.length, 1);
+  assert.equal(s.rounds[0].limit, 10);
+  assert.throws(
+    () => run(s, { type: 'vote', id, force: true }, 'guest'),
+    /Все голоса/,
+  );
+  assert.throws(
+    () => run(initialState('A'), { type: 'vote', id: 'x', kind: 'blaster' }, 'guest'),
+  );
+});
+test('Host edits another participant note without touching visibility', () => {
+  let s = run(initialState('A'), { type: 'note.add', text: 'Guest idea' }, 'guest');
+  s = run(s, {
+    type: 'note.edit',
+    id: s.notes[0].id,
+    patch: { text: 'Edited by host', color: '#aabbcc' },
+  });
+  assert.equal(s.notes[0].text, 'Edited by host');
+});
 test('Guests cannot modify other participant notes', () => {
   const s = run(initialState('A'), { type: 'note.add', text: 'Original' });
   assert.throws(

@@ -198,6 +198,7 @@ export default function RoomApp({ id }: { id: string }) {
       }[]
     >([]),
     [joinRequestSent, setJoinRequestSent] = useState(false),
+    [retryAfterReject, setRetryAfterReject] = useState(false),
     [name, setName] = useState(''),
     [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
@@ -825,6 +826,7 @@ export default function RoomApp({ id }: { id: string }) {
       });
       localStorage.setItem('jinaly-name', playerName);
       setJoinRequestSent(true);
+      setRetryAfterReject(false);
       await refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -881,8 +883,14 @@ export default function RoomApp({ id }: { id: string }) {
     if (!draft) return;
     setBusy(true);
     try {
+      const { hidden, ...rest } = draft;
       const data = {
-        ...draft,
+        ...rest,
+        // Only the author may change visibility; the host editing someone else's card must not send it.
+        ...(!draft.id ||
+        room?.state.notes.find((n) => n.id === draft.id)?.author === room?.self
+          ? { hidden }
+          : {}),
         tags: draft.tags
           .split(',')
           .map((t) => t.trim())
@@ -1023,8 +1031,11 @@ export default function RoomApp({ id }: { id: string }) {
   };
   if (join) {
     const isPrivate = !!join.isPrivate;
-    const isPending = join.requestStatus === 'pending' || joinRequestSent;
-    const isRejected = join.requestStatus === 'rejected';
+    // The server keeps reporting the latest (rejected) request until a new one is sent.
+    const isRejected = join.requestStatus === 'rejected' && !retryAfterReject;
+    const isPending =
+      join.requestStatus === 'pending' ||
+      (joinRequestSent && join.requestStatus !== 'rejected');
     const isFull = (join.membersCount || 0) >= (join.maxPlayers || 8);
 
     return (
@@ -1078,6 +1089,7 @@ export default function RoomApp({ id }: { id: string }) {
                   className="primary"
                   onClick={() => {
                     setJoinRequestSent(false);
+                    setRetryAfterReject(true);
                     setError('');
                   }}
                 >
@@ -1587,6 +1599,8 @@ export default function RoomApp({ id }: { id: string }) {
                   cursor.current = { x, y, mode: 'tablet' };
                 }}
                 onFailure={() => {
+                  // 3D has more tool slots than the board; reset before switching.
+                  setTool(0);
                   setMode('board');
                   flash('WebGL недоступен. Открыта обычная доска.');
                 }}
@@ -2895,8 +2909,6 @@ export default function RoomApp({ id }: { id: string }) {
                       void act({
                         type: 'profile',
                         name: e.target.value,
-                        mood: me?.mood,
-                        hat: me?.hat,
                       });
                       localStorage.setItem('jinaly-name', e.target.value);
                     }
@@ -3114,9 +3126,7 @@ export default function RoomApp({ id }: { id: string }) {
                     onClick={() =>
                       void act({
                         type: 'profile',
-                        name: me?.name || 'Участник',
                         mood,
-                        hat: me?.hat,
                       })
                     }
                   >
@@ -3137,8 +3147,6 @@ export default function RoomApp({ id }: { id: string }) {
                       localStorage.setItem('jinaly-custom-skin', sk.id);
                       void act({
                         type: 'profile',
-                        name: me?.name || 'Участник',
-                        mood: me?.mood,
                         hat: sk.id,
                         color: selectedBandanaColor,
                       });
@@ -3163,8 +3171,6 @@ export default function RoomApp({ id }: { id: string }) {
                       localStorage.setItem('jinaly-bandana-color', c);
                       void act({
                         type: 'profile',
-                        name: me?.name || 'Участник',
-                        mood: me?.mood,
                         hat: selectedSkin,
                         color: c,
                       });
@@ -3181,8 +3187,6 @@ export default function RoomApp({ id }: { id: string }) {
                     localStorage.setItem('jinaly-bandana-color', c);
                     void act({
                       type: 'profile',
-                      name: me?.name || 'Участник',
-                      mood: me?.mood,
                       hat: selectedSkin,
                       color: c,
                     });

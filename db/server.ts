@@ -30,7 +30,10 @@ export async function payload(request: Request) {
   return JSON.parse(text || '{}');
 }
 
+let joinRequestsReady = false;
+/** Runs the DDL once per isolate instead of on every request (presence polls several times a second). */
 export async function ensureJoinRequestsTable() {
+  if (joinRequestsReady) return;
   try {
     await db()
       .prepare(
@@ -58,6 +61,7 @@ export async function ensureJoinRequestsTable() {
         'CREATE INDEX IF NOT EXISTS idx_join_requests_session ON join_requests (session)',
       )
       .run();
+    joinRequestsReady = true;
   } catch (error) {
     console.warn('join_requests table bootstrap failed', error);
   }

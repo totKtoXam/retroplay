@@ -11,11 +11,13 @@ export async function GET(request: Request) {
       const { results } = await db()
         .prepare(
           `SELECT r.id, r.host, r.state, r.version, r.created,
-            (SELECT COUNT(*) FROM members m WHERE m.room = r.id) AS membersCount,
+            (SELECT COUNT(*) FROM members m WHERE m.room = r.id AND m.seen > ?) AS membersCount,
             (SELECT m.name FROM members m WHERE m.room = r.id AND m.session = r.host LIMIT 1) AS hostName
           FROM rooms r
           ORDER BY r.created DESC LIMIT 100`,
         )
+        // Only recently seen members occupy a slot; the same window as app/api/rooms/[id].
+        .bind(Date.now() - 60_000)
         .all<{
           id: string;
           host: string;

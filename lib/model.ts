@@ -606,8 +606,10 @@ export function applyOperation(
   } else if (kind === 'vote') {
     const n = note();
     let r = s.rounds.at(-1);
+    const blaster = !!op.force || op.kind === 'blaster';
     if (!r?.active) {
-      if (op.force || op.kind === 'blaster') {
+      if (blaster) {
+        if (s.rounds.length >= 30) throw Error('Не более 30 раундов');
         r = { id: uid(), limit: 10, active: true, votes: {} };
         s.rounds.push(r);
       } else {
@@ -617,16 +619,12 @@ export function applyOperation(
     if (n.hidden) throw Error('Сначала раскройте заметку');
     const votes = r.votes[user] || {};
     const value = op.remove ? -1 : 1;
+    // The blaster may open a round, but never raises the shared budget: the flag comes from the client.
     if (
       value === 1 &&
       Object.values(votes).reduce((a, b) => a + b, 0) >= r.limit
-    ) {
-      if (op.force || op.kind === 'blaster') {
-        r.limit += 5;
-      } else {
-        throw Error('Все голоса использованы');
-      }
-    }
+    )
+      throw Error('Все голоса использованы');
     votes[n.id] = Math.max(0, (votes[n.id] || 0) + value);
     r.votes[user] = votes;
   } else if (kind === 'ready.start') {

@@ -17,6 +17,8 @@ type Row = {
 };
 
 const lastCombatResolution = new Map<string, number>();
+/** Members unseen for longer than this no longer occupy a player slot. */
+const ACTIVE_MEMBER_MS = 60_000;
 
 async function buildRoomSnapshot(
   id: string,
@@ -77,7 +79,7 @@ async function buildRoomSnapshot(
   if (isHost && isPrivateRoom) {
     const jreq = await db()
       .prepare(
-        'SELECT id, session, name, status, created FROM join_requests WHERE room=? AND status="pending" ORDER BY created ASC',
+        `SELECT id, session, name, status, created FROM join_requests WHERE room=? AND status='pending' ORDER BY created ASC`,
       )
       .bind(id)
       .all<{
@@ -185,8 +187,8 @@ export async function GET(request: Request, context: Context) {
           .first<{ name: string }>();
 
         const count = await db()
-          .prepare('SELECT COUNT(*) AS n FROM members WHERE room=?')
-          .bind(id)
+          .prepare('SELECT COUNT(*) AS n FROM members WHERE room=? AND seen>?')
+          .bind(id, Date.now() - ACTIVE_MEMBER_MS)
           .first<{ n: number }>();
 
         return json({
@@ -208,8 +210,8 @@ export async function GET(request: Request, context: Context) {
         .first<{ name: string }>();
 
       const count = await db()
-        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=?')
-        .bind(id)
+        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=? AND seen>?')
+        .bind(id, Date.now() - ACTIVE_MEMBER_MS)
         .first<{ n: number }>();
 
       return json({
@@ -281,14 +283,14 @@ export async function POST(request: Request, context: Context) {
       }
 
       const count = await db()
-        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=?')
-        .bind(id)
+        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=? AND seen>?')
+        .bind(id, Date.now() - ACTIVE_MEMBER_MS)
         .first<{ n: number }>();
       if ((count?.n || 0) >= maxPlayers) throw Error('Комната заполнена');
 
       const existing = await db()
         .prepare(
-          'SELECT id, status FROM join_requests WHERE room=? AND session=? AND status="pending"',
+          `SELECT id, status FROM join_requests WHERE room=? AND session=? AND status='pending'`,
         )
         .bind(id, self)
         .first<{ id: string; status: string }>();
@@ -299,7 +301,7 @@ export async function POST(request: Request, context: Context) {
       const reqId = crypto.randomUUID();
       await db()
         .prepare(
-          'INSERT INTO join_requests (id, room, session, name, status, created) VALUES (?, ?, ?, ?, "pending", ?)',
+          `INSERT INTO join_requests (id, room, session, name, status, created) VALUES (?, ?, ?, ?, 'pending', ?)`,
         )
         .bind(reqId, id, self, name, Date.now())
         .run();
@@ -331,15 +333,15 @@ export async function POST(request: Request, context: Context) {
       if (roomState.archived) throw Error('Комната закрыта');
 
       const count = await db()
-        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=?')
-        .bind(id)
+        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=? AND seen>?')
+        .bind(id, Date.now() - ACTIVE_MEMBER_MS)
         .first<{ n: number }>();
       if ((count?.n || 0) >= maxPlayers)
         throw Error('В комнате не осталось свободного места');
 
       await db()
         .prepare(
-          'UPDATE join_requests SET status="accepted", resolved_at=?, resolved_by=? WHERE id=?',
+          `UPDATE join_requests SET status='accepted', resolved_at=?, resolved_by=? WHERE id=?`,
         )
         .bind(Date.now(), self, op.id)
         .run();
@@ -351,9 +353,9 @@ export async function POST(request: Request, context: Context) {
         throw Error('Только ведущий может отклонять запросы на вход');
       await db()
         .prepare(
-          'UPDATE join_requests SET status="rejected", resolved_at=?, resolved_by=? WHERE id=?',
+          `UPDATE join_requests SET status='rejected', resolved_at=?, resolved_by=? WHERE id=? AND room=? AND status='pending'`,
         )
-        .bind(Date.now(), self, op.id)
+        .bind(Date.now(), self, op.id, id)
         .run();
       return json({ ok: true });
     }
@@ -362,8 +364,8 @@ export async function POST(request: Request, context: Context) {
       const name = cleanText(op.name, 40);
       if (!name) throw Error('Введите ваше имя');
       const count = await db()
-        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=?')
-        .bind(id)
+        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=? AND seen>?')
+        .bind(id, Date.now() - ACTIVE_MEMBER_MS)
         .first<{ n: number }>();
       const exists = await db()
         .prepare('SELECT session FROM members WHERE room=? AND session=?')
@@ -379,7 +381,7 @@ export async function POST(request: Request, context: Context) {
       ) {
         const approved = await db()
           .prepare(
-            'SELECT id FROM join_requests WHERE room=? AND session=? AND status="accepted"',
+            `SELECT id FROM join_requests WHERE room=? AND session=? AND status='accepted'`,
           )
           .bind(id, self)
           .first();
@@ -653,20 +655,25 @@ export async function POST(request: Request, context: Context) {
       return json({ ok: true, now, ...snapshot });
     }
     if (op.type === 'profile') {
-      const name = cleanText(op.name, 40);
-      if (!name) throw Error('Введите имя');
+      // Partial update: omitted fields keep their stored value. In anonymous rooms
+      // clients only see placeholders, so they must never echo name/mood/hat back.
+      let name: string | null = null;
+      if ('name' in op) {
+        name = cleanText(op.name, 40);
+        if (!name) throw Error('Введите имя');
+      }
       const color =
         typeof op.color === 'string' && /^#[0-9a-f]{6}$/i.test(op.color)
           ? op.color
           : null;
       await db()
         .prepare(
-          'UPDATE members SET name=?,mood=?,hat=?,color=COALESCE(?,color) WHERE room=? AND session=?',
+          'UPDATE members SET name=COALESCE(?,name),mood=COALESCE(?,mood),hat=COALESCE(?,hat),color=COALESCE(?,color) WHERE room=? AND session=?',
         )
         .bind(
           name,
-          cleanText(op.mood || '', 20),
-          cleanText(op.hat || '', 20),
+          'mood' in op ? cleanText(op.mood || '', 20) : null,
+          'hat' in op ? cleanText(op.hat || '', 20) : null,
           color,
           id,
           self,

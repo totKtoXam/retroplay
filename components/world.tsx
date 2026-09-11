@@ -786,6 +786,38 @@ export default function World(props: Props) {
     let grenadeAiming = false;
     let continuousShots = 0;
     const deadTimers = new Map<string, number>();
+    // Remote avatars of members that left or went stale; disposed after the
+    // resource pack has released them (visuals.update below) in the same frame.
+    const retiredAvatars: T.Group[] = [],
+      liveRemoteIds = new Set<string>();
+    let remoteKey = '';
+    const retireRemote = (id: string, remote: T.Group) => {
+      remote.removeFromParent();
+      retiredAvatars.push(remote);
+      remoteAvatars.delete(id);
+      labels.delete(id);
+      remoteBandanaMats.delete(id);
+      remoteMotion.delete(id);
+      deadTimers.delete(id);
+      remoteKey = Array.from(remoteAvatars.keys()).join(',');
+    };
+    const disposeRemoteAvatar = (remote: T.Group) => {
+      remote.traverse((o) => {
+        for (let q: T.Object3D | null = o; q && q !== remote; q = q.parent)
+          if (q.userData.presentationOnly) return;
+        if (o instanceof T.Sprite) {
+          // Sprite geometry is a shared three.js singleton — keep it.
+          o.material.map?.dispose();
+          o.material.dispose();
+        } else if (o instanceof T.Mesh) {
+          o.geometry.dispose();
+          const materials = Array.isArray(o.material)
+            ? o.material
+            : [o.material];
+          materials.forEach((m) => m.dispose());
+        }
+      });
+    };
     const keys = new Set<string>(),
       ray = new T.Raycaster(),
       mouse = new T.Vector2(0, 0),
@@ -2174,12 +2206,20 @@ export default function World(props: Props) {
         nearZone = nearest;
         setNear(nearest);
       }
+      const serverNow =
+        (latest.current.room as Room & { serverNow?: number }).serverNow ??
+        Date.now();
+      liveRemoteIds.clear();
       for (const member of latest.current.room.members) {
         if (member.id === latest.current.room.self) continue;
+        // Server treats players unseen for 15 s as gone; don't keep avatars for them.
+        if (serverNow - member.lastSeen >= 15000) continue;
+        liveRemoteIds.add(member.id);
         let remote = remoteAvatars.get(member.id);
         if (!remote) {
           remote = kit.avatarFactory(member.color);
           remoteAvatars.set(member.id, remote);
+          remoteKey = Array.from(remoteAvatars.keys()).join(',');
           remote.traverse((o) => {
             if (o instanceof T.Mesh) o.castShadow = props.quality === 'high';
           });
@@ -2312,7 +2352,7 @@ export default function World(props: Props) {
             speed: p.speed ?? (p.moving ? 3.4 : 0),
             strafe: p.strafe || 0,
             forward: p.forward ?? 1,
-            airborne: p.y > 0.01,
+            airborne: p.y > getGroundHeight(p.x, p.z, p.y) + 0.08,
             velocityY: 0,
             stance: p.stance,
             tool: p.tool || 'other',
@@ -2328,6 +2368,9 @@ export default function World(props: Props) {
           now / 1000,
         );
       }
+      if (remoteAvatars.size !== liveRemoteIds.size)
+        for (const [id, remote] of remoteAvatars)
+          if (!liveRemoteIds.has(id)) retireRemote(id, remote);
       for (let i = flights.length - 1; i >= 0; i--) {
         const f = flights[i],
           t = Math.min(1, (now - f.born) / f.duration);
@@ -2530,6 +2573,9 @@ export default function World(props: Props) {
         );
         if (age > maxAge) {
           b.mesh.removeFromParent();
+          // Geometry is shared (paintDropletGeo / partyGeometries / confettiGeo);
+          // dispose() frees only this burst's instanceMatrix/instanceColor buffers.
+          b.mesh.dispose();
           (b.mesh.material as T.Material).dispose();
           bursts.splice(i, 1);
         }
@@ -2566,8 +2612,13 @@ export default function World(props: Props) {
       }
       kit.clouds.position.x = Math.sin(now * 0.000015) * 2;
       kit.animate(now / 1000);
+      // Keyed on live remote avatars so the pack re-syncs (and releases removed actors) on add/remove.
       const meteredExposure = visuals.update(dt, camera, latest.current.room.state,
-        latest.current.room.members.map((m) => m.id).join(','));
+        remoteKey);
+      if (retiredAvatars.length) {
+        retiredAvatars.forEach(disposeRemoteAvatar);
+        retiredAvatars.length = 0;
+      }
       if (meteredExposure !== undefined)
         renderer.toneMappingExposure = T.MathUtils.damp(renderer.toneMappingExposure, meteredExposure, 1.6, dt);
       optics.enabled = visuals.active;
