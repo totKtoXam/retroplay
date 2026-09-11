@@ -550,7 +550,8 @@ export default function World(props: Props) {
     try {
       renderer = new T.WebGLRenderer({
         antialias: true,
-        powerPreference: 'low-power',
+        // Laptops with two GPUs otherwise render on the integrated one.
+        powerPreference: 'high-performance',
       });
     } catch {
       latest.current.onFailure();
@@ -1374,8 +1375,9 @@ export default function World(props: Props) {
         document.pointerLockElement === canvas ||
         (softLook && mouseInWorld)
       ) {
-        const mx = T.MathUtils.clamp(e.movementX, -120, 120);
-        const my = T.MathUtils.clamp(e.movementY, -120, 120);
+        // Only filters pointer-lock spikes; ±120 used to cut real fast flicks.
+        const mx = T.MathUtils.clamp(e.movementX, -400, 400);
+        const my = T.MathUtils.clamp(e.movementY, -400, 400);
         // Scale sensitivity down when sniper is scoped
         const tool = GAME_TOOLS[latest.current.tool]?.id;
         const isSniperZoom = tool === 'sniper' && aimHeld;

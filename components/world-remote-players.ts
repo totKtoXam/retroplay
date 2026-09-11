@@ -1,6 +1,10 @@
 import * as T from 'three';
 import type { Room } from '@/lib/model';
-import { getGroundHeight } from '@/lib/world-collision';
+import {
+  getGroundHeight,
+  isBlocked3D,
+  rayCastWorldObstacle,
+} from '@/lib/world-collision';
 import type { createWorldScene } from './world-scene';
 import { animateAvatar, setAvatarAnonymous } from './world-avatar';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
@@ -211,6 +215,14 @@ export function createWorldRemotePlayers({
         const vz = (-cosY * fwd - sinY * str) * spd;
         targetX += vx * timeSince;
         targetZ += vz * timeSince;
+        // Never predict a remote player into or through a wall.
+        if (
+          isBlocked3D(targetX, targetZ, p.y) ||
+          rayCastWorldObstacle([p.x, p.y + 0.9, p.z], [targetX, p.y + 0.9, targetZ])?.hit
+        ) {
+          targetX = p.x;
+          targetZ = p.z;
+        }
       }
 
       const distSq =

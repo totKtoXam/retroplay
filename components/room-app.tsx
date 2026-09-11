@@ -153,7 +153,7 @@ type Draft = {
 };
 export default function RoomApp({ id }: { id: string }) {
   const resourcePack = useResourcePack();
-  const [fpsLimit, setFpsLimit] = useState(30);
+  const [fpsLimit, setFpsLimit] = useState(60);
   const [editingTitle, setEditingTitle] = useState(false);
   const [quickSticky, setQuickSticky] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -311,7 +311,7 @@ export default function RoomApp({ id }: { id: string }) {
         savedQuality === 'high' ? 'cinematic' : savedQuality || 'balanced',
       );
       const savedFps = Number(localStorage.getItem('jinaly-fps-limit'));
-      setFpsLimit([20, 30, 60].includes(savedFps) ? savedFps : 30);
+      setFpsLimit([20, 30, 60].includes(savedFps) ? savedFps : 60);
     },
   });
   useEffect(() => {
