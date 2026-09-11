@@ -1,6 +1,7 @@
-import { session, json, checkOrigin } from '@/db/server';
+import { session, json, checkOrigin, discardBody } from '@/db/server';
 export async function POST(request: Request) {
   try {
+    await discardBody(request);
     checkOrigin(request);
     const existing = await session(request);
     if (existing) return json({ id: existing });

@@ -38,40 +38,18 @@ fi
 echo -e "\n[4/5] Pushing to origin/$BRANCH..."
 git push origin "$BRANCH"
 
-# 5. Remote deployment via SSH
+# 5. Remote deployment via SSH: pull, then scripts/server-deploy.sh from the new
+# revision runs migrations, tests, the production build and the restart.
 echo -e "\n[5/5] Deploying to $REMOTE_USER@$REMOTE_HOST:$REMOTE_PORT..."
-ssh -p "$REMOTE_PORT" "$REMOTE_USER@$REMOTE_HOST" bash -c "'
+ssh -p "$REMOTE_PORT" "$REMOTE_USER@$REMOTE_HOST" bash -s -- "$REMOTE_DIR" "$BRANCH" <<'EOF'
 set -e
-export PATH=\"/home/user/tools/node-v22.23.2-linux-x64/bin:\$PATH\"
-echo \"==> Updating repository in $REMOTE_DIR...\"
-cd \"$REMOTE_DIR\"
+echo "==> Updating repository in $1..."
+cd "$1"
+PREV_HEAD=$(git rev-parse HEAD)
 git fetch origin
-git checkout \"$BRANCH\"
-git pull origin \"$BRANCH\"
-
-echo \"==> Running server tests...\"
-npm test
-
-echo \"==> Restarting retro3d.service...\"
-systemctl --user restart retro3d.service
-sleep 2
-
-echo \"==> Verifying service status...\"
-systemctl --user is-active retro3d.service
-
-echo \"==> Checking HTTP response on port 3001...\"
-HTTP_CODE=\$(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001/ || echo \"000\")
-echo \"HTTP Status: \$HTTP_CODE\"
-
-if [ \"\$HTTP_CODE\" != \"200\" ]; then
-    echo \"ERROR: Service returned HTTP \$HTTP_CODE instead of 200\"
-    journalctl --user -u retro3d.service -n 25 --no-pager
-    exit 1
-fi
-
-COMMIT_HASH=\$(git rev-parse --short HEAD)
-COMMIT_MSG=\$(git log -1 --pretty=%B | head -n 1)
-echo \"==> Successfully deployed: \$COMMIT_HASH - \$COMMIT_MSG\"
-'"
+git checkout "$2"
+git pull --ff-only origin "$2"
+bash scripts/server-deploy.sh "$PREV_HEAD"
+EOF
 
 echo -e "\n✅ DEPLOYMENT SUCCESSFUL: http://$REMOTE_HOST:3001/"
