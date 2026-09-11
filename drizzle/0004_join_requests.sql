@@ -1,4 +1,8 @@
-CREATE TABLE `join_requests` (
+-- IF NOT EXISTS: older databases already got this table from the runtime bootstrap in db/server.ts.
+-- The snapshot also records members.kills/deaths/assists/recent_damage/immune_until, but they are
+-- not ALTERed here: existing databases already have them (SQLite has no ADD COLUMN IF NOT EXISTS),
+-- so ensureCombatColumns() in db/combat.ts keeps adding them once per isolate on fresh databases.
+CREATE TABLE IF NOT EXISTS `join_requests` (
 	`id` text PRIMARY KEY NOT NULL,
 	`room` text NOT NULL,
 	`session` text NOT NULL,
@@ -10,5 +14,5 @@ CREATE TABLE `join_requests` (
 	FOREIGN KEY (`room`) REFERENCES `rooms`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE INDEX `idx_join_requests_room` ON `join_requests` (`room`);--> statement-breakpoint
-CREATE INDEX `idx_join_requests_session` ON `join_requests` (`session`);
+CREATE INDEX IF NOT EXISTS `idx_join_requests_room` ON `join_requests` (`room`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_join_requests_session` ON `join_requests` (`session`);

@@ -68,6 +68,9 @@ git fetch origin
 git checkout "$Branch"
 git pull origin "$Branch"
 
+echo "==> Applying D1 migrations to the local database..."
+npx wrangler d1 migrations apply site-creator-d1 --local --config wrangler.local.json
+
 echo "==> Running server tests..."
 npm test
 

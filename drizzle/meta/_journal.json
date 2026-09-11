@@ -29,6 +29,13 @@
       "when": 1788841755512,
       "tag": "0003_nappy_iron_patriot",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789122623700,
+      "tag": "0004_join_requests",
+      "breakpoints": true
     }
   ]
 }
