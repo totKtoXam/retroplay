@@ -11,6 +11,13 @@ import {
 } from '@/db/server';
 import type { LiveView } from '@/worker/room-hub';
 import {
+  applyUndo,
+  assembleState,
+  diffForUndo,
+  planWrite,
+  type NoteRow,
+} from '@/lib/room-store';
+import {
   applyOperation,
   publicState,
   cleanText,
@@ -27,6 +34,15 @@ type Row = {
 
 /** Members unseen for longer than this no longer occupy a player slot. */
 const ACTIVE_MEMBER_MS = 60_000;
+
+/** The room's cards (lib/room-store.ts). */
+async function noteRows(id: string) {
+  const { results } = await db()
+    .prepare('SELECT id,position,data FROM notes WHERE room=?')
+    .bind(id)
+    .all<NoteRow>();
+  return results;
+}
 
 async function buildRoomSnapshot(
   id: string,
@@ -71,7 +87,7 @@ async function buildRoomSnapshot(
     state:
       clientVersion != null && clientVersion === r.version
         ? undefined
-        : publicState(roomState, self, r.host),
+        : publicState(assembleState(r.state, await noteRows(id)), self, r.host),
     members: live.members,
   };
 }
@@ -428,6 +444,8 @@ export async function POST(request: Request, context: Context) {
           .bind(id)
           .first<Row>();
       if (!r) throw Error('Комната не найдена');
+      const rows = await noteRows(id);
+      const current = assembleState(r.state, rows);
       let updated: RoomState;
       if (op.type === 'undo') {
         const last = await db()
@@ -440,30 +458,45 @@ export async function POST(request: Request, context: Context) {
           throw Error(
             'Отмена доступна только для вашего последнего действия, пока комнату не изменил другой участник',
           );
-        updated = JSON.parse(last.before);
-      } else
-        updated = applyOperation(
-          JSON.parse(r.state) as RoomState,
-          op,
-          self,
-          r.host,
-        );
+        updated = applyUndo(current, JSON.parse(last.before));
+      } else updated = applyOperation(current, op, self, r.host);
+      // One transaction; every write is guarded by the version read above, so a concurrent
+      // change makes the whole batch a no-op and the loop retries on fresh data.
+      const write = planWrite(r.state, rows, updated);
+      const guard = 'EXISTS(SELECT 1 FROM rooms WHERE id=? AND version=?)';
       const results = await db().batch([
         db()
           .prepare(
-            'INSERT INTO history (room,version,author,before,action,at) SELECT id,version+1,?,state,?,? FROM rooms WHERE id=? AND version=?',
+            'INSERT INTO history (room,version,author,before,action,at) SELECT id,version+1,?,?,?,? FROM rooms WHERE id=? AND version=?',
           )
-          .bind(self, String(op.type), Date.now(), id, r.version),
+          .bind(
+            self,
+            JSON.stringify(diffForUndo(current, updated)),
+            String(op.type),
+            Date.now(),
+            id,
+            r.version,
+          ),
         db()
           .prepare(
-            'UPDATE rooms SET state=?,version=version+1 WHERE id=? AND version=?',
+            `INSERT INTO notes (room,id,position,data) SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.position'),json_extract(value,'$.data') FROM json_each(?) WHERE ${guard} ON CONFLICT(room,id) DO UPDATE SET position=excluded.position,data=excluded.data`,
           )
-          .bind(JSON.stringify(updated), id, r.version),
+          .bind(id, JSON.stringify(write.upsert), id, r.version),
+        db()
+          .prepare(
+            `DELETE FROM notes WHERE room=? AND id IN (SELECT value FROM json_each(?)) AND ${guard}`,
+          )
+          .bind(id, JSON.stringify(write.remove), id, r.version),
+        db()
+          .prepare(
+            'UPDATE rooms SET state=COALESCE(?,state),version=version+1 WHERE id=? AND version=?',
+          )
+          .bind(write.state, id, r.version),
         db()
           .prepare('DELETE FROM history WHERE room=? AND version<?')
           .bind(id, r.version - 39),
       ]);
-      if (results[1].meta.changes) {
+      if (results[3].meta.changes) {
         await notifyRoom(id);
         return json({
           ok: true,

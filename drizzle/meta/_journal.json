@@ -36,6 +36,13 @@
       "when": 1789122623700,
       "tag": "0004_join_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789130951764,
+      "tag": "0005_notes",
+      "breakpoints": true
     }
   ]
 }

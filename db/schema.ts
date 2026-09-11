@@ -42,6 +42,19 @@ export const members = sqliteTable(
     index('idx_members_session').on(t.session),
   ],
 );
+/** Board cards, one row each; `rooms.state` holds the rest of the room (lib/room-store.ts). */
+export const notes = sqliteTable(
+  'notes',
+  {
+    room: text('room')
+      .notNull()
+      .references(() => rooms.id),
+    id: text('id').notNull(),
+    position: integer('position').notNull(),
+    data: text('data').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.room, t.id] })],
+);
 export const history = sqliteTable(
   'history',
   {

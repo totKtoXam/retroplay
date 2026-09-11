@@ -1,5 +1,6 @@
 import { db, session, json, payload, discardBody } from '@/db/server';
 import { initialState, cleanText, THEMES, type RoomAccessType } from '@/lib/model';
+import { stripNotes } from '@/lib/room-store';
 export async function GET(request: Request) {
   const self = await session(request);
   if (!self) return json({ error: 'Откройте приложение заново' }, 401);
@@ -70,15 +71,18 @@ export async function GET(request: Request) {
 
     const { results } = await db()
       .prepare(
-        'SELECT r.id,r.host,r.state,r.version,r.created FROM rooms r JOIN members m ON m.room=r.id WHERE m.session=? ORDER BY r.created DESC LIMIT 100',
+        `SELECT r.id,r.host,r.state,r.version,r.created,
+          (SELECT COUNT(*) FROM notes n WHERE n.room=r.id AND (IFNULL(json_extract(n.data,'$.hidden'),0)=0 OR json_extract(n.data,'$.author')=?)) AS noteCount
+        FROM rooms r JOIN members m ON m.room=r.id WHERE m.session=? ORDER BY r.created DESC LIMIT 100`,
       )
-      .bind(self)
+      .bind(self, self)
       .all<{
         id: string;
         host: string;
         state: string;
         version: number;
         created: number;
+        noteCount: number;
       }>();
     return json({
       rooms: results.map((r) => {
@@ -92,10 +96,13 @@ export async function GET(request: Request) {
           archived: s.archived,
           phase: s.phase,
           created: r.created,
-          notes: s.notes.filter(
-            (n: { hidden: boolean; author: string }) =>
-              !n.hidden || n.author === self,
-          ).length,
+          // Rooms not yet moved to the notes table keep their cards inline.
+          notes: Array.isArray(s.notes)
+            ? s.notes.filter(
+                (n: { hidden: boolean; author: string }) =>
+                  !n.hidden || n.author === self,
+              ).length
+            : Number(r.noteCount) || 0,
         };
       }),
     });
@@ -143,7 +150,7 @@ export async function POST(request: Request) {
         .prepare(
           'INSERT INTO rooms (id,host,state,version,created) VALUES (?,?,?,1,?)',
         )
-        .bind(id, self, JSON.stringify(s), Date.now()),
+        .bind(id, self, stripNotes(s), Date.now()),
       db()
         .prepare(
           'INSERT INTO members (room,session,name,color,seen,pose,ping,mood,hat) VALUES (?,?,?,?,?,?,0,?,?)',
