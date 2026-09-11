@@ -8,7 +8,7 @@ REMOTE_HOST="${REMOTE_HOST:-192.168.56.70}"
 REMOTE_PORT="${REMOTE_PORT:-2222}"
 REMOTE_USER="${REMOTE_USER:-user}"
 REMOTE_DIR="${REMOTE_DIR:-/home/user/projects/retro3d}"
-BRANCH="${BRANCH:-feat/room-access-management}"
+BRANCH="${BRANCH:-main}"
 COMMIT_MSG="${1:-}"
 
 echo "========================================="

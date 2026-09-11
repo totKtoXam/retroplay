@@ -8,7 +8,7 @@ param(
     [int]$RemotePort = 2222,
     [string]$RemoteUser = "user",
     [string]$RemoteDir = "/home/user/projects/retro3d",
-    [string]$Branch = "feat/room-access-management"
+    [string]$Branch = "main"
 )
 
 $ErrorActionPreference = "Stop"
