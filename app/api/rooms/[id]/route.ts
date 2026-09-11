@@ -8,6 +8,7 @@ import {
   type RoomState,
 } from '@/lib/model';
 type Context = { params: Promise<{ id: string }> };
+type DbRow = Record<string, unknown>;
 type Row = {
   id: string;
   host: string;
@@ -53,17 +54,17 @@ async function buildRoomSnapshot(
     )
     .bind(id, minEffectTime);
 
-  let results: any[];
-  let effectsResults: any[];
+  let results: DbRow[];
+  let effectsResults: DbRow[];
 
   if (updateStmt) {
     const batchRes = await db().batch([updateStmt, selectMembers, selectEffects]);
-    results = (batchRes[1].results as any[]) || [];
-    effectsResults = (batchRes[2].results as any[]) || [];
+    results = (batchRes[1].results as DbRow[]) || [];
+    effectsResults = (batchRes[2].results as DbRow[]) || [];
   } else {
     const batchRes = await db().batch([selectMembers, selectEffects]);
-    results = (batchRes[0].results as any[]) || [];
-    effectsResults = (batchRes[1].results as any[]) || [];
+    results = (batchRes[0].results as DbRow[]) || [];
+    effectsResults = (batchRes[1].results as DbRow[]) || [];
   }
   const isAnonymous = !!roomState.anonymousPlayers;
   const isHost = self === r.host;
