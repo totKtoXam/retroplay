@@ -1,6 +1,14 @@
-import { resolveCombat } from '@/db/combat';
-import { effectStyle, effectCooldown } from '@/lib/game-items';
-import { db, session, json, payload, ensureJoinRequestsTable } from '@/db/server';
+import {
+  db,
+  session,
+  json,
+  payload,
+  ensureJoinRequestsTable,
+  roomHub,
+  notifyRoom,
+  notifyMember,
+} from '@/db/server';
+import type { LiveView } from '@/worker/room-hub';
 import {
   applyOperation,
   publicState,
@@ -8,7 +16,6 @@ import {
   type RoomState,
 } from '@/lib/model';
 type Context = { params: Promise<{ id: string }> };
-type DbRow = Record<string, unknown>;
 type Row = {
   id: string;
   host: string;
@@ -17,7 +24,6 @@ type Row = {
   created: number;
 };
 
-const lastCombatResolution = new Map<string, number>();
 /** Members unseen for longer than this no longer occupy a player slot. */
 const ACTIVE_MEMBER_MS = 60_000;
 
@@ -26,47 +32,9 @@ async function buildRoomSnapshot(
   r: Row,
   roomState: RoomState,
   self: string,
-  clientVersion?: number | null,
-  sinceEffect?: number | null,
-  updateStmt?: ReturnType<ReturnType<typeof db>['prepare']>,
+  clientVersion: number | null,
+  live: LiveView,
 ) {
-  const now = Date.now();
-  const lastCombat = lastCombatResolution.get(id) || 0;
-  if (now - lastCombat >= 350) {
-    lastCombatResolution.set(id, now);
-    await resolveCombat(id, roomState.respawnSeconds ?? 5);
-  }
-
-  const minEffectTime =
-    typeof sinceEffect === 'number' && Number.isFinite(sinceEffect) && sinceEffect > 0
-      ? Math.max(now - 15000, sinceEffect)
-      : now - 15000;
-
-  const selectMembers = db()
-    .prepare(
-      'SELECT session AS id,name,color,seen AS lastSeen,pose,ping,mood,hat,cursor,hp,respawn_at AS respawnAt,immune_until AS immuneUntil,life,kills,deaths,assists FROM members WHERE room=? ORDER BY seen DESC LIMIT 100',
-    )
-    .bind(id);
-
-  const selectEffects = db()
-    .prepare(
-      'SELECT id,author,payload,at FROM effects WHERE room=? AND at>? ORDER BY at DESC LIMIT 80',
-    )
-    .bind(id, minEffectTime);
-
-  let results: DbRow[];
-  let effectsResults: DbRow[];
-
-  if (updateStmt) {
-    const batchRes = await db().batch([updateStmt, selectMembers, selectEffects]);
-    results = (batchRes[1].results as DbRow[]) || [];
-    effectsResults = (batchRes[2].results as DbRow[]) || [];
-  } else {
-    const batchRes = await db().batch([selectMembers, selectEffects]);
-    results = (batchRes[0].results as DbRow[]) || [];
-    effectsResults = (batchRes[1].results as DbRow[]) || [];
-  }
-  const isAnonymous = !!roomState.anonymousPlayers;
   const isHost = self === r.host;
   const isPrivateRoom = roomState.access?.type === 'private';
 
@@ -96,45 +64,14 @@ async function buildRoomSnapshot(
   return {
     ...r,
     self,
-    serverNow: now,
+    serverNow: live.now,
     joinRequests: pendingJoinRequests,
-    effects: effectsResults.map((e) => {
-      const payload = JSON.parse(String(e.payload));
-      if (isAnonymous && payload.kind === 'kill') {
-        payload.killerName = 'Участник';
-        payload.victimName = 'Участник';
-        if (payload.assisterName) payload.assisterName = 'Участник';
-      }
-      return {
-        ...payload,
-        id: e.id,
-        author: e.author,
-        at: e.at,
-      };
-    }),
+    effects: live.effects,
     state:
       clientVersion != null && clientVersion === r.version
         ? undefined
         : publicState(roomState, self, r.host),
-    members: results.map((m) => {
-      const immuneUntil = Number(m.immuneUntil) || 0;
-      const respawnAt = Number(m.respawnAt) || 0;
-      return {
-        ...m,
-        kills: m.kills ?? 0,
-        deaths: m.deaths ?? 0,
-        assists: m.assists ?? 0,
-        immuneUntil,
-        immuneRemaining:
-          immuneUntil === -1 ? 5000 : Math.max(0, immuneUntil - now),
-        respawnRemaining: Math.max(0, respawnAt - now),
-        name: isAnonymous ? 'Участник' : m.name,
-        mood: isAnonymous ? '' : m.mood,
-        hat: isAnonymous ? '' : m.hat,
-        pose: JSON.parse(String(m.pose)),
-        cursor: JSON.parse(String(m.cursor)),
-      };
-    }),
+    members: live.members,
   };
 }
 
@@ -232,14 +169,8 @@ export async function GET(request: Request, context: Context) {
     const sinceParam = url.searchParams.get('sinceEffect');
     const sinceEffect = sinceParam !== null ? Number(sinceParam) : null;
 
-    const snapshot = await buildRoomSnapshot(
-      id,
-      r,
-      roomState,
-      self,
-      clientVersion,
-      sinceEffect,
-    );
+    const live = await roomHub(id).live(id, sinceEffect);
+    const snapshot = await buildRoomSnapshot(id, r, roomState, self, clientVersion, live);
     return json(snapshot);
   } catch (e) {
     console.error(e);
@@ -306,6 +237,7 @@ export async function POST(request: Request, context: Context) {
         )
         .bind(reqId, id, self, name, Date.now())
         .run();
+      await notifyRoom(id);
       return json({ ok: true, id: reqId, status: 'pending' });
     }
 
@@ -346,6 +278,7 @@ export async function POST(request: Request, context: Context) {
         )
         .bind(Date.now(), self, op.id)
         .run();
+      await notifyRoom(id);
       return json({ ok: true });
     }
 
@@ -358,6 +291,7 @@ export async function POST(request: Request, context: Context) {
         )
         .bind(Date.now(), self, op.id, id)
         .run();
+      await notifyRoom(id);
       return json({ ok: true });
     }
 
@@ -418,6 +352,7 @@ export async function POST(request: Request, context: Context) {
           Date.now() + 5000,
         )
         .run();
+      await notifyMember(id, self);
       return json({ ok: true });
     }
     const member = await db()
@@ -427,92 +362,7 @@ export async function POST(request: Request, context: Context) {
     if (!member) return json({ error: 'Сначала войдите в комнату' }, 403);
     if (op.type === 'effect') {
       if (JSON.parse(r.state).archived) return json({ ok: false });
-      if (!['paint', 'confetti', 'grenade', 'sniper', 'like'].includes(op.kind))
-        throw Error('Неизвестный эффект');
-      for (const p of [op.origin, op.target, op.normal])
-        if (
-          !Array.isArray(p) ||
-          p.length !== 3 ||
-          !p.every(
-            (n) =>
-              typeof n === 'number' && Number.isFinite(n) && Math.abs(n) < 200,
-          )
-        )
-          throw Error('Некорректная траектория');
-      if (!/^#[0-9a-f]{6}$/i.test(op.color)) throw Error('Некорректный цвет');
-      const shooter = await db()
-        .prepare(
-          'SELECT pose,hp,last_shot,immune_until FROM members WHERE room=? AND session=?',
-        )
-        .bind(id, self)
-        .first<{
-          pose: string;
-          hp: number;
-          last_shot: number;
-          immune_until?: number;
-        }>();
-      if (!shooter || shooter.hp <= 0)
-        return json({ ok: false, reason: 'respawning' });
-      if (
-        (Number(shooter.immune_until) || 0) > Date.now() ||
-        shooter.immune_until === -1
-      )
-        return json({ ok: false, reason: 'immune' });
-      const position = JSON.parse(shooter.pose);
-      if (
-        Math.hypot(
-          op.origin[0] - position.x,
-          op.origin[1] - position.y,
-          op.origin[2] - position.z,
-        ) > 9 ||
-        Math.hypot(
-          ...op.target.map((v: number, i: number) => v - op.origin[i]),
-        ) > 75
-      )
-        throw Error('Предмет слишком далеко');
-      const now = Date.now();
-      const data = {
-        kind: op.kind,
-        variant: effectStyle(op.kind, op.variant),
-        origin: op.origin,
-        target: op.target,
-        normal: op.normal,
-        color: op.color,
-        scoped: typeof op.scoped === 'boolean' ? op.scoped : undefined,
-        noScope: typeof op.noScope === 'boolean' ? op.noScope : undefined,
-        pelletsHit: typeof op.pelletsHit === 'number' ? op.pelletsHit : undefined,
-      };
-      const effectId =
-        typeof op.id === 'string' && /^[a-f0-9-]{36}$/.test(op.id)
-          ? op.id
-          : crypto.randomUUID();
-      const result = await db().batch([
-        db()
-          .prepare(
-            'INSERT OR IGNORE INTO effects (id,room,author,payload,at,resolve_at) SELECT ?,?,?,?,?,? FROM members WHERE room=? AND session=? AND hp>0 AND last_shot<=?',
-          )
-          .bind(
-            effectId,
-            id,
-            self,
-            JSON.stringify(data),
-            now,
-            now + (op.kind === 'grenade' ? 1100 : 0),
-            id,
-            self,
-            now - effectCooldown(op.kind),
-          ),
-        db()
-          .prepare(
-            'UPDATE members SET last_shot=? WHERE room=? AND session=? AND EXISTS(SELECT 1 FROM effects WHERE id=? AND at=?)',
-          )
-          .bind(now, id, self, effectId, now),
-        db()
-          .prepare('DELETE FROM effects WHERE room=? AND at<?')
-          .bind(id, now - 15000),
-      ]);
-      await resolveCombat(id, JSON.parse(r.state).respawnSeconds ?? 5);
-      return json({ ok: !!result[0].meta.changes });
+      return json(await roomHub(id).effect(id, self, op));
     }
     if (op.type === 'history') {
       const { results } = await db()
@@ -533,127 +383,11 @@ export async function POST(request: Request, context: Context) {
       });
     }
     if (op.type === 'presence') {
-      const cursor = op.cursor;
-      const cursorJson =
-        cursor &&
-        typeof cursor.x === 'number' &&
-        typeof cursor.y === 'number' &&
-        Number.isFinite(cursor.x) &&
-        Number.isFinite(cursor.y)
-          ? JSON.stringify({
-              x: Math.max(0, Math.min(1540, cursor.x)),
-              y: Math.max(0, Math.min(1630, cursor.y)),
-              mode: cursor.mode === 'board' ? 'board' : '3d',
-            })
-          : null;
-
-      const p = op.pose;
-      const pose =
-        p &&
-        typeof p === 'object' &&
-        [p.x, p.y, p.z, p.yaw].every(
-          (n) => typeof n === 'number' && Number.isFinite(n),
-        )
-          ? {
-              x: Math.max(-36, Math.min(36, p.x)),
-              y: Math.max(0, Math.min(10, p.y)),
-              z: Math.max(-36, Math.min(36, p.z)),
-              yaw: p.yaw,
-              stance: ['stand', 'sit', 'lie'].includes(p.stance)
-                ? p.stance
-                : 'stand',
-              moving: !!p.moving,
-              speed:
-                typeof p.speed === 'number' && Number.isFinite(p.speed)
-                  ? Math.max(0, Math.min(6.5, p.speed))
-                  : p.moving
-                    ? 3.4
-                    : 0,
-              strafe:
-                typeof p.strafe === 'number' && Number.isFinite(p.strafe)
-                  ? Math.max(-1, Math.min(1, p.strafe))
-                  : 0,
-              forward:
-                typeof p.forward === 'number' && Number.isFinite(p.forward)
-                  ? Math.max(-1, Math.min(1, p.forward))
-                  : 0,
-              pitch:
-                typeof p.pitch === 'number' && Number.isFinite(p.pitch)
-                  ? Math.max(-1.35, Math.min(1.4, p.pitch))
-                  : 0,
-              tool: [
-                'paint',
-                'confetti',
-                'grenade',
-                'sniper',
-                'pointer',
-                'other',
-              ].includes(p.tool)
-                ? p.tool
-                : 'other',
-              variant: effectStyle(p.tool, p.variant),
-              working: !!p.working,
-              crouching: !!p.crouching,
-              aiming: !!p.aiming,
-              reload:
-                typeof p.reload === 'number' && Number.isFinite(p.reload)
-                  ? Math.max(0, Math.min(1, p.reload))
-                  : 0,
-            }
-          : null;
-
-      const ping =
-        typeof op.ping === 'number'
-          ? Math.max(0, Math.min(60000, Math.round(op.ping)))
-          : 0;
-
-      const poseJson = pose ? JSON.stringify(pose) : null;
-      const lifeVal = Number.isInteger(op.life) ? op.life : 0;
-      const now = Date.now();
-
-      const hasMoved =
-        pose &&
-        (pose.moving ||
-          Math.hypot(pose.x, pose.z - 4) > 0.45);
-
-      const updateStmt = db()
-        .prepare(
-          `UPDATE members
-           SET seen = ?,
-               ping = ?,
-               cursor = CASE WHEN ? IS NOT NULL THEN ? ELSE cursor END,
-               pose = CASE WHEN hp > 0 AND life = ? AND ? IS NOT NULL THEN ? ELSE pose END,
-               immune_until = CASE WHEN hp > 0 AND immune_until = -1 AND ? = 1 THEN ? ELSE immune_until END
-           WHERE room = ? AND session = ?`,
-        )
-        .bind(
-          now,
-          ping,
-          cursorJson,
-          cursorJson,
-          lifeVal,
-          poseJson,
-          poseJson,
-          hasMoved ? 1 : 0,
-          now + 5000,
-          id,
-          self,
-        );
-
       const clientVersion = typeof op.version === 'number' ? op.version : null;
       const sinceEffect = typeof op.sinceEffect === 'number' ? op.sinceEffect : null;
-
-      const snapshot = await buildRoomSnapshot(
-        id,
-        r,
-        roomState,
-        self,
-        clientVersion,
-        sinceEffect,
-        updateStmt,
-      );
-
-      return json({ ok: true, now, ...snapshot });
+      const live = await roomHub(id).presence(id, self, op, sinceEffect);
+      const snapshot = await buildRoomSnapshot(id, r, roomState, self, clientVersion, live);
+      return json({ ok: true, now: live.now, ...snapshot });
     }
     if (op.type === 'profile') {
       // Partial update: omitted fields keep their stored value. In anonymous rooms
@@ -680,6 +414,7 @@ export async function POST(request: Request, context: Context) {
           self,
         )
         .run();
+      await notifyMember(id, self);
       return json({ ok: true });
     }
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -724,12 +459,14 @@ export async function POST(request: Request, context: Context) {
           .prepare('DELETE FROM history WHERE room=? AND version<?')
           .bind(id, r.version - 39),
       ]);
-      if (results[1].meta.changes)
+      if (results[1].meta.changes) {
+        await notifyRoom(id);
         return json({
           ok: true,
           version: r.version + 1,
           state: publicState(updated, self, r.host),
         });
+      }
     }
     return json(
       { error: 'Комнату обновил другой участник. Повторите действие.' },

@@ -40,6 +40,15 @@ type RoomPayload = Room & {
   joinRequests?: JoinRequest[];
   effects?: WorldEffect[];
 };
+/** Pushed by the room's Durable Object (worker/room-hub.ts). */
+type SocketMessage =
+  | { t: 'tick'; now: number; members: Room['members']; effects: WorldEffect[] }
+  | { t: 'refresh' }
+  | { t: 'pong'; at: number }
+  | { t: 'error'; message: string };
+
+/** While the socket is down the board still refetches at least this often. */
+const SOCKET_REFRESH_MS = 15_000;
 
 function compressPose(p: Pose): Pose {
   return {
@@ -62,9 +71,25 @@ function compressPose(p: Pose): Pose {
   };
 }
 
+/** Keeps effects from the last 15 s and appends the ones not seen yet (by id). */
+function mergeEffects(old: WorldEffect[] | undefined, incoming: WorldEffect[] | undefined) {
+  const cutoff = Date.now() - 15000;
+  const merged = (old || []).filter((e) => (e.at || 0) > cutoff);
+  const seenIds = new Set(merged.map((e) => e.id));
+  for (const e of incoming || []) {
+    if (!seenIds.has(e.id)) {
+      seenIds.add(e.id);
+      merged.push(e);
+    }
+  }
+  return merged;
+}
+
 /**
- * Room synchronisation: room/join state, the presence poll loop (120–1400 ms depending on
- * mode and idle time), ping and packet-loss stats, and the `op`/`act` write helpers.
+ * Room synchronisation. Live data (poses, HP, shots) comes over a WebSocket from the room's
+ * Durable Object; board changes arrive as `refresh` pushes and are fetched over HTTP. If the
+ * socket is down, the old presence poll (120–1400 ms by mode and idle time) takes over.
+ * Also: ping and packet-loss stats and the `op`/`act`/`fire` write helpers.
  * `onReady` runs once the session is ready, right before the first poll.
  */
 export function useRoomSync({
@@ -102,21 +127,30 @@ export function useRoomSync({
   const pingRef = useRef(0);
   const lossHistory = useRef<boolean[]>([]);
   const lastEffectAtRef = useRef(0);
+  const lastRefreshRef = useRef(0);
+  const socketRef = useRef<WebSocket | null>(null);
   const onReadyRef = useRef(onReady);
   useEffect(() => {
     onReadyRef.current = onReady;
   });
 
+  const notePing = useCallback((ms: number) => {
+    const smoothed =
+      pingRef.current === 0 ? ms : Math.round(0.7 * pingRef.current + 0.3 * ms);
+    setPing(smoothed);
+    pingRef.current = smoothed;
+  }, []);
+
+  const noteEffects = useCallback((effects: WorldEffect[] | undefined) => {
+    if (!Array.isArray(effects)) return;
+    for (const e of effects) {
+      if (e.at && e.at > lastEffectAtRef.current) lastEffectAtRef.current = e.at;
+    }
+  }, []);
+
   const handleRoomData = useCallback(
     (data: RoomPayload, responseTimeMs?: number) => {
-      if (responseTimeMs !== undefined) {
-        const smoothed =
-          pingRef.current === 0
-            ? responseTimeMs
-            : Math.round(0.7 * pingRef.current + 0.3 * responseTimeMs);
-        setPing(smoothed);
-        pingRef.current = smoothed;
-      }
+      if (responseTimeMs !== undefined) notePing(responseTimeMs);
       if (data.join) {
         setJoin(data as Room & { title: string });
         if (data.requestStatus === 'accepted') {
@@ -132,49 +166,32 @@ export function useRoomSync({
       if (data.joinRequests) {
         setJoinRequests(data.joinRequests);
       }
-      if (Array.isArray(data.effects) && data.effects.length > 0) {
-        let maxAt = lastEffectAtRef.current;
-        for (const e of data.effects) {
-          if (e.at && e.at > maxAt) maxAt = e.at;
-        }
-        lastEffectAtRef.current = maxAt;
-      }
+      noteEffects(data.effects);
       setRoom((old) => {
         if (!old) return data;
-        const cutoff = Date.now() - 15000;
-        const oldEffects = (old.effects || []).filter(
-          (e) => (e.at || 0) > cutoff,
-        );
-        const newEffects = data.effects || [];
-        const seenIds = new Set(oldEffects.map((e) => e.id));
-        const mergedEffects = [...oldEffects];
-        for (const e of newEffects) {
-          if (!seenIds.has(e.id)) {
-            seenIds.add(e.id);
-            mergedEffects.push(e);
-          }
-        }
+        const effects = mergeEffects(old.effects, data.effects);
         if (data.version >= old.version) {
           return {
             ...data,
             state: data.state || old.state,
-            effects: mergedEffects,
+            effects,
           };
         } else {
           return {
             ...old,
             members: data.members,
-            effects: mergedEffects,
+            effects,
           };
         }
       });
       setError('');
     },
-    [nameRef, busyRef, enterRef, setError],
+    [nameRef, busyRef, enterRef, setError, notePing, noteEffects],
   );
 
   const refresh = useCallback(async () => {
     const start = performance.now();
+    lastRefreshRef.current = Date.now();
     const inviteParam =
       typeof window !== 'undefined'
         ? new URLSearchParams(window.location.search).get('invite')
@@ -228,14 +245,112 @@ export function useRoomSync({
     },
     [op],
   );
+  /** A shot or other world effect: over the socket when it is up, otherwise over HTTP. */
+  const fire = useCallback(
+    (effect: object) => {
+      const ws = socketRef.current;
+      if (ws?.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ ...effect, t: 'effect' }));
+      else void act({ type: 'effect', ...effect });
+    },
+    [act],
+  );
+
+  // The socket needs a membership, so it opens once the room snapshot has arrived.
+  const joined = room !== null;
+  useEffect(() => {
+    if (!joined) return;
+    let stop = false,
+      current: WebSocket | null = null,
+      retry: ReturnType<typeof setTimeout> | undefined,
+      pinger: ReturnType<typeof setInterval> | undefined,
+      delay = 1000;
+    const connect = () => {
+      if (stop) return;
+      const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${scheme}://${location.host}/api/rooms/${id}/socket`);
+      current = ws;
+      ws.onopen = () => {
+        socketRef.current = ws;
+        delay = 1000;
+        lossHistory.current = [];
+        setPacketLoss(0);
+        pinger = setInterval(
+          () => ws.send(JSON.stringify({ t: 'ping', at: performance.now() })),
+          2000,
+        );
+      };
+      ws.onmessage = (event) => {
+        let msg: SocketMessage;
+        try {
+          msg = JSON.parse(String(event.data));
+        } catch {
+          return;
+        }
+        if (msg.t === 'tick') {
+          noteEffects(msg.effects);
+          setRoom((old) =>
+            old
+              ? ({
+                  ...old,
+                  members: msg.members,
+                  serverNow: msg.now,
+                  effects: mergeEffects(old.effects, msg.effects),
+                } as Room)
+              : old,
+          );
+        } else if (msg.t === 'refresh') {
+          refresh().catch((e) => setError((e as Error).message));
+        } else if (msg.t === 'pong') {
+          notePing(Math.round(performance.now() - msg.at));
+        } else if (msg.t === 'error') {
+          setError(msg.message);
+        }
+      };
+      ws.onclose = () => {
+        clearInterval(pinger);
+        if (socketRef.current === ws) socketRef.current = null;
+        if (stop) return;
+        retry = setTimeout(connect, delay);
+        delay = Math.min(delay * 2, 15000);
+      };
+    };
+    connect();
+    return () => {
+      stop = true;
+      clearTimeout(retry);
+      clearInterval(pinger);
+      current?.close();
+      socketRef.current = null;
+    };
+  }, [id, joined, refresh, setError, notePing, noteEffects]);
+
   useEffect(() => {
     let stop = false,
       handle: ReturnType<typeof setTimeout>;
     const tick = async () => {
       let ok = true;
+      const ws = socketRef.current;
+      const viaSocket = ws?.readyState === WebSocket.OPEN && !!roomRef.current;
       try {
         if (!document.hidden) {
-          if (roomRef.current) {
+          if (viaSocket && roomRef.current) {
+            ws.send(
+              JSON.stringify({
+                t: 'presence',
+                life:
+                  roomRef.current.members.find(
+                    (m) => m.id === roomRef.current?.self,
+                  )?.life || 0,
+                pose: compressPose(pose.current),
+                ping: pingRef.current,
+                cursor: cursor.current,
+              }),
+            );
+            // Safety net for a missed `refresh` push.
+            if (Date.now() - lastRefreshRef.current > SOCKET_REFRESH_MS)
+              await refresh();
+          } else if (roomRef.current) {
             const start = performance.now();
             const sinceEffectTime =
               lastEffectAtRef.current > 0
@@ -274,7 +389,7 @@ export function useRoomSync({
         ok = false;
         if (!stop) setError((e as Error).message);
       }
-      if (!document.hidden) {
+      if (!document.hidden && !viaSocket) {
         lossHistory.current.push(ok);
         if (lossHistory.current.length > 40) lossHistory.current.shift();
         const lost = lossHistory.current.filter((v) => !v).length;
@@ -283,14 +398,23 @@ export function useRoomSync({
       const idleTime = lastActivityRef.current
         ? Date.now() - lastActivityRef.current
         : 0;
+      // A socket packet costs no request, so presence goes out more often over it.
       const interval =
         modeRef.current === '3d'
           ? idleTime > 2000
-            ? 300
-            : 120
+            ? viaSocket
+              ? 250
+              : 300
+            : viaSocket
+              ? 50
+              : 120
           : idleTime > 3000
-            ? 1400
-            : 800;
+            ? viaSocket
+              ? 1000
+              : 1400
+            : viaSocket
+              ? 150
+              : 800;
       if (!stop) handle = setTimeout(tick, interval);
     };
     void ready()
@@ -327,5 +451,6 @@ export function useRoomSync({
     refresh,
     op,
     act,
+    fire,
   };
 }

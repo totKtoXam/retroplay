@@ -13,8 +13,12 @@ const { d1, r2 } = hostingConfig;
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
 
 const localBindingConfig = {
-  main: 'vinext/server/fetch-handler',
+  main: './worker/entry.ts',
   compatibility_flags: ['nodejs_compat'],
+  durable_objects: {
+    bindings: [{ name: 'ROOM_HUB', class_name: 'RoomHub' }],
+  },
+  migrations: [{ tag: 'v1', new_sqlite_classes: ['RoomHub'] }],
   d1_databases: d1
     ? [
         {

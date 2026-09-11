@@ -283,6 +283,7 @@ export default function RoomApp({ id }: { id: string }) {
     refresh,
     op,
     act,
+    fire,
   } = useRoomSync({
     id,
     pose,
@@ -1326,7 +1327,7 @@ export default function RoomApp({ id }: { id: string }) {
                 onAction={() =>
                   void act({ type: 'event', kind: 'reaction', value: '👍' })
                 }
-                onFire={(effect) => void act({ type: 'effect', ...effect })}
+                onFire={fire}
                 paintColor={paintColor}
                 working={!!draft || !!selectedZone}
                 host={host}

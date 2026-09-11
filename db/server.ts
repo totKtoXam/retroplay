@@ -3,6 +3,26 @@ export function db() {
   if (!env.DB) throw Error('Хранилище комнат недоступно');
   return env.DB;
 }
+/** The room's Durable Object: owner of poses, HP, shots and combat (worker/room-hub.ts). */
+export function roomHub(id: string) {
+  return env.ROOM_HUB.get(env.ROOM_HUB.idFromName(id));
+}
+/** Tells connected sockets that the room changed in D1. Never fails the caller's write. */
+export async function notifyRoom(id: string) {
+  try {
+    await roomHub(id).roomChanged(id);
+  } catch (e) {
+    console.error('room hub notify failed', e);
+  }
+}
+/** Makes the hub pick up a joined member or an edited profile. Never fails the caller's write. */
+export async function notifyMember(id: string, self: string) {
+  try {
+    await roomHub(id).memberChanged(id, self);
+  } catch (e) {
+    console.error('room hub notify failed', e);
+  }
+}
 export async function session(request: Request) {
   const token = request.headers
     .get('cookie')
