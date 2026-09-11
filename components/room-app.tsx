@@ -222,7 +222,13 @@ export default function RoomApp({ id }: { id: string }) {
     [spinner, setSpinner] = useState(''),
     [spinOptions, setSpinOptions] = useState(''),
     [deleteConfirm, setDeleteConfirm] = useState(false),
-    [celebrate, setCelebrate] = useState('');
+    [celebrate, setCelebrate] = useState(''),
+    [selectedSkin, setSelectedSkin] = useState<string>(() =>
+      typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-custom-skin') || 'agent' : 'agent',
+    ),
+    [selectedBandanaColor, setSelectedBandanaColor] = useState<string>(() =>
+      typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') || '#3b82f6' : '#3b82f6',
+    );
   useEffect(() => {
     if (mode !== 'board' || !room) return;
     const key = (e: KeyboardEvent) => {
@@ -3124,15 +3130,17 @@ export default function RoomApp({ id }: { id: string }) {
                 {AVATAR_SKINS.map((sk) => (
                   <button
                     key={sk.id}
-                    className={`skin-card ${(typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-custom-skin') : '') === sk.id ? 'selected' : ''}`}
+                    className={`skin-card ${selectedSkin === sk.id ? 'selected' : ''}`}
                     title={sk.description}
                     onClick={() => {
+                      setSelectedSkin(sk.id);
                       localStorage.setItem('jinaly-custom-skin', sk.id);
                       void act({
                         type: 'profile',
                         name: me?.name || 'Участник',
                         mood: me?.mood,
                         hat: sk.id,
+                        color: selectedBandanaColor,
                       });
                     }}
                   >
@@ -3147,16 +3155,17 @@ export default function RoomApp({ id }: { id: string }) {
                 {PRESET_BANDANA_COLORS.map((c) => (
                   <button
                     key={c}
-                    className={`bandana-swatch ${(typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') : '') === c ? 'selected' : ''}`}
+                    className={`bandana-swatch ${selectedBandanaColor === c ? 'selected' : ''}`}
                     style={{ background: c }}
                     title={c}
                     onClick={() => {
+                      setSelectedBandanaColor(c);
                       localStorage.setItem('jinaly-bandana-color', c);
                       void act({
                         type: 'profile',
                         name: me?.name || 'Участник',
                         mood: me?.mood,
-                        hat: me?.hat,
+                        hat: selectedSkin,
                         color: c,
                       });
                     }}
@@ -3165,15 +3174,17 @@ export default function RoomApp({ id }: { id: string }) {
                 <input
                   type="color"
                   className="bandana-color-input"
-                  value={typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') || '#3b82f6' : '#3b82f6'}
+                  value={selectedBandanaColor}
                   onChange={(e) => {
-                    localStorage.setItem('jinaly-bandana-color', e.target.value);
+                    const c = e.target.value;
+                    setSelectedBandanaColor(c);
+                    localStorage.setItem('jinaly-bandana-color', c);
                     void act({
                       type: 'profile',
                       name: me?.name || 'Участник',
                       mood: me?.mood,
-                      hat: me?.hat,
-                      color: e.target.value,
+                      hat: selectedSkin,
+                      color: c,
                     });
                   }}
                   title="Свой цвет"
