@@ -44,6 +44,7 @@ import {
   eyeHeight,
   avoidCameraWalls,
   visibleInWorld,
+  wrapAngle,
   type Perspective,
 } from '@/lib/game-camera';
 import {
@@ -1420,7 +1421,7 @@ export default function World(props: Props) {
       kit,
       fire: spawn,
       orbit: (d) => {
-        cameraYaw += d;
+        cameraYaw = wrapAngle(cameraYaw + d);
         canvas.focus();
       },
       shadow: () => {
@@ -1624,7 +1625,7 @@ export default function World(props: Props) {
           ? Math.max(0.12, 1 / (SNIPER_ZOOM_LEVELS[sniperZoomIndexRef.current] * 0.75))
           : 1;
         const sens = latest.current.sensitivity * zoomScale;
-        cameraYaw -= mx * 0.0023 * sens;
+        cameraYaw = wrapAngle(cameraYaw - mx * 0.0023 * sens);
         pitch = T.MathUtils.clamp(
           pitch +
           my *
@@ -1897,13 +1898,15 @@ export default function World(props: Props) {
         enabled() && !latest.current.blocked && !middle && !isDead();
       if (control) {
         if (softLook && mouseInWorld && Math.abs(mouse.x) > 0.88)
-          cameraYaw -= Math.sign(mouse.x) * 1.35 * dt;
+          cameraYaw = wrapAngle(cameraYaw - Math.sign(mouse.x) * 1.35 * dt);
         dx = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
         dz = Number(keys.has('KeyS')) - Number(keys.has('KeyW'));
-        cameraYaw +=
+        cameraYaw = wrapAngle(
+          cameraYaw +
           (Number(keys.has('ArrowLeft')) - Number(keys.has('ArrowRight'))) *
           dt *
-          1.5;
+          1.5,
+        );
         pitch = T.MathUtils.clamp(
           pitch +
           (Number(keys.has('ArrowDown')) - Number(keys.has('ArrowUp'))) *
@@ -1913,6 +1916,7 @@ export default function World(props: Props) {
           1.4,
         );
       }
+      cameraYaw = wrapAngle(cameraYaw);
       const moving = !!(dx || dz),
         slow = keys.has('ShiftLeft') || keys.has('ShiftRight');
       const speed =
@@ -1960,7 +1964,7 @@ export default function World(props: Props) {
           }
         }
       }
-      heading = followCameraHeading(heading, cameraYaw, dt);
+      heading = wrapAngle(followCameraHeading(heading, cameraYaw, dt));
 
       // Dynamic ground height detection & gravity:
       const groundY = getGroundHeight(pos.x, pos.z, pos.y);
@@ -2103,6 +2107,12 @@ export default function World(props: Props) {
       avatar.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
       shadow.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
       // (shield aura removed — immunity is HUD-only now)
+      if (localBandanaMat) {
+        const myMember = latest.current.room.members.find((m) => m.id === props.room.self);
+        const localSkinId = myMember?.hat || (typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-custom-skin') || 'agent' : 'agent');
+        const localBandanaColor = myMember?.color || (typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') || '#3b82f6' : '#3b82f6');
+        applyAvatarSkin(avatar, localSkinId, localBandanaColor, localBandanaMat);
+      }
       hands.update(
         dt,
         now / 1000,
@@ -2177,7 +2187,7 @@ export default function World(props: Props) {
           // Attach custom skins to remote avatar
           const remoteSkinResult = attachCustomSkins(remote);
           remoteBandanaMats.set(member.id, remoteSkinResult.bandanaMat);
-          applyAvatarSkin(remote, member.skin || 'agent', member.bandanaColor || member.color, remoteSkinResult.bandanaMat);
+          applyAvatarSkin(remote, member.hat || member.skin || 'agent', member.bandanaColor || member.color, remoteSkinResult.bandanaMat);
           const label = addLabel(member.name, member.color);
           labels.set(member.id, label);
           remote.add(label);
@@ -2211,7 +2221,7 @@ export default function World(props: Props) {
         );
         const isRemoteShielded = (member.immuneRemaining || 0) > 0;
         // Update remote skin if changed
-        applyAvatarSkin(remote, member.skin || 'agent', member.bandanaColor || member.color, remoteBandanaMats.get(member.id));
+        applyAvatarSkin(remote, member.hat || member.skin || 'agent', member.bandanaColor || member.color, remoteBandanaMats.get(member.id));
         const caption = isRemoteDead
           ? '💀 ПОГИБ'
           : latest.current.room.state.anonymousPlayers

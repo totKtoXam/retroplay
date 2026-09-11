@@ -671,9 +671,9 @@ export function followCameraHeading(
   camera: number,
   dt: number,
 ) {
-  return (
-    current +
-    Math.atan2(Math.sin(camera - current), Math.cos(camera - current)) *
-      (1 - Math.exp(-18 * dt))
+  const delta = Math.atan2(
+    Math.sin(camera - current),
+    Math.cos(camera - current),
   );
+  return current + delta * (1 - Math.exp(-18 * dt));
 }

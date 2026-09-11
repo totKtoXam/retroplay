@@ -4,11 +4,18 @@ export type Perspective = 'first' | 'third';
 export function eyeHeight(stance: string) {
   return stance === 'lie' ? 0.55 : stance === 'sit' ? 1.12 : 1.91;
 }
+export function wrapAngle(angle: number) {
+  let value = angle;
+  while (value > Math.PI) value -= Math.PI * 2;
+  while (value <= -Math.PI) value += Math.PI * 2;
+  return value;
+}
 export function viewDirection(yaw: number, pitch: number) {
+  const wrapped = wrapAngle(yaw);
   return new T.Vector3(
-    -Math.sin(yaw) * Math.cos(pitch),
+    -Math.sin(wrapped) * Math.cos(pitch),
     -Math.sin(pitch),
-    -Math.cos(yaw) * Math.cos(pitch),
+    -Math.cos(wrapped) * Math.cos(pitch),
   );
 }
 export function cameraFrame(
@@ -19,13 +26,20 @@ export function cameraFrame(
   perspective: Perspective,
   distance: number,
 ) {
-  const direction = viewDirection(yaw, pitch);
+  const wrappedYaw = wrapAngle(yaw);
+  const direction = viewDirection(wrappedYaw, pitch);
   const eye = position.clone().add(new T.Vector3(0, height, 0));
   const camera = eye.clone();
   if (perspective === 'third')
     camera
       .addScaledVector(direction, -distance)
-      .add(new T.Vector3(Math.cos(yaw) * 0.58, 0.08, -Math.sin(yaw) * 0.58));
+      .add(
+        new T.Vector3(
+          Math.cos(wrappedYaw) * 0.58,
+          0.08,
+          -Math.sin(wrappedYaw) * 0.58,
+        ),
+      );
   camera.y = Math.max(0.35, camera.y);
   return {
     eye,

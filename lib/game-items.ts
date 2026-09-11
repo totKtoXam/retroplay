@@ -1,4 +1,4 @@
-import { rayCastWorldObstacle } from './world-collision';
+import { rayCastWorldObstacle } from './world-collision.ts';
 
 export const PAINTS = [
   ['coral', 'Коралл', '#ff647c'],

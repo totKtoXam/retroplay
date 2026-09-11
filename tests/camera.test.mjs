@@ -6,6 +6,7 @@ import {
   eyeHeight,
   avoidCameraWalls,
   visibleInWorld,
+  wrapAngle,
 } from '../lib/game-camera.ts';
 
 test('Switching FPP/TPP preserves aiming direction at every yaw and pitch', () => {
@@ -24,6 +25,16 @@ test('Switching FPP/TPP preserves aiming direction at every yaw and pitch', () =
           .distanceTo(t.target.clone().sub(t.position).normalize()) < 1e-8,
       );
     }
+});
+test('Yaw wraparound stays continuous across ±π turns', () => {
+  assert.ok(
+    Math.abs(wrapAngle(Math.PI + 0.2) - (-Math.PI + 0.2)) < 1e-9,
+  );
+  assert.ok(
+    Math.abs(wrapAngle(-Math.PI - 0.2) - (Math.PI - 0.2)) < 1e-9,
+  );
+  assert.ok(Math.abs(wrapAngle(6.2) + 0.0831853071795864) < 1e-9);
+  assert.ok(Math.abs(wrapAngle(-6.2) - 0.0831853071795864) < 1e-9);
 });
 test('Standing, sitting and prone eye heights are above the ground', () => {
   assert.ok(eyeHeight('stand') > eyeHeight('sit'));
