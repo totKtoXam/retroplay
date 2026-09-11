@@ -248,6 +248,7 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
   group.add(grass);
   // Светящиеся дорожки и архитектурные светильники вместо ярких цветных платформ.
   const lights = new T.Group();
+  lights.userData.projectileCollision = 'ignore';
   group.add(lights);
   const lightMat = new T.MeshStandardMaterial({
     color: '#d8f1ee',
@@ -277,6 +278,15 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
     roughness: 0.1,
     transparent: true,
     opacity: 0.16,
+    side: T.DoubleSide,
+    depthWrite: false,
+  });
+  const blueGlass = new T.MeshPhysicalMaterial({
+    color: '#527d89',
+    metalness: 0.2,
+    roughness: 0.12,
+    transparent: true,
+    opacity: 0.24,
     side: T.DoubleSide,
     depthWrite: false,
   });
@@ -351,55 +361,155 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
       new T.PlaneGeometry(w, h),
       new T.MeshBasicMaterial({ map: texture }),
     );
+    mesh.userData.projectileCollision = 'ignore';
     mesh.position.set(x, y, z);
     mesh.userData.presentationLabel = text;
     group.add(mesh);
   };
-  // Боковые корпуса стоят за границами прогулочной зоны, сохраняя четыре доступных стенда.
+  // Боковые двухэтажные корпуса (Западный x = -27 и Восточный x = +27):
+  // Открытый вход со стороны центральной площади, 1 этаж, лестница, панорамные окна и 2 этаж с балконом.
   for (const side of [-1, 1]) {
-    block(7, 9, 18, side < 0 ? coral : limestone, side * 27, 4.4, -8);
-    block(7.5, 0.5, 18.5, cream, side * 27, 9.1, -8);
-    block(6, 3.5, 7, blue, side * 26, 10.8, -12);
-    for (let level = 0; level < 2; level++)
-      for (let i = 0; i < 5; i++) {
-        block(
-          0.1,
-          1.9,
-          1.55,
-          charcoal,
-          side * 23.45,
-          2.5 + level * 3.7,
-          -15 + i * 3,
-        );
-        block(
-          0.2,
-          0.12,
-          1.8,
-          cream,
-          side * 23.35,
-          1.5 + level * 3.7,
-          -15 + i * 3,
-        );
-      }
-    for (let i = 0; i < 5; i++)
-      block(0.2, 8.6, 0.18, cream, side * 23.3, 4.2, -16 + i * 4);
-    block(7, 0.7, 9, charcoal, side * 26, 5, 14);
-    block(6, 4.2, 8, blue, side * 27, 2.2, 14);
-    block(7, 0.22, 8, cream, side * 27, 4.55, 14);
+    const wallMat = side < 0 ? coral : limestone;
+
+    // 1-й этаж: основание и пол (z: [-17, 1], x: [23.5, 30.5] или [-30.5, -23.5])
+    block(7.2, 0.22, 18.2, limestone, side * 27, 0.11, -8.0);
+
+    // Стена со стороны площади (Западный корпус: восток x = -23.5; Восточный корпус: запад x = +23.5)
+    // Проём двери свободен: z in [-9.5, -6.5], y in [0.2, 2.6]
+    block(0.36, 3.5, 7.5, wallMat, side * 23.5, 1.75, -13.25);
+    block(0.36, 3.5, 7.5, wallMat, side * 23.5, 1.75, -2.75);
+    block(0.36, 0.9, 3.0, charcoal, side * 23.5, 3.05, -8.0);
+    // Козырек над входом
+    block(1.8, 0.14, 3.6, charcoal, side * 22.6, 2.7, -8.0);
+    block(0.12, 2.6, 0.12, timber, side * 21.8, 1.3, -9.6);
+    block(0.12, 2.6, 0.12, timber, side * 21.8, 1.3, -6.4);
+
+    // Внешняя глухая/оконная стена (x = side * 30.5)
+    block(0.36, 3.5, 2.4, wallMat, side * 30.5, 1.75, -15.8);
+    block(0.36, 3.5, 1.4, wallMat, side * 30.5, 1.75, -8.0);
+    block(0.36, 3.5, 2.4, wallMat, side * 30.5, 1.75, -0.2);
+    // Окна 1 этажа (подоконники y: 0..0.95, перемычки y: 2.5..3.5)
+    block(0.36, 0.95, 6.0, limestone, side * 30.5, 0.475, -12.0);
+    block(0.36, 1.0, 6.0, charcoal, side * 30.5, 3.0, -12.0);
+    block(0.36, 0.95, 6.0, limestone, side * 30.5, 0.475, -4.0);
+    block(0.36, 1.0, 6.0, charcoal, side * 30.5, 3.0, -4.0);
+
+    // Торцевые стены (Северная z = -17.0 и Южная z = 1.0)
+    block(7.2, 3.5, 0.36, wallMat, side * 27, 1.75, -17.0);
+    block(7.2, 3.5, 0.36, wallMat, side * 27, 1.75, 1.0);
+
+    // Лестница на 2-й этаж (вдоль внешней стены: x in [28.4, 30.2], z in [-15.5, -9.5])
+    for (let s = 0; s < 7; s++) {
+      const sz = -9.8 - s * 0.8;
+      const sy = 0.3 + s * 0.5;
+      block(1.5, 0.5, 0.78, timber, side * 29.3, sy, sz);
+    }
+    block(0.08, 0.9, 5.8, charcoal, side * 28.5, 2.4, -12.5);
+
+    // Перекрытие 2-го этажа (y = 3.5, с проёмом для лестницы)
+    block(4.8, 0.22, 17.8, cream, side * 25.5, 3.5, -8.0);
+    block(2.2, 0.22, 5.2, cream, side * 29.3, 3.5, -5.4);
+    block(2.2, 0.22, 1.6, cream, side * 29.3, 3.5, -16.2);
+    // Ограждение лестничного проёма на 2 этаже
+    block(0.08, 0.85, 5.8, charcoal, side * 28.5, 4.025, -12.5);
+
+    // 2-й этаж: панорамный балкон на площадь (x = side * 23.5)
+    block(0.36, 0.85, 17.8, charcoal, side * 23.5, 3.925, -8.0);
+    block(0.36, 0.8, 17.8, wallMat, side * 23.5, 6.6, -8.0);
+
+    // 2-й этаж: внешние стены и окна
+    block(0.36, 0.9, 17.8, wallMat, side * 30.5, 3.95, -8.0);
+    block(0.36, 0.8, 17.8, wallMat, side * 30.5, 6.6, -8.0);
+    block(7.2, 0.9, 0.36, wallMat, side * 27, 3.95, -17.0);
+    block(7.2, 0.8, 0.36, wallMat, side * 27, 6.6, -17.0);
+    block(7.2, 0.9, 0.36, wallMat, side * 27, 3.95, 1.0);
+    block(7.2, 0.8, 0.36, wallMat, side * 27, 6.6, 1.0);
+
+    // Крыша здания (y = 6.95)
+    block(7.6, 0.3, 18.6, cream, side * 27, 6.95, -8.0);
+    block(6.0, 0.8, 7.0, blue, side * 26, 7.5, -12.0);
   }
-  // Центральный корпус занимает прежний объём юрты: существующая коллизия сохраняется.
-  block(6.6, 5.8, 6.5, limestone, 0, 3, -18);
-  block(7.1, 0.3, 7, cream, 0, 6, -18);
-  block(3, 3.9, 0.07, charcoal, 0, 2.4, -14.71);
-  block(2.7, 3.6, 0.08, blue, 0, 2.4, -14.66);
+  // Центральный двухэтажный корпус: открытый вход, окна, лестница и 2 этаж.
+  // 1-й этаж и основание
+  block(9.0, 0.22, 9.0, limestone, 0, 0.11, -18);
+
+  // Южный фасад (Вход z = -13.5)
+  // Левая стена (x in [-4.6, -1.4])
+  block(3.2, 3.5, 0.36, limestone, -3.0, 1.75, -13.5);
+  // Правая стена (x in [1.4, 4.6])
+  block(3.2, 3.5, 0.36, limestone, 3.0, 1.75, -13.5);
+  // Притолока над входом (дверной проём свободен: x in [-1.4, 1.4], y in [0.2, 2.6])
+  block(2.8, 0.9, 0.36, charcoal, 0, 3.05, -13.5);
   for (const side of [-1, 1]) {
-    block(0.12, 3.7, 0.13, lightMat, side * 1.42, 2.4, -14.57);
-    block(0.5, 5.2, 0.32, coral, side * 2.65, 2.9, -14.59);
+    block(0.14, 2.6, 0.18, lightMat, side * 1.42, 1.3, -13.4);
+    block(0.4, 5.6, 0.36, coral, side * 3.6, 2.8, -13.5);
   }
-  block(7.9, 0.24, 2.1, charcoal, 0, 4.8, -14.1);
-  block(5.7, 1.6, 4.3, blue, 0, 6.9, -18.2);
-  sign('JINALY  /  01', 0, 5.48, -14.67, 5.7, 0.8);
-  sign('TEAM CAMPUS', 0, 7.02, -15.99, 4.9, 0.75);
+
+  // Северный фасад (Задняя стена z = -22.5)
+  block(1.4, 3.5, 0.36, limestone, -3.9, 1.75, -22.5);
+  block(2.0, 3.5, 0.36, limestone, 0, 1.75, -22.5);
+  block(1.4, 3.5, 0.36, limestone, 3.9, 1.75, -22.5);
+  // Окна 1 этажа (подоконники y: 0..0.95, проёмы y: 0.95..2.5, перемычки y: 2.5..3.5)
+  block(2.2, 0.95, 0.36, limestone, -2.1, 0.475, -22.5);
+  block(2.2, 1.0, 0.36, charcoal, -2.1, 3.0, -22.5);
+  block(2.2, 0.95, 0.36, limestone, 2.1, 0.475, -22.5);
+  block(2.2, 1.0, 0.36, charcoal, 2.1, 3.0, -22.5);
+
+  // Западный фасад (x = -4.5)
+  block(0.36, 3.5, 2.2, limestone, -4.5, 1.75, -14.4);
+  block(0.36, 3.5, 1.0, limestone, -4.5, 1.75, -18.0);
+  block(0.36, 3.5, 2.2, limestone, -4.5, 1.75, -21.6);
+  block(0.36, 0.95, 2.0, limestone, -4.5, 0.475, -16.5);
+  block(0.36, 1.0, 2.0, charcoal, -4.5, 3.0, -16.5);
+  block(0.36, 0.95, 2.0, limestone, -4.5, 0.475, -19.5);
+  block(0.36, 1.0, 2.0, charcoal, -4.5, 3.0, -19.5);
+
+  // Восточный фасад (x = 4.5)
+  block(0.36, 3.5, 2.2, limestone, 4.5, 1.75, -14.4);
+  block(0.36, 3.5, 1.0, limestone, 4.5, 1.75, -18.0);
+  block(0.36, 3.5, 2.2, limestone, 4.5, 1.75, -21.6);
+  block(0.36, 0.95, 2.0, limestone, 4.5, 0.475, -16.5);
+  block(0.36, 1.0, 2.0, charcoal, 4.5, 3.0, -16.5);
+  block(0.36, 0.95, 2.0, limestone, 4.5, 0.475, -19.5);
+  block(0.36, 1.0, 2.0, charcoal, 4.5, 3.0, -19.5);
+
+  // Лестница на 2-й этаж (вдоль западной стены: x in [-4.2, -2.6], z in [-20.8, -15.2])
+  for (let s = 0; s < 7; s++) {
+    const sz = -15.6 - s * 0.8;
+    const sy = 0.3 + s * 0.5;
+    block(1.5, 0.5, 0.78, timber, -3.4, sy, sz);
+  }
+  // Перила лестницы
+  block(0.08, 0.9, 5.6, charcoal, -2.6, 2.4, -18.0);
+
+  // Перекрытие 2-го этажа (y = 3.6, с проёмом для лестницы)
+  block(6.8, 0.22, 8.8, cream, 1.0, 3.5, -18.0);
+  block(2.0, 0.22, 2.8, cream, -3.4, 3.5, -21.0);
+  block(2.0, 0.22, 1.6, cream, -3.4, 3.5, -14.4);
+  // Ограждение проёма лестницы на 2 этаже
+  block(0.08, 0.85, 4.4, charcoal, -2.5, 4.025, -17.4);
+  block(1.8, 0.85, 0.08, charcoal, -3.4, 4.025, -15.2);
+
+  // 2-й этаж: панорамный балкон на юг (z = -13.5, парапет y: 3.5..4.35, перемычка y: 6.2..7.0)
+  block(9.0, 0.85, 0.36, charcoal, 0, 3.925, -13.5);
+  block(9.0, 0.8, 0.36, limestone, 0, 6.6, -13.5);
+  block(0.4, 1.9, 0.36, lightMat, -4.3, 5.25, -13.5);
+  block(0.4, 1.9, 0.36, lightMat, 4.3, 5.25, -13.5);
+
+  // 2-й этаж: стены и окна
+  block(9.0, 0.9, 0.36, limestone, 0, 3.95, -22.5);
+  block(9.0, 0.8, 0.36, limestone, 0, 6.6, -22.5);
+  block(0.36, 0.9, 8.8, limestone, -4.5, 3.95, -18.0);
+  block(0.36, 0.8, 8.8, limestone, -4.5, 6.6, -18.0);
+  block(0.36, 0.9, 8.8, limestone, 4.5, 3.95, -18.0);
+  block(0.36, 0.8, 8.8, limestone, 4.5, 6.6, -18.0);
+
+  // Крыша (y = 6.8..7.1)
+  block(9.6, 0.3, 9.6, cream, 0, 6.95, -18.0);
+  block(7.9, 0.24, 2.1, charcoal, 0, 2.7, -12.7); // козырек над крыльцом
+  block(5.7, 1.6, 4.3, blue, 0, 7.8, -18.0); // акцентная надстройка на крыше
+  sign('JINALY  /  01', 0, 6.55, -13.28, 5.7, 0.8);
+  sign('TEAM CAMPUS', 0, 7.82, -15.82, 4.9, 0.75);
   // Цветовые порталы помогают различать зоны с большого расстояния.
   for (let i = 0; i < stations.length; i++) {
     const [x, z] = stations[i];
