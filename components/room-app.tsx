@@ -86,24 +86,25 @@ import {
 } from '@/lib/model';
 import { api, ready, download, parseCSV } from '@/lib/client';
 import { Choice, Toggle } from './controls';
-import { StylePicker } from './style-picker';
 import { MusicPlayer } from './music-player';
 import Board, { Card } from './board';
-import { ResourcePackPicker } from './resource-pack-picker';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { readAimModes, type WeaponAimModes } from './world';
-import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from './world-skins';
 import {
   ActionsPanel,
   ExportPanel,
+  FpsPanel,
   GroupPanel,
   HelpPanel,
   HistoryPanel,
   JoinRequestsPanel,
+  SettingsPanel,
   SharePanel,
   TimerPanel,
   ToolsPanel,
   VotePanel,
+  WidgetsPanel,
+  WorldPanel,
 } from './room-panels';
 
 const World = lazy(() => import('./world'));
@@ -2449,337 +2450,119 @@ export default function RoomApp({ id }: { id: string }) {
             />
           )}
           {panel === 'world' && (
-            <>
-              <StylePicker
-                value={s.visualStyle || 'classic'}
-                disabled={!host}
-                onChange={(visualStyle) =>
-                  void act({ type: 'room.settings', patch: { visualStyle } })
-                }
-              />
-              <div className="theme-grid">
-                {THEMES.map((t) => (
-                  <button
-                    key={t.id}
-                    disabled={!host}
-                    className={`theme-card ${s.theme === t.id ? 'selected' : ''}`}
-                    onClick={() =>
-                      void act({
-                        type: 'room.settings',
-                        patch: { theme: t.id, season: t.season },
-                      })
-                    }
-                  >
-                    <span>{t.icon}</span>
-                    <strong>{t.name}</strong>
-                    <small>{t.subtitle}</small>
-                  </button>
-                ))}
-              </div>
-              <div className="two-fields">
-                <Choice
-                  label="Время суток"
-                  value={s.time}
-                  disabled={!host}
-                  onChange={(time) =>
-                    void act({ type: 'room.settings', patch: { time } })
-                  }
-                  options={[
-                    ['dawn', 'Рассвет'],
-                    ['day', 'День'],
-                    ['sunset', 'Закат'],
-                    ['night', 'Ночь'],
-                  ].map(([value, label]) => ({ value, label }))}
-                />
-                <Choice
-                  label="Время года"
-                  value={s.season}
-                  disabled={!host}
-                  onChange={(season) =>
-                    void act({ type: 'room.settings', patch: { season } })
-                  }
-                  options={[
-                    ['spring', 'Весна'],
-                    ['summer', 'Лето'],
-                    ['autumn', 'Осень'],
-                    ['winter', 'Зима'],
-                  ].map(([value, label]) => ({ value, label }))}
-                />
-              </div>
-              <Toggle
-                label="Встретиться в интерьере"
-                description="Уютная мастерская с деревянными балками"
-                value={s.interior}
-                disabled={!host}
-                onChange={(interior) =>
-                  void act({ type: 'room.settings', patch: { interior } })
-                }
-              />
-              <label className="field">
-                Возрождение, секунд
-                <input
-                  type="number"
-                  aria-label="Интервал возрождения"
-                  key={s.respawnSeconds ?? 5}
-                  defaultValue={s.respawnSeconds ?? 5}
-                  min="1"
-                  max="30"
-                  step="1"
-                  disabled={!host}
-                  onBlur={(e) => {
-                    const value = Number(e.target.value);
-                    if (Number.isInteger(value) && value >= 1 && value <= 30)
-                      void act({
-                        type: 'room.settings',
-                        patch: { respawnSeconds: value },
-                      });
-                    else e.target.value = String(s.respawnSeconds ?? 5);
-                  }}
-                />
-              </label>
-            </>
+            <WorldPanel
+              s={s}
+              host={host}
+              onStyleChange={(visualStyle) =>
+                void act({ type: 'room.settings', patch: { visualStyle } })
+              }
+              onThemeChange={(theme, season) =>
+                void act({
+                  type: 'room.settings',
+                  patch: { theme, season },
+                })
+              }
+              onTimeChange={(time) =>
+                void act({ type: 'room.settings', patch: { time } })
+              }
+              onSeasonChange={(season) =>
+                void act({ type: 'room.settings', patch: { season } })
+              }
+              onInteriorChange={(interior) =>
+                void act({ type: 'room.settings', patch: { interior } })
+              }
+              onRespawnSecondsChange={(respawnSeconds) =>
+                void act({
+                  type: 'room.settings',
+                  patch: { respawnSeconds },
+                })
+              }
+            />
           )}
           {panel === 'fps' && (
-            <>
-              <ResourcePackPicker />
-              <p className="performance-summary">
-                {fps} FPS · {me?.ping || 0} мс
-              </p>
-              <Choice
-                label="Лимит FPS"
-                value={String(fpsLimit)}
-                onChange={(v) => {
-                  setFpsLimit(Number(v));
-                  localStorage.setItem('jinaly-fps-limit', v);
-                }}
-                options={[20, 30, 60].map((v) => ({
-                  value: String(v),
-                  label: `${v} FPS`,
-                }))}
-              />
-              <Choice
-                label="Качество шейдеров и графики"
-                value={quality === 'high' ? 'cinematic' : quality}
-                onChange={(q) => {
-                  setQuality(q);
-                  localStorage.setItem('jinaly-quality', q);
-                }}
-                options={[
-                  {
-                    value: 'low',
-                    label: 'Быстрое · базовые шейдеры, макс. FPS',
-                  },
-                  {
-                    value: 'balanced',
-                    label: 'Сбалансированное · мягкие тени и свечение',
-                  },
-                  {
-                    value: 'cinematic',
-                    label: 'Кинематографичное · HDR Bloom, 2K тени, максимум деталей',
-                  },
-                ]}
-              />
-              <label className="field">
-                Чувствительность камеры: {sensitivity.toFixed(1)}×
-                <input
-                  aria-label="Чувствительность камеры"
-                  type="range"
-                  min="0.4"
-                  max="2"
-                  step="0.1"
-                  value={sensitivity}
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    setSensitivity(v);
-                    localStorage.setItem('jinaly-sensitivity', String(v));
-                  }}
-                />
-              </label>
-              <Toggle
-                label="Инвертировать вертикальную камеру"
-                value={invertCamera}
-                onChange={(v) => {
-                  setInvertCamera(v);
-                  localStorage.setItem('jinaly-invert-camera', String(v));
-                }}
-              />
-              <div className="aim-settings-section">
-                <span className="field-label">Прицеливание (ПКМ)</span>
-                <div className="aim-settings-list">
-                  {[
-                    { id: 'paint', name: '🎨 Краскострел' },
-                    { id: 'confetti', name: '💥 Дробовик' },
-                    { id: 'sniper', name: '🎯 Снайперка' },
-                  ].map((w) => (
-                    <div key={w.id} className="aim-setting-row">
-                      <span className="aim-weapon-name">{w.name}</span>
-                      <div className="aim-mode-pills">
-                        <button
-                          type="button"
-                          className={`aim-pill ${aimModes[w.id as keyof WeaponAimModes] === 'hold' ? 'active' : ''}`}
-                          onClick={() => {
-                            const next = { ...aimModes, [w.id]: 'hold' as const };
-                            setAimModes(next);
-                            localStorage.setItem('jinaly-aim-modes', JSON.stringify(next));
-                          }}
-                        >
-                          Зажать
-                        </button>
-                        <button
-                          type="button"
-                          className={`aim-pill ${aimModes[w.id as keyof WeaponAimModes] === 'toggle' ? 'active' : ''}`}
-                          onClick={() => {
-                            const next = { ...aimModes, [w.id]: 'toggle' as const };
-                            setAimModes(next);
-                            localStorage.setItem('jinaly-aim-modes', JSON.stringify(next));
-                          }}
-                        >
-                          Переключение
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
+            <FpsPanel
+              fps={fps}
+              me={me}
+              fpsLimit={fpsLimit}
+              onFpsLimitChange={(v) => {
+                setFpsLimit(Number(v));
+                localStorage.setItem('jinaly-fps-limit', v);
+              }}
+              quality={quality}
+              onQualityChange={(q) => {
+                setQuality(q);
+                localStorage.setItem('jinaly-quality', q);
+              }}
+              sensitivity={sensitivity}
+              onSensitivityChange={(v) => {
+                setSensitivity(v);
+                localStorage.setItem('jinaly-sensitivity', String(v));
+              }}
+              invertCamera={invertCamera}
+              onInvertCameraChange={(v) => {
+                setInvertCamera(v);
+                localStorage.setItem('jinaly-invert-camera', String(v));
+              }}
+              aimModes={aimModes}
+              onAimModesChange={(next) => {
+                setAimModes(next);
+                localStorage.setItem('jinaly-aim-modes', JSON.stringify(next));
+              }}
+            />
           )}
           {panel === 'settings' && (
-            <>
-              <Toggle
-                label="Анонимные участники"
-                description="Пакеты со смайликом вместо лиц. Никнеймы скрыты."
-                value={!!s.anonymousPlayers}
-                disabled={!host}
-                onChange={(anonymousPlayers) =>
-                  void act({
-                    type: 'room.settings',
-                    patch: { anonymousPlayers },
-                  })
-                }
-              />
-              <Toggle
-                label="Скрыть статус-бар игроков"
-                description="Имя и HP над персонажем не отображаются — нельзя видеть через стены"
-                value={!!s.hidePlayerStatus}
-                disabled={!host}
-                onChange={(hidePlayerStatus) =>
-                  void act({
-                    type: 'room.settings',
-                    patch: { hidePlayerStatus },
-                  })
-                }
-              />
-              <Toggle
-                label="Приватное написание"
-                description="Каждый сам раскрывает свои новые заметки"
-                value={s.privateWriting}
-                disabled={!host}
-                onChange={(privateWriting) =>
-                  void act({ type: 'room.settings', patch: { privateWriting } })
-                }
-              />
-              <Toggle
-                label="Анонимные новые заметки"
-                value={s.anonymous}
-                disabled={!host}
-                onChange={(anonymous) =>
-                  void act({ type: 'room.settings', patch: { anonymous } })
-                }
-              />
-              <Toggle
-                label="Заблокировать макет"
-                value={s.layoutLocked}
-                disabled={!host}
-                onChange={(layoutLocked) =>
-                  void act({ type: 'room.settings', patch: { layoutLocked } })
-                }
-              />
-              <Toggle label="Звуки встречи" value={sound} onChange={setSound} />
-              {host && (
-                <div className="settings-access-box">
-                  <span className="settings-subheading">Доступ к комнате</span>
-                  <div className="access-toggle-grid">
-                    <button
-                      type="button"
-                      className={`access-toggle-card ${s.access?.type === 'public' ? 'active' : ''}`}
-                      onClick={() =>
-                        void act({
-                          type: 'access.set',
-                          accessType: 'public',
-                        })
-                      }
-                    >
-                      <div className="access-toggle-icon">🌐</div>
-                      <div>
-                        <strong>Публичная</strong>
-                        <small>В общем списке комнат</small>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      className={`access-toggle-card ${s.access?.type === 'private' ? 'active' : ''}`}
-                      onClick={() =>
-                        void act({
-                          type: 'access.set',
-                          accessType: 'private',
-                        })
-                      }
-                    >
-                      <div className="access-toggle-icon">🔒</div>
-                      <div>
-                        <strong>Приватная</strong>
-                        <small>По ссылке с подтверждением</small>
-                      </div>
-                    </button>
-                  </div>
-                  <label className="field" style={{ marginTop: '0.75rem' }}>
-                    Максимум участников: <b>{s.access?.maxPlayers || 8}</b>
-                    <input
-                      type="range"
-                      min="2"
-                      max="50"
-                      value={s.access?.maxPlayers || 8}
-                      onChange={(e) => {
-                        const maxPlayers = Number(e.target.value);
-                        void act({
-                          type: 'access.max_players',
-                          maxPlayers,
-                        });
-                      }}
-                    />
-                  </label>
-                </div>
-              )}
-              <label className="field">
-                Ваше имя
-                <input
-                  defaultValue={me?.name}
-                  maxLength={40}
-                  onBlur={(e) => {
-                    if (e.target.value && e.target.value !== me?.name) {
-                      void act({
-                        type: 'profile',
-                        name: e.target.value,
-                      });
-                      localStorage.setItem('jinaly-name', e.target.value);
-                    }
-                  }}
-                />
-              </label>
-              {host && (
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    void act({ type: 'archive', value: !s.archived }).then(
-                      (r) => r && setPanel(''),
-                    )
-                  }
-                >
-                  <Check size={16} />
-                  {s.archived ? 'Открыть встречу снова' : 'Завершить встречу'}
-                </button>
-              )}
-            </>
+            <SettingsPanel
+              s={s}
+              host={host}
+              sound={sound}
+              onSoundChange={setSound}
+              me={me}
+              onAnonymousPlayersChange={(anonymousPlayers) =>
+                void act({
+                  type: 'room.settings',
+                  patch: { anonymousPlayers },
+                })
+              }
+              onHidePlayerStatusChange={(hidePlayerStatus) =>
+                void act({
+                  type: 'room.settings',
+                  patch: { hidePlayerStatus },
+                })
+              }
+              onPrivateWritingChange={(privateWriting) =>
+                void act({ type: 'room.settings', patch: { privateWriting } })
+              }
+              onAnonymousChange={(anonymous) =>
+                void act({ type: 'room.settings', patch: { anonymous } })
+              }
+              onLayoutLockedChange={(layoutLocked) =>
+                void act({ type: 'room.settings', patch: { layoutLocked } })
+              }
+              onAccessTypeChange={(accessType) =>
+                void act({
+                  type: 'access.set',
+                  accessType,
+                })
+              }
+              onMaxPlayersChange={(maxPlayers) => {
+                void act({
+                  type: 'access.max_players',
+                  maxPlayers,
+                });
+              }}
+              onUpdateName={(name) => {
+                void act({
+                  type: 'profile',
+                  name,
+                });
+                localStorage.setItem('jinaly-name', name);
+              }}
+              onToggleArchive={() =>
+                void act({ type: 'archive', value: !s.archived }).then(
+                  (r) => r && setPanel(''),
+                )
+              }
+            />
           )}
           {panel === 'timer' && (
             <TimerPanel
@@ -2839,180 +2622,64 @@ export default function RoomApp({ id }: { id: string }) {
             />
           )}
           {panel === 'widgets' && (
-            <>
-              <p className="field">Как вы сегодня?</p>
-              <div className="mood-picker">
-                {['😊', '🤩', '😐', '😴', '😵‍💫'].map((mood) => (
-                  <button
-                    key={mood}
-                    className={me?.mood === mood ? 'selected' : ''}
-                    aria-label={'Настроение ' + mood}
-                    onClick={() =>
-                      void act({
-                        type: 'profile',
-                        mood,
-                      })
-                    }
-                  >
-                    {mood}
-                  </button>
-                ))}
-              </div>
-              {/* ====== Skin picker ====== */}
-              <p className="field" style={{marginTop: 18}}>Выбор скина</p>
-              <div className="skin-picker-grid">
-                {AVATAR_SKINS.map((sk) => (
-                  <button
-                    key={sk.id}
-                    className={`skin-card ${selectedSkin === sk.id ? 'selected' : ''}`}
-                    title={sk.description}
-                    onClick={() => {
-                      setSelectedSkin(sk.id);
-                      localStorage.setItem('jinaly-custom-skin', sk.id);
-                      void act({
-                        type: 'profile',
-                        hat: sk.id,
-                        color: selectedBandanaColor,
-                      });
-                    }}
-                  >
-                    <span className="skin-icon">{sk.icon}</span>
-                    <span className="skin-name">{sk.name}</span>
-                  </button>
-                ))}
-              </div>
-              {/* ====== Bandana / accent color picker ====== */}
-              <p className="field" style={{marginTop: 14}}>Цвет банданы / акцента</p>
-              <div className="bandana-color-swatches">
-                {PRESET_BANDANA_COLORS.map((c) => (
-                  <button
-                    key={c}
-                    className={`bandana-swatch ${selectedBandanaColor === c ? 'selected' : ''}`}
-                    style={{ background: c }}
-                    title={c}
-                    aria-label={'Цвет банданы ' + c}
-                    aria-pressed={selectedBandanaColor === c}
-                    onClick={() => {
-                      setSelectedBandanaColor(c);
-                      localStorage.setItem('jinaly-bandana-color', c);
-                      void act({
-                        type: 'profile',
-                        hat: selectedSkin,
-                        color: c,
-                      });
-                    }}
-                  />
-                ))}
-                <input
-                  type="color"
-                  className="bandana-color-input"
-                  value={selectedBandanaColor}
-                  onChange={(e) => {
-                    const c = e.target.value;
-                    setSelectedBandanaColor(c);
-                    localStorage.setItem('jinaly-bandana-color', c);
-                    void act({
-                      type: 'profile',
-                      hat: selectedSkin,
-                      color: c,
-                    });
-                  }}
-                  title="Свой цвет"
-                />
-              </div>
-              <div className="widget-grid">
-                <button
-                  onClick={() =>
-                    void act({ type: 'event', kind: 'confetti', value: '🎉' })
-                  }
-                >
-                  <PartyPopper />
-                  Конфетти
-                </button>
-                <button
-                  onClick={() =>
-                    void act({ type: 'event', kind: 'hat', value: '🎩' })
-                  }
-                >
-                  <Smile />
-                  Бросить шляпу
-                </button>
-                <button
-                  onClick={() => {
-                    setSound(true);
-                    void act({ type: 'event', kind: 'buzzer' });
-                  }}
-                >
-                  <Bell />
-                  Звонок
-                </button>
-                <button
-                  onClick={() => void act({ type: 'event', kind: 'ping' })}
-                >
-                  <Flag />
-                  Внимание сюда
-                </button>
-              </div>
-              <div className="counter-widget">
-                <span>Счётчик</span>
-                <button
-                  onClick={() => void act({ type: 'counter', down: true })}
-                >
-                  −
-                </button>
-                <strong>{s.counter}</strong>
-                <button onClick={() => void act({ type: 'counter' })}>+</button>
-              </div>
-              <label className="field">
-                Случайный выбор · варианты через запятую
-                <input
-                  value={spinOptions}
-                  onChange={(e) => setSpinOptions(e.target.value)}
-                  placeholder={online.map((m) => m.name).join(', ')}
-                />
-              </label>
-              <button
-                className="secondary"
-                onClick={() => {
-                  const options = (
-                    spinOptions || online.map((m) => m.name).join(',')
-                  )
-                    .split(',')
-                    .map((v) => v.trim())
-                    .filter(Boolean);
-                  if (options.length) {
-                    let randIndex = 0;
-                    if (
-                      typeof crypto !== 'undefined' &&
-                      typeof crypto.getRandomValues === 'function'
-                    ) {
-                      const values = new Uint32Array(1);
-                      crypto.getRandomValues(values);
-                      randIndex = values[0] % options.length;
-                    } else {
-                      randIndex = Math.floor(Math.random() * options.length);
-                    }
-                    void act({
-                      type: 'event',
-                      kind: 'spin',
-                      value: options[randIndex],
-                    });
-                  }
-                }}
-              >
-                <Dices size={18} />
-                Выбрать {spinner && '· ' + spinner}
-              </button>
-              <p className="muted">
-                Музыка включается в Jinaly Radio в игровом окне. Плейлист и
-                громкость индивидуальны для каждого участника.
-              </p>
-              <Toggle
-                label="Звуки событий и реакций"
-                value={sound}
-                onChange={setSound}
-              />
-            </>
+            <WidgetsPanel
+              me={me}
+              onMoodChange={(mood) =>
+                void act({
+                  type: 'profile',
+                  mood,
+                })
+              }
+              selectedSkin={selectedSkin}
+              onSelectSkin={(skinId) => {
+                setSelectedSkin(skinId);
+                localStorage.setItem('jinaly-custom-skin', skinId);
+                void act({
+                  type: 'profile',
+                  hat: skinId,
+                  color: selectedBandanaColor,
+                });
+              }}
+              selectedBandanaColor={selectedBandanaColor}
+              onBandanaColorChange={(color) => {
+                setSelectedBandanaColor(color);
+                localStorage.setItem('jinaly-bandana-color', color);
+                void act({
+                  type: 'profile',
+                  hat: selectedSkin,
+                  color,
+                });
+              }}
+              onConfetti={() =>
+                void act({ type: 'event', kind: 'confetti', value: '🎉' })
+              }
+              onHat={() =>
+                void act({ type: 'event', kind: 'hat', value: '🎩' })
+              }
+              onBuzzer={() => {
+                setSound(true);
+                void act({ type: 'event', kind: 'buzzer' });
+              }}
+              onPing={() => void act({ type: 'event', kind: 'ping' })}
+              s={s}
+              onDecrementCounter={() =>
+                void act({ type: 'counter', down: true })
+              }
+              onIncrementCounter={() => void act({ type: 'counter' })}
+              spinOptions={spinOptions}
+              onSpinOptionsChange={setSpinOptions}
+              online={online}
+              onSpin={(value) =>
+                void act({
+                  type: 'event',
+                  kind: 'spin',
+                  value,
+                })
+              }
+              spinner={spinner}
+              sound={sound}
+              onSoundChange={setSound}
+            />
           )}
           {panel === 'actions' && (
             <ActionsPanel

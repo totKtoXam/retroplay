@@ -1,29 +1,41 @@
 'use client';
 
 import {
+  Bell,
   Check,
   ChevronRight,
   Copy,
+  Dices,
   Download,
+  Flag,
   Folder,
   MousePointer2,
+  PartyPopper,
   Pause,
   Play,
   Plus,
   RotateCcw,
+  Smile,
   Vote,
   X,
   type LucideIcon,
 } from 'lucide-react';
 import {
+  THEMES,
   TOOL_HINTS,
   voteCount,
   type Note,
+  type Person,
   type RoomAccess,
+  type RoomAccessType,
   type RoomState,
   type Round,
 } from '@/lib/model';
-import { Choice } from './controls';
+import { Choice, Toggle } from './controls';
+import { StylePicker } from './style-picker';
+import { ResourcePackPicker } from './resource-pack-picker';
+import { type WeaponAimModes } from './world';
+import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from './world-skins';
 
 export function HelpPanel() {
   return (
@@ -637,3 +649,522 @@ export function ActionsPanel({
   );
 }
 
+export function WorldPanel({
+  s,
+  host,
+  onStyleChange,
+  onThemeChange,
+  onTimeChange,
+  onSeasonChange,
+  onInteriorChange,
+  onRespawnSecondsChange,
+}: {
+  s: RoomState;
+  host: boolean;
+  onStyleChange: (visualStyle: string) => void;
+  onThemeChange: (theme: string, season: string) => void;
+  onTimeChange: (time: string) => void;
+  onSeasonChange: (season: string) => void;
+  onInteriorChange: (interior: boolean) => void;
+  onRespawnSecondsChange: (respawnSeconds: number) => void;
+}) {
+  return (
+    <>
+      <StylePicker
+        value={s.visualStyle || 'classic'}
+        disabled={!host}
+        onChange={onStyleChange}
+      />
+      <div className="theme-grid">
+        {THEMES.map((t) => (
+          <button
+            key={t.id}
+            disabled={!host}
+            className={`theme-card ${s.theme === t.id ? 'selected' : ''}`}
+            onClick={() => onThemeChange(t.id, t.season)}
+          >
+            <span>{t.icon}</span>
+            <strong>{t.name}</strong>
+            <small>{t.subtitle}</small>
+          </button>
+        ))}
+      </div>
+      <div className="two-fields">
+        <Choice
+          label="Время суток"
+          value={s.time}
+          disabled={!host}
+          onChange={onTimeChange}
+          options={[
+            ['dawn', 'Рассвет'],
+            ['day', 'День'],
+            ['sunset', 'Закат'],
+            ['night', 'Ночь'],
+          ].map(([value, label]) => ({ value, label }))}
+        />
+        <Choice
+          label="Время года"
+          value={s.season}
+          disabled={!host}
+          onChange={onSeasonChange}
+          options={[
+            ['spring', 'Весна'],
+            ['summer', 'Лето'],
+            ['autumn', 'Осень'],
+            ['winter', 'Зима'],
+          ].map(([value, label]) => ({ value, label }))}
+        />
+      </div>
+      <Toggle
+        label="Встретиться в интерьере"
+        description="Уютная мастерская с деревянными балками"
+        value={s.interior}
+        disabled={!host}
+        onChange={onInteriorChange}
+      />
+      <label className="field">
+        Возрождение, секунд
+        <input
+          type="number"
+          aria-label="Интервал возрождения"
+          key={s.respawnSeconds ?? 5}
+          defaultValue={s.respawnSeconds ?? 5}
+          min="1"
+          max="30"
+          step="1"
+          disabled={!host}
+          onBlur={(e) => {
+            const value = Number(e.target.value);
+            if (Number.isInteger(value) && value >= 1 && value <= 30)
+              onRespawnSecondsChange(value);
+            else e.target.value = String(s.respawnSeconds ?? 5);
+          }}
+        />
+      </label>
+    </>
+  );
+}
+
+export function FpsPanel({
+  fps,
+  me,
+  fpsLimit,
+  onFpsLimitChange,
+  quality,
+  onQualityChange,
+  sensitivity,
+  onSensitivityChange,
+  invertCamera,
+  onInvertCameraChange,
+  aimModes,
+  onAimModesChange,
+}: {
+  fps: number;
+  me: Person | undefined;
+  fpsLimit: number;
+  onFpsLimitChange: (value: string) => void;
+  quality: string;
+  onQualityChange: (quality: string) => void;
+  sensitivity: number;
+  onSensitivityChange: (sensitivity: number) => void;
+  invertCamera: boolean;
+  onInvertCameraChange: (invertCamera: boolean) => void;
+  aimModes: WeaponAimModes;
+  onAimModesChange: (modes: WeaponAimModes) => void;
+}) {
+  return (
+    <>
+      <ResourcePackPicker />
+      <p className="performance-summary">
+        {fps} FPS · {me?.ping || 0} мс
+      </p>
+      <Choice
+        label="Лимит FPS"
+        value={String(fpsLimit)}
+        onChange={onFpsLimitChange}
+        options={[20, 30, 60].map((v) => ({
+          value: String(v),
+          label: `${v} FPS`,
+        }))}
+      />
+      <Choice
+        label="Качество шейдеров и графики"
+        value={quality === 'high' ? 'cinematic' : quality}
+        onChange={onQualityChange}
+        options={[
+          {
+            value: 'low',
+            label: 'Быстрое · базовые шейдеры, макс. FPS',
+          },
+          {
+            value: 'balanced',
+            label: 'Сбалансированное · мягкие тени и свечение',
+          },
+          {
+            value: 'cinematic',
+            label: 'Кинематографичное · HDR Bloom, 2K тени, максимум деталей',
+          },
+        ]}
+      />
+      <label className="field">
+        Чувствительность камеры: {sensitivity.toFixed(1)}×
+        <input
+          aria-label="Чувствительность камеры"
+          type="range"
+          min="0.4"
+          max="2"
+          step="0.1"
+          value={sensitivity}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            onSensitivityChange(v);
+          }}
+        />
+      </label>
+      <Toggle
+        label="Инвертировать вертикальную камеру"
+        value={invertCamera}
+        onChange={onInvertCameraChange}
+      />
+      <div className="aim-settings-section">
+        <span className="field-label">Прицеливание (ПКМ)</span>
+        <div className="aim-settings-list">
+          {[
+            { id: 'paint', name: '🎨 Краскострел' },
+            { id: 'confetti', name: '💥 Дробовик' },
+            { id: 'sniper', name: '🎯 Снайперка' },
+          ].map((w) => (
+            <div key={w.id} className="aim-setting-row">
+              <span className="aim-weapon-name">{w.name}</span>
+              <div className="aim-mode-pills">
+                <button
+                  type="button"
+                  className={`aim-pill ${aimModes[w.id as keyof WeaponAimModes] === 'hold' ? 'active' : ''}`}
+                  onClick={() => {
+                    const next = { ...aimModes, [w.id]: 'hold' as const };
+                    onAimModesChange(next);
+                  }}
+                >
+                  Зажать
+                </button>
+                <button
+                  type="button"
+                  className={`aim-pill ${aimModes[w.id as keyof WeaponAimModes] === 'toggle' ? 'active' : ''}`}
+                  onClick={() => {
+                    const next = { ...aimModes, [w.id]: 'toggle' as const };
+                    onAimModesChange(next);
+                  }}
+                >
+                  Переключение
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+export function SettingsPanel({
+  s,
+  host,
+  sound,
+  onSoundChange,
+  me,
+  onAnonymousPlayersChange,
+  onHidePlayerStatusChange,
+  onPrivateWritingChange,
+  onAnonymousChange,
+  onLayoutLockedChange,
+  onAccessTypeChange,
+  onMaxPlayersChange,
+  onUpdateName,
+  onToggleArchive,
+}: {
+  s: RoomState;
+  host: boolean;
+  sound: boolean;
+  onSoundChange: (sound: boolean) => void;
+  me: Person | undefined;
+  onAnonymousPlayersChange: (anonymousPlayers: boolean) => void;
+  onHidePlayerStatusChange: (hidePlayerStatus: boolean) => void;
+  onPrivateWritingChange: (privateWriting: boolean) => void;
+  onAnonymousChange: (anonymous: boolean) => void;
+  onLayoutLockedChange: (layoutLocked: boolean) => void;
+  onAccessTypeChange: (accessType: RoomAccessType) => void;
+  onMaxPlayersChange: (maxPlayers: number) => void;
+  onUpdateName: (name: string) => void;
+  onToggleArchive: () => void;
+}) {
+  return (
+    <>
+      <Toggle
+        label="Анонимные участники"
+        description="Пакеты со смайликом вместо лиц. Никнеймы скрыты."
+        value={!!s.anonymousPlayers}
+        disabled={!host}
+        onChange={onAnonymousPlayersChange}
+      />
+      <Toggle
+        label="Скрыть статус-бар игроков"
+        description="Имя и HP над персонажем не отображаются — нельзя видеть через стены"
+        value={!!s.hidePlayerStatus}
+        disabled={!host}
+        onChange={onHidePlayerStatusChange}
+      />
+      <Toggle
+        label="Приватное написание"
+        description="Каждый сам раскрывает свои новые заметки"
+        value={s.privateWriting}
+        disabled={!host}
+        onChange={onPrivateWritingChange}
+      />
+      <Toggle
+        label="Анонимные новые заметки"
+        value={s.anonymous}
+        disabled={!host}
+        onChange={onAnonymousChange}
+      />
+      <Toggle
+        label="Заблокировать макет"
+        value={s.layoutLocked}
+        disabled={!host}
+        onChange={onLayoutLockedChange}
+      />
+      <Toggle label="Звуки встречи" value={sound} onChange={onSoundChange} />
+      {host && (
+        <div className="settings-access-box">
+          <span className="settings-subheading">Доступ к комнате</span>
+          <div className="access-toggle-grid">
+            <button
+              type="button"
+              className={`access-toggle-card ${s.access?.type === 'public' ? 'active' : ''}`}
+              onClick={() => onAccessTypeChange('public')}
+            >
+              <div className="access-toggle-icon">🌐</div>
+              <div>
+                <strong>Публичная</strong>
+                <small>В общем списке комнат</small>
+              </div>
+            </button>
+            <button
+              type="button"
+              className={`access-toggle-card ${s.access?.type === 'private' ? 'active' : ''}`}
+              onClick={() => onAccessTypeChange('private')}
+            >
+              <div className="access-toggle-icon">🔒</div>
+              <div>
+                <strong>Приватная</strong>
+                <small>По ссылке с подтверждением</small>
+              </div>
+            </button>
+          </div>
+          <label className="field" style={{ marginTop: '0.75rem' }}>
+            Максимум участников: <b>{s.access?.maxPlayers || 8}</b>
+            <input
+              type="range"
+              min="2"
+              max="50"
+              value={s.access?.maxPlayers || 8}
+              onChange={(e) => onMaxPlayersChange(Number(e.target.value))}
+            />
+          </label>
+        </div>
+      )}
+      <label className="field">
+        Ваше имя
+        <input
+          defaultValue={me?.name}
+          maxLength={40}
+          onBlur={(e) => {
+            if (e.target.value && e.target.value !== me?.name) {
+              onUpdateName(e.target.value);
+            }
+          }}
+        />
+      </label>
+      {host && (
+        <button
+          className="secondary"
+          onClick={() => onToggleArchive()}
+        >
+          <Check size={16} />
+          {s.archived ? 'Открыть встречу снова' : 'Завершить встречу'}
+        </button>
+      )}
+    </>
+  );
+}
+
+export function WidgetsPanel({
+  me,
+  onMoodChange,
+  selectedSkin,
+  onSelectSkin,
+  selectedBandanaColor,
+  onBandanaColorChange,
+  onConfetti,
+  onHat,
+  onBuzzer,
+  onPing,
+  s,
+  onDecrementCounter,
+  onIncrementCounter,
+  spinOptions,
+  onSpinOptionsChange,
+  online,
+  onSpin,
+  spinner,
+  sound,
+  onSoundChange,
+}: {
+  me: Person | undefined;
+  onMoodChange: (mood: string) => void;
+  selectedSkin: string;
+  onSelectSkin: (skinId: string) => void;
+  selectedBandanaColor: string;
+  onBandanaColorChange: (color: string) => void;
+  onConfetti: () => void;
+  onHat: () => void;
+  onBuzzer: () => void;
+  onPing: () => void;
+  s: RoomState;
+  onDecrementCounter: () => void;
+  onIncrementCounter: () => void;
+  spinOptions: string;
+  onSpinOptionsChange: (value: string) => void;
+  online: Person[];
+  onSpin: (value: string) => void;
+  spinner: string;
+  sound: boolean;
+  onSoundChange: (sound: boolean) => void;
+}) {
+  return (
+    <>
+      <p className="field">Как вы сегодня?</p>
+      <div className="mood-picker">
+        {['😊', '🤩', '😐', '😴', '😵‍💫'].map((mood) => (
+          <button
+            key={mood}
+            className={me?.mood === mood ? 'selected' : ''}
+            aria-label={'Настроение ' + mood}
+            onClick={() => onMoodChange(mood)}
+          >
+            {mood}
+          </button>
+        ))}
+      </div>
+      {/* ====== Skin picker ====== */}
+      <p className="field" style={{ marginTop: 18 }}>
+        Выбор скина
+      </p>
+      <div className="skin-picker-grid">
+        {AVATAR_SKINS.map((sk) => (
+          <button
+            key={sk.id}
+            className={`skin-card ${selectedSkin === sk.id ? 'selected' : ''}`}
+            title={sk.description}
+            onClick={() => onSelectSkin(sk.id)}
+          >
+            <span className="skin-icon">{sk.icon}</span>
+            <span className="skin-name">{sk.name}</span>
+          </button>
+        ))}
+      </div>
+      {/* ====== Bandana / accent color picker ====== */}
+      <p className="field" style={{ marginTop: 14 }}>
+        Цвет банданы / акцента
+      </p>
+      <div className="bandana-color-swatches">
+        {PRESET_BANDANA_COLORS.map((c) => (
+          <button
+            key={c}
+            className={`bandana-swatch ${selectedBandanaColor === c ? 'selected' : ''}`}
+            style={{ background: c }}
+            title={c}
+            aria-label={'Цвет банданы ' + c}
+            aria-pressed={selectedBandanaColor === c}
+            onClick={() => onBandanaColorChange(c)}
+          />
+        ))}
+        <input
+          type="color"
+          className="bandana-color-input"
+          value={selectedBandanaColor}
+          onChange={(e) => onBandanaColorChange(e.target.value)}
+          title="Свой цвет"
+        />
+      </div>
+      <div className="widget-grid">
+        <button onClick={() => onConfetti()}>
+          <PartyPopper />
+          Конфетти
+        </button>
+        <button onClick={() => onHat()}>
+          <Smile />
+          Бросить шляпу
+        </button>
+        <button onClick={() => onBuzzer()}>
+          <Bell />
+          Звонок
+        </button>
+        <button onClick={() => onPing()}>
+          <Flag />
+          Внимание сюда
+        </button>
+      </div>
+      <div className="counter-widget">
+        <span>Счётчик</span>
+        <button onClick={() => onDecrementCounter()}>−</button>
+        <strong>{s.counter}</strong>
+        <button onClick={() => onIncrementCounter()}>+</button>
+      </div>
+      <label className="field">
+        Случайный выбор · варианты через запятую
+        <input
+          value={spinOptions}
+          onChange={(e) => onSpinOptionsChange(e.target.value)}
+          placeholder={online.map((m) => m.name).join(', ')}
+        />
+      </label>
+      <button
+        className="secondary"
+        onClick={() => {
+          const options = (
+            spinOptions || online.map((m) => m.name).join(',')
+          )
+            .split(',')
+            .map((v) => v.trim())
+            .filter(Boolean);
+          if (options.length) {
+            let randIndex = 0;
+            if (
+              typeof crypto !== 'undefined' &&
+              typeof crypto.getRandomValues === 'function'
+            ) {
+              const values = new Uint32Array(1);
+              crypto.getRandomValues(values);
+              randIndex = values[0] % options.length;
+            } else {
+              randIndex = Math.floor(Math.random() * options.length);
+            }
+            onSpin(options[randIndex]);
+          }
+        }}
+      >
+        <Dices size={18} />
+        Выбрать {spinner && '· ' + spinner}
+      </button>
+      <p className="muted">
+        Музыка включается в Jinaly Radio в игровом окне. Плейлист и
+        громкость индивидуальны для каждого участника.
+      </p>
+      <Toggle
+        label="Звуки событий и реакций"
+        value={sound}
+        onChange={onSoundChange}
+      />
+    </>
+  );
+}
