@@ -44,9 +44,6 @@ import {
   Trash2,
   Eye,
   EyeOff,
-  Sunrise,
-  Sunset,
-  Moon,
   SprayCan,
   Dices,
   Bell,
@@ -61,7 +58,6 @@ import {
   Crosshair,
   Heart,
   Lock,
-  Globe,
 } from 'lucide-react';
 import {
   Dialog,
@@ -176,8 +172,7 @@ export default function RoomApp({ id }: { id: string }) {
     [sensitivity, setSensitivity] = useState(1),
     [invertCamera, setInvertCamera] = useState(false);
   const [aimModes, setAimModes] = useState<WeaponAimModes>(() => readAimModes());
-  const [paintColor, setPaintColor] = useState('#bc91f5'),
-    [environment, setEnvironment] = useState(false);
+  const [paintColor, setPaintColor] = useState('#bc91f5');
   const [room, setRoom] = useState<Room | null>(null),
     [join, setJoin] = useState<{
       title: string;
@@ -3166,6 +3161,8 @@ export default function RoomApp({ id }: { id: string }) {
                     className={`bandana-swatch ${selectedBandanaColor === c ? 'selected' : ''}`}
                     style={{ background: c }}
                     title={c}
+                    aria-label={'Цвет банданы ' + c}
+                    aria-pressed={selectedBandanaColor === c}
                     onClick={() => {
                       setSelectedBandanaColor(c);
                       localStorage.setItem('jinaly-bandana-color', c);
