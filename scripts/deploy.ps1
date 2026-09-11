@@ -78,9 +78,14 @@ sleep 2
 echo "==> Verifying service status..."
 systemctl --user is-active retro3d.service
 
-echo "==> Checking HTTP response on port 3001..."
-HTTP_CODE=`$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/ || echo "000")
-echo "HTTP Status: `$HTTP_CODE"
+echo "==> Checking HTTP response on port 3001 (waiting up to 45s for vinext to start)..."
+HTTP_CODE="000"
+for i in `$(seq 1 45); do
+    HTTP_CODE=`$(curl -s -o /dev/null -m 20 -w "%{http_code}" http://localhost:3001/ || true)
+    [ "`$HTTP_CODE" = "200" ] && break
+    sleep 1
+done
+echo "HTTP Status: `$HTTP_CODE (after `$i attempt(s))"
 
 if [ "`$HTTP_CODE" != "200" ]; then
     echo "ERROR: Service returned HTTP `$HTTP_CODE instead of 200"
@@ -102,17 +107,25 @@ if ($LASTEXITCODE -ne 0) {
 
 # 5. Final health check from local machine
 Write-Host "`n[6/6] Checking remote HTTP endpoint from local machine..." -ForegroundColor Yellow
-try {
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $response = Invoke-WebRequest -Uri "http://${RemoteHost}:3001/" -UseBasicParsing -TimeoutSec 5
-    $sw.Stop()
-    if ($response.StatusCode -eq 200) {
-        Write-Host "`n✅ DEPLOYMENT SUCCESSFUL!" -ForegroundColor Green
-        Write-Host "   Target:  http://${RemoteHost}:3001/" -ForegroundColor Green
-        Write-Host "   Latency: $($sw.ElapsedMilliseconds) ms" -ForegroundColor Green
-    } else {
-        Write-Warning "Remote responded with HTTP status code: $($response.StatusCode)"
+$lastError = $null
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    try {
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $response = Invoke-WebRequest -Uri "http://${RemoteHost}:3001/" -UseBasicParsing -TimeoutSec 20
+        $sw.Stop()
+        if ($response.StatusCode -eq 200) {
+            Write-Host "`n✅ DEPLOYMENT SUCCESSFUL!" -ForegroundColor Green
+            Write-Host "   Target:  http://${RemoteHost}:3001/" -ForegroundColor Green
+            Write-Host "   Latency: $($sw.ElapsedMilliseconds) ms" -ForegroundColor Green
+            $lastError = $null
+            break
+        }
+        $lastError = "HTTP status code $($response.StatusCode)"
+    } catch {
+        $lastError = "$_"
     }
-} catch {
-    Write-Warning "Could not connect to http://${RemoteHost}:3001/ directly: $_"
+    Start-Sleep -Seconds 3
+}
+if ($lastError) {
+    Write-Warning "Could not get HTTP 200 from http://${RemoteHost}:3001/ after 3 attempts: $lastError"
 }
