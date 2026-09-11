@@ -93,6 +93,7 @@ COMMIT_MSG=`$(git log -1 --pretty=%B | head -n 1)
 echo "==> Successfully deployed: `$COMMIT_HASH - `$COMMIT_MSG"
 "@
 
+$remoteCommand = $remoteCommand.Replace("`r", "")
 ssh -p $RemotePort "$RemoteUser@$RemoteHost" "$remoteCommand"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Remote deployment failed!"
