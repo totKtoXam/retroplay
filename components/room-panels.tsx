@@ -1,15 +1,22 @@
 'use client';
 
 import {
+  Check,
   ChevronRight,
   Copy,
   Download,
+  Folder,
+  MousePointer2,
   Pause,
   Play,
+  Plus,
   RotateCcw,
   Vote,
+  X,
+  type LucideIcon,
 } from 'lucide-react';
 import {
+  TOOL_HINTS,
   voteCount,
   type Note,
   type RoomAccess,
@@ -391,3 +398,242 @@ export function VotePanel({
     </>
   );
 }
+
+export function ToolsPanel({
+  activeTools,
+  activeIcons,
+  tool,
+  onSelectTool,
+  onOpenWidgets,
+  onOpenHelp,
+}: {
+  activeTools: { id: string; label: string; key: string }[];
+  activeIcons: LucideIcon[];
+  tool: number;
+  onSelectTool: (index: number) => void;
+  onOpenWidgets: () => void;
+  onOpenHelp: () => void;
+}) {
+  return (
+    <>
+      <div className="tool-library">
+        {activeTools.map((t, i) => {
+          const Icon = activeIcons[i] || MousePointer2;
+          return (
+            <button
+              key={t.id}
+              className={tool === i ? 'selected' : ''}
+              onClick={() => onSelectTool(i)}
+            >
+              <Icon size={22} />
+              <div>
+                <strong>{t.label}</strong>
+                <small>{TOOL_HINTS[t.id]}</small>
+              </div>
+              <kbd>{t.key}</kbd>
+            </button>
+          );
+        })}
+      </div>
+      <div className="tool-library-footer">
+        <button
+          className="secondary"
+          onClick={() => onOpenWidgets()}
+        >
+          Игры для команды
+        </button>
+        <button className="secondary" onClick={() => onOpenHelp()}>
+          Управление
+        </button>
+      </div>
+    </>
+  );
+}
+
+export function JoinRequestsPanel({
+  joinRequests,
+  onAccept,
+  onReject,
+}: {
+  joinRequests: {
+    id: string;
+    name: string;
+    created: number;
+  }[];
+  onAccept: (req: { id: string; name: string }) => Promise<void>;
+  onReject: (req: { id: string; name: string }) => Promise<void>;
+}) {
+  return (
+    <div className="join-requests-panel">
+      <div className="join-requests-header">
+        <p className="muted">
+          Пользователи, ожидающие одобрения для входа в приватную комнату.
+        </p>
+      </div>
+      {joinRequests.length === 0 ? (
+        <p className="empty-requests">Ожидающих запросов нет</p>
+      ) : (
+        <div className="join-requests-list">
+          {joinRequests.map((req) => (
+            <div key={req.id} className="join-request-card">
+              <div className="join-request-user">
+                <span className="join-avatar">
+                  {req.name.slice(0, 1).toUpperCase()}
+                </span>
+                <div className="join-user-details">
+                  <strong>{req.name}</strong>
+                  <small>
+                    {new Date(req.created).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </small>
+                </div>
+              </div>
+              <div className="join-request-actions">
+                <button
+                  type="button"
+                  className="btn-accept"
+                  onClick={async () => {
+                    await onAccept(req);
+                  }}
+                >
+                  <Check size={16} /> Принять
+                </button>
+                <button
+                  type="button"
+                  className="btn-reject"
+                  onClick={async () => {
+                    await onReject(req);
+                  }}
+                >
+                  <X size={16} /> Отклонить
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function GroupPanel({
+  groupTitle,
+  onGroupTitleChange,
+  onAddGroup,
+  s,
+  host,
+  onDeleteGroup,
+}: {
+  groupTitle: string;
+  onGroupTitleChange: (value: string) => void;
+  onAddGroup: () => void;
+  s: RoomState;
+  host: boolean;
+  onDeleteGroup: (id: string) => void;
+}) {
+  return (
+    <>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onAddGroup();
+        }}
+      >
+        <label className="field">
+          Название темы
+          <input
+            required
+            maxLength={80}
+            value={groupTitle}
+            onChange={(e) => onGroupTitleChange(e.target.value)}
+            placeholder="Например, качество коммуникации"
+          />
+        </label>
+        <button className="primary">
+          <Folder size={16} />
+          Создать тему
+        </button>
+      </form>
+      <div className="group-list">
+        {s.groups.map((g) => (
+          <div key={g.id}>
+            <Folder size={17} />
+            <span>{g.title}</span>
+            <small>
+              {s.notes.filter((n) => n.group === g.id).length} идей
+            </small>
+            {host && (
+              <button
+                aria-label="Удалить тему"
+                onClick={() => onDeleteGroup(g.id)}
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="muted">
+        Откройте карточку и выберите «Общая тема», чтобы сгруппировать
+        похожие идеи.
+      </p>
+    </>
+  );
+}
+
+export function ActionsPanel({
+  s,
+  onAddAction,
+  onOpenNote,
+}: {
+  s: RoomState;
+  onAddAction: () => void;
+  onOpenNote: (note: Note) => void;
+}) {
+  return (
+    <>
+      <button
+        className="primary"
+        onClick={() => onAddAction()}
+      >
+        <Plus size={16} />
+        Добавить действие
+      </button>
+      <div className="action-list">
+        {s.notes
+          .filter((n) => ['action', 'task'].includes(n.kind))
+          .map((n) => (
+            <button
+              key={n.id}
+              onClick={() => onOpenNote(n)}
+            >
+              <span
+                className={
+                  n.done ? 'action-check done' : 'action-check'
+                }
+              >
+                {n.done && <Check size={15} />}
+              </span>
+              <div>
+                <strong>{n.text}</strong>
+                <small>
+                  {n.owner || 'Ответственный не назначен'}{' '}
+                  {n.due && '· ' + n.due}
+                </small>
+              </div>
+              <ChevronRight size={16} />
+            </button>
+          ))}
+        {!s.notes.some((n) => ['action', 'task'].includes(n.kind)) && (
+          <p className="muted">
+            Договоритесь о конкретном следующем шаге и назначьте
+            ответственного.
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+

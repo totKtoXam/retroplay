@@ -94,11 +94,15 @@ import { useResourcePack } from '../hooks/use-resource-pack';
 import { readAimModes, type WeaponAimModes } from './world';
 import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from './world-skins';
 import {
+  ActionsPanel,
   ExportPanel,
+  GroupPanel,
   HelpPanel,
   HistoryPanel,
+  JoinRequestsPanel,
   SharePanel,
   TimerPanel,
+  ToolsPanel,
   VotePanel,
 } from './room-panels';
 
@@ -2372,41 +2376,17 @@ export default function RoomApp({ id }: { id: string }) {
                       : 'Инструменты вашей ретроспективы'}
           </DialogDescription>
           {panel === 'tools' && (
-            <>
-              <div className="tool-library">
-                {activeTools.map((t, i) => {
-                  const Icon = activeIcons[i] || MousePointer2;
-                  return (
-                    <button
-                      key={t.id}
-                      className={tool === i ? 'selected' : ''}
-                      onClick={() => {
-                        setTool(i);
-                        setPanel('');
-                      }}
-                    >
-                      <Icon size={22} />
-                      <div>
-                        <strong>{t.label}</strong>
-                        <small>{TOOL_HINTS[t.id]}</small>
-                      </div>
-                      <kbd>{t.key}</kbd>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="tool-library-footer">
-                <button
-                  className="secondary"
-                  onClick={() => setPanel('widgets')}
-                >
-                  Игры для команды
-                </button>
-                <button className="secondary" onClick={() => setPanel('help')}>
-                  Управление
-                </button>
-              </div>
-            </>
+            <ToolsPanel
+              activeTools={activeTools}
+              activeIcons={activeIcons}
+              tool={tool}
+              onSelectTool={(i) => {
+                setTool(i);
+                setPanel('');
+              }}
+              onOpenWidgets={() => setPanel('widgets')}
+              onOpenHelp={() => setPanel('help')}
+            />
           )}
           {panel === 'history' && (
             <HistoryPanel
@@ -2422,81 +2402,39 @@ export default function RoomApp({ id }: { id: string }) {
             />
           )}
           {panel === 'join_requests' && (
-            <div className="join-requests-panel">
-              <div className="join-requests-header">
-                <p className="muted">
-                  Пользователи, ожидающие одобрения для входа в приватную комнату.
-                </p>
-              </div>
-              {joinRequests.length === 0 ? (
-                <p className="empty-requests">Ожидающих запросов нет</p>
-              ) : (
-                <div className="join-requests-list">
-                  {joinRequests.map((req) => (
-                    <div key={req.id} className="join-request-card">
-                      <div className="join-request-user">
-                        <span className="join-avatar">
-                          {req.name.slice(0, 1).toUpperCase()}
-                        </span>
-                        <div className="join-user-details">
-                          <strong>{req.name}</strong>
-                          <small>
-                            {new Date(req.created).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </small>
-                        </div>
-                      </div>
-                      <div className="join-request-actions">
-                        <button
-                          type="button"
-                          className="btn-accept"
-                          onClick={async () => {
-                            try {
-                              await act({
-                                type: 'join_request.accept',
-                                id: req.id,
-                              });
-                              setJoinRequests((prev) =>
-                                prev.filter((r) => r.id !== req.id),
-                              );
-                              flash(`Вход для ${req.name} разрешён`);
-                              await refresh();
-                            } catch (e) {
-                              setError((e as Error).message);
-                            }
-                          }}
-                        >
-                          <Check size={16} /> Принять
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-reject"
-                          onClick={async () => {
-                            try {
-                              await act({
-                                type: 'join_request.reject',
-                                id: req.id,
-                              });
-                              setJoinRequests((prev) =>
-                                prev.filter((r) => r.id !== req.id),
-                              );
-                              flash(`Запрос ${req.name} отклонён`);
-                              await refresh();
-                            } catch (e) {
-                              setError((e as Error).message);
-                            }
-                          }}
-                        >
-                          <X size={16} /> Отклонить
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <JoinRequestsPanel
+              joinRequests={joinRequests}
+              onAccept={async (req) => {
+                try {
+                  await act({
+                    type: 'join_request.accept',
+                    id: req.id,
+                  });
+                  setJoinRequests((prev) =>
+                    prev.filter((r) => r.id !== req.id),
+                  );
+                  flash(`Вход для ${req.name} разрешён`);
+                  await refresh();
+                } catch (e) {
+                  setError((e as Error).message);
+                }
+              }}
+              onReject={async (req) => {
+                try {
+                  await act({
+                    type: 'join_request.reject',
+                    id: req.id,
+                  });
+                  setJoinRequests((prev) =>
+                    prev.filter((r) => r.id !== req.id),
+                  );
+                  flash(`Запрос ${req.name} отклонён`);
+                  await refresh();
+                } catch (e) {
+                  setError((e as Error).message);
+                }
+              }}
+            />
           )}
           {panel === 'share' && (
             <SharePanel
@@ -2878,63 +2816,27 @@ export default function RoomApp({ id }: { id: string }) {
             />
           )}
           {panel === 'group' && (
-            <>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void act({ type: 'group.add', title: groupTitle }).then(
-                    (r) => {
-                      if (r) {
-                        setGroupTitle('');
-                        flash(
-                          'Тема создана. Выберите её в настройках карточек.',
-                        );
-                      }
-                    },
-                  );
-                }}
-              >
-                <label className="field">
-                  Название темы
-                  <input
-                    required
-                    maxLength={80}
-                    value={groupTitle}
-                    onChange={(e) => setGroupTitle(e.target.value)}
-                    placeholder="Например, качество коммуникации"
-                  />
-                </label>
-                <button className="primary">
-                  <Folder size={16} />
-                  Создать тему
-                </button>
-              </form>
-              <div className="group-list">
-                {s.groups.map((g) => (
-                  <div key={g.id}>
-                    <Folder size={17} />
-                    <span>{g.title}</span>
-                    <small>
-                      {s.notes.filter((n) => n.group === g.id).length} идей
-                    </small>
-                    {host && (
-                      <button
-                        aria-label="Удалить тему"
-                        onClick={() =>
-                          void act({ type: 'group.delete', id: g.id })
-                        }
-                      >
-                        <X size={15} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p className="muted">
-                Откройте карточку и выберите «Общая тема», чтобы сгруппировать
-                похожие идеи.
-              </p>
-            </>
+            <GroupPanel
+              groupTitle={groupTitle}
+              onGroupTitleChange={setGroupTitle}
+              onAddGroup={() =>
+                void act({ type: 'group.add', title: groupTitle }).then(
+                  (r) => {
+                    if (r) {
+                      setGroupTitle('');
+                      flash(
+                        'Тема создана. Выберите её в настройках карточек.',
+                      );
+                    }
+                  },
+                )
+              }
+              s={s}
+              host={host}
+              onDeleteGroup={(id) =>
+                void act({ type: 'group.delete', id })
+              }
+            />
           )}
           {panel === 'widgets' && (
             <>
@@ -3113,71 +3015,35 @@ export default function RoomApp({ id }: { id: string }) {
             </>
           )}
           {panel === 'actions' && (
-            <>
-              <button
-                className="primary"
-                onClick={() => {
-                  setPanel('');
-                  setDraft({
-                    kind: 'action',
-                    text: '',
-                    zone: 'start',
-                    color: '#b5d1c0',
-                    url: '',
-                    x: 25,
-                    y: 60,
-                    owner: '',
-                    due: '',
-                    group: '',
-                    tags: '',
-                    hidden: false,
-                    locked: false,
-                    done: false,
-                    width: 220,
-                    height: 180,
-                    rotation: 0,
-                  });
-                }}
-              >
-                <Plus size={16} />
-                Добавить действие
-              </button>
-              <div className="action-list">
-                {s.notes
-                  .filter((n) => ['action', 'task'].includes(n.kind))
-                  .map((n) => (
-                    <button
-                      key={n.id}
-                      onClick={() => {
-                        setPanel('');
-                        editNote(n);
-                      }}
-                    >
-                      <span
-                        className={
-                          n.done ? 'action-check done' : 'action-check'
-                        }
-                      >
-                        {n.done && <Check size={15} />}
-                      </span>
-                      <div>
-                        <strong>{n.text}</strong>
-                        <small>
-                          {n.owner || 'Ответственный не назначен'}{' '}
-                          {n.due && '· ' + n.due}
-                        </small>
-                      </div>
-                      <ChevronRight size={16} />
-                    </button>
-                  ))}
-                {!s.notes.some((n) => ['action', 'task'].includes(n.kind)) && (
-                  <p className="muted">
-                    Договоритесь о конкретном следующем шаге и назначьте
-                    ответственного.
-                  </p>
-                )}
-              </div>
-            </>
+            <ActionsPanel
+              s={s}
+              onAddAction={() => {
+                setPanel('');
+                setDraft({
+                  kind: 'action',
+                  text: '',
+                  zone: 'start',
+                  color: '#b5d1c0',
+                  url: '',
+                  x: 25,
+                  y: 60,
+                  owner: '',
+                  due: '',
+                  group: '',
+                  tags: '',
+                  hidden: false,
+                  locked: false,
+                  done: false,
+                  width: 220,
+                  height: 180,
+                  rotation: 0,
+                });
+              }}
+              onOpenNote={(n) => {
+                setPanel('');
+                editNote(n);
+              }}
+            />
           )}
           {panel === 'export' && (
             <ExportPanel
