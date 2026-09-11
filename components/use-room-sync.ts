@@ -49,6 +49,8 @@ type SocketMessage =
 
 /** While the socket is down the board still refetches at least this often. */
 const SOCKET_REFRESH_MS = 15_000;
+/** Remote avatars trail their latest pose by about this much (smoothing in world-remote-players.ts). */
+const RENDER_DELAY_MS = 70;
 
 function compressPose(p: Pose): Pose {
   return {
@@ -128,6 +130,8 @@ export function useRoomSync({
   const lossHistory = useRef<boolean[]>([]);
   const lastEffectAtRef = useRef(0);
   const lastRefreshRef = useRef(0);
+  /** Latest server clock reading and when it arrived, to date what the player sees. */
+  const clockRef = useRef<{ server: number; local: number } | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const onReadyRef = useRef(onReady);
   useEffect(() => {
@@ -163,6 +167,9 @@ export function useRoomSync({
         return;
       }
       setJoin(null);
+      const serverNow = (data as { serverNow?: number }).serverNow;
+      if (typeof serverNow === 'number')
+        clockRef.current = { server: serverNow, local: performance.now() };
       if (data.joinRequests) {
         setJoinRequests(data.joinRequests);
       }
@@ -248,10 +255,16 @@ export function useRoomSync({
   /** A shot or other world effect: over the socket when it is up, otherwise over HTTP. */
   const fire = useCallback(
     (effect: object) => {
+      // Server time of the world the player was looking at: the server checks the hit
+      // against victims' poses from that moment (lag compensation, capped at 250 ms).
+      const clock = clockRef.current;
+      const seenAt = clock
+        ? Math.round(clock.server + performance.now() - clock.local - RENDER_DELAY_MS)
+        : undefined;
       const ws = socketRef.current;
       if (ws?.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ ...effect, t: 'effect' }));
-      else void act({ type: 'effect', ...effect });
+        ws.send(JSON.stringify({ ...effect, seenAt, t: 'effect' }));
+      else void act({ type: 'effect', ...effect, seenAt });
     },
     [act],
   );
@@ -288,6 +301,7 @@ export function useRoomSync({
           return;
         }
         if (msg.t === 'tick') {
+          clockRef.current = { server: msg.now, local: performance.now() };
           noteEffects(msg.effects);
           setRoom((old) =>
             old

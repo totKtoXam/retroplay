@@ -10,12 +10,25 @@ import {
   isHeadshot,
 } from './game-items.ts';
 import { uid, type Person, type Pose, type RoomState, type WorldEffect } from './model.ts';
+import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
 
 /** Effects older than this are neither resolved nor sent to clients. */
 export const EFFECT_TTL_MS = 15_000;
 /** Members unseen for longer than this cannot be hit. */
 export const ONLINE_MS = 15_000;
 export const SPAWN_POSE: Pose = { x: 0, y: 0, z: 4, yaw: 0, stance: 'stand', moving: false };
+/** Lag compensation: shots are checked against where victims were at most this long ago. */
+export const MAX_REWIND_MS = 250;
+/** Pose samples kept per member for rewinding. */
+const TRACK_MS = 1000;
+/** The fastest legal run is 4.8 m/s (world.tsx); the margin absorbs network jitter. */
+const MOVE_SPEED = 4.8 * 1.5;
+/** Movement allowance saved up while packets are delayed, m. */
+const MOVE_BUDGET = 5;
+/** A client whose moves have been refused this long is resynced to where it says it is. */
+const RESYNC_MS = 1500;
+/** Server-side body radius: below the client's 0.32 so rounded poses near walls still pass. */
+const BODY_RADIUS = 0.25;
 const EFFECT_KINDS = ['paint', 'confetti', 'grenade', 'sniper', 'like'];
 const TOOLS = ['paint', 'confetti', 'grenade', 'sniper', 'pointer', 'other'];
 
@@ -40,10 +53,18 @@ export type HubMember = {
   assists: number;
   recentDamage: Record<string, number>;
   lastShot: number;
+  /** Recent poses of the current life, oldest first, for lag compensation. */
+  track: { at: number; pose: Pose }[];
+  moveBudget: number;
+  lastMoveAt: number;
+  /** Start of the current run of refused moves (0: none). */
+  refusedSince: number;
 };
 export type HubEffect = WorldEffect & {
   resolveAt: number;
   applied: boolean;
+  /** Server time whose victim poses the hit is checked against. */
+  rewindTo: number;
   /** Monotonic per hub; lets the tick send only effects added since the previous tick. */
   seq: number;
 };
@@ -108,6 +129,10 @@ export function memberFromRow(row: Record<string, unknown>): HubMember {
     assists: num(row.assists),
     recentDamage: parseJson<Record<string, number>>(row.recent_damage, {}),
     lastShot: num(row.last_shot),
+    track: [],
+    moveBudget: MOVE_BUDGET,
+    lastMoveAt: 0,
+    refusedSince: 0,
   };
 }
 
@@ -144,9 +169,44 @@ export function sanitizePose(pose: unknown): Pose | null {
   };
 }
 
+const blockedAt = (p: Pose) => isBlocked3D(p.x, p.z, p.y, BODY_RADIUS);
+
+/** A move is legal within the saved-up allowance, outside walls and not through them. */
+function moveAllowed(from: Pose, to: Pose, step: number, budget: number) {
+  if (step > budget || blockedAt(to)) return false;
+  const wall = rayCastWorldObstacle([from.x, from.y + 0.9, from.z], [to.x, to.y + 0.9, to.z]);
+  return !wall?.hit;
+}
+
+function recordPose(m: HubMember, now: number) {
+  m.track.push({ at: now, pose: m.pose });
+  while (m.track.length > 64 || m.track[0].at < now - TRACK_MS) m.track.shift();
+}
+
+/** Where the member was at server time `t` (linear between samples); the current pose if later. */
+export function poseAt(m: HubMember, t: number): Pose {
+  const track = m.track;
+  const last = track[track.length - 1];
+  if (!last || t >= last.at) return m.pose;
+  let i = track.length - 1;
+  while (i > 0 && track[i - 1].at > t) i--;
+  const b = track[i];
+  if (i === 0) return b.pose;
+  const a = track[i - 1];
+  const k = (t - a.at) / Math.max(1, b.at - a.at);
+  return {
+    ...(k < 0.5 ? a.pose : b.pose),
+    x: a.pose.x + (b.pose.x - a.pose.x) * k,
+    y: a.pose.y + (b.pose.y - a.pose.y) * k,
+    z: a.pose.z + (b.pose.z - a.pose.z) * k,
+  };
+}
+
 /**
  * Presence packet: marks the member online and takes the pose unless they are dead or the
- * packet belongs to a previous life (sent before a respawn reached the client).
+ * packet belongs to a previous life (sent before a respawn reached the client). Positions
+ * that move faster than a run allows, end inside a wall or pass through one are refused
+ * (the rest of the pose is kept); after RESYNC_MS of refusals a legal position is accepted.
  */
 export function applyPresence(
   m: HubMember,
@@ -160,7 +220,23 @@ export function applyPresence(
   m.ping = finite(op.ping) ? clamp(Math.round(op.ping), 0, 60000) : 0;
   if (cursor) m.cursor = cursor;
   if (!pose || m.hp <= 0 || m.life !== life) return;
+  const dt = m.lastMoveAt ? Math.max(0, now - m.lastMoveAt) / 1000 : Infinity;
+  m.lastMoveAt = now;
+  m.moveBudget = Math.min(MOVE_BUDGET, m.moveBudget + MOVE_SPEED * dt);
+  const from = m.pose;
+  const step = Math.hypot(pose.x - from.x, pose.z - from.z);
+  if (step > 1e-3 && !moveAllowed(from, pose, step, m.moveBudget)) {
+    if (!m.refusedSince) m.refusedSince = now;
+    if (now - m.refusedSince < RESYNC_MS || blockedAt(pose)) {
+      m.pose = { ...pose, x: from.x, y: from.y, z: from.z, moving: false };
+      recordPose(m, now);
+      return;
+    }
+  }
+  m.refusedSince = 0;
+  m.moveBudget = Math.max(0, m.moveBudget - step);
   m.pose = pose;
+  recordPose(m, now);
   // Spawn protection lasts until the first move, then 5 more seconds.
   if (m.immuneUntil === -1 && (pose.moving || Math.hypot(pose.x, pose.z - SPAWN_POSE.z) > 0.45))
     m.immuneUntil = now + 5000;
@@ -208,6 +284,9 @@ export function fireEffect(
     at: now,
     resolveAt: now + (kind === 'grenade' ? 1100 : 0),
     applied: false,
+    // A grenade explodes later in server time; other shots hit what the shooter saw.
+    rewindTo:
+      kind === 'grenade' || !finite(op.seenAt) ? now : clamp(op.seenAt, now - MAX_REWIND_MS, now),
     seq: ++state.seq,
   };
   state.effects.push(effect);
@@ -225,6 +304,9 @@ function revive(state: HubState, now: number) {
     m.immuneUntil = -1;
     m.recentDamage = {};
     m.pose = { ...SPAWN_POSE };
+    m.track = [];
+    m.moveBudget = MOVE_BUDGET;
+    m.refusedSince = 0;
     changed = true;
   }
   return changed;
@@ -237,17 +319,18 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
   const authorImmune = !!author && isImmune(author, now);
   for (const p of state.members.values()) {
     if (p.id === e.author || p.hp <= 0 || p.seen <= now - ONLINE_MS) continue;
+    const pose = poseAt(p, e.rewindTo);
     const hit =
       e.kind === 'confetti'
-        ? calculatePelletsHit(origin, target, p.pose).pelletsHit > 0
-        : inHitRange(e.kind, origin, target, p.pose);
+        ? calculatePelletsHit(origin, target, pose).pelletsHit > 0
+        : inHitRange(e.kind, origin, target, pose);
     // After a respawn a player can neither take nor deal damage.
     if (!hit || authorImmune || isImmune(p, now)) continue;
-    const head = isHeadshot(e.kind, origin, target, p.pose);
+    const head = isHeadshot(e.kind, origin, target, pose);
     let damage: number;
     let pelletsHit: number | undefined;
     if (e.kind === 'confetti') {
-      const pellets = calculatePelletsHit(origin, target, p.pose);
+      const pellets = calculatePelletsHit(origin, target, pose);
       pelletsHit = pellets.pelletsHit;
       damage = head ? 100 : pellets.damage;
     } else {
@@ -293,6 +376,7 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
       at: now,
       resolveAt: 0,
       applied: true,
+      rewindTo: 0,
       seq: ++state.seq,
     });
   }
@@ -332,6 +416,7 @@ export function publicEffects(effects: HubEffect[], anonymous: boolean): WorldEf
     const out: WorldEffect & Partial<HubEffect> = { ...e };
     delete out.resolveAt;
     delete out.applied;
+    delete out.rewindTo;
     delete out.seq;
     if (anonymous && out.kind === 'kill') {
       out.killerName = 'Участник';

@@ -5,11 +5,13 @@ import {
   effectsSince,
   fireEffect,
   memberFromRow,
+  poseAt,
   publicEffects,
   publicMembers,
   resolveCombat,
   sanitizePose,
 } from '../lib/room-hub-core.ts';
+import { isBlocked3D } from '../lib/world-collision.ts';
 
 const T = 1_000_000;
 const stand = (x, z) => ({ x, y: 0, z, yaw: 0, stance: 'stand', moving: false });
@@ -32,6 +34,10 @@ const member = (id, over = {}) => ({
   assists: 0,
   recentDamage: {},
   lastShot: 0,
+  track: [],
+  moveBudget: 5,
+  lastMoveAt: 0,
+  refusedSince: 0,
   ...over,
 });
 const hub = (...members) => ({
@@ -170,7 +176,9 @@ test('anonymous rooms hide names in members and in the kill feed; internals are 
   const kill = effects.find((e) => e.kind === 'kill');
   assert.equal(kill.killerName, 'Участник');
   assert.equal(kill.victimName, 'Участник');
-  assert.ok(effects.every((e) => !('seq' in e) && !('applied' in e) && !('resolveAt' in e)));
+  assert.ok(
+    effects.every((e) => !('seq' in e) && !('applied' in e) && !('resolveAt' in e) && !('rewindTo' in e)),
+  );
 });
 
 test('effectsSince respects the client cursor and the TTL', () => {
@@ -187,4 +195,66 @@ test('poses are clamped and cleaned; D1 rows load with defaults', () => {
   assert.equal(sanitizePose({ x: 1, y: 0, z: 0 }), null);
   const m = memberFromRow({ session: 's', name: 'N', color: '#fff', seen: 5, pose: 'bad json', cursor: '{}', hp: 0 });
   assert.deepEqual([m.hp, m.pose.z, m.cursor, m.kills], [0, 4, null, 0]);
+});
+
+// The victim runs along +x at 4.8 m/s (0.24 m every 50 ms); shots aim at x = 0.
+const runner = (steps) => {
+  const h = duel();
+  const v = h.members.get('v');
+  applyPresence(v, { pose: stand(0, 0), life: 0 }, T);
+  for (let k = 1; k <= steps; k++) applyPresence(v, { pose: stand(0.24 * k, 0), life: 0 }, T + 50 * k);
+  return h;
+};
+
+test('lag compensation: a shot hits where the shooter saw the victim', () => {
+  const seen = runner(4); // victim now at x = 0.96, out of a shot aimed at x = 0
+  fire(seen, 'a', T + 200, 'paint', { seenAt: T });
+  assert.equal(seen.members.get('v').hp, 80);
+  const unseen = runner(4);
+  fire(unseen, 'a', T + 200);
+  assert.equal(unseen.members.get('v').hp, 100, 'without seenAt the current pose is used');
+  assert.deepEqual(
+    [poseAt(seen.members.get('v'), T + 125).x, poseAt(seen.members.get('v'), T + 999).x],
+    [0.6, 0.96],
+  );
+});
+
+test('lag compensation rewinds at most 250 ms and never for grenades', () => {
+  const h = runner(10); // x = 2.4 at T + 500; 250 ms back it was at x = 1.2
+  fire(h, 'a', T + 500, 'paint', { seenAt: T });
+  assert.equal(h.members.get('v').hp, 100, 'x = 0 is further back than the cap');
+  const aimed = runner(10);
+  fire(aimed, 'a', T + 500, 'paint', { seenAt: T, target: [1.2, 1.1, 0] });
+  assert.equal(aimed.members.get('v').hp, 80, 'clamped to 250 ms: x = 1.2');
+  const g = fireEffect(h, 'a', shot('grenade', { seenAt: T }), T + 2000);
+  assert.equal(g.effect.rewindTo, T + 2000);
+});
+
+test('teleports are refused; a client stuck on refusals is resynced after 1.5 s', () => {
+  assert.equal(isBlocked3D(20, 0, 0, 0.25), false);
+  const h = duel();
+  const v = h.members.get('v');
+  applyPresence(v, { pose: stand(0, 0), life: 0 }, T);
+  applyPresence(v, { pose: { ...stand(20, 0), yaw: 1 }, life: 0 }, T + 50);
+  assert.deepEqual([v.pose.x, v.pose.yaw, v.pose.moving], [0, 1, false], 'position refused, rest kept');
+  applyPresence(v, { pose: stand(20, 0), life: 0 }, T + 1000);
+  assert.equal(v.pose.x, 0);
+  applyPresence(v, { pose: stand(20, 0), life: 0 }, T + 1600);
+  assert.equal(v.pose.x, 20, 'resynced');
+  applyPresence(v, { pose: stand(20.3, 0), life: 0 }, T + 1650);
+  assert.equal(v.pose.x, 20.3, 'normal movement continues');
+});
+
+test('walking into or through a wall is refused', () => {
+  // Campus south wall: x -4.6..-1.4, z -13.7..-13.3.
+  assert.ok(!isBlocked3D(-3, -12.8, 0, 0.25) && !isBlocked3D(-3, -14.2, 0, 0.25));
+  assert.ok(isBlocked3D(-3, -13.5, 0, 0.25));
+  const v = member('v', { pose: stand(-3, -12.8) });
+  hub(member('a'), v);
+  applyPresence(v, { pose: stand(-3, -14.2), life: 0 }, T);
+  assert.equal(v.pose.z, -12.8, 'through the wall');
+  applyPresence(v, { pose: stand(-3, -13.5), life: 0 }, T + 100);
+  assert.equal(v.pose.z, -12.8, 'into the wall');
+  applyPresence(v, { pose: stand(-3, -12.5), life: 0 }, T + 200);
+  assert.equal(v.pose.z, -12.5);
 });
