@@ -27,14 +27,10 @@ import { createVisualProvider } from './resource-packs/provider';
 import { createFieldOptics } from './resource-packs/realistic/post';
 import { visualBudget } from '../lib/resource-packs';
 import { createFirstPersonHands } from './world-hands';
-import { PAINTS, CONFETTI, GRENADES, FIREWORKS, inHitRange, SHOTGUN_PELLET_OFFSETS } from '@/lib/game-items';
-import {
-  partyGeometry,
-  grenadeParty,
-  fireworkParty,
-  makeGrenade,
-  makeFireworkRocket,
-} from './party-geometry';
+import { PAINTS, CONFETTI, GRENADES, FIREWORKS, SHOTGUN_PELLET_OFFSETS } from '@/lib/game-items';
+import { createWorldVfx } from './world-vfx';
+import { createWorldProjectiles } from './world-projectiles';
+import { createWorldRemotePlayers } from './world-remote-players';
 import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
@@ -153,14 +149,6 @@ type Props = {
   pendingJoinRequestsCount?: number;
   onOpenJoinRequests?: () => void;
 };
-type Particle = {
-  mesh: T.InstancedMesh;
-  velocity: T.Vector3[];
-  positions: T.Vector3[];
-  rotations: T.Euler[];
-  born: number;
-  lifetime?: number;
-};
 export type KillMessage = {
   id: string;
   killer: string;
@@ -186,18 +174,6 @@ export type PersonalAlert = {
 export type HitEffect = {
   color: string;
   key: number;
-};
-type Flight = {
-  mesh: T.Object3D;
-  variant: string;
-  origin: T.Vector3;
-  target: T.Vector3;
-  normal: T.Vector3;
-  born: number;
-  duration: number;
-  color: string;
-  kind: string;
-  author?: string;
 };
 function readPerspective(): Perspective {
   try {
@@ -673,42 +649,13 @@ export default function World(props: Props) {
     let appliedLocalSkinId = cachedLocalSkinId;
     let appliedLocalBandanaColor = cachedLocalBandanaColor;
     applyAvatarSkin(avatar, appliedLocalSkinId, appliedLocalBandanaColor, localBandanaMat);
-    const remoteAvatars = new Map<string, T.Group>(),
-      remoteBandanaMats = new Map<string, T.MeshStandardMaterial>(),
-      labels = new Map<string, T.Sprite>(),
-      remoteMotion = new Map<
-        string,
-        {
-          lastX: number;
-          lastY: number;
-          lastZ: number;
-          lastYaw: number;
-          lastTime: number;
-        }
-      >();
-    const addLabel = (name: string, color: string) => {
-      const c = document.createElement('canvas');
-      c.width = 256;
-      c.height = 64;
-      const ctx = c.getContext('2d')!;
-      ctx.fillStyle = '#182237de';
-      ctx.roundRect(0, 0, 256, 60, 15);
-      ctx.fill();
-      ctx.fillStyle = color;
-      ctx.fillRect(8, 13, 4, 30);
-      ctx.fillStyle = '#fff';
-      ctx.font = '500 23px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(name.slice(0, 18), 132, 39);
-      const tex = new T.CanvasTexture(c);
-      tex.colorSpace = T.SRGBColorSpace;
-      const sprite = new T.Sprite(
-        new T.SpriteMaterial({ map: tex, transparent: true, depthTest: true }),
-      );
-      sprite.scale.set(1.8, 0.45, 1);
-      sprite.position.y = 2.55;
-      return sprite;
-    };
+    const remotePlayers = createWorldRemotePlayers({
+      scene,
+      kit,
+      quality: props.quality,
+      latest,
+    });
+    const { remoteAvatars, deadTimers } = remotePlayers;
     const shadow = new T.Mesh(
       new T.CircleGeometry(0.5, 20),
       new T.MeshBasicMaterial({
@@ -757,61 +704,14 @@ export default function World(props: Props) {
       mouseInWorld = false;
     let grenadeAiming = false;
     let continuousShots = 0;
-    const deadTimers = new Map<string, number>();
-    // Remote avatars of members that left or went stale; disposed after the
-    // resource pack has released them (visuals.update below) in the same frame.
-    const retiredAvatars: T.Group[] = [],
-      liveRemoteIds = new Set<string>();
-    let remoteKey = '';
-    const retireRemote = (id: string, remote: T.Group) => {
-      remote.removeFromParent();
-      retiredAvatars.push(remote);
-      remoteAvatars.delete(id);
-      labels.delete(id);
-      remoteBandanaMats.delete(id);
-      remoteMotion.delete(id);
-      deadTimers.delete(id);
-      remoteKey = Array.from(remoteAvatars.keys()).join(',');
-    };
-    const disposeRemoteAvatar = (remote: T.Group) => {
-      remote.traverse((o) => {
-        for (let q: T.Object3D | null = o; q && q !== remote; q = q.parent)
-          if (q.userData.presentationOnly) return;
-        if (o instanceof T.Sprite) {
-          // Sprite geometry is a shared three.js singleton — keep it.
-          o.material.map?.dispose();
-          o.material.dispose();
-        } else if (o instanceof T.Mesh) {
-          o.geometry.dispose();
-          const materials = Array.isArray(o.material)
-            ? o.material
-            : [o.material];
-          materials.forEach((m) => m.dispose());
-        }
-      });
-    };
     const keys = new Set<string>(),
       ray = new T.Raycaster(),
-      mouse = new T.Vector2(0, 0),
-      splats: { mesh: T.Mesh; born: number }[] = [],
-      flights: Flight[] = [],
-      bursts: Particle[] = [],
-      seen = new Set<string>();
-    const dummy = new T.Object3D(),
-      paintGeo = new T.SphereGeometry(0.105, 7, 5),
-      paintDropletGeo = new T.SphereGeometry(0.04, 6, 4),
-      confettiGeo = new T.PlaneGeometry(0.07, 0.13),
-      normalUp = new T.Vector3(0, 0, 1);
+      mouse = new T.Vector2(0, 0);
+    const vfx = createWorldVfx({ scene, quality: props.quality });
+    const { burst, paintDropletGeo } = vfx;
     // Per-frame camera-update scratch vectors, reused to avoid allocating on every tick.
     const scratchCamDir = new T.Vector3(),
       scratchLookTarget = new T.Vector3();
-    const partyGeometries = new Map([
-      ...[...CONFETTI, ...FIREWORKS].map(
-        (c) => [c.id, partyGeometry(c.id)] as [string, T.BufferGeometry],
-      ),
-      ['ribbon', partyGeometry('ribbon')],
-      ['shard', partyGeometry('shard')],
-    ]);
 
     const trajectoryGeo = new T.BufferGeometry();
     const trajectoryMat = new T.LineBasicMaterial({
@@ -880,173 +780,6 @@ export default function World(props: Props) {
       return list;
     };
 
-    const burst = (
-      at: T.Vector3,
-      color: string,
-      now: number,
-      style = 'classic',
-    ) => {
-      const isPaint = style === 'paint';
-      const isFirework = FIREWORKS.some((f) => f.id === style);
-      const isCinematicQuality =
-        props.quality === 'cinematic' || props.quality === 'high';
-      const isBalancedQuality =
-        props.quality === 'balanced' ||
-        (!isCinematicQuality && props.quality !== 'low');
-      const count = isPaint
-        ? isCinematicQuality
-          ? 16
-          : isBalancedQuality
-            ? 10
-            : 6
-        : isFirework
-          ? isCinematicQuality
-            ? 96
-            : isBalancedQuality
-              ? 60
-              : 36
-          : isCinematicQuality
-            ? 80
-            : isBalancedQuality
-              ? 48
-              : 26;
-      const geo =
-        style === 'paint'
-          ? paintDropletGeo
-          : partyGeometries.get(style) || confettiGeo;
-      const mesh = new T.InstancedMesh(
-        geo,
-        new T.MeshBasicMaterial({ side: T.DoubleSide, transparent: true }),
-        count,
-      );
-      const velocity: T.Vector3[] = [],
-        positions: T.Vector3[] = [],
-        rotations: T.Euler[] = [];
-      const spreadFactor = isPaint ? 0.95 : 1;
-      for (let i = 0; i < count; i++) {
-        const a = i * 2.399;
-        if (isFirework) {
-          const phi = Math.acos(1 - 2 * ((i + 0.5) / count));
-          const theta = Math.PI * (1 + 5 ** 0.5) * i;
-          const spd = 2.4 + (i % 5) * 0.55;
-          velocity.push(
-            new T.Vector3(
-              Math.sin(phi) * Math.cos(theta) * spd,
-              Math.sin(phi) * Math.sin(theta) * spd + 0.7,
-              Math.cos(phi) * spd,
-            ),
-          );
-        } else {
-          velocity.push(
-            new T.Vector3(
-              Math.cos(a) * (1.1 + (i % 5) * 0.35) * spreadFactor,
-              isPaint ? 0.85 + (i % 7) * 0.25 : 1.8 + (i % 7) * 0.35,
-              Math.sin(a) * (1.1 + (i % 4) * 0.35) * spreadFactor,
-            ),
-          );
-        }
-        positions.push(at.clone());
-        rotations.push(new T.Euler(a, a * 0.7, a * 1.2));
-        mesh.setColorAt(
-          i,
-          new T.Color(
-            style === 'paint'
-              ? color
-              : isFirework
-                ? [color, '#ffffff', '#ffd166', '#ff84c8', '#64d4ef'][i % 5]
-                : style === 'snow'
-                  ? '#e7f7ff'
-                  : style === 'hearts'
-                    ? ['#ff647c', '#ffb1c8'][i % 2]
-                    : style === 'digital'
-                      ? ['#7fe0b8', '#b6ffe5'][i % 2]
-                      : [color, '#c8b6ff', '#80d8fa', '#ffbfd8', '#ffe29b'][i % 5],
-          ),
-        );
-        dummy.position.copy(at);
-        dummy.rotation.copy(rotations[i]);
-        dummy.updateMatrix();
-        mesh.setMatrixAt(i, dummy.matrix);
-      }
-      mesh.userData.transientProjectile = true;
-      scene.add(mesh);
-      bursts.push({
-        mesh,
-        velocity,
-        positions,
-        rotations,
-        born: now,
-        lifetime: isPaint ? 1.6 : isFirework ? 2.5 : 4,
-      });
-    };
-    const splat = (
-      at: T.Vector3,
-      normal: T.Vector3,
-      color: string,
-      now: number,
-      parent: T.Object3D = scene,
-      scale = 1,
-    ) => {
-      const shape = new T.Shape();
-      for (let i = 0; i <= 32; i++) {
-        const a = (i / 32) * Math.PI * 2,
-          r = 0.38 + Math.sin(a * 7) * 0.09 + Math.cos(a * 5) * 0.06;
-        if (i === 0) shape.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-        else shape.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-      }
-      const decal = new T.Mesh(
-        new T.ShapeGeometry(shape),
-        new T.MeshBasicMaterial({
-          color,
-          transparent: true,
-          opacity: 0.9,
-          side: T.DoubleSide,
-          depthWrite: false,
-          polygonOffset: true,
-          polygonOffsetFactor: -3,
-        }),
-      );
-      decal.userData.projectileCollision = 'ignore';
-      if (scale !== 1) decal.scale.setScalar(scale);
-
-      if (parent !== scene) {
-        parent.updateMatrixWorld(true);
-        const localPos = parent.worldToLocal(at.clone());
-        localPos.y = Math.max(0.35, Math.min(1.65, localPos.y));
-        const localNorm = new T.Vector3(localPos.x, 0, localPos.z).normalize();
-        if (localNorm.lengthSq() < 0.05) localNorm.set(0, 0, 1);
-        decal.position.copy(localPos).addScaledVector(localNorm, 0.04);
-        decal.quaternion.setFromUnitVectors(normalUp, localNorm);
-      } else {
-        decal.position.copy(at).addScaledVector(normal, 0.035);
-        decal.quaternion.setFromUnitVectors(normalUp, normal.normalize());
-      }
-      parent.add(decal);
-      splats.push({ mesh: decal, born: now });
-    };
-    const smearPlayerWithPaint = (
-      playerGroup: T.Object3D,
-      hitPoint: T.Vector3,
-      hitNormal: T.Vector3,
-      color: string,
-      now: number,
-    ) => {
-      splat(hitPoint, hitNormal, color, now, playerGroup, 0.55);
-      const dropletOffset = new T.Vector3(
-        (Math.random() - 0.5) * 0.16,
-        -0.14 - Math.random() * 0.12,
-        (Math.random() - 0.5) * 0.16,
-      );
-      splat(
-        hitPoint.clone().add(dropletOffset),
-        hitNormal,
-        color,
-        now,
-        playerGroup,
-        0.28,
-      );
-      burst(hitPoint, color, now, 'paint');
-    };
     const checkSceneryHit = (at: T.Vector3, normal: T.Vector3) => {
       const rayOrigin = at.clone().addScaledVector(normal, 0.25);
       const rayDir = normal.clone().negate().normalize();
@@ -1077,59 +810,21 @@ export default function World(props: Props) {
       }
       return null;
     };
-    const spawn = (e: WorldEffect) => {
-      if (
-        e.kind === 'kill' ||
-        !e.origin ||
-        !e.target ||
-        !e.normal ||
-        !e.color ||
-        seen.has(e.id) ||
-        Date.now() - e.at > (e.kind === 'paint' ? 14000 : 5000)
-      )
-        return;
-      seen.add(e.id);
-      const remote = remoteAvatars.get(e.author);
-      if (remote) avatarShoot(remote);
-      if (seen.size > 200) {
-        const first = seen.values().next().value;
-        if (first) seen.delete(first);
-      }
-      const start = new T.Vector3(...e.origin),
-        target = new T.Vector3(...e.target),
-        normal = new T.Vector3(...e.normal).normalize();
-      const ball =
-        e.kind === 'grenade'
-          ? makeGrenade(e.color, e.variant)
-          : e.kind === 'sniper'
-            ? makeFireworkRocket(e.color)
-            : e.kind === 'like'
-              ? new T.Mesh(
-                  partyGeometry('hearts'),
-                  new T.MeshBasicMaterial({ color: '#ff647c', side: T.DoubleSide }),
-                )
-              : new T.Mesh(paintGeo, new T.MeshBasicMaterial({ color: e.color }));
-      ball.position.copy(start);
-      ball.userData.transientProjectile = true;
-      scene.add(ball);
-      flights.push({
-        mesh: ball,
-        origin: start,
-        target,
-        normal,
-        born: performance.now() - Math.max(0, Date.now() - e.at),
-        duration:
-          e.kind === 'grenade'
-            ? 1100
-            : e.kind === 'sniper'
-              ? Math.max(25, start.distanceTo(target) * 1.8)
-              : Math.max(130, start.distanceTo(target) * 22),
-        variant: e.variant || 'classic',
-        color: e.color,
-        kind: e.kind,
-        author: e.author,
-      });
-    };
+    const projectiles = createWorldProjectiles({
+      scene,
+      latest,
+      remoteAvatars,
+      avatar,
+      hands,
+      pos,
+      perspectiveRef,
+      hitGlowHandler,
+      burst,
+      splat: vfx.splat,
+      smearPlayerWithPaint: vfx.smearPlayerWithPaint,
+      checkSceneryHit,
+    });
+    const { flights, spawn } = projectiles;
     let lastReportedRounds = { ...magazine.current.rounds };
     let lastReportedReloading = magazine.current.reloading;
     const updateAmmo = () => {
@@ -2254,380 +1949,9 @@ export default function World(props: Props) {
         nearZone = nearest;
         setNear(nearest);
       }
-      const serverNow =
-        (latest.current.room as Room & { serverNow?: number }).serverNow ??
-        Date.now();
-      liveRemoteIds.clear();
-      for (const member of latest.current.room.members) {
-        if (member.id === latest.current.room.self) continue;
-        // Server treats players unseen for 15 s as gone; don't keep avatars for them.
-        if (serverNow - member.lastSeen >= 15000) continue;
-        liveRemoteIds.add(member.id);
-        let remote = remoteAvatars.get(member.id);
-        if (!remote) {
-          remote = kit.avatarFactory(member.color);
-          remoteAvatars.set(member.id, remote);
-          remoteKey = Array.from(remoteAvatars.keys()).join(',');
-          remote.traverse((o) => {
-            if (o instanceof T.Mesh) o.castShadow = props.quality === 'high';
-          });
-          scene.add(remote);
-          // Attach custom skins to remote avatar
-          const remoteSkinResult = attachCustomSkins(remote);
-          remoteBandanaMats.set(member.id, remoteSkinResult.bandanaMat);
-          applyAvatarSkin(remote, member.hat || member.skin || 'agent', member.bandanaColor || member.color, remoteSkinResult.bandanaMat);
-          const label = addLabel(member.name, member.color);
-          labels.set(member.id, label);
-          remote.add(label);
-          if (member.pose) {
-            remote.position.set(
-              member.pose.x,
-              member.pose.y + 0.27,
-              member.pose.z,
-            );
-            remote.rotation.y = member.pose.yaw || 0;
-          }
-        }
-        const isRemoteDead = (member.hp ?? 100) === 0;
-        if (isRemoteDead) {
-          if (!deadTimers.has(member.id)) {
-            deadTimers.set(member.id, now);
-          }
-        } else {
-          deadTimers.delete(member.id);
-        }
-        const remoteDeathTime = deadTimers.get(member.id);
-        const isRemoteDeathRecent =
-          isRemoteDead && now - (remoteDeathTime || now) < 3800;
-
-        remote.visible =
-          Date.now() - member.lastSeen < 15000 &&
-          (!isRemoteDead || isRemoteDeathRecent);
-        setAvatarAnonymous(
-          remote,
-          !!latest.current.room.state.anonymousPlayers,
-        );
-        const isRemoteShielded = (member.immuneRemaining || 0) > 0;
-        // Update remote skin if changed
-        applyAvatarSkin(remote, member.hat || member.skin || 'agent', member.bandanaColor || member.color, remoteBandanaMats.get(member.id));
-        const caption = isRemoteDead
-          ? '💀 ПОГИБ'
-          : latest.current.room.state.anonymousPlayers
-            ? `${member.hp ?? 100} HP${isRemoteShielded ? ' 🛡️' : ''}`
-            : `${member.name.slice(0, 12)} · ${member.hp ?? 100}${isRemoteShielded ? ' 🛡️' : ''}`;
-        let label = labels.get(member.id);
-        // Hide label when host setting hidePlayerStatus is on
-        const shouldHideLabel = !!latest.current.room.state.hidePlayerStatus;
-        if (label?.userData.caption !== caption) {
-          if (label) {
-            label.removeFromParent();
-            label.material.map?.dispose();
-            label.material.dispose();
-          }
-          label = addLabel(caption, member.color);
-          label.userData.caption = caption;
-          labels.set(member.id, label);
-          remote.add(label);
-        }
-        if (label) label.visible = !shouldHideLabel && remote.visible;
-
-        const p = member.pose;
-        let motion = remoteMotion.get(member.id);
-        if (!motion) {
-          motion = {
-            lastX: p.x,
-            lastY: p.y,
-            lastZ: p.z,
-            lastYaw: p.yaw || 0,
-            lastTime: now,
-          };
-          remoteMotion.set(member.id, motion);
-        }
-        if (
-          p.x !== motion.lastX ||
-          p.y !== motion.lastY ||
-          p.z !== motion.lastZ ||
-          p.yaw !== motion.lastYaw
-        ) {
-          motion.lastX = p.x;
-          motion.lastY = p.y;
-          motion.lastZ = p.z;
-          motion.lastYaw = p.yaw || 0;
-          motion.lastTime = now;
-        }
-
-        const timeSince = Math.min(
-          0.35,
-          Math.max(0, (now - motion.lastTime) / 1000),
-        );
-        let targetX = p.x;
-        let targetZ = p.z;
-        const targetY = p.y + 0.27;
-
-        if (p.moving && (p.speed || 0) > 0) {
-          const spd = p.speed || 3.4;
-          const fwd = p.forward ?? 1;
-          const str = p.strafe ?? 0;
-          const sinY = Math.sin(p.yaw || 0);
-          const cosY = Math.cos(p.yaw || 0);
-          const vx = (-sinY * fwd + cosY * str) * spd;
-          const vz = (-cosY * fwd - sinY * str) * spd;
-          targetX += vx * timeSince;
-          targetZ += vz * timeSince;
-        }
-
-        const distSq =
-          (remote.position.x - targetX) ** 2 +
-          (remote.position.z - targetZ) ** 2;
-        if (distSq > 36) {
-          remote.position.set(targetX, targetY, targetZ);
-          remote.rotation.y = p.yaw || 0;
-        } else {
-          const posFactor = 1 - Math.exp(-15 * dt);
-          remote.position.x += (targetX - remote.position.x) * posFactor;
-          remote.position.z += (targetZ - remote.position.z) * posFactor;
-          remote.position.y +=
-            (targetY - remote.position.y) * (1 - Math.exp(-18 * dt));
-
-          let diffYaw = ((p.yaw || 0) - remote.rotation.y) % (Math.PI * 2);
-          if (diffYaw > Math.PI) diffYaw -= Math.PI * 2;
-          if (diffYaw < -Math.PI) diffYaw += Math.PI * 2;
-          remote.rotation.y += diffYaw * (1 - Math.exp(-16 * dt));
-        }
-        animateAvatar(
-          remote,
-          {
-            speed: p.speed ?? (p.moving ? 3.4 : 0),
-            strafe: p.strafe || 0,
-            forward: p.forward ?? 1,
-            airborne: p.y > getGroundHeight(p.x, p.z, p.y) + 0.08,
-            velocityY: 0,
-            stance: p.stance,
-            tool: p.tool || 'other',
-            variant: p.variant,
-            pitch: p.pitch || 0,
-            working: p.working,
-            crouching: p.crouching,
-            aiming: p.aiming,
-            reload: p.reload,
-            hp: member.hp ?? 100,
-          },
-          dt,
-          now / 1000,
-        );
-      }
-      if (remoteAvatars.size !== liveRemoteIds.size)
-        for (const [id, remote] of remoteAvatars)
-          if (!liveRemoteIds.has(id)) retireRemote(id, remote);
-      for (let i = flights.length - 1; i >= 0; i--) {
-        const f = flights[i],
-          t = Math.min(1, (now - f.born) / f.duration);
-        f.mesh.position.lerpVectors(f.origin, f.target, t);
-        if (f.kind === 'grenade') {
-          f.mesh.position.y += Math.sin(t * Math.PI) * 3;
-          f.mesh.rotation.x = t * 10;
-          f.mesh.rotation.y = t * 7;
-          f.mesh.rotation.z = t * 14;
-        } else if (f.kind === 'sniper') {
-          const dir = f.target.clone().sub(f.origin).normalize();
-          f.mesh.quaternion.setFromUnitVectors(new T.Vector3(0, 0, 1), dir);
-        }
-        if (t >= 1) {
-          let hitPlayerGroup: T.Object3D | null = null;
-          let isHitOnPlayer = false;
-
-          const myPos = pos;
-          const myCenter = new T.Vector3(myPos.x, myPos.y + 0.95, myPos.z);
-          const hitMe =
-            f.target.distanceTo(myCenter) < 1.15 ||
-            inHitRange(
-              f.kind,
-              [f.origin.x, f.origin.y, f.origin.z],
-              [f.target.x, f.target.y, f.target.z],
-              { x: myPos.x, y: myPos.y, z: myPos.z, stance: currentStance },
-            );
-
-          if (hitMe && f.author !== latest.current.room.self) {
-            isHitOnPlayer = true;
-            hitPlayerGroup = avatar;
-            hitGlowHandler.current(f.color);
-            if (perspectiveRef.current === 'first') {
-              splat(
-                new T.Vector3(0.04, -0.02, -0.45),
-                new T.Vector3(0, 0, 1),
-                f.color,
-                f.born + f.duration,
-                hands.group,
-                0.22,
-              );
-            }
-          }
-
-          if (!isHitOnPlayer) {
-            for (const member of latest.current.room.members) {
-              if (member.id === latest.current.room.self) continue;
-              const remote = remoteAvatars.get(member.id);
-              if (!remote || !remote.visible) continue;
-              const remoteCenter = new T.Vector3(
-                member.pose.x,
-                member.pose.y + 0.95,
-                member.pose.z,
-              );
-              if (
-                f.target.distanceTo(remoteCenter) < 1.15 ||
-                inHitRange(
-                  f.kind,
-                  [f.origin.x, f.origin.y, f.origin.z],
-                  [f.target.x, f.target.y, f.target.z],
-                  {
-                    x: member.pose.x,
-                    y: member.pose.y,
-                    z: member.pose.z,
-                    stance: member.pose.stance,
-                  },
-                )
-              ) {
-                isHitOnPlayer = true;
-                hitPlayerGroup = remote;
-                break;
-              }
-            }
-          }
-
-          if (f.kind === 'paint') {
-            if (isHitOnPlayer && hitPlayerGroup) {
-              smearPlayerWithPaint(
-                hitPlayerGroup,
-                f.target,
-                f.normal,
-                f.color,
-                f.born + f.duration,
-              );
-            } else {
-              const sceneryHit = checkSceneryHit(f.target, f.normal);
-              if (sceneryHit) {
-                splat(
-                  sceneryHit.point,
-                  sceneryHit.normal,
-                  f.color,
-                  f.born + f.duration,
-                  scene,
-                  1,
-                );
-              }
-            }
-          } else {
-            if (f.kind === 'grenade') {
-              burst(f.target, f.color, f.born + f.duration, 'shard');
-              burst(f.target, '#ffd166', f.born + f.duration, 'ribbon');
-              burst(
-                f.target,
-                f.color,
-                f.born + f.duration,
-                grenadeParty(f.variant),
-              );
-            } else {
-              burst(
-                f.target,
-                f.color,
-                f.born + f.duration,
-                f.kind === 'sniper'
-                  ? fireworkParty(f.variant)
-                  : f.kind === 'like'
-                    ? 'hearts'
-                    : f.variant,
-              );
-            }
-            if (f.kind === 'grenade' && f.variant === 'paintburst') {
-              if (isHitOnPlayer && hitPlayerGroup) {
-                smearPlayerWithPaint(
-                  hitPlayerGroup,
-                  f.target,
-                  f.normal,
-                  f.color,
-                  f.born + f.duration,
-                );
-              } else {
-                const sceneryHit = checkSceneryHit(f.target, f.normal);
-                if (sceneryHit) {
-                  splat(
-                    sceneryHit.point,
-                    sceneryHit.normal,
-                    f.color,
-                    f.born + f.duration,
-                    scene,
-                    1,
-                  );
-                }
-              }
-            }
-          }
-          f.mesh.removeFromParent();
-          f.mesh.traverse((o) => {
-            if (o instanceof T.Mesh) {
-              (o.material as T.Material).dispose();
-              if (
-                f.kind === 'grenade' ||
-                f.kind === 'sniper' ||
-                f.kind === 'like'
-              )
-                o.geometry.dispose();
-            }
-          });
-          flights.splice(i, 1);
-        }
-      }
-      for (let i = splats.length - 1; i >= 0; i--) {
-        const p = splats[i],
-          age = (now - p.born) / 1000;
-        (p.mesh.material as T.MeshBasicMaterial).opacity =
-          0.9 * Math.min(1, (12 - age) / 3);
-        if (age >= 12) {
-          p.mesh.removeFromParent();
-          p.mesh.geometry.dispose();
-          (p.mesh.material as T.Material).dispose();
-          splats.splice(i, 1);
-        }
-      }
-      for (let i = bursts.length - 1; i >= 0; i--) {
-        const b = bursts[i],
-          age = (now - b.born) / 1000,
-          maxAge = b.lifetime || 4;
-        for (let j = 0; j < b.positions.length; j++) {
-          b.velocity[j].x *= Math.max(0, 1 - 0.75 * dt);
-          b.velocity[j].z *= Math.max(0, 1 - 0.75 * dt);
-          if (b.velocity[j].y > -1.8) {
-            b.velocity[j].y -= 2.2 * dt;
-          } else {
-            b.velocity[j].y = T.MathUtils.lerp(b.velocity[j].y, -1.8, 2.5 * dt);
-          }
-          const flutter = Math.sin(age * 5.5 + j * 1.7) * 0.45;
-          const swirl = Math.cos(age * 4.2 + j * 2.1) * 0.35;
-          b.positions[j].x += (b.velocity[j].x + flutter) * dt;
-          b.positions[j].y += b.velocity[j].y * dt;
-          b.positions[j].z += (b.velocity[j].z + swirl) * dt;
-          b.rotations[j].x += dt * (3.8 + (j % 4) * 0.9);
-          b.rotations[j].y += dt * (2.4 + (j % 3) * 0.7);
-          b.rotations[j].z += dt * ((j % 2 ? 3.2 : -3.2) + (j % 5) * 0.4);
-          dummy.position.copy(b.positions[j]);
-          dummy.rotation.copy(b.rotations[j]);
-          dummy.updateMatrix();
-          b.mesh.setMatrixAt(j, dummy.matrix);
-        }
-        b.mesh.instanceMatrix.needsUpdate = true;
-        (b.mesh.material as T.MeshBasicMaterial).opacity = Math.min(
-          1,
-          (maxAge - age) / (maxAge * 0.35),
-        );
-        if (age > maxAge) {
-          b.mesh.removeFromParent();
-          // Geometry is shared (paintDropletGeo / partyGeometries / confettiGeo);
-          // dispose() frees only this burst's instanceMatrix/instanceColor buffers.
-          b.mesh.dispose();
-          (b.mesh.material as T.Material).dispose();
-          bursts.splice(i, 1);
-        }
-      }
+      remotePlayers.update(now, dt);
+      projectiles.update(now, currentStance);
+      vfx.update(now, dt);
       if (now - poseAt > 120) {
         latest.current.onPose({
           x: pos.x,
@@ -2662,11 +1986,8 @@ export default function World(props: Props) {
       kit.animate(now / 1000);
       // Keyed on live remote avatars so the pack re-syncs (and releases removed actors) on add/remove.
       const meteredExposure = visuals.update(dt, camera, latest.current.room.state,
-        remoteKey);
-      if (retiredAvatars.length) {
-        retiredAvatars.forEach(disposeRemoteAvatar);
-        retiredAvatars.length = 0;
-      }
+        remotePlayers.remoteKey);
+      remotePlayers.disposeRetired();
       if (meteredExposure !== undefined)
         renderer.toneMappingExposure = T.MathUtils.damp(renderer.toneMappingExposure, meteredExposure, 1.6, dt);
       optics.enabled = visuals.active;
@@ -2721,10 +2042,8 @@ export default function World(props: Props) {
           });
         }
       });
-      paintGeo.dispose();
-      paintDropletGeo.dispose();
-      confettiGeo.dispose();
-      partyGeometries.forEach((g) => g.dispose());
+      projectiles.dispose();
+      vfx.dispose();
       trajectoryGeo.dispose();
       trajectoryMat.dispose();
       landingMarker.geometry.dispose();
