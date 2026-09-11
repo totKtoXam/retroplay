@@ -78,13 +78,10 @@ import {
   GAME_TOOLS,
   TOOL_HINTS,
   voteCount,
-  type RoomState,
-  type Room,
   type Note,
   type Pose,
-  type WorldEffect,
 } from '@/lib/model';
-import { api, ready, download, parseCSV } from '@/lib/client';
+import { api, download, parseCSV } from '@/lib/client';
 import { Choice, Toggle } from './controls';
 import { MusicPlayer } from './music-player';
 import Board, { Card } from './board';
@@ -106,6 +103,7 @@ import {
   WidgetsPanel,
   WorldPanel,
 } from './room-panels';
+import { useRoomSync } from './use-room-sync';
 
 const World = lazy(() => import('./world'));
 const icons = [
@@ -133,26 +131,6 @@ const kinds: Record<string, string> = {
   action: 'action',
   like: 'sticky',
 };
-function compressPose(p: Pose): Pose {
-  return {
-    x: Math.round(p.x * 100) / 100,
-    y: Math.round(p.y * 100) / 100,
-    z: Math.round(p.z * 100) / 100,
-    yaw: Math.round(p.yaw * 1000) / 1000,
-    stance: p.stance,
-    moving: !!p.moving,
-    speed: p.speed != null ? Math.round(p.speed * 100) / 100 : undefined,
-    strafe: p.strafe != null ? Math.round(p.strafe * 100) / 100 : undefined,
-    forward: p.forward != null ? Math.round(p.forward * 100) / 100 : undefined,
-    pitch: p.pitch != null ? Math.round(p.pitch * 1000) / 1000 : undefined,
-    tool: p.tool,
-    variant: p.variant,
-    working: !!p.working,
-    crouching: !!p.crouching,
-    aiming: !!p.aiming,
-    reload: p.reload != null ? Math.round(p.reload * 100) / 100 : undefined,
-  };
-}
 type Draft = {
   id?: string;
   kind: string;
@@ -184,33 +162,13 @@ export default function RoomApp({ id }: { id: string }) {
     [invertCamera, setInvertCamera] = useState(false);
   const [aimModes, setAimModes] = useState<WeaponAimModes>(() => readAimModes());
   const [paintColor, setPaintColor] = useState('#bc91f5');
-  const [room, setRoom] = useState<Room | null>(null),
-    [join, setJoin] = useState<{
-      title: string;
-      isPrivate?: boolean;
-      requestStatus?: 'none' | 'pending' | 'accepted' | 'rejected';
-      requestId?: string;
-      hostName?: string;
-      membersCount?: number;
-      maxPlayers?: number;
-    } | null>(null),
-    [joinRequests, setJoinRequests] = useState<
-      {
-        id: string;
-        session: string;
-        name: string;
-        status: string;
-        created: number;
-      }[]
-    >([]),
-    [joinRequestSent, setJoinRequestSent] = useState(false),
+  const [joinRequestSent, setJoinRequestSent] = useState(false),
     [retryAfterReject, setRetryAfterReject] = useState(false),
     [name, setName] = useState(''),
     [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
     [busy, setBusy] = useState(false),
     [mode, setMode] = useState('3d'),
-    [packetLoss, setPacketLoss] = useState(0),
     [tool, setTool] = useState(0),
     [panel, setPanel] = useState(''),
     [selectedZone, setSelectedZone] = useState(''),
@@ -218,7 +176,6 @@ export default function RoomApp({ id }: { id: string }) {
     [comment, setComment] = useState(''),
     [quality, setQuality] = useState('balanced'),
     [fps, setFps] = useState(0),
-    [ping, setPing] = useState(0),
     [monitor, setMonitor] = useState(false),
     [now, setNow] = useState(() => Date.now()),
     [seconds, setSeconds] = useState('300'),
@@ -236,6 +193,134 @@ export default function RoomApp({ id }: { id: string }) {
     [selectedBandanaColor, setSelectedBandanaColor] = useState<string>(() =>
       typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') || '#3b82f6' : '#3b82f6',
     );
+  const activeTools = mode === '3d' ? GAME_TOOLS : TOOLS;
+  const activeIcons =
+    mode === '3d'
+      ? [
+          SprayCan,
+          PartyPopper,
+          StickyNote,
+          Folder,
+          PenLine,
+          Square,
+          MoveUpRight,
+          Smile,
+          ListChecks,
+          MousePointer2,
+          Bomb,
+          Crosshair,
+          Heart,
+        ]
+      : icons;
+  const cursor = useRef({ x: 0, y: 0, mode: '3d' });
+  useEffect(() => {
+    cursor.current.mode = mode;
+  }, [mode]);
+  const [history, setHistory] = useState<
+    { version: number; action: string; name: string; at: number }[]
+  >([]);
+  const pose = useRef<Pose>({
+      x: 0,
+      z: 14,
+      y: 0,
+      yaw: 0,
+      stance: 'stand',
+      moving: false,
+    }),
+    eventTime = useRef(0),
+    lastFocus = useRef(0),
+    audio = useRef<AudioContext | null>(null),
+    soundRef = useRef(false);
+  const modeRef = useRef(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+  useEffect(() => {
+    soundRef.current = sound;
+  }, [sound]);
+  const flash = useCallback((text: string) => {
+    setNotice(text);
+    setTimeout(() => setNotice(''), 4000);
+  }, []);
+  const nameRef = useRef(name);
+  useEffect(() => {
+    nameRef.current = name;
+  }, [name]);
+  const busyRef = useRef(busy);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+  const enterRef = useRef<((name?: string) => Promise<void>) | null>(null);
+  const lastActivityRef = useRef(0);
+
+  useEffect(() => {
+    lastActivityRef.current = Date.now();
+    const onActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+    window.addEventListener('keydown', onActivity, { passive: true });
+    window.addEventListener('pointerdown', onActivity, { passive: true });
+    window.addEventListener('mousemove', onActivity, { passive: true });
+    window.addEventListener('wheel', onActivity, { passive: true });
+    return () => {
+      window.removeEventListener('keydown', onActivity);
+      window.removeEventListener('pointerdown', onActivity);
+      window.removeEventListener('mousemove', onActivity);
+      window.removeEventListener('wheel', onActivity);
+    };
+  }, []);
+
+  useEffect(() => {
+    eventTime.current = Date.now();
+  }, [id]);
+  const {
+    room,
+    join,
+    joinRequests,
+    setJoinRequests,
+    packetLoss,
+    ping,
+    refresh,
+    op,
+    act,
+  } = useRoomSync({
+    id,
+    pose,
+    cursor,
+    modeRef,
+    lastActivityRef,
+    nameRef,
+    busyRef,
+    enterRef,
+    setError,
+    onReady: () => {
+      setName(localStorage.getItem('jinaly-name') || '');
+      const savedSensitivity = Number(
+        localStorage.getItem('jinaly-sensitivity') || 1,
+      );
+      setSensitivity(
+        Number.isFinite(savedSensitivity)
+          ? Math.min(2, Math.max(0.4, savedSensitivity))
+          : 1,
+      );
+      setInvertCamera(localStorage.getItem('jinaly-invert-camera') === 'true');
+      setAimModes(readAimModes());
+      const savedQuality = localStorage.getItem('jinaly-quality');
+      setQuality(
+        savedQuality === 'high' ? 'cinematic' : savedQuality || 'balanced',
+      );
+      const savedFps = Number(localStorage.getItem('jinaly-fps-limit'));
+      setFpsLimit([20, 30, 60].includes(savedFps) ? savedFps : 30);
+    },
+  });
+  useEffect(() => {
+    const clock = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(clock);
+  }, []);
+  const roomRef = useRef(room);
+  useEffect(() => {
+    roomRef.current = room;
+  }, [room]);
   useEffect(() => {
     if (mode !== 'board' || !room) return;
     const key = (e: KeyboardEvent) => {
@@ -266,355 +351,6 @@ export default function RoomApp({ id }: { id: string }) {
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [mode, room, draft, selectedZone, monitor, musicOpen, panel]);
-  const activeTools = mode === '3d' ? GAME_TOOLS : TOOLS;
-  const activeIcons =
-    mode === '3d'
-      ? [
-          SprayCan,
-          PartyPopper,
-          StickyNote,
-          Folder,
-          PenLine,
-          Square,
-          MoveUpRight,
-          Smile,
-          ListChecks,
-          MousePointer2,
-          Bomb,
-          Crosshair,
-          Heart,
-        ]
-      : icons;
-  const cursor = useRef({ x: 0, y: 0, mode: '3d' });
-  useEffect(() => {
-    cursor.current.mode = mode;
-  }, [mode]);
-  const [history, setHistory] = useState<
-    { version: number; action: string; name: string; at: number }[]
-  >([]);
-  const roomRef = useRef(room);
-  useEffect(() => {
-    roomRef.current = room;
-  }, [room]);
-  const pose = useRef<Pose>({
-      x: 0,
-      z: 14,
-      y: 0,
-      yaw: 0,
-      stance: 'stand',
-      moving: false,
-    }),
-    pingRef = useRef(0),
-    eventTime = useRef(0),
-    lastFocus = useRef(0),
-    audio = useRef<AudioContext | null>(null),
-    soundRef = useRef(false);
-  const modeRef = useRef(mode);
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
-  const lossHistory = useRef<boolean[]>([]);
-  useEffect(() => {
-    soundRef.current = sound;
-  }, [sound]);
-  const flash = useCallback((text: string) => {
-    setNotice(text);
-    setTimeout(() => setNotice(''), 4000);
-  }, []);
-  const nameRef = useRef(name);
-  useEffect(() => {
-    nameRef.current = name;
-  }, [name]);
-  const busyRef = useRef(busy);
-  useEffect(() => {
-    busyRef.current = busy;
-  }, [busy]);
-  const enterRef = useRef<((name?: string) => Promise<void>) | null>(null);
-  const lastEffectAtRef = useRef(0);
-  const lastActivityRef = useRef(0);
-
-  useEffect(() => {
-    lastActivityRef.current = Date.now();
-    const onActivity = () => {
-      lastActivityRef.current = Date.now();
-    };
-    window.addEventListener('keydown', onActivity, { passive: true });
-    window.addEventListener('pointerdown', onActivity, { passive: true });
-    window.addEventListener('mousemove', onActivity, { passive: true });
-    window.addEventListener('wheel', onActivity, { passive: true });
-    return () => {
-      window.removeEventListener('keydown', onActivity);
-      window.removeEventListener('pointerdown', onActivity);
-      window.removeEventListener('mousemove', onActivity);
-      window.removeEventListener('wheel', onActivity);
-    };
-  }, []);
-
-  const handleRoomData = useCallback(
-    (
-      data: Room & {
-        join?: boolean;
-        title?: string;
-        isPrivate?: boolean;
-        requestStatus?: 'none' | 'pending' | 'accepted' | 'rejected';
-        requestId?: string;
-        hostName?: string;
-        membersCount?: number;
-        maxPlayers?: number;
-        joinRequests?: {
-          id: string;
-          session: string;
-          name: string;
-          status: string;
-          created: number;
-        }[];
-        effects?: WorldEffect[];
-      },
-      responseTimeMs?: number,
-    ) => {
-      if (responseTimeMs !== undefined) {
-        const smoothed =
-          pingRef.current === 0
-            ? responseTimeMs
-            : Math.round(0.7 * pingRef.current + 0.3 * responseTimeMs);
-        setPing(smoothed);
-        pingRef.current = smoothed;
-      }
-      if (data.join) {
-        setJoin(data as Room & { title: string });
-        if (data.requestStatus === 'accepted') {
-          const savedName =
-            localStorage.getItem('jinaly-name') || nameRef.current;
-          if (savedName && !busyRef.current) {
-            void enterRef.current?.(savedName);
-          }
-        }
-        return;
-      }
-      setJoin(null);
-      if (data.joinRequests) {
-        setJoinRequests(data.joinRequests);
-      }
-      if (Array.isArray(data.effects) && data.effects.length > 0) {
-        let maxAt = lastEffectAtRef.current;
-        for (const e of data.effects) {
-          if (e.at && e.at > maxAt) maxAt = e.at;
-        }
-        lastEffectAtRef.current = maxAt;
-      }
-      setRoom((old) => {
-        if (!old) return data;
-        const cutoff = Date.now() - 15000;
-        const oldEffects = (old.effects || []).filter(
-          (e) => (e.at || 0) > cutoff,
-        );
-        const newEffects = data.effects || [];
-        const seenIds = new Set(oldEffects.map((e) => e.id));
-        const mergedEffects = [...oldEffects];
-        for (const e of newEffects) {
-          if (!seenIds.has(e.id)) {
-            seenIds.add(e.id);
-            mergedEffects.push(e);
-          }
-        }
-        if (data.version >= old.version) {
-          return {
-            ...data,
-            state: data.state || old.state,
-            effects: mergedEffects,
-          };
-        } else {
-          return {
-            ...old,
-            members: data.members,
-            effects: mergedEffects,
-          };
-        }
-      });
-      setError('');
-    },
-    [],
-  );
-
-  const refresh = useCallback(async () => {
-    const start = performance.now();
-    const inviteParam =
-      typeof window !== 'undefined'
-        ? new URLSearchParams(window.location.search).get('invite')
-        : null;
-    const query = new URLSearchParams();
-    if (roomRef.current) query.set('version', String(roomRef.current.version));
-    if (inviteParam) query.set('invite', inviteParam);
-    if (lastEffectAtRef.current > 0) {
-      query.set(
-        'sinceEffect',
-        String(Math.max(0, lastEffectAtRef.current - 100)),
-      );
-    }
-    const qs = query.toString() ? '?' + query.toString() : '';
-
-    const data = await api<
-      Room & {
-        join?: boolean;
-        title: string;
-        isPrivate?: boolean;
-        requestStatus?: 'none' | 'pending' | 'accepted' | 'rejected';
-        requestId?: string;
-        hostName?: string;
-        membersCount?: number;
-        maxPlayers?: number;
-        joinRequests?: {
-          id: string;
-          session: string;
-          name: string;
-          status: string;
-          created: number;
-        }[];
-        effects?: WorldEffect[];
-      }
-    >('/api/rooms/' + id + qs);
-
-    const ms = Math.round(performance.now() - start);
-    handleRoomData(data, ms);
-  }, [id, handleRoomData]);
-  const op = useCallback(
-    async (body: Record<string, unknown>) => {
-      try {
-        const data = await api<{
-          state?: RoomState;
-          version: number;
-          ok?: boolean;
-        }>('/api/rooms/' + id, body);
-        if (data.state)
-          setRoom((old) =>
-            old && data.version >= old.version
-              ? { ...old, state: data.state!, version: data.version }
-              : old,
-          );
-        return data;
-      } catch (e) {
-        setError((e as Error).message);
-        throw e;
-      }
-    },
-    [id],
-  );
-  // События UI обрабатывают ошибку в общем баннере, не оставляя unhandled rejection.
-  const act = useCallback(
-    async (body: Record<string, unknown>) => {
-      try {
-        return await op(body);
-      } catch {
-        return null;
-      }
-    },
-    [op],
-  );
-  useEffect(() => {
-    let stop = false,
-      handle: ReturnType<typeof setTimeout>;
-    eventTime.current = Date.now();
-    const tick = async () => {
-      let ok = true;
-      try {
-        if (!document.hidden) {
-          if (roomRef.current) {
-            const start = performance.now();
-            const sinceEffectTime =
-              lastEffectAtRef.current > 0
-                ? Math.max(0, lastEffectAtRef.current - 100)
-                : undefined;
-            const res = await api<
-              Room & {
-                ok?: boolean;
-                members?: Room['members'];
-                joinRequests?: {
-                  id: string;
-                  session: string;
-                  name: string;
-                  status: string;
-                  created: number;
-                }[];
-                effects?: WorldEffect[];
-              }
-            >('/api/rooms/' + id, {
-              type: 'presence',
-              life:
-                roomRef.current.members.find(
-                  (m) => m.id === roomRef.current?.self,
-                )?.life || 0,
-              pose: compressPose(pose.current),
-              ping: pingRef.current,
-              cursor: cursor.current,
-              version: roomRef.current.version,
-              sinceEffect: sinceEffectTime,
-            });
-            const ms = Math.round(performance.now() - start);
-            if (res && res.members) {
-              handleRoomData(res, ms);
-            } else {
-              await refresh();
-            }
-          } else {
-            await refresh();
-          }
-        }
-      } catch (e) {
-        ok = false;
-        if (!stop) setError((e as Error).message);
-      }
-      if (!document.hidden) {
-        lossHistory.current.push(ok);
-        if (lossHistory.current.length > 40) lossHistory.current.shift();
-        const lost = lossHistory.current.filter((v) => !v).length;
-        setPacketLoss(Math.round((lost / lossHistory.current.length) * 100));
-      }
-      const idleTime = lastActivityRef.current
-        ? Date.now() - lastActivityRef.current
-        : 0;
-      const interval =
-        modeRef.current === '3d'
-          ? idleTime > 2000
-            ? 300
-            : 120
-          : idleTime > 3000
-            ? 1400
-            : 800;
-      if (!stop) handle = setTimeout(tick, interval);
-    };
-    void ready()
-      .then(() => {
-        if (!stop) {
-          setName(localStorage.getItem('jinaly-name') || '');
-          const savedSensitivity = Number(
-            localStorage.getItem('jinaly-sensitivity') || 1,
-          );
-          setSensitivity(
-            Number.isFinite(savedSensitivity)
-              ? Math.min(2, Math.max(0.4, savedSensitivity))
-              : 1,
-          );
-          setInvertCamera(
-            localStorage.getItem('jinaly-invert-camera') === 'true',
-          );
-          setAimModes(readAimModes());
-          const savedQuality = localStorage.getItem('jinaly-quality');
-          setQuality(
-            savedQuality === 'high' ? 'cinematic' : savedQuality || 'balanced',
-          );
-          const savedFps = Number(localStorage.getItem('jinaly-fps-limit'));
-          setFpsLimit([20, 30, 60].includes(savedFps) ? savedFps : 30);
-          void tick();
-        }
-      })
-      .catch((e) => setError(e.message));
-    const clock = setInterval(() => setNow(Date.now()), 1000);
-    return () => {
-      stop = true;
-      clearTimeout(handle);
-      clearInterval(clock);
-    };
-  }, [id, refresh, handleRoomData]);
   const beep = useCallback((frequency = 520) => {
     if (!soundRef.current) return;
     try {
