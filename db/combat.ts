@@ -55,7 +55,7 @@ export async function resolveCombat(room: string, respawnSeconds = 5) {
   // Revive dead members whose respawn time reached; grant spawn protection waiting for first movement (-1)
   await db()
     .prepare(
-      'UPDATE members SET hp=100,respawn_at=0,life=life+1,immune_until=?,recent_damage="{}",pose=? WHERE room=? AND hp=0 AND respawn_at>0 AND respawn_at<=?',
+      `UPDATE members SET hp=100,respawn_at=0,life=life+1,immune_until=?,recent_damage='{}',pose=? WHERE room=? AND hp=0 AND respawn_at>0 AND respawn_at<=?`,
     )
     .bind(-1, spawn, room, now)
     .run();
@@ -198,7 +198,7 @@ export async function resolveCombat(room: string, respawnSeconds = 5) {
         statements.push(
           db()
             .prepare(
-              'UPDATE members SET respawn_at=?,hp=0,deaths=deaths+1,recent_damage="{}" WHERE room=? AND session=? AND hp>0 AND EXISTS(SELECT 1 FROM effects WHERE id=? AND applied=0)',
+              `UPDATE members SET respawn_at=?,hp=0,deaths=deaths+1,recent_damage='{}' WHERE room=? AND session=? AND hp>0 AND EXISTS(SELECT 1 FROM effects WHERE id=? AND applied=0)`,
             )
             .bind(now + respawnSeconds * 1000, room, p.session, row.id),
         );
@@ -273,7 +273,7 @@ export async function resolveCombat(room: string, respawnSeconds = 5) {
   // Revive dead members whose respawn time reached; grant 5 seconds spawn protection
   await db()
     .prepare(
-      'UPDATE members SET hp=100,respawn_at=0,life=life+1,immune_until=?,recent_damage="{}",pose=? WHERE room=? AND hp=0 AND respawn_at>0 AND respawn_at<=?',
+      `UPDATE members SET hp=100,respawn_at=0,life=life+1,immune_until=?,recent_damage='{}',pose=? WHERE room=? AND hp=0 AND respawn_at>0 AND respawn_at<=?`,
     )
     .bind(now + 5000, spawn, room, now)
     .run();

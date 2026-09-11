@@ -98,7 +98,12 @@ export default function Lobby() {
   };
 
   useEffect(() => {
-    void ready().then(loadRooms);
+    void ready()
+      .then(loadRooms)
+      .catch((e) => {
+        setError((e as Error).message);
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {

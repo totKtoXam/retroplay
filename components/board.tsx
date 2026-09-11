@@ -496,8 +496,20 @@ export default function Board({
                           onPointerUp={() => {
                             if (drag?.id !== n.id) return;
                             const index =
-                                (drag.y > 820 ? 2 : 0) + (drag.x > 750 ? 1 : 0),
-                              zone = ZONES[index];
+                              (drag.y > 820 ? 2 : 0) + (drag.x > 750 ? 1 : 0);
+                            // The three-column template hides one grid slot: snap to the nearest visible zone.
+                            const distance = (id: string) => {
+                              const c = zoneOrigin(id);
+                              return (
+                                (drag.x - c.x - 355) ** 2 +
+                                (drag.y - c.y - 365) ** 2
+                              );
+                            };
+                            const zone = zones.includes(ZONES[index])
+                              ? ZONES[index]
+                              : zones.reduce((a, b) =>
+                                  distance(b.id) < distance(a.id) ? b : a,
+                                );
                             const o = zoneOrigin(zone.id);
                             void onOp({
                               type: 'note.edit',
