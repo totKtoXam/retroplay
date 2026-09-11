@@ -242,10 +242,31 @@ function getSlotIcon(slotIndex: number) {
   return Crosshair;
 }
 
+/** Animates ref.current toward `to` on requestAnimationFrame; stops early when shouldContinue() turns false. */
+function animateRef(
+  ref: { current: number },
+  to: number,
+  duration: number,
+  shouldContinue: () => boolean,
+  onDone?: () => void,
+) {
+  const from = ref.current;
+  const start = performance.now();
+  const step = (now: number) => {
+    const p = Math.min(1, (now - start) / duration);
+    ref.current = from + (to - from) * p;
+    if (p >= 1) onDone?.();
+    else if (shouldContinue()) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 export default function World(props: Props) {
   const resourcePack = useResourcePack();
   const packRef = useRef(resourcePack);
-  packRef.current = resourcePack;
+  useEffect(() => {
+    packRef.current = resourcePack;
+  }, [resourcePack]);
   const [packStatus, setPackStatus] = useState<'default' | 'loading' | 'ready' | 'error'>('default');
   const mount = useRef<HTMLDivElement>(null),
     latest = useRef(props);
@@ -264,7 +285,9 @@ export default function World(props: Props) {
   const [tabletSearch, setTabletSearch] = useState('');
   const [sniperZoomIndex, setSniperZoomIndex] = useState(1);
   const sniperZoomIndexRef = useRef(1);
-  sniperZoomIndexRef.current = sniperZoomIndex;
+  useEffect(() => {
+    sniperZoomIndexRef.current = sniperZoomIndex;
+  }, [sniperZoomIndex]);
   const music = useSyncExternalStore(
     subscribeMusic,
     getMusicState,
@@ -273,41 +296,34 @@ export default function World(props: Props) {
   const tabletInWorldRef = useRef(false);
   const tabletInspectRef = useRef(0);
 
+  const engine = useRef<{
+    kit: ReturnType<typeof createWorldScene>;
+    visuals: ReturnType<typeof createVisualProvider>;
+    fire: (e: WorldEffect) => void;
+    distance: (delta: number) => void;
+    reset: () => void;
+    orbit: (delta: number) => void;
+    shadow: () => void;
+    capture: () => void;
+    pause: () => void;
+    closeInventory: (resume?: boolean) => void;
+    openInventory: () => void;
+    openContext: () => void;
+    keys: Set<string>;
+    refreshTargets: () => void;
+  } | null>(null);
+
   const openTabletInWorld = useCallback(() => {
     tabletInWorldRef.current = true;
     setTabletInWorld(true);
     if (document.pointerLockElement) document.exitPointerLock();
-    const start = performance.now();
-    const duration = 380;
-    const step = (now: number) => {
-      const elapsed = now - start;
-      const t = Math.min(1, elapsed / duration);
-      tabletInspectRef.current = t;
-      if (t < 1 && tabletInWorldRef.current) {
-        requestAnimationFrame(step);
-      }
-    };
-    requestAnimationFrame(step);
+    animateRef(tabletInspectRef, 1, 380, () => tabletInWorldRef.current);
   }, []);
 
   const closeTabletInWorld = useCallback(() => {
     tabletInWorldRef.current = false;
     setTabletInWorld(false);
-    const start = performance.now();
-    const duration = 260;
-    const initialT = tabletInspectRef.current;
-    const step = (now: number) => {
-      const elapsed = now - start;
-      const p = Math.min(1, elapsed / duration);
-      tabletInspectRef.current = initialT * (1 - p);
-      if (p < 1) {
-        requestAnimationFrame(step);
-      } else {
-        tabletInspectRef.current = 0;
-        engine.current?.capture();
-      }
-    };
-    requestAnimationFrame(step);
+    animateRef(tabletInspectRef, 0, 260, () => true, () => engine.current?.capture());
   }, []);
   const selection = useRef({
     confettiStyle,
@@ -560,22 +576,6 @@ export default function World(props: Props) {
     [active, setActive] = useState(false),
     [shots, setShots] = useState(0),
     [captureError, setCaptureError] = useState('');
-  const engine = useRef<{
-    kit: ReturnType<typeof createWorldScene>;
-    visuals: ReturnType<typeof createVisualProvider>;
-    fire: (e: WorldEffect) => void;
-    distance: (delta: number) => void;
-    reset: () => void;
-    orbit: (delta: number) => void;
-    shadow: () => void;
-    capture: () => void;
-    pause: () => void;
-    closeInventory: (resume?: boolean) => void;
-    openInventory: () => void;
-    openContext: () => void;
-    keys: Set<string>;
-    refreshTargets: () => void;
-  } | null>(null);
   const perspective = useSyncExternalStore(
     subscribePerspective,
     readPerspective,
@@ -2213,7 +2213,7 @@ export default function World(props: Props) {
           lastLocalSkinRead = now;
           readLocalSkinPrefs();
         }
-        const myMember = latest.current.room.members.find((m) => m.id === props.room.self);
+        const myMember = latest.current.room.members.find((m) => m.id === latest.current.room.self);
         const localSkinId = myMember?.hat || cachedLocalSkinId;
         const localBandanaColor = myMember?.color || cachedLocalBandanaColor;
         if (
@@ -2767,7 +2767,7 @@ export default function World(props: Props) {
       renderer.dispose();
       canvas.remove();
     };
-  }, [props.quality]);
+  }, [props.quality, openTabletInWorld, closeTabletInWorld]);
   useEffect(() => {
     engine.current?.kit.update(latest.current.room.state);
     engine.current?.visuals.invalidate();
@@ -2798,7 +2798,7 @@ export default function World(props: Props) {
     >
       <div ref={mount} className="world-canvas" data-visual-pack={packStatus === 'ready' ? 'realistic-bodycam' : 'default'} />
       {packStatus === 'ready' && <div className="field-camera-mark" aria-hidden="true"><span>JNL / FIELD 01</span><span>● LIVE VIEW · {perspective === 'first' ? 'FPP' : 'TPP'}</span></div>}
-      {packStatus === 'loading' && <div role="status" className="pack-status">Подготовка визуального пакета…</div>}
+      {packStatus === 'loading' && <output className="pack-status">Подготовка визуального пакета…</output>}
       {packStatus === 'error' && <div role="alert" className="pack-status">Пакет не загрузился. Игра продолжается с Default.</div>}
       {hitEffect && (
         <div
@@ -3110,13 +3110,16 @@ export default function World(props: Props) {
       {tabletInWorld && (
         <div
           className="diegetic-tablet-container"
+          role="presentation"
           onClick={(e) => {
             if (e.target === e.currentTarget) closeTabletInWorld();
           }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') closeTabletInWorld();
+          }}
         >
-          <div
+          <section
             className="diegetic-tablet-device"
-            role="region"
             aria-label="Планшет ретроспективы"
           >
             <div className="tablet-camera-dot" />
@@ -3309,7 +3312,6 @@ export default function World(props: Props) {
                   {actionItemsOpen && (
                     <aside
                       className="tablet-action-items-drawer"
-                      role="dialog"
                       aria-label="Action Items задачи"
                     >
                       <header className="action-drawer-header">
@@ -3584,10 +3586,15 @@ export default function World(props: Props) {
               </div>
             )}
 
-            <footer className="tablet-home-bar" onClick={closeTabletInWorld}>
-              <div className="tablet-home-pill" />
-            </footer>
-          </div>
+            <button
+              type="button"
+              className="tablet-home-bar"
+              onClick={closeTabletInWorld}
+              aria-label="Закрыть планшет"
+            >
+              <span className="tablet-home-pill" />
+            </button>
+          </section>
         </div>
       )}
       <div className="camera-toolbar">

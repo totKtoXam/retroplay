@@ -4,8 +4,6 @@ import {
   getGroundHeight,
   getCeilingHeight,
   isBlocked3D,
-  ALL_3D_COLLIDERS,
-  CAMPUS_WALL_COLLIDERS,
 } from '../lib/world-collision.ts';
 
 test('Ground height returns 0 on open terrain', () => {

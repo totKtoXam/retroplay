@@ -281,15 +281,6 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
     side: T.DoubleSide,
     depthWrite: false,
   });
-  const blueGlass = new T.MeshPhysicalMaterial({
-    color: '#527d89',
-    metalness: 0.2,
-    roughness: 0.12,
-    transparent: true,
-    opacity: 0.24,
-    side: T.DoubleSide,
-    depthWrite: false,
-  });
   const blocks = new Map<T.Material, T.BufferGeometry[]>();
   const block = (
     w: number,

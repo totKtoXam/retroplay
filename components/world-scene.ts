@@ -10,7 +10,6 @@ import { ZONES, type RoomState } from '@/lib/model';
 import {
   ALL_3D_COLLIDERS,
   BoxCollider3D,
-  getGroundHeight,
 } from '@/lib/world-collision';
 export const STATIONS = [
   [-9, -6],
