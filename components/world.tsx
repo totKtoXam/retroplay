@@ -18,8 +18,9 @@ import {
   type WorldEffect,
   type Note,
 } from '@/lib/model';
-import Board from './board';
 import { ItemWheel } from './item-wheel';
+import { WorldTablet } from './world-tablet';
+import { WorldHud } from './world-hud';
 import { createWorldScene, STATIONS } from './world-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
@@ -82,37 +83,11 @@ import {
   Sparkles,
   StickyNote,
   X,
-  Eye,
-  User,
-  Sun,
-  Sunrise,
-  Sunset,
-  Moon,
-  Music2,
-  Play,
-  Pause,
-  Volume2,
   Heart,
   Bell,
-  Check,
-  CheckSquare,
-  Clock,
-  Pencil,
-  MousePointer,
-  Link2,
-  ThumbsUp,
 } from 'lucide-react';
-import {
-  TRACKS,
-  getMusicState,
-  subscribeMusic,
-  playMusic,
-  pauseMusic,
-  setMusicVolume,
-} from '@/lib/soundtrack';
 
-const SNIPER_ZOOM_LEVELS = [2, 4, 8, 12] as const;
-const SNIPER_ZOOM_FOVS = [36, 22, 12, 7.5] as const;
+import { SNIPER_ZOOM_LEVELS, SNIPER_ZOOM_FOVS } from './world-constants';
 
 export type AimMode = 'hold' | 'toggle';
 export type WeaponAimModes = {
@@ -186,7 +161,7 @@ type Particle = {
   born: number;
   lifetime?: number;
 };
-type KillMessage = {
+export type KillMessage = {
   id: string;
   killer: string;
   killerName: string;
@@ -201,6 +176,16 @@ type KillMessage = {
   noScope?: boolean;
   pelletsHit?: number;
   at: number;
+};
+export type PersonalAlert = {
+  text: string;
+  sub?: string;
+  type: 'kill' | 'assist' | 'death';
+  key: string | number;
+};
+export type HitEffect = {
+  color: string;
+  key: number;
 };
 type Flight = {
   mesh: T.Object3D;
@@ -279,20 +264,11 @@ export default function World(props: Props) {
   const [fireworkStyle, setFireworkStyle] = useState('salute');
   const [tabletZone, setTabletZone] = useState('good');
   const [tabletInWorld, setTabletInWorld] = useState(false);
-  const [tabletTab, setTabletTab] = useState<'board' | 'env' | 'music'>('board');
-  const [tabletTool, setTabletTool] = useState('pointer');
-  const [actionItemsOpen, setActionItemsOpen] = useState(false);
-  const [tabletSearch, setTabletSearch] = useState('');
   const [sniperZoomIndex, setSniperZoomIndex] = useState(1);
   const sniperZoomIndexRef = useRef(1);
   useEffect(() => {
     sniperZoomIndexRef.current = sniperZoomIndex;
   }, [sniperZoomIndex]);
-  const music = useSyncExternalStore(
-    subscribeMusic,
-    getMusicState,
-    getMusicState,
-  );
   const tabletInWorldRef = useRef(false);
   const tabletInspectRef = useRef(0);
 
@@ -342,12 +318,7 @@ export default function World(props: Props) {
   const self = props.room.members.find((m) => m.id === props.room.self);
   const dead = self?.hp === 0;
   const [killfeed, setKillfeed] = useState<KillMessage[]>([]);
-  const [personalAlert, setPersonalAlert] = useState<{
-    text: string;
-    sub?: string;
-    type: 'kill' | 'assist' | 'death';
-    key: string | number;
-  } | null>(null);
+  const [personalAlert, setPersonalAlert] = useState<PersonalAlert | null>(null);
   const seenKillsRef = useRef<Set<string>>(new Set());
   const initialKillsProcessed = useRef(false);
 
@@ -459,10 +430,7 @@ export default function World(props: Props) {
     return () => clearTimeout(timer);
   }, [personalAlert]);
 
-  const [hitEffect, setHitEffect] = useState<{
-    color: string;
-    key: number;
-  } | null>(null);
+  const [hitEffect, setHitEffect] = useState<HitEffect | null>(null);
   const lastHitColorRef = useRef<string | null>(null);
   const lastGlowTimeRef = useRef<number>(0);
   const triggerHitGlow = (color: string) => {
@@ -2800,802 +2768,38 @@ export default function World(props: Props) {
       {packStatus === 'ready' && <div className="field-camera-mark" aria-hidden="true"><span>JNL / FIELD 01</span><span>● LIVE VIEW · {perspective === 'first' ? 'FPP' : 'TPP'}</span></div>}
       {packStatus === 'loading' && <output className="pack-status">Подготовка визуального пакета…</output>}
       {packStatus === 'error' && <div role="alert" className="pack-status">Пакет не загрузился. Игра продолжается с Default.</div>}
-      {hitEffect && (
-        <div
-          key={hitEffect.key}
-          className="hit-glow-vignette"
-          style={
-            {
-              '--hit-color': hitEffect.color,
-            } as React.CSSProperties
-          }
-          aria-hidden="true"
-        />
-      )}
-      <div
-        className={`crosshair modern-crosshair ${current?.id === 'sniper' ? 'is-hidden' : ''
-          }`}
-      >
-        <i />
-        <i />
-      </div>
-      {current?.id === 'sniper' && aiming && perspective === 'first' && !dead && (
-        <div className="sniper-scope-overlay" aria-hidden="true">
-          <div className="scope-vignette" />
-          <div className="scope-reticle">
-            <div className="scope-line-h" />
-            <div className="scope-line-v" />
-            <div className="scope-mils-v">
-              <span />
-              <span />
-              <span />
-              <span />
-            </div>
-            <div className="scope-mils-h">
-              <span />
-              <span />
-              <span />
-              <span />
-            </div>
-            <div className="scope-center-point" />
-            <div className="scope-circle" />
-            <div className="scope-outer-ring" />
-            <div className="scope-info-left">
-              <span>ZOOM: {SNIPER_ZOOM_LEVELS[sniperZoomIndex]}×</span>
-              <span>FOV: {SNIPER_ZOOM_FOVS[sniperZoomIndex]}°</span>
-              <div className="scope-zoom-pips">
-                {SNIPER_ZOOM_LEVELS.map((z, idx) => (
-                  <span
-                    key={z}
-                    className={`scope-zoom-pip ${idx === sniperZoomIndex ? 'active' : ''
-                      }`}
-                  >
-                    {z}×
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className="scope-info-right">
-              <span>FIREWORK</span>
-              <span>CAL: 75mm</span>
-              <small className="scope-zoom-hint">Колесо: зум</small>
-            </div>
-          </div>
-        </div>
-      )}
-      <div className="world-hud-top-left">
-        <button
-          className="world-location world-performance"
-          onClick={props.onGraphics}
-          aria-label="Настройки FPS"
-        >
-          <span
-            className={`live-dot ${(props.packetLoss ?? 0) > 5
-                ? 'loss-bad'
-                : (props.packetLoss ?? 0) > 0
-                  ? 'loss-warn'
-                  : ''
-              }`}
-          />
-          <div>
-            <strong>
-              {props.fps} FPS <span> / {props.fpsLimit}</span>
-            </strong>
-            <span>
-              {self?.ping || 0} мс · {props.packetLoss ?? 0}% потерь · Графика ↗
-            </span>
-          </div>
-        </button>
-        <fieldset className="view-switch" aria-label="Режим обзора">
-          <button
-            type="button"
-            aria-pressed={perspective === 'first'}
-            onClick={() => choosePerspective('first')}
-            title="1-е лицо (FPP) [V]"
-            aria-label="1-е лицо (FPP)"
-          >
-            <Eye size={15} />
-          </button>
-          <button
-            type="button"
-            aria-pressed={perspective === 'third'}
-            onClick={() => choosePerspective('third')}
-            title="3-е лицо (TPP) [V]"
-            aria-label="3-е лицо (TPP)"
-          >
-            <User size={15} />
-          </button>
-          <kbd>V</kbd>
-        </fieldset>
-      </div>
-      <div className="world-hud-top-center">
-        <button
-          className={`ready-check-trigger-btn ${props.room.state.readyCheck?.active ? 'is-active' : ''}`}
-          onClick={() => {
-            if (!props.room.state.readyCheck?.active) {
-              void props.onOp?.({ type: 'ready.start' });
-            }
-          }}
-          title="Проверить готовность всех игроков к ретроспективе"
-        >
-          <span className="ready-bell-icon">🔔</span>
-          <span>
-            {props.room.state.readyCheck?.active
-              ? `Готовность: ${props.room.state.readyCheck.readyUsers.length}/${props.room.members.length}`
-              : 'Готовы к ретро?'}
-          </span>
-        </button>
-      </div>
-      {props.room.state.readyCheck?.active && (
-        <div className="ready-check-modal-overlay">
-          <div className="ready-check-modal-card">
-            <header className="ready-check-card-header">
-              <div className="ready-check-title">
-                <span className="ready-icon">⚡</span>
-                <strong>Готовы к ретроспективе?</strong>
-              </div>
-              <button
-                className="ready-check-close"
-                onClick={() => void props.onOp?.({ type: 'ready.dismiss' })}
-                title="Закрыть проверку"
-              >
-                <X size={15} />
-              </button>
-            </header>
-            <div className="ready-check-card-body">
-              <div className="ready-check-progress-bar">
-                <div
-                  className="ready-check-progress-fill"
-                  style={{
-                    width: `${Math.round(
-                      (props.room.state.readyCheck.readyUsers.length /
-                        Math.max(1, props.room.members.length)) *
-                        100,
-                    )}%`,
-                  }}
-                />
-              </div>
-              <div className="ready-check-members-grid">
-                {props.room.members.map((m) => {
-                  const isReady = props.room.state.readyCheck?.readyUsers.includes(m.id);
-                  const isAnonymous =
-                    props.room.state.anonymousPlayers ||
-                    props.room.state.anonymous ||
-                    m.hat === 'bag';
-                  const displayName = isAnonymous ? 'Аноним' : m.name;
-                  return (
-                    <div
-                      key={m.id}
-                      className={`ready-member-item ${isReady ? 'is-ready' : 'is-pending'}`}
-                    >
-                      <span className="ready-status-badge">
-                        {isReady ? '✅' : '⏳'}
-                      </span>
-                      <span
-                        className="ready-member-name"
-                        style={{ color: isAnonymous ? '#94a3b8' : m.color }}
-                      >
-                        {isAnonymous ? '🛍️ ' : ''}{displayName}
-                        {m.id === props.room.self ? ' (Вы)' : ''}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <footer className="ready-check-card-footer">
-              {(() => {
-                const myReady = props.room.state.readyCheck.readyUsers.includes(props.room.self);
-                return (
-                  <button
-                    className={`ready-toggle-btn ${myReady ? 'ready-confirmed' : 'ready-action'}`}
-                    onClick={() =>
-                      void props.onOp?.({
-                        type: 'ready.respond',
-                        ready: !myReady,
-                      })
-                    }
-                  >
-                    {myReady ? '✓ Я готов (отменить)' : '✓ Я готов к ретро!'}
-                  </button>
-                );
-              })()}
-              {props.host && (
-                <button
-                  className="ready-dismiss-btn"
-                  onClick={() => void props.onOp?.({ type: 'ready.dismiss' })}
-                >
-                  Завершить опрос
-                </button>
-              )}
-            </footer>
-          </div>
-        </div>
-      )}
-      {/* Immunity glow vignette removed */}
-      {shieldSeconds > 0 && !dead && (
-        <div
-          className="spawn-immunity-hud"
-          title="Бессмертие после возрождения (5 секунд)"
-        >
-          <span className="immunity-icon">🛡️</span>
-          <span>ЩИТ ВОЗРОЖДЕНИЯ</span>
-          <strong>{shieldSeconds}с</strong>
-        </div>
-      )}
-      <div
-        className="combat-stats-hud"
-        title="Убийства / Смерти / Помощи (K/D/A)"
-      >
-        <div className="combat-stat-col stat-k">
-          <small>K</small>
-          <strong>{self?.kills ?? 0}</strong>
-        </div>
-        <div className="combat-stat-divider" />
-        <div className="combat-stat-col stat-d">
-          <small>D</small>
-          <strong>{self?.deaths ?? 0}</strong>
-        </div>
-        <div className="combat-stat-divider" />
-        <div className="combat-stat-col stat-a">
-          <small>A</small>
-          <strong>{self?.assists ?? 0}</strong>
-        </div>
-      </div>
-      <div className="killfeed-container" aria-live="polite">
-        {killfeed.map((msg, idx) => (
-          <div
-            key={`${msg.id}-${idx}`}
-            className={`killfeed-item ${msg.killer === props.room.self
-                ? 'is-my-kill'
-                : msg.victim === props.room.self
-                  ? 'is-my-death'
-                  : msg.assister === props.room.self
-                    ? 'is-my-assist'
-                    : ''
-              } ${msg.headshot ? 'is-headshot' : ''} ${msg.noScope ? 'is-noscope' : ''}`}
-            style={
-              {
-                '--killer-color': msg.color || '#ff647c',
-              } as React.CSSProperties
-            }
-          >
-            <span className="killfeed-killer">{msg.killerName}</span>
-            {msg.assisterName && (
-              <span className="killfeed-assist">(+ {msg.assisterName})</span>
-            )}
-            <span className={`killfeed-weapon ${msg.noScope ? 'is-noscope' : ''}`}>
-              {msg.tool === 'sniper' && msg.noScope
-                ? (msg.headshot ? '🎯🔥💀 NO-SCOPE' : '🎯🔥 NO-SCOPE')
-                : msg.headshot
-                  ? '🎯💀'
-                  : msg.tool === 'grenade'
-                    ? '💣'
-                    : msg.tool === 'confetti'
-                      ? '🎉'
-                      : msg.tool === 'sniper'
-                        ? '🎆'
-                        : '🎯'}
-            </span>
-            <span className="killfeed-victim">{msg.victimName}</span>
-          </div>
-        ))}
-      </div>
-      {personalAlert && (
-        <div
-          key={personalAlert.key}
-          className={`combat-personal-alert alert-${personalAlert.type}`}
-        >
-          <strong>{personalAlert.text}</strong>
-          {personalAlert.sub && <small>{personalAlert.sub}</small>}
-        </div>
-      )}
-      <div className={`health-hud ${dead ? 'depleted' : ''}`}>
-        <strong>{self?.hp ?? 100}</strong>
-        <span>HP</span>
-        <meter
-          min="0"
-          max="100"
-          value={self?.hp ?? 100}
-          aria-label="Здоровье"
-        />
-      </div>
-      {dead && (
-        <div className="respawn-overlay">
-          <span>ПЕРЕРЫВ НА КОНФЕТТИ</span>
-          <strong>{respawnSeconds || 1}</strong>
-          <p>Возрождение через несколько секунд</p>
-        </div>
-      )}
+      <WorldHud
+        room={props.room}
+        host={props.host}
+        onOp={props.onOp}
+        onGraphics={props.onGraphics}
+        packetLoss={props.packetLoss}
+        fps={props.fps}
+        fpsLimit={props.fpsLimit}
+        self={self}
+        perspective={perspective}
+        choosePerspective={choosePerspective}
+        current={current}
+        aiming={aiming}
+        dead={dead}
+        sniperZoomIndex={sniperZoomIndex}
+        hitEffect={hitEffect}
+        shieldSeconds={shieldSeconds}
+        killfeed={killfeed}
+        personalAlert={personalAlert}
+        respawnSeconds={respawnSeconds}
+      />
       {tabletInWorld && (
-        <div
-          className="diegetic-tablet-container"
-          role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeTabletInWorld();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') closeTabletInWorld();
-          }}
-        >
-          <section
-            className="diegetic-tablet-device"
-            aria-label="Планшет ретроспективы"
-          >
-            <div className="tablet-camera-dot" />
-            <header className="tablet-system-bar">
-              <div className="tablet-system-left">
-                <span className="tablet-dot-live" />
-                <span className="tablet-room-badge">RETRO PAD · 3D</span>
-              </div>
-              <div className="tablet-system-title">
-                <strong>{props.room.state.title || 'Ретроспектива'}</strong>
-              </div>
-              <div className="tablet-system-right">
-                <span className="tablet-esc-hint">
-                  <kbd>Esc</kbd> закрыть
-                </span>
-                <button
-                  className="tablet-close-btn"
-                  onClick={closeTabletInWorld}
-                  title="Закрыть планшет (Esc)"
-                >
-                  <X size={15} />
-                </button>
-              </div>
-            </header>
-
-            <nav className="tablet-nav-tabs" aria-label="Разделы планшета">
-              <button
-                className={`tablet-tab-btn ${tabletTab === 'board' ? 'active' : ''}`}
-                onClick={() => setTabletTab('board')}
-              >
-                📋 Доска ретро
-              </button>
-              <button
-                className={`tablet-tab-btn ${tabletTab === 'env' ? 'active' : ''}`}
-                onClick={() => setTabletTab('env')}
-              >
-                🌲 Ландшафт
-              </button>
-              <button
-                className={`tablet-tab-btn ${tabletTab === 'music' ? 'active' : ''}`}
-                onClick={() => setTabletTab('music')}
-              >
-                🎵 Музыка
-              </button>
-            </nav>
-
-            {tabletTab === 'board' && (
-              <div className="tablet-board-layout">
-                <div className="tablet-retro-toolbar">
-                  <div className="tablet-retro-tools-group">
-                    <button
-                      className={`tablet-tool-btn ${tabletTool === 'pointer' ? 'active' : ''}`}
-                      onClick={() => setTabletTool('pointer')}
-                      title="Выбор и перемещение"
-                    >
-                      <MousePointer size={14} />
-                      <span>Выбор</span>
-                    </button>
-                    <button
-                      className={`tablet-tool-btn ${tabletTool === 'sticky' ? 'active' : ''}`}
-                      onClick={() => setTabletTool('sticky')}
-                      title="Добавить стикер"
-                    >
-                      <StickyNote size={14} />
-                      <span>Стикер</span>
-                    </button>
-                    <button
-                      className={`tablet-tool-btn ${tabletTool === 'draw' ? 'active' : ''}`}
-                      onClick={() => setTabletTool('draw')}
-                      title="Маркер (зажмите мышь на холсте)"
-                    >
-                      <Pencil size={14} />
-                      <span>Маркер</span>
-                    </button>
-                    <button
-                      className={`tablet-tool-btn ${tabletTool === 'connector' ? 'active' : ''}`}
-                      onClick={() => setTabletTool('connector')}
-                      title="Соединить карточки стрелкой"
-                    >
-                      <Link2 size={14} />
-                      <span>Связь</span>
-                    </button>
-                    <button
-                      className={`tablet-tool-btn ${tabletTool === 'reaction' ? 'active' : ''}`}
-                      onClick={() => setTabletTool('reaction')}
-                      title="Быстрая реакция"
-                    >
-                      <ThumbsUp size={14} />
-                      <span>Реакция</span>
-                    </button>
-                  </div>
-
-                  <div className="tablet-retro-actions-group">
-                    <button
-                      className="tablet-confetti-btn"
-                      onClick={() => {
-                        void props.onOp?.({
-                          type: 'event',
-                          kind: 'confetti',
-                          value: 'classic',
-                        });
-                      }}
-                      title="Запустить праздничное конфетти"
-                    >
-                      <PartyPopper size={14} />
-                      <span>Салют</span>
-                    </button>
-
-                    {(() => {
-                      const activeRound = props.room.state.rounds.at(-1)?.active
-                        ? props.room.state.rounds.at(-1)
-                        : null;
-                      const myVotes = activeRound
-                        ? Object.values(
-                            activeRound.votes[props.room.self] || {},
-                          ).reduce((a, b) => a + b, 0)
-                        : 0;
-                      return (
-                        <div className="tablet-vote-status">
-                          <span className="vote-badge">
-                            🗳️{' '}
-                            {activeRound
-                              ? `${myVotes}/${activeRound.limit}`
-                              : 'Голоса'}
-                          </span>
-                          {props.host && (
-                            <button
-                              className="tablet-vote-toggle"
-                              onClick={() => {
-                                if (activeRound?.active) {
-                                  void props.onOp?.({ type: 'vote.end' });
-                                } else {
-                                  void props.onOp?.({
-                                    type: 'vote.start',
-                                    limit: 5,
-                                  });
-                                }
-                              }}
-                            >
-                              {activeRound?.active ? 'Стоп' : 'Старт'}
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })()}
-
-                    {(() => {
-                      const actionNotes = props.room.state.notes.filter(
-                        (n) => n.kind === 'action' || n.kind === 'task',
-                      );
-                      const doneCount = actionNotes.filter(
-                        (n) => n.done,
-                      ).length;
-                      return (
-                        <button
-                          className={`tablet-action-items-toggle ${actionItemsOpen ? 'active' : ''}`}
-                          onClick={() => setActionItemsOpen(!actionItemsOpen)}
-                          title="Список задач (Action Items)"
-                        >
-                          <CheckSquare size={14} />
-                          <span>
-                            Задачи ({doneCount}/{actionNotes.length})
-                          </span>
-                        </button>
-                      );
-                    })()}
-                  </div>
-
-                  <div className="tablet-search-box">
-                    <input
-                      placeholder="Поиск карточек…"
-                      value={tabletSearch}
-                      onChange={(e) => setTabletSearch(e.target.value)}
-                      aria-label="Поиск по доске"
-                    />
-                  </div>
-                </div>
-
-                <div className="tablet-board-viewport-container">
-                  <Board
-                    room={props.room}
-                    tool={tabletTool}
-                    onEdit={props.onEditNote || (() => {})}
-                    onAdd={props.onAddNote || (() => {})}
-                    onOp={props.onOp || (async () => {})}
-                    search={tabletSearch}
-                    onCursor={props.onCursor}
-                  />
-
-                  {actionItemsOpen && (
-                    <aside
-                      className="tablet-action-items-drawer"
-                      aria-label="Action Items задачи"
-                    >
-                      <header className="action-drawer-header">
-                        <div>
-                          <strong>📋 Action Items (Задачи)</strong>
-                          <small>
-                            {
-                              props.room.state.notes
-                                .filter(
-                                  (n) =>
-                                    n.kind === 'action' || n.kind === 'task',
-                                )
-                                .filter((n) => n.done).length
-                            }{' '}
-                            из{' '}
-                            {
-                              props.room.state.notes.filter(
-                                (n) =>
-                                  n.kind === 'action' || n.kind === 'task',
-                              ).length
-                            }{' '}
-                            завершено
-                          </small>
-                        </div>
-                        <button
-                          className="action-drawer-close"
-                          onClick={() => setActionItemsOpen(false)}
-                          aria-label="Закрыть задачи"
-                        >
-                          <X size={15} />
-                        </button>
-                      </header>
-
-                      <div className="action-drawer-list">
-                        {props.room.state.notes
-                          .filter(
-                            (n) => n.kind === 'action' || n.kind === 'task',
-                          )
-                          .map((n) => (
-                            <div
-                              key={n.id}
-                              className={`action-drawer-item ${n.done ? 'is-done' : ''}`}
-                            >
-                              <label className="action-checkbox-label">
-                                <input
-                                  type="checkbox"
-                                  checked={n.done}
-                                  onChange={() =>
-                                    void props.onOp?.({
-                                      type: 'note.edit',
-                                      id: n.id,
-                                      patch: { done: !n.done },
-                                    })
-                                  }
-                                />
-                                <span className="action-check-visual">
-                                  {n.done && <Check size={12} />}
-                                </span>
-                              </label>
-                              <div className="action-item-body">
-                                <p className="action-text">
-                                  {n.text || 'Новая задача'}
-                                </p>
-                                <div className="action-tags">
-                                  {n.owner && (
-                                    <span className="action-owner">
-                                      👤 {n.owner}
-                                    </span>
-                                  )}
-                                  {n.due && (
-                                    <span className="action-due">
-                                      <Clock size={10} /> {n.due}
-                                    </span>
-                                  )}
-                                  <span
-                                    className="action-zone-badge"
-                                    style={{
-                                      background:
-                                        (ZONES.find((z) => z.id === n.zone)
-                                          ?.color || '#334155') + '33',
-                                    }}
-                                  >
-                                    {ZONES.find((z) => z.id === n.zone)
-                                      ?.short || n.zone}
-                                  </span>
-                                </div>
-                              </div>
-                              <button
-                                className="action-edit-btn"
-                                onClick={() => props.onEditNote?.(n)}
-                                title="Редактировать задачу"
-                              >
-                                <Pencil size={12} />
-                              </button>
-                            </div>
-                          ))}
-                        {props.room.state.notes.filter(
-                          (n) => n.kind === 'action' || n.kind === 'task',
-                        ).length === 0 && (
-                          <div className="action-drawer-empty">
-                            <span>
-                              Пока нет задач. Зафиксируйте шаги команды!
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      <footer className="action-drawer-footer">
-                        <button
-                          className="action-create-btn"
-                          onClick={() => {
-                            void props.onOp?.({
-                              type: 'note.add',
-                              kind: 'action',
-                              zone: 'good',
-                              text: 'Новая задача ретроспективы',
-                              done: false,
-                            });
-                          }}
-                        >
-                          + Добавить задачу
-                        </button>
-                      </footer>
-                    </aside>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {tabletTab === 'env' && (
-              <div className="tablet-env-view">
-                <div className="tablet-settings-section">
-                  <h3>Время суток</h3>
-                  <div className="tablet-settings-chips">
-                    {[
-                      { id: 'dawn', label: 'Рассвет', icon: Sunrise },
-                      { id: 'day', label: 'День', icon: Sun },
-                      { id: 'sunset', label: 'Закат', icon: Sunset },
-                      { id: 'night', label: 'Ночь', icon: Moon },
-                    ].map((item) => {
-                      const Icon = item.icon;
-                      const active = props.room.state.time === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          className={`tablet-setting-chip ${active ? 'active' : ''}`}
-                          onClick={() =>
-                            props.onRoomSettings?.({ time: item.id })
-                          }
-                        >
-                          <Icon size={16} />
-                          <span>{item.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="tablet-settings-section">
-                  <h3>Сезон и ландшафт</h3>
-                  <div className="tablet-settings-chips">
-                    {[
-                      { id: 'spring', label: 'Весна', emoji: '🌱' },
-                      { id: 'summer', label: 'Лето', emoji: '☀️' },
-                      { id: 'autumn', label: 'Осень', emoji: '🍁' },
-                      { id: 'winter', label: 'Зима', emoji: '❄️' },
-                    ].map((item) => {
-                      const active = props.room.state.season === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          className={`tablet-setting-chip ${active ? 'active' : ''}`}
-                          onClick={() =>
-                            props.onRoomSettings?.({ season: item.id })
-                          }
-                        >
-                          <span>{item.emoji}</span>
-                          <span>{item.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="tablet-settings-section">
-                  <h3>Визуальный стиль</h3>
-                  <div className="tablet-settings-chips">
-                    {[
-                      { id: 'classic', label: 'Классический' },
-                      { id: 'anime', label: 'Аниме / Шейдеры' },
-                    ].map((item) => {
-                      const active =
-                        (props.room.state.visualStyle || 'classic') === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          className={`tablet-setting-chip ${active ? 'active' : ''}`}
-                          onClick={() =>
-                            props.onRoomSettings?.({
-                              visualStyle: item.id as 'classic' | 'anime',
-                            })
-                          }
-                        >
-                          <span>{item.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {tabletTab === 'music' && (
-              <div className="tablet-music-view">
-                <div className="tablet-settings-section">
-                  <h3>Фоновый саундтрек</h3>
-                  <div className="tablet-settings-chips">
-                    {TRACKS.map((t) => {
-                      const active = music.track === t.id;
-                      return (
-                        <button
-                          key={t.id}
-                          className={`tablet-setting-chip ${active ? 'active' : ''}`}
-                          onClick={() => {
-                            if (active) {
-                              pauseMusic();
-                            } else {
-                              void playMusic(t.id);
-                            }
-                          }}
-                        >
-                          <Music2 size={16} />
-                          <span>{t.title}</span>
-                          {active && <span className="playing-pulse">●</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="tablet-music-controls-row">
-                  <button
-                    className="tablet-music-play-toggle"
-                    onClick={() => {
-                      if (music.playing) {
-                        pauseMusic();
-                      } else {
-                        void playMusic(music.track || 'steppe');
-                      }
-                    }}
-                  >
-                    {music.playing ? <Pause size={18} /> : <Play size={18} />}
-                    <span>{music.playing ? 'Пауза' : 'Воспроизведение'}</span>
-                  </button>
-
-                  <div className="tablet-music-volume">
-                    <Volume2 size={16} />
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={music.volume}
-                      onChange={(e) =>
-                        setMusicVolume(parseFloat(e.target.value))
-                      }
-                      aria-label="Громкость музыки"
-                    />
-                    <span>{Math.round(music.volume * 100)}%</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <button
-              type="button"
-              className="tablet-home-bar"
-              onClick={closeTabletInWorld}
-              aria-label="Закрыть планшет"
-            >
-              <span className="tablet-home-pill" />
-            </button>
-          </section>
-        </div>
+        <WorldTablet
+          room={props.room}
+          host={props.host}
+          onRoomSettings={props.onRoomSettings}
+          onOp={props.onOp}
+          onEditNote={props.onEditNote}
+          onAddNote={props.onAddNote}
+          onCursor={props.onCursor}
+          closeTabletInWorld={closeTabletInWorld}
+        />
       )}
       <div className="camera-toolbar">
         <span>
