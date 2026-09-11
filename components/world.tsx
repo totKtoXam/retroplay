@@ -40,6 +40,8 @@ import { attachCustomSkins, applyAvatarSkin, AVATAR_SKINS, PRESET_BANDANA_COLORS
 import { QUICK_SLOTS, slotForDigit, cycleSlot } from '@/lib/loadout';
 import { ToolMagazine, CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import {
+  blocksCamera,
+  blocksProjectile,
   cameraFrame,
   eyeHeight,
   avoidCameraWalls,
@@ -646,14 +648,7 @@ export default function World(props: Props) {
     const cameraObstacles: T.Object3D[] = [];
     scene.updateMatrixWorld(true);
     scene.traverse((o) => {
-      if (
-        o instanceof T.Mesh &&
-        !(o instanceof T.InstancedMesh) &&
-        !Array.isArray(o.material) &&
-        !o.userData.noCameraCollision &&
-        o.material.side !== T.BackSide &&
-        !o.material.transparent
-      ) {
+      if (blocksCamera(o)) {
         o.geometry.computeBoundingBox();
         cameraObstacles.push(o);
       }
@@ -954,6 +949,7 @@ export default function World(props: Props) {
           polygonOffsetFactor: -3,
         }),
       );
+      decal.userData.projectileCollision = 'ignore';
       if (scale !== 1) decal.scale.setScalar(scale);
 
       if (parent !== scene) {
@@ -1185,16 +1181,21 @@ export default function World(props: Props) {
           !avatar.getObjectById(o.id) &&
           o !== shadow &&
           o !== landingMarker &&
-          o.geometry.type !== 'SphereGeometry' &&
-          o.geometry.type !== 'ShapeGeometry' &&
+          blocksProjectile(o) &&
           !flights.some((f) => f.mesh === o) &&
           !bursts.some((b) => b.mesh === o)
         )
           targets.push(o);
       });
+      const maxDistance = tool === 'sniper' ? 75 : 65;
       const hit = ray
         .intersectObjects(targets, false)
-        .find((h) => h.distance < 75 && h.distance > 0.08);
+        .find(
+          (h) =>
+            h.distance < maxDistance &&
+            h.distance > 0.08 &&
+            blocksProjectile(h.object, h.face?.materialIndex),
+        );
       const target = hit
         ? hit.point
         : ray.ray.at(tool === 'sniper' ? 65 : 35, new T.Vector3());
@@ -1226,7 +1227,7 @@ export default function World(props: Props) {
       );
       const obstruction = muzzleRay
         .intersectObjects(targets, false)
-        .find((h) => visibleInWorld(h.object));
+        .find((h) => blocksProjectile(h.object, h.face?.materialIndex));
       if (obstruction) {
         target.copy(obstruction.point);
         origin.copy(camera.position);
