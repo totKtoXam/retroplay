@@ -28,18 +28,15 @@ export function cameraFrame(
 ) {
   const wrappedYaw = wrapAngle(yaw);
   const direction = viewDirection(wrappedYaw, pitch);
-  const eye = position.clone().add(new T.Vector3(0, height, 0));
+  const eye = position.clone();
+  eye.y += height;
   const camera = eye.clone();
-  if (perspective === 'third')
-    camera
-      .addScaledVector(direction, -distance)
-      .add(
-        new T.Vector3(
-          Math.cos(wrappedYaw) * 0.58,
-          0.08,
-          -Math.sin(wrappedYaw) * 0.58,
-        ),
-      );
+  if (perspective === 'third') {
+    camera.addScaledVector(direction, -distance);
+    camera.x += Math.cos(wrappedYaw) * 0.58;
+    camera.y += 0.08;
+    camera.z -= Math.sin(wrappedYaw) * 0.58;
+  }
   camera.y = Math.max(0.35, camera.y);
   return {
     eye,
@@ -107,6 +104,8 @@ export function blocksCamera(
     if (p.userData.noCameraCollision) return false;
   return hasSolidMaterial(object, materialIndex);
 }
+const wallScratchRay = new T.Raycaster();
+const wallScratchVisible: T.Object3D[] = [];
 /** Камера сокращает расстояние до ближайшей стены, сохраняя запас перед поверхностью. */
 export function avoidCameraWalls(
   eye: T.Vector3,
@@ -116,9 +115,14 @@ export function avoidCameraWalls(
   const delta = desired.clone().sub(eye),
     distance = delta.length();
   if (distance < 0.001) return desired.clone();
-  const ray = new T.Raycaster(eye, delta.normalize(), 0, distance + 0.18);
-  const hit = ray
-    .intersectObjects(objects.filter(visibleInWorld), false)
+  delta.normalize();
+  wallScratchRay.set(eye, delta);
+  wallScratchRay.near = 0;
+  wallScratchRay.far = distance + 0.18;
+  wallScratchVisible.length = 0;
+  for (const o of objects) if (visibleInWorld(o)) wallScratchVisible.push(o);
+  const hit = wallScratchRay
+    .intersectObjects(wallScratchVisible, false)
     .find((h) => blocksCamera(h.object, h.face?.materialIndex));
   return hit
     ? eye.clone().addScaledVector(delta, Math.max(0.08, hit.distance - 0.22))

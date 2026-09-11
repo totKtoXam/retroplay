@@ -36,7 +36,7 @@ import {
 } from './party-geometry';
 import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
-import { attachCustomSkins, applyAvatarSkin, AVATAR_SKINS, PRESET_BANDANA_COLORS } from './world-skins';
+import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { QUICK_SLOTS, slotForDigit, cycleSlot } from '@/lib/loadout';
 import { ToolMagazine, CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import {
@@ -51,11 +51,9 @@ import {
 } from '@/lib/game-camera';
 import {
   ALL_3D_COLLIDERS,
-  BoxCollider3D,
   getGroundHeight,
   getCeilingHeight,
   isBlocked3D,
-  rayCastWorldObstacle,
 } from '@/lib/world-collision';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -94,7 +92,6 @@ import {
   Play,
   Pause,
   Volume2,
-  Headphones,
   Heart,
   Bell,
   Check,
@@ -265,7 +262,6 @@ export default function World(props: Props) {
   const [tabletTool, setTabletTool] = useState('pointer');
   const [actionItemsOpen, setActionItemsOpen] = useState(false);
   const [tabletSearch, setTabletSearch] = useState('');
-  const [tabletZoneFilter, setTabletZoneFilter] = useState<string>('all');
   const [sniperZoomIndex, setSniperZoomIndex] = useState(1);
   const sniperZoomIndexRef = useRef(1);
   sniperZoomIndexRef.current = sniperZoomIndex;
@@ -578,6 +574,7 @@ export default function World(props: Props) {
     openInventory: () => void;
     openContext: () => void;
     keys: Set<string>;
+    refreshTargets: () => void;
   } | null>(null);
   const perspective = useSyncExternalStore(
     subscribePerspective,
@@ -675,11 +672,15 @@ export default function World(props: Props) {
     const optics = createFieldOptics();
     composer?.addPass(optics);
     const defaultExposure = renderer.toneMappingExposure;
+    // Forward reference: `visuals.select` can call `restore` synchronously
+    // (before the shot-target cache further below is defined), so route
+    // through a reassignable hook instead of closing over `rebuildSceneryTargets` directly.
+    let refreshSceneryTargets = () => {};
     const visuals = createVisualProvider({ scene, hands: hands.group, quality: props.quality, stations: STATIONS,
-      restore: () => { kit.update(latest.current.room.state); renderer.toneMappingExposure = defaultExposure; },
+      restore: () => { kit.update(latest.current.room.state); renderer.toneMappingExposure = defaultExposure; refreshSceneryTargets(); },
       status: setPackStatus,
     });
-    void visuals.select(packRef.current, latest.current.room.state);
+    void visuals.select(packRef.current, latest.current.room.state).then(() => refreshSceneryTargets());
     const avatar = kit.avatarFactory(
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.color || '#718cdd',
@@ -691,11 +692,19 @@ export default function World(props: Props) {
     // Attach custom skins & bandana to local avatar
     const localSkinResult = attachCustomSkins(avatar);
     const localBandanaMat = localSkinResult.bandanaMat;
-    {
-      const savedSkin = typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-custom-skin') || 'agent' : 'agent';
-      const savedBandana = typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') || '#3b82f6' : '#3b82f6';
-      applyAvatarSkin(avatar, savedSkin, savedBandana, localBandanaMat);
-    }
+    // Local skin prefs live in localStorage; re-read them occasionally instead
+    // of every frame, and only re-apply to the avatar when they actually change.
+    let cachedLocalSkinId = 'agent';
+    let cachedLocalBandanaColor = '#3b82f6';
+    let lastLocalSkinRead = 0;
+    const readLocalSkinPrefs = () => {
+      cachedLocalSkinId = typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-custom-skin') || 'agent' : 'agent';
+      cachedLocalBandanaColor = typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') || '#3b82f6' : '#3b82f6';
+    };
+    readLocalSkinPrefs();
+    let appliedLocalSkinId = cachedLocalSkinId;
+    let appliedLocalBandanaColor = cachedLocalBandanaColor;
+    applyAvatarSkin(avatar, appliedLocalSkinId, appliedLocalBandanaColor, localBandanaMat);
     const remoteAvatars = new Map<string, T.Group>(),
       remoteBandanaMats = new Map<string, T.MeshStandardMaterial>(),
       labels = new Map<string, T.Sprite>(),
@@ -825,6 +834,9 @@ export default function World(props: Props) {
       paintDropletGeo = new T.SphereGeometry(0.04, 6, 4),
       confettiGeo = new T.PlaneGeometry(0.07, 0.13),
       normalUp = new T.Vector3(0, 0, 1);
+    // Per-frame camera-update scratch vectors, reused to avoid allocating on every tick.
+    const scratchCamDir = new T.Vector3(),
+      scratchLookTarget = new T.Vector3();
     const partyGeometries = new Map([
       ...[...CONFETTI, ...FIREWORKS].map(
         (c) => [c.id, partyGeometry(c.id)] as [string, T.BufferGeometry],
@@ -855,6 +867,50 @@ export default function World(props: Props) {
     landingMarker.rotation.x = -Math.PI / 2;
     landingMarker.visible = false;
     scene.add(landingMarker);
+
+    // Shot/trajectory hit-testing used to re-traverse the whole scene (plus
+    // recursive getObjectById lookups and flights/bursts .some scans) on every
+    // shot and every frame while aiming a grenade. Instead, cache the static
+    // scenery mesh candidates once and rebuild only when scenery actually
+    // changes (style/interior/season/pack switches, or periodically as a
+    // safety net for content packs that resync scenery outside those events).
+    // Local avatar, hands, shadow and landingMarker never change shape, so a
+    // one-time id set is enough to exclude them cheaply. Remote avatars come
+    // and go, so they're excluded from the cache and gathered fresh (but only
+    // from their own small subtree, not the whole scene) where needed.
+    const staticTargetExclusions = new Set<number>();
+    avatar.traverse((o) => staticTargetExclusions.add(o.id));
+    hands.group.traverse((o) => staticTargetExclusions.add(o.id));
+    staticTargetExclusions.add(shadow.id);
+    staticTargetExclusions.add(landingMarker.id);
+    let sceneryTargetCache: T.Mesh[] = [];
+    const rebuildSceneryTargets = () => {
+      const excluded = new Set(staticTargetExclusions);
+      for (const remote of remoteAvatars.values())
+        remote.traverse((o) => excluded.add(o.id));
+      const list: T.Mesh[] = [];
+      scene.traverse((o) => {
+        if (
+          o instanceof T.Mesh &&
+          !excluded.has(o.id) &&
+          !o.userData.transientProjectile
+        )
+          list.push(o);
+      });
+      sceneryTargetCache = list;
+    };
+    rebuildSceneryTargets();
+    refreshSceneryTargets = rebuildSceneryTargets;
+    let lastSceneryTargetRebuild = performance.now();
+    const gatherRemoteAvatarMeshes = () => {
+      const list: T.Mesh[] = [];
+      for (const remote of remoteAvatars.values())
+        remote.traverse((o) => {
+          if (o instanceof T.Mesh && !o.userData.transientProjectile)
+            list.push(o);
+        });
+      return list;
+    };
 
     const burst = (
       at: T.Vector3,
@@ -944,6 +1000,7 @@ export default function World(props: Props) {
         dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
       }
+      mesh.userData.transientProjectile = true;
       scene.add(mesh);
       bursts.push({
         mesh,
@@ -1027,24 +1084,15 @@ export default function World(props: Props) {
       const rayDir = normal.clone().negate().normalize();
       if (rayDir.lengthSq() < 0.01) rayDir.set(0, -1, 0);
       const testRay = new T.Raycaster(rayOrigin, rayDir, 0.01, 0.6);
-      const sceneryTargets: T.Object3D[] = [];
-      scene.traverse((o) => {
+      const sceneryHitTargets: T.Mesh[] = [];
+      for (const o of sceneryTargetCache)
         if (
-          o instanceof T.Mesh &&
           visibleInWorld(o) &&
-          !avatar.getObjectById(o.id) &&
-          !hands.group.getObjectById(o.id) &&
-          o !== shadow &&
           o.geometry.type !== 'SphereGeometry' &&
-          o.geometry.type !== 'ShapeGeometry' &&
-          !flights.some((f) => f.mesh === o) &&
-          !bursts.some((b) => b.mesh === o) &&
-          !Array.from(remoteAvatars.values()).some((r) => r.getObjectById(o.id))
-        ) {
-          sceneryTargets.push(o);
-        }
-      });
-      const hits = testRay.intersectObjects(sceneryTargets, false);
+          o.geometry.type !== 'ShapeGeometry'
+        )
+          sceneryHitTargets.push(o);
+      const hits = testRay.intersectObjects(sceneryHitTargets, false);
       if (hits.length > 0 && hits[0].face) {
         return {
           point: hits[0].point,
@@ -1094,6 +1142,7 @@ export default function World(props: Props) {
                 )
               : new T.Mesh(paintGeo, new T.MeshBasicMaterial({ color: e.color }));
       ball.position.copy(start);
+      ball.userData.transientProjectile = true;
       scene.add(ball);
       flights.push({
         mesh: ball,
@@ -1113,9 +1162,23 @@ export default function World(props: Props) {
         author: e.author,
       });
     };
+    let lastReportedRounds = { ...magazine.current.rounds };
+    let lastReportedReloading = magazine.current.reloading;
     const updateAmmo = () => {
-      setRounds({ ...magazine.current.rounds });
-      setReloading(magazine.current.reloading);
+      const rounds = magazine.current.rounds;
+      if (
+        rounds.paint !== lastReportedRounds.paint ||
+        rounds.confetti !== lastReportedRounds.confetti ||
+        rounds.sniper !== lastReportedRounds.sniper ||
+        rounds.like !== lastReportedRounds.like
+      ) {
+        lastReportedRounds = { ...rounds };
+        setRounds(lastReportedRounds);
+      }
+      if (magazine.current.reloading !== lastReportedReloading) {
+        lastReportedReloading = magazine.current.reloading;
+        setReloading(lastReportedReloading);
+      }
     };
     const beginReload = () => {
       const tool = GAME_TOOLS[latest.current.tool]?.id;
@@ -1132,6 +1195,10 @@ export default function World(props: Props) {
       }
     };
     let lastGrenade = -Infinity;
+    // `shots` only feeds the aria-live announcement; avoid a full component
+    // re-render on every single shot by throttling the state flush.
+    let shotsFired = 0;
+    let lastShotsFlush = 0;
     const isDead = () =>
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.hp === 0;
@@ -1204,21 +1271,10 @@ export default function World(props: Props) {
       }
 
       ray.setFromCamera(screenCoord, camera);
-      const targets: T.Object3D[] = [];
-      scene.traverse((o) => {
-        if (
-          o instanceof T.Mesh &&
-          visibleInWorld(o) &&
-          !hands.group.getObjectById(o.id) &&
-          !avatar.getObjectById(o.id) &&
-          o !== shadow &&
-          o !== landingMarker &&
-          blocksProjectile(o) &&
-          !flights.some((f) => f.mesh === o) &&
-          !bursts.some((b) => b.mesh === o)
-        )
-          targets.push(o);
-      });
+      const targets: T.Mesh[] = [];
+      for (const o of sceneryTargetCache) if (blocksProjectile(o)) targets.push(o);
+      for (const o of gatherRemoteAvatarMeshes())
+        if (blocksProjectile(o)) targets.push(o);
       const maxDistance = tool === 'sniper' ? 75 : 65;
       const hit = ray
         .intersectObjects(targets, false)
@@ -1367,6 +1423,7 @@ export default function World(props: Props) {
             new T.MeshBasicMaterial({ color }),
           );
           pelletBall.position.copy(origin);
+          pelletBall.userData.transientProjectile = true;
           scene.add(pelletBall);
           flights.push({
             mesh: pelletBall,
@@ -1385,7 +1442,11 @@ export default function World(props: Props) {
       avatarShoot(avatar);
       hands.shoot(tool);
       p.onFire(e);
-      setShots((v) => v + 1);
+      shotsFired++;
+      if (now - lastShotsFlush >= 500) {
+        lastShotsFlush = now;
+        setShots(shotsFired);
+      }
     };
     const capture = () => {
       if (latest.current.blocked || document.pointerLockElement === canvas)
@@ -1453,6 +1514,7 @@ export default function World(props: Props) {
       },
       kit,
       fire: spawn,
+      refreshTargets: rebuildSceneryTargets,
       orbit: (d) => {
         cameraYaw = wrapAngle(cameraYaw + d);
         canvas.focus();
@@ -1845,6 +1907,13 @@ export default function World(props: Props) {
         clear();
       }
       if (isDead()) clear();
+      // Cheap safety net: content packs can resync scenery outside the
+      // explicit rebuild hooks below, so refresh the shot-target cache at a
+      // low, bounded rate rather than never (or every frame/shot).
+      if (now - lastSceneryTargetRebuild > 1500) {
+        lastSceneryTargetRebuild = now;
+        rebuildSceneryTargets();
+      }
       setAvatarAnonymous(avatar, !!latest.current.room.state.anonymousPlayers);
       if (equippedTool !== latest.current.tool) {
         equippedTool = latest.current.tool;
@@ -1868,22 +1937,21 @@ export default function World(props: Props) {
           document.pointerLockElement || softLook ? new T.Vector2(0, 0) : mouse,
           camera,
         );
-        const trajTargets: T.Object3D[] = [];
-        scene.traverse((o) => {
+        const trajTargets: T.Mesh[] = [];
+        for (const o of sceneryTargetCache)
           if (
-            o instanceof T.Mesh &&
             visibleInWorld(o) &&
-            !hands.group.getObjectById(o.id) &&
-            !avatar.getObjectById(o.id) &&
-            o !== shadow &&
-            o !== landingMarker &&
             o.geometry.type !== 'SphereGeometry' &&
-            o.geometry.type !== 'ShapeGeometry' &&
-            !flights.some((f) => f.mesh === o) &&
-            !bursts.some((b) => b.mesh === o)
+            o.geometry.type !== 'ShapeGeometry'
           )
             trajTargets.push(o);
-        });
+        for (const o of gatherRemoteAvatarMeshes())
+          if (
+            visibleInWorld(o) &&
+            o.geometry.type !== 'SphereGeometry' &&
+            o.geometry.type !== 'ShapeGeometry'
+          )
+            trajTargets.push(o);
         const hit = ray
           .intersectObjects(trajTargets, false)
           .find((h) => h.distance < 50 && h.distance > 0.1);
@@ -2131,20 +2199,31 @@ export default function World(props: Props) {
             currentCamDist = T.MathUtils.damp(currentCamDist, fullDist, 9, dt);
           }
         }
-        const camDir = view.position.clone().sub(view.eye).normalize();
-        camera.position.copy(view.eye).addScaledVector(camDir, currentCamDist);
+        scratchCamDir.copy(view.position).sub(view.eye).normalize();
+        camera.position.copy(view.eye).addScaledVector(scratchCamDir, currentCamDist);
       }
       camera.lookAt(
-        camera.position.clone().addScaledVector(view.direction, 30),
+        scratchLookTarget.copy(camera.position).addScaledVector(view.direction, 30),
       );
       avatar.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
       shadow.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
       // (shield aura removed — immunity is HUD-only now)
       if (localBandanaMat) {
+        if (now - lastLocalSkinRead > 400) {
+          lastLocalSkinRead = now;
+          readLocalSkinPrefs();
+        }
         const myMember = latest.current.room.members.find((m) => m.id === props.room.self);
-        const localSkinId = myMember?.hat || (typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-custom-skin') || 'agent' : 'agent');
-        const localBandanaColor = myMember?.color || (typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') || '#3b82f6' : '#3b82f6');
-        applyAvatarSkin(avatar, localSkinId, localBandanaColor, localBandanaMat);
+        const localSkinId = myMember?.hat || cachedLocalSkinId;
+        const localBandanaColor = myMember?.color || cachedLocalBandanaColor;
+        if (
+          localSkinId !== appliedLocalSkinId ||
+          localBandanaColor !== appliedLocalBandanaColor
+        ) {
+          appliedLocalSkinId = localSkinId;
+          appliedLocalBandanaColor = localBandanaColor;
+          applyAvatarSkin(avatar, localSkinId, localBandanaColor, localBandanaMat);
+        }
       }
       hands.update(
         dt,
@@ -2693,6 +2772,7 @@ export default function World(props: Props) {
     engine.current?.kit.update(latest.current.room.state);
     engine.current?.visuals.invalidate();
     engine.current?.shadow();
+    engine.current?.refreshTargets();
   }, [
     props.room.state.theme,
     props.room.state.visualStyle,
@@ -2707,7 +2787,9 @@ export default function World(props: Props) {
     for (const effect of props.room.effects || []) engine.current?.fire(effect);
   }, [props.room.effects]);
   useEffect(() => {
-    void engine.current?.visuals.select(resourcePack, latest.current.room.state);
+    void engine.current?.visuals
+      .select(resourcePack, latest.current.room.state)
+      .then(() => engine.current?.refreshTargets());
   }, [resourcePack]);
   const current = GAME_TOOLS[props.tool];
   return (
