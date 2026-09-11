@@ -59,46 +59,17 @@ if ($LASTEXITCODE -ne 0) {
 # 4. Deploy to Remote Server via SSH
 Write-Host "`n[5/6] Deploying to $RemoteUser@$RemoteHost`:$RemotePort..." -ForegroundColor Yellow
 
+# Migrations, tests, production build and restart live in scripts/server-deploy.sh,
+# which is run from the freshly pulled revision.
 $remoteCommand = @"
 set -e
-export PATH="/home/user/tools/node-v22.23.2-linux-x64/bin:`$PATH"
 echo "==> Updating repository in $RemoteDir..."
 cd "$RemoteDir"
+PREV_HEAD=`$(git rev-parse HEAD)
 git fetch origin
 git checkout "$Branch"
-git pull origin "$Branch"
-
-echo "==> Applying D1 migrations to the local database..."
-npx wrangler d1 migrations apply site-creator-d1 --local --config wrangler.local.json
-
-echo "==> Running server tests..."
-npm test
-
-echo "==> Restarting retro3d.service..."
-systemctl --user restart retro3d.service
-sleep 2
-
-echo "==> Verifying service status..."
-systemctl --user is-active retro3d.service
-
-echo "==> Checking HTTP response on port 3001 (waiting up to 45s for vinext to start)..."
-HTTP_CODE="000"
-for i in `$(seq 1 45); do
-    HTTP_CODE=`$(curl -s -o /dev/null -m 20 -w "%{http_code}" http://localhost:3001/ || true)
-    [ "`$HTTP_CODE" = "200" ] && break
-    sleep 1
-done
-echo "HTTP Status: `$HTTP_CODE (after `$i attempt(s))"
-
-if [ "`$HTTP_CODE" != "200" ]; then
-    echo "ERROR: Service returned HTTP `$HTTP_CODE instead of 200"
-    journalctl --user -u retro3d.service -n 25 --no-pager
-    exit 1
-fi
-
-COMMIT_HASH=`$(git rev-parse --short HEAD)
-COMMIT_MSG=`$(git log -1 --pretty=%B | head -n 1)
-echo "==> Successfully deployed: `$COMMIT_HASH - `$COMMIT_MSG"
+git pull --ff-only origin "$Branch"
+bash scripts/server-deploy.sh "`$PREV_HEAD"
 "@
 
 $remoteCommand = $remoteCommand.Replace("`r", "")
