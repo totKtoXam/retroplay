@@ -9,7 +9,7 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json",
-    "lint": "oxlint app db lib tests components/board.tsx components/controls.tsx components/lobby.tsx components/room-app.tsx components/world.tsx components/world-scene.ts components/world-avatar.ts components/world-art.ts components/style-picker.tsx components/music-player.tsx components/world-cinematic.ts components/world-hands.ts components/world-agent.ts components/avatar-preview.tsx components/item-wheel.tsx components/party-geometry.ts components/resource-packs components/resource-pack-picker.tsx hooks/use-resource-pack.ts",
+    "lint": "oxlint app db lib tests hooks components",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc --noEmit",
