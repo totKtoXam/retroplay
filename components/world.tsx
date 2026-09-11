@@ -1776,7 +1776,7 @@ export default function World(props: Props) {
     canvas.addEventListener('auxclick', context);
     canvas.addEventListener('webglcontextlost', context);
     const blocked = (x: number, z: number, y = pos.y) =>
-      isBlocked3D(x, z, y, 0.32, 1.8, kit.colliders as BoxCollider3D[]);
+      isBlocked3D(x, z, y, 0.32, 1.8, ALL_3D_COLLIDERS);
     let life =
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.life || 0;
@@ -1983,7 +1983,7 @@ export default function World(props: Props) {
 
       // Anti-stuck depenetration: guarantee player never gets stuck inside colliders
       const playerRadius = 0.32;
-      const worldColliders = (kit.colliders || ALL_3D_COLLIDERS) as BoxCollider3D[];
+      const worldColliders = ALL_3D_COLLIDERS;
       for (const c of worldColliders) {
         if (
           pos.x + playerRadius > c.minX &&
