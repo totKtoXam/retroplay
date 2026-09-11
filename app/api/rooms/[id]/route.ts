@@ -1,6 +1,13 @@
 import { resolveCombat } from '@/db/combat';
 import { effectStyle, effectCooldown } from '@/lib/game-items';
-import { db, session, json, payload, ensureJoinRequestsTable } from '@/db/server';
+import {
+  db,
+  session,
+  json,
+  payload,
+  discardBody,
+  ensureJoinRequestsTable,
+} from '@/db/server';
 import {
   applyOperation,
   publicState,
@@ -254,7 +261,10 @@ export async function POST(request: Request, context: Context) {
     await ensureJoinRequestsTable();
     const { id } = await context.params,
       self = await session(request);
-    if (!self) return json({ error: 'Откройте приложение заново' }, 401);
+    if (!self) {
+      await discardBody(request);
+      return json({ error: 'Откройте приложение заново' }, 401);
+    }
     const op = await payload(request);
     let r = await db()
       .prepare('SELECT * FROM rooms WHERE id=?')
@@ -736,6 +746,7 @@ export async function POST(request: Request, context: Context) {
       409,
     );
   } catch (e) {
+    await discardBody(request);
     return json(
       {
         error:

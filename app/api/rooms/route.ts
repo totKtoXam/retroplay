@@ -1,4 +1,4 @@
-import { db, session, json, payload } from '@/db/server';
+import { db, session, json, payload, discardBody } from '@/db/server';
 import { initialState, cleanText, THEMES, type RoomAccessType } from '@/lib/model';
 export async function GET(request: Request) {
   const self = await session(request);
@@ -106,7 +106,10 @@ export async function GET(request: Request) {
 }
 export async function POST(request: Request) {
   const self = await session(request);
-  if (!self) return json({ error: 'Откройте приложение заново' }, 401);
+  if (!self) {
+    await discardBody(request);
+    return json({ error: 'Откройте приложение заново' }, 401);
+  }
   try {
     const p = await payload(request);
     const title = cleanText(p.title, 100);

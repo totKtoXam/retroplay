@@ -23,9 +23,20 @@ export function checkOrigin(request: Request) {
   if (origin && origin !== new URL(request.url).origin)
     throw Error('Источник запроса не разрешён');
 }
+/**
+ * Drops an unread request body. Under `wrangler dev` (the LAN production
+ * server) responding before the body is read breaks wrangler's proxy
+ * connection, and the next POST fails with 503 "Your worker restarted
+ * mid-request". Call it on every early return of a POST handler. The body has
+ * to be read: `request.body.cancel()` does not help.
+ */
+export async function discardBody(request: Request) {
+  if (request.body && !request.bodyUsed)
+    await request.arrayBuffer().catch(() => {});
+}
 export async function payload(request: Request) {
-  checkOrigin(request);
   const text = await request.text();
+  checkOrigin(request);
   if (text.length > 250_000) throw Error('Слишком большой запрос');
   return JSON.parse(text || '{}');
 }
