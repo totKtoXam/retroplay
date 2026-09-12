@@ -350,16 +350,18 @@ export function chooseSpawn(
   team: Team | '' = '',
 ): SpawnPoint {
   const points = state.room.teams && team ? map.spawns[team] : [...map.spawns.red, ...map.spawns.blue];
-  const rivals = [...state.members.values()].filter(
-    (o) =>
-      o.id !== self &&
-      o.hp > 0 &&
-      o.seen > now - ONLINE_MS &&
-      !(state.room.teams && team && o.team === team),
+  const living = [...state.members.values()].filter(
+    (o) => o.id !== self && o.hp > 0 && o.seen > now - ONLINE_MS,
   );
-  let best = points[0],
+  const rivals = living.filter((o) => !(state.room.teams && team && o.team === team));
+  // Never stack two players on one point while another is free.
+  const free = points.filter(
+    (p) => !living.some((o) => Math.hypot(o.pose.x - p.x, o.pose.z - p.z) < 2),
+  );
+  const list = free.length ? free : points;
+  let best = list[0],
     bestScore = -1;
-  for (const p of points) {
+  for (const p of list) {
     const score = rivals.length
       ? Math.min(...rivals.map((o) => Math.hypot(o.pose.x - p.x, o.pose.z - p.z)))
       : 0;

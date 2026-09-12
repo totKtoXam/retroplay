@@ -337,6 +337,19 @@ test('rounds: the dead wait for the next round and the surviving team takes it',
   assert.deepEqual([h.match.phase, h.match.round, v.hp], ['live', 2, 100]);
 });
 
+test('teammates never respawn on the same point while another is free', () => {
+  const h = battle(member('a', { team: 'red' }), member('b', { team: 'red' }));
+  const spawns = getMap('mansion').spawns.red;
+  assert.ok(spawns.length > 1, 'the map has room to spread out');
+  setTeam(h, 'a', 'blue', T);
+  setTeam(h, 'a', 'red', T);
+  const first = h.members.get('a').pose;
+  setTeam(h, 'b', 'blue', T);
+  setTeam(h, 'b', 'red', T);
+  const second = h.members.get('b').pose;
+  assert.ok(Math.hypot(first.x - second.x, first.z - second.z) >= 2, 'different spawn points');
+});
+
 test('the host moves a player to the other side and they respawn there', () => {
   const h = battle(member('a', { team: 'red' }));
   assert.equal(setTeam(h, 'a', 'blue', T), true);
