@@ -11,6 +11,8 @@ import {
 } from './game-items.ts';
 import { uid, type Person, type Pose, type RoomState, type WorldEffect } from './model.ts';
 import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
+import { getMap } from './maps/index.ts';
+import { stanceHeight, type GameMap, type SpawnPoint } from './maps/types.ts';
 
 /** Effects older than this are neither resolved nor sent to clients. */
 export const EFFECT_TTL_MS = 15_000;
@@ -59,6 +61,8 @@ export type HubMember = {
   lastMoveAt: number;
   /** Start of the current run of refused moves (0: none). */
   refusedSince: number;
+  /** Where the current life started; the first step away ends spawn protection. */
+  spawn: { x: number; z: number };
 };
 export type HubEffect = WorldEffect & {
   resolveAt: number;
@@ -73,6 +77,8 @@ export type HubRoom = {
   anonymous: boolean;
   respawnSeconds: number;
   archived: boolean;
+  /** Map id (lib/maps). */
+  map: string;
 };
 export type HubState = {
   room: HubRoom;
@@ -102,6 +108,7 @@ export function roomFromState(host: string, state: Partial<RoomState>): HubRoom 
     anonymous: !!state.anonymousPlayers,
     respawnSeconds: state.respawnSeconds ?? 5,
     archived: !!state.archived,
+    map: getMap(state.map).id,
   };
 }
 
@@ -133,6 +140,7 @@ export function memberFromRow(row: Record<string, unknown>): HubMember {
     moveBudget: MOVE_BUDGET,
     lastMoveAt: 0,
     refusedSince: 0,
+    spawn: { x: SPAWN_POSE.x, z: SPAWN_POSE.z },
   };
 }
 
@@ -169,12 +177,15 @@ export function sanitizePose(pose: unknown): Pose | null {
   };
 }
 
-const blockedAt = (p: Pose) => isBlocked3D(p.x, p.z, p.y, BODY_RADIUS);
+const blockedAt = (map: GameMap, p: Pose) =>
+  isBlocked3D(p.x, p.z, p.y, BODY_RADIUS, stanceHeight(p.stance), map.colliders);
 
 /** A move is legal within the saved-up allowance, outside walls and not through them. */
-function moveAllowed(from: Pose, to: Pose, step: number, budget: number) {
-  if (step > budget || blockedAt(to)) return false;
-  const wall = rayCastWorldObstacle([from.x, from.y + 0.9, from.z], [to.x, to.y + 0.9, to.z]);
+function moveAllowed(map: GameMap, from: Pose, to: Pose, step: number, budget: number) {
+  if (step > budget || blockedAt(map, to)) return false;
+  // Low enough to pass under a crawl hole's lintel, high enough to clear kerbs.
+  const h = Math.min(0.9, stanceHeight(to.stance) / 2);
+  const wall = rayCastWorldObstacle([from.x, from.y + h, from.z], [to.x, to.y + h, to.z], map.colliders);
   return !wall?.hit;
 }
 
@@ -212,6 +223,7 @@ export function applyPresence(
   m: HubMember,
   op: { pose?: unknown; cursor?: unknown; ping?: unknown; life?: unknown },
   now: number,
+  map: GameMap = getMap('hub'),
 ) {
   const pose = sanitizePose(op.pose);
   const cursor = sanitizeCursor(op.cursor);
@@ -225,9 +237,9 @@ export function applyPresence(
   m.moveBudget = Math.min(MOVE_BUDGET, m.moveBudget + MOVE_SPEED * dt);
   const from = m.pose;
   const step = Math.hypot(pose.x - from.x, pose.z - from.z);
-  if (step > 1e-3 && !moveAllowed(from, pose, step, m.moveBudget)) {
+  if (step > 1e-3 && !moveAllowed(map, from, pose, step, m.moveBudget)) {
     if (!m.refusedSince) m.refusedSince = now;
-    if (now - m.refusedSince < RESYNC_MS || blockedAt(pose)) {
+    if (now - m.refusedSince < RESYNC_MS || blockedAt(map, pose)) {
       m.pose = { ...pose, x: from.x, y: from.y, z: from.z, moving: false };
       recordPose(m, now);
       return;
@@ -238,7 +250,7 @@ export function applyPresence(
   m.pose = pose;
   recordPose(m, now);
   // Spawn protection lasts until the first move, then 5 more seconds.
-  if (m.immuneUntil === -1 && (pose.moving || Math.hypot(pose.x, pose.z - SPAWN_POSE.z) > 0.45))
+  if (m.immuneUntil === -1 && (pose.moving || Math.hypot(pose.x - m.spawn.x, pose.z - m.spawn.z) > 0.45))
     m.immuneUntil = now + 5000;
 }
 
@@ -294,6 +306,61 @@ export function fireEffect(
   return { ok: true, effect };
 }
 
+/** The spawn point farthest from the other living players (teams share the list for now). */
+export function chooseSpawn(state: HubState, map: GameMap, self: string, now: number): SpawnPoint {
+  const points = [...map.spawns.red, ...map.spawns.blue];
+  const rivals = [...state.members.values()].filter(
+    (o) => o.id !== self && o.hp > 0 && o.seen > now - ONLINE_MS,
+  );
+  let best = points[0],
+    bestScore = -1;
+  for (const p of points) {
+    const score = rivals.length
+      ? Math.min(...rivals.map((o) => Math.hypot(o.pose.x - p.x, o.pose.z - p.z)))
+      : 0;
+    if (score > bestScore) {
+      best = p;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function placeAt(m: HubMember, spawn: SpawnPoint) {
+  m.pose = { ...SPAWN_POSE, x: spawn.x, y: spawn.y ?? 0, z: spawn.z, yaw: spawn.yaw ?? 0 };
+  m.spawn = { x: spawn.x, z: spawn.z };
+  m.track = [];
+  m.moveBudget = MOVE_BUDGET;
+  m.refusedSince = 0;
+}
+
+/** Moves a member standing outside the room's map or inside one of its walls to a spawn point. */
+export function placeIfInvalid(state: HubState, m: HubMember, now: number) {
+  const map = getMap(state.room.map),
+    b = map.bounds,
+    p = m.pose;
+  if (p.x > b.minX && p.x < b.maxX && p.z > b.minZ && p.z < b.maxZ && !blockedAt(map, p)) return false;
+  placeAt(m, chooseSpawn(state, map, m.id, now));
+  return true;
+}
+
+/**
+ * The host switched maps (state.room.map already holds the new one): everyone starts a new
+ * life on a spawn point of it. Clients teleport when they see their life change.
+ */
+export function changeMap(state: HubState, now: number) {
+  const map = getMap(state.room.map);
+  state.effects = [];
+  for (const m of state.members.values()) {
+    m.life += 1;
+    m.hp = 100;
+    m.respawnAt = 0;
+    m.immuneUntil = -1;
+    m.recentDamage = {};
+    placeAt(m, chooseSpawn(state, map, m.id, now));
+  }
+}
+
 function revive(state: HubState, now: number) {
   let changed = false;
   for (const m of state.members.values()) {
@@ -303,16 +370,14 @@ function revive(state: HubState, now: number) {
     m.life += 1;
     m.immuneUntil = -1;
     m.recentDamage = {};
-    m.pose = { ...SPAWN_POSE };
-    m.track = [];
-    m.moveBudget = MOVE_BUDGET;
-    m.refusedSince = 0;
+    placeAt(m, chooseSpawn(state, getMap(state.room.map), m.id, now));
     changed = true;
   }
   return changed;
 }
 
 function applyHits(state: HubState, e: HubEffect, now: number) {
+  const colliders = getMap(state.room.map).colliders;
   const origin = e.origin || [0, 0, 0];
   const target = e.target || [0, 0, 0];
   const author = state.members.get(e.author);
@@ -322,15 +387,15 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
     const pose = poseAt(p, e.rewindTo);
     const hit =
       e.kind === 'confetti'
-        ? calculatePelletsHit(origin, target, pose).pelletsHit > 0
-        : inHitRange(e.kind, origin, target, pose);
+        ? calculatePelletsHit(origin, target, pose, 8, colliders).pelletsHit > 0
+        : inHitRange(e.kind, origin, target, pose, colliders);
     // After a respawn a player can neither take nor deal damage.
     if (!hit || authorImmune || isImmune(p, now)) continue;
     const head = isHeadshot(e.kind, origin, target, pose);
     let damage: number;
     let pelletsHit: number | undefined;
     if (e.kind === 'confetti') {
-      const pellets = calculatePelletsHit(origin, target, pose);
+      const pellets = calculatePelletsHit(origin, target, pose, 8, colliders);
       pelletsHit = pellets.pelletsHit;
       damage = head ? 100 : pellets.damage;
     } else {

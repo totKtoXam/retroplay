@@ -1,4 +1,4 @@
-import { rayCastWorldObstacle } from './world-collision.ts';
+import { rayCastWorldObstacle, type BoxCollider3D } from './world-collision.ts';
 
 export const PAINTS = [
   ['coral', 'Коралл', '#ff647c'],
@@ -188,6 +188,8 @@ export function inHitRange(
   origin: number[],
   target: number[],
   pose: { x: number; y: number; z: number; yaw?: number; stance: string },
+  /** The room map's walls; defaults to the hub. */
+  colliders?: BoxCollider3D[],
 ): boolean {
   if (kind === 'grenade') {
     const center = [
@@ -195,7 +197,11 @@ export function inHitRange(
       pose.y + (pose.stance === 'lie' ? 0.35 : pose.stance === 'sit' ? 0.8 : 1.1),
       pose.z,
     ];
-    return Math.hypot(...center.map((v, i) => v - target[i])) < 4.2;
+    const reach = Math.hypot(...center.map((v, i) => v - target[i]));
+    if (reach >= 4.2) return false;
+    // The blast does not go through walls.
+    const wall = rayCastWorldObstacle(target, center, colliders);
+    return !wall || wall.distance >= reach - 0.35;
   }
 
   const yaw = pose.yaw || 0;
@@ -230,7 +236,7 @@ export function inHitRange(
     (spineBottom[1] + spineTop[1]) * 0.5,
     (spineBottom[2] + spineTop[2]) * 0.5,
   ];
-  const wallHit = rayCastWorldObstacle(origin, victimCenter);
+  const wallHit = rayCastWorldObstacle(origin, victimCenter, colliders);
   if (
     wallHit &&
     wallHit.distance <
@@ -285,6 +291,8 @@ export function calculatePelletsHit(
   target: number[],
   pose: { x: number; y: number; z: number; yaw?: number; stance: string },
   totalPellets = 8,
+  /** The room map's walls; defaults to the hub. */
+  colliders?: BoxCollider3D[],
 ): { pelletsHit: number; damage: number } {
   const yaw = pose.yaw || 0;
   let spineBottom: number[];
@@ -348,7 +356,7 @@ export function calculatePelletsHit(
   }
 
   // Check if a solid building/world wall occludes the shotgun blast before reaching victim
-  const wallHit = rayCastWorldObstacle(origin, [centerX, centerY, centerZ]);
+  const wallHit = rayCastWorldObstacle(origin, [centerX, centerY, centerZ], colliders);
   if (wallHit && wallHit.distance < dist - 0.35) {
     return { pelletsHit: 0, damage: 0 }; // Shotgun blast is blocked by a solid wall
   }

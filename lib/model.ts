@@ -173,6 +173,8 @@ export type Pose = {
   crouching?: boolean;
   aiming?: boolean;
   reload?: number;
+  /** Client only: the life this pose belongs to (sent as the presence `life`). */
+  life?: number;
 };
 export type Person = {
   id: string;
@@ -272,6 +274,8 @@ export type RoomState = {
   music: string;
   archived: boolean;
   template: string;
+  /** Game map id (lib/maps); missing means the hub. */
+  map?: string;
   access?: RoomAccess;
   readyCheck?: {
     active: boolean;
@@ -577,6 +581,8 @@ export function applyOperation(
     if ('season' in p)
       s.season = oneOf(p.season, ['spring', 'summer', 'autumn', 'winter']);
     if ('time' in p) s.time = oneOf(p.time, ['dawn', 'day', 'sunset', 'night']);
+    // Same ids as MAP_IDS in lib/maps (tests/maps.test.mjs checks every one is accepted).
+    if ('map' in p) s.map = oneOf(p.map, ['hub', 'mansion', 'bazaar', 'mountain']);
     for (const key of [
       'interior',
       'privateWriting',

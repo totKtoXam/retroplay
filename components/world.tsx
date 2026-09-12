@@ -21,7 +21,7 @@ import {
 import { ItemWheel } from './item-wheel';
 import { WorldTablet } from './world-tablet';
 import { WorldHud } from './world-hud';
-import { createWorldScene, STATIONS } from './world-scene';
+import { createMapScene, type WorldKit } from './world-map-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
 import { createFieldOptics } from './resource-packs/realistic/post';
@@ -46,12 +46,9 @@ import {
   wrapAngle,
   type Perspective,
 } from '@/lib/game-camera';
-import {
-  ALL_3D_COLLIDERS,
-  getGroundHeight,
-  getCeilingHeight,
-  isBlocked3D,
-} from '@/lib/world-collision';
+import { isBlocked3D } from '@/lib/world-collision';
+import { getMap } from '@/lib/maps';
+import { stanceHeight } from '@/lib/maps/types';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -249,7 +246,7 @@ export default function World(props: Props) {
   const tabletInspectRef = useRef(0);
 
   const engine = useRef<{
-    kit: ReturnType<typeof createWorldScene>;
+    kit: WorldKit;
     visuals: ReturnType<typeof createVisualProvider>;
     fire: (e: WorldEffect) => void;
     distance: (delta: number) => void;
@@ -291,6 +288,8 @@ export default function World(props: Props) {
       tabletZone,
     };
   }, [confettiStyle, grenadeStyle, fireworkStyle, tabletZone]);
+  /** Changing the room's map rebuilds the engine with that map's scene and collision. */
+  const mapId = props.room.state.map ?? 'hub';
   const self = props.room.members.find((m) => m.id === props.room.self);
   const dead = self?.hp === 0;
   const [killfeed, setKillfeed] = useState<KillMessage[]>([]);
@@ -557,7 +556,8 @@ export default function World(props: Props) {
       latest.current.onFailure();
       return;
     }
-    const kit = createWorldScene(renderer),
+    const map = getMap(mapId);
+    const kit = createMapScene(map, renderer),
       { scene } = kit;
     const isCinematic = props.quality === 'cinematic' || props.quality === 'high';
     const isBalanced = props.quality === 'balanced' || (!isCinematic && props.quality !== 'low');
@@ -621,11 +621,12 @@ export default function World(props: Props) {
     // (before the shot-target cache further below is defined), so route
     // through a reassignable hook instead of closing over `rebuildSceneryTargets` directly.
     let refreshSceneryTargets = () => {};
-    const visuals = createVisualProvider({ scene, hands: hands.group, quality: props.quality, stations: STATIONS,
+    const visuals = createVisualProvider({ scene, hands: hands.group, quality: props.quality, stations: kit.stations,
       restore: () => { kit.update(latest.current.room.state); renderer.toneMappingExposure = defaultExposure; refreshSceneryTargets(); },
       status: setPackStatus,
     });
-    void visuals.select(packRef.current, latest.current.room.state).then(() => refreshSceneryTargets());
+    // Resource packs dress the hub around its board stations; battle maps keep their own look.
+    void visuals.select(map.arena ? 'default' : packRef.current, latest.current.room.state).then(() => refreshSceneryTargets());
     const avatar = kit.avatarFactory(
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.color || '#718cdd',
@@ -655,6 +656,7 @@ export default function World(props: Props) {
       kit,
       quality: props.quality,
       latest,
+      map,
     });
     const { remoteAvatars, deadTimers } = remotePlayers;
     const shadow = new T.Mesh(
@@ -1225,7 +1227,7 @@ export default function World(props: Props) {
       aimHeld = false;
       setAiming(false);
       if (crouchHeld) {
-        currentStance = beforeCrouch;
+        if (canStand(beforeCrouch)) currentStance = beforeCrouch;
         crouchHeld = false;
         setStance(currentStance);
       }
@@ -1311,20 +1313,21 @@ export default function World(props: Props) {
         setStance('sit');
       }
       if (isDead()) return;
-      const groundYNow = getGroundHeight(pos.x, pos.z, pos.y);
-      if (e.code === 'Space' && Math.abs(pos.y - groundYNow) <= 0.08) {
+      const groundYNow = map.groundHeight(pos.x, pos.z, pos.y);
+      if (e.code === 'Space' && Math.abs(pos.y - groundYNow) <= 0.08 && canStand('stand')) {
         currentStance = 'stand';
         setStance('stand');
         vy = 5.7;
       }
       if (e.code === 'KeyC' && !crouchHeld) {
         const now = performance.now();
-        currentStance =
+        const nextStance =
           now - lastC < 360
             ? 'lie'
             : currentStance === 'stand'
               ? 'sit'
               : 'stand';
+        if (canStand(nextStance)) currentStance = nextStance;
         lastC = now;
         setStance(currentStance);
       }
@@ -1356,7 +1359,7 @@ export default function World(props: Props) {
         !keys.has('ControlLeft') &&
         !keys.has('ControlRight')
       ) {
-        currentStance = beforeCrouch;
+        if (canStand(beforeCrouch)) currentStance = beforeCrouch;
         crouchHeld = false;
         setStance(currentStance);
       }
@@ -1535,8 +1538,13 @@ export default function World(props: Props) {
     canvas.addEventListener('contextmenu', context);
     canvas.addEventListener('auxclick', context);
     canvas.addEventListener('webglcontextlost', context);
-    const blocked = (x: number, z: number, y = pos.y) =>
-      isBlocked3D(x, z, y, 0.32, 1.8, ALL_3D_COLLIDERS);
+    // Body height follows the stance, so crouching or lying fits through low openings.
+    const blocked = (x: number, z: number, y = pos.y, stance = currentStance) =>
+      isBlocked3D(x, z, y, 0.32, stanceHeight(stance), map.colliders);
+    /** Whether there is room to take `stance` here (no standing up inside a crawl hole). */
+    const canStand = (stance: 'stand' | 'sit' | 'lie') =>
+      !blocked(pos.x, pos.z, pos.y, stance) &&
+      pos.y + stanceHeight(stance) < map.ceilingHeight(pos.x, pos.z, pos.y) + 0.01;
     let life =
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.life || 0;
@@ -1566,7 +1574,8 @@ export default function World(props: Props) {
       );
       if ((own?.life || 0) !== life) {
         life = own?.life || 0;
-        pos.set(0, 0, 4);
+        // The server put us on a spawn point of the room's map.
+        pos.set(own?.pose.x ?? 0, own?.pose.y ?? 0, own?.pose.z ?? 4);
         vy = 0;
         currentStance = 'stand';
         clear();
@@ -1705,7 +1714,7 @@ export default function World(props: Props) {
           nz = T.MathUtils.clamp(pos.z + vz * speed * dt, -36, 36);
 
         // Try X movement with step-up assist:
-        const nextGroundX = getGroundHeight(nx, pos.z, pos.y);
+        const nextGroundX = map.groundHeight(nx, pos.z, pos.y);
         const stepDeltaX = nextGroundX - pos.y;
         if (
           stepDeltaX <= 0.55 &&
@@ -1718,7 +1727,7 @@ export default function World(props: Props) {
         }
 
         // Try Z movement with step-up assist:
-        const nextGroundZ = getGroundHeight(pos.x, nz, pos.y);
+        const nextGroundZ = map.groundHeight(pos.x, nz, pos.y);
         const stepDeltaZ = nextGroundZ - pos.y;
         if (
           stepDeltaZ <= 0.55 &&
@@ -1733,7 +1742,7 @@ export default function World(props: Props) {
       heading = wrapAngle(followCameraHeading(heading, cameraYaw, dt));
 
       // Dynamic ground height detection & gravity:
-      const groundY = getGroundHeight(pos.x, pos.z, pos.y);
+      const groundY = map.groundHeight(pos.x, pos.z, pos.y);
       vy -= 13 * dt;
       pos.y = pos.y + vy * dt;
       if (pos.y <= groundY) {
@@ -1741,15 +1750,16 @@ export default function World(props: Props) {
         vy = 0;
       }
       // Ceiling collision to prevent head clipping through floors/roofs:
-      const ceilY = getCeilingHeight(pos.x, pos.z, pos.y);
-      if (pos.y + 1.8 >= ceilY) {
-        pos.y = ceilY - 1.8;
+      const ceilY = map.ceilingHeight(pos.x, pos.z, pos.y);
+      const bodyHeight = stanceHeight(currentStance);
+      if (pos.y + bodyHeight >= ceilY) {
+        pos.y = Math.max(groundY, ceilY - bodyHeight);
         if (vy > 0) vy = 0;
       }
 
       // Anti-stuck depenetration: guarantee player never gets stuck inside colliders
       const playerRadius = 0.32;
-      const worldColliders = ALL_3D_COLLIDERS;
+      const worldColliders = map.colliders;
       for (const c of worldColliders) {
         if (
           pos.x + playerRadius > c.minX &&
@@ -1758,7 +1768,7 @@ export default function World(props: Props) {
           pos.z - playerRadius < c.maxZ
         ) {
           const feetY = pos.y + 0.35;
-          const headY = pos.y + 1.75;
+          const headY = pos.y + stanceHeight(currentStance) - 0.05;
           if (headY > c.minY && feetY < c.maxY) {
             if (pos.y >= c.maxY - 0.55) {
               pos.y = c.maxY;
@@ -1942,9 +1952,9 @@ export default function World(props: Props) {
         camera.updateProjectionMatrix();
       }
       let nearest = '';
-      for (let i = 0; i < STATIONS.length; i++) {
+      for (let i = 0; i < kit.stations.length; i++) {
         if (latest.current.room.state.template === 'three' && i === 1) continue;
-        const [x, z] = STATIONS[i];
+        const [x, z] = kit.stations[i];
         if (Math.hypot(pos.x - x, pos.z - z) < 6) nearest = ZONES[i].id;
       }
       if (nearest !== nearZone) {
@@ -1956,6 +1966,9 @@ export default function World(props: Props) {
       vfx.update(now, dt);
       if (now - poseAt > 120) {
         latest.current.onPose({
+          // The life this pose belongs to: until the engine has moved us to a new spawn,
+          // the server keeps ignoring poses of the previous life.
+          life,
           x: pos.x,
           z: pos.z,
           y: pos.y,
@@ -2056,7 +2069,7 @@ export default function World(props: Props) {
       renderer.dispose();
       canvas.remove();
     };
-  }, [props.quality, openTabletInWorld, closeTabletInWorld]);
+  }, [props.quality, openTabletInWorld, closeTabletInWorld, mapId]);
   useEffect(() => {
     engine.current?.kit.update(latest.current.room.state);
     engine.current?.visuals.invalidate();
@@ -2077,7 +2090,7 @@ export default function World(props: Props) {
   }, [props.room.effects]);
   useEffect(() => {
     void engine.current?.visuals
-      .select(resourcePack, latest.current.room.state)
+      .select(getMap(latest.current.room.state.map).arena ? 'default' : resourcePack, latest.current.room.state)
       .then(() => engine.current?.refreshTargets());
   }, [resourcePack]);
   const current = GAME_TOOLS[props.tool];

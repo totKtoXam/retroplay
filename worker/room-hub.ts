@@ -1,8 +1,11 @@
 import { DurableObject } from 'cloudflare:workers';
 import { ensureCombatColumns } from '@/db/combat';
 import type { Person, WorldEffect } from '@/lib/model';
+import { getMap } from '@/lib/maps';
 import {
   applyPresence,
+  changeMap,
+  placeIfInvalid,
   effectsSince,
   fireEffect,
   memberFromRow,
@@ -46,7 +49,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
   async presence(room: string, self: string, op: Record<string, unknown>, since: number | null) {
     const hub = await this.state(room);
     const now = Date.now();
-    applyPresence(await this.member(hub, self), op, now);
+    applyPresence(await this.member(hub, self), op, now, getMap(hub.room.map));
     resolveCombat(hub, now);
     this.markDirty();
     return this.view(hub, now, since);
@@ -81,7 +84,15 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const row = await this.env.DB.prepare('SELECT host,state FROM rooms WHERE id=?')
       .bind(this.roomId)
       .first<{ host: string; state: string }>();
-    if (row) hub.room = roomFromState(row.host, JSON.parse(row.state));
+    if (row) {
+      const next = roomFromState(row.host, JSON.parse(row.state));
+      const mapChanged = next.map !== hub.room.map;
+      hub.room = next;
+      if (mapChanged) {
+        changeMap(hub, Date.now());
+        this.markDirty();
+      }
+    }
     this.broadcast(JSON.stringify({ t: 'refresh' }));
   }
 
@@ -127,7 +138,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     if (!hub || !m) return;
     const now = Date.now();
     if (msg.t === 'presence') {
-      applyPresence(m, msg, now);
+      applyPresence(m, msg, now, getMap(hub.room.map));
       this.markDirty();
     } else if (msg.t === 'effect') {
       try {
@@ -218,6 +229,8 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       hub.members.set(m.id, m);
     }
     this.hub = hub;
+    const now = Date.now();
+    for (const m of hub.members.values()) if (placeIfInvalid(hub, m, now)) this.markDirty();
     return hub;
   }
 
@@ -236,6 +249,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const known = hub.members.get(self);
     if (!known) {
       hub.members.set(self, fresh);
+      if (placeIfInvalid(hub, fresh, Date.now())) this.markDirty();
       return fresh;
     }
     // Hot fields live here; only the profile comes from D1.

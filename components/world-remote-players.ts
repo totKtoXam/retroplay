@@ -1,11 +1,8 @@
 import * as T from 'three';
 import type { Room } from '@/lib/model';
-import {
-  getGroundHeight,
-  isBlocked3D,
-  rayCastWorldObstacle,
-} from '@/lib/world-collision';
-import type { createWorldScene } from './world-scene';
+import { isBlocked3D, rayCastWorldObstacle } from '@/lib/world-collision';
+import type { GameMap } from '@/lib/maps/types';
+import type { WorldKit } from './world-map-scene';
 import { animateAvatar, setAvatarAnonymous } from './world-avatar';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 
@@ -19,11 +16,13 @@ export function createWorldRemotePlayers({
   kit,
   quality,
   latest,
+  map,
 }: {
   scene: T.Scene;
-  kit: ReturnType<typeof createWorldScene>;
+  kit: WorldKit;
   quality: string;
   latest: { readonly current: { room: Room } };
+  map: GameMap;
 }) {
   const remoteAvatars = new Map<string, T.Group>(),
     remoteBandanaMats = new Map<string, T.MeshStandardMaterial>(),
@@ -217,8 +216,8 @@ export function createWorldRemotePlayers({
         targetZ += vz * timeSince;
         // Never predict a remote player into or through a wall.
         if (
-          isBlocked3D(targetX, targetZ, p.y) ||
-          rayCastWorldObstacle([p.x, p.y + 0.9, p.z], [targetX, p.y + 0.9, targetZ])?.hit
+          isBlocked3D(targetX, targetZ, p.y, 0.32, 1.8, map.colliders) ||
+          rayCastWorldObstacle([p.x, p.y + 0.9, p.z], [targetX, p.y + 0.9, targetZ], map.colliders)?.hit
         ) {
           targetX = p.x;
           targetZ = p.z;
@@ -249,7 +248,7 @@ export function createWorldRemotePlayers({
           speed: p.speed ?? (p.moving ? 3.4 : 0),
           strafe: p.strafe || 0,
           forward: p.forward ?? 1,
-          airborne: p.y > getGroundHeight(p.x, p.z, p.y) + 0.08,
+          airborne: p.y > map.groundHeight(p.x, p.z, p.y) + 0.08,
           velocityY: 0,
           stance: p.stance,
           tool: p.tool || 'other',

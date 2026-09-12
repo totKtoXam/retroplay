@@ -353,9 +353,10 @@ export function useRoomSync({
               JSON.stringify({
                 t: 'presence',
                 life:
-                  roomRef.current.members.find(
+                  pose.current.life ??
+                  (roomRef.current.members.find(
                     (m) => m.id === roomRef.current?.self,
-                  )?.life || 0,
+                  )?.life || 0),
                 pose: compressPose(pose.current),
                 ping: pingRef.current,
                 cursor: cursor.current,
@@ -380,9 +381,10 @@ export function useRoomSync({
             >('/api/rooms/' + id, {
               type: 'presence',
               life:
-                roomRef.current.members.find(
+                pose.current.life ??
+                (roomRef.current.members.find(
                   (m) => m.id === roomRef.current?.self,
-                )?.life || 0,
+                )?.life || 0),
               pose: compressPose(pose.current),
               ping: pingRef.current,
               cursor: cursor.current,

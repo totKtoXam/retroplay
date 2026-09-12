@@ -658,9 +658,13 @@ export function WorldPanel({
   onSeasonChange,
   onInteriorChange,
   onRespawnSecondsChange,
+  maps,
+  onMapChange,
 }: {
   s: RoomState;
   host: boolean;
+  maps: { id: string; title: string }[];
+  onMapChange: (map: string) => void;
   onStyleChange: (visualStyle: string) => void;
   onThemeChange: (theme: string, season: string) => void;
   onTimeChange: (time: string) => void;
@@ -670,6 +674,13 @@ export function WorldPanel({
 }) {
   return (
     <>
+      <Choice
+        label="Карта"
+        value={s.map ?? 'hub'}
+        disabled={!host}
+        onChange={onMapChange}
+        options={maps.map((m) => ({ value: m.id, label: m.title }))}
+      />
       <StylePicker
         value={s.visualStyle || 'classic'}
         disabled={!host}

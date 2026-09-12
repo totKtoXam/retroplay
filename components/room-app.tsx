@@ -104,6 +104,7 @@ import {
   WorldPanel,
 } from './room-panels';
 import { useRoomSync } from './use-room-sync';
+import { MAP_LIST } from '@/lib/maps';
 
 const World = lazy(() => import('./world'));
 const icons = [
@@ -2207,6 +2208,10 @@ export default function RoomApp({ id }: { id: string }) {
               }
               onInteriorChange={(interior) =>
                 void act({ type: 'room.settings', patch: { interior } })
+              }
+              maps={MAP_LIST}
+              onMapChange={(map) =>
+                void act({ type: 'room.settings', patch: { map } })
               }
               onRespawnSecondsChange={(respawnSeconds) =>
                 void act({

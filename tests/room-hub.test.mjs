@@ -38,10 +38,11 @@ const member = (id, over = {}) => ({
   moveBudget: 5,
   lastMoveAt: 0,
   refusedSince: 0,
+  spawn: { x: 0, z: 4 },
   ...over,
 });
 const hub = (...members) => ({
-  room: { host: 'a', anonymous: false, respawnSeconds: 5, archived: false },
+  room: { host: 'a', anonymous: false, respawnSeconds: 5, archived: false, map: 'hub' },
   members: new Map(members.map((m) => [m.id, m])),
   effects: [],
   seq: 0,
