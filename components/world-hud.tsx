@@ -320,6 +320,39 @@ export function WorldHud(props: WorldHudProps) {
           </div>
         ))}
       </div>
+      {props.mode === 'battle' &&
+        props.room.match &&
+        props.room.match.phase !== 'live' && (
+          <output className="match-banner">
+            <b
+              style={{
+                color:
+                  props.room.match.winner === 'red'
+                    ? '#ff5d52'
+                    : props.room.match.winner === 'blue'
+                      ? '#5aa9ff'
+                      : '#e7eeff',
+              }}
+            >
+              {props.room.match.phase === 'ended'
+                ? props.room.match.winner === 'draw'
+                  ? 'НИЧЬЯ'
+                  : props.room.match.winner === 'red'
+                    ? 'ПОБЕДА КРАСНЫХ'
+                    : 'ПОБЕДА СИНИХ'
+                : props.room.match.winner === 'red'
+                  ? 'РАУНД ЗА КРАСНЫМИ'
+                  : props.room.match.winner === 'blue'
+                    ? 'РАУНД ЗА СИНИМИ'
+                    : 'РАУНД ОКОНЧЕН'}
+            </b>
+            <small>
+              {props.room.match.score.red} : {props.room.match.score.blue}
+              {props.room.match.phase === 'intermission' &&
+                ' · следующий раунд вот-вот начнётся'}
+            </small>
+          </output>
+        )}
       {props.personalAlert && (
         <div
           key={props.personalAlert.key}

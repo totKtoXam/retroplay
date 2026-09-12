@@ -7411,3 +7411,24 @@ h1 > span {
   font-size: 10px;
   padding: 2px 7px;
 }
+
+/* Баннер раунда и итога матча. */
+.match-banner {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 7;
+  pointer-events: none;
+}
+.match-banner b {
+  display: block;
+  font: 600 30px/1.2 system-ui, sans-serif;
+  letter-spacing: 2px;
+  text-shadow: 0 2px 14px #000a;
+}
+.match-banner small {
+  color: #cfe0ff;
+  text-shadow: 0 1px 8px #000a;
+}
