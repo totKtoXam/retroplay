@@ -6298,3 +6298,21 @@ h1 > span {
   color: #cfe0ff;
   text-shadow: 0 1px 8px #000a;
 }
+
+/* Узкий экран: в шапке остаются только номера этапов и главные кнопки. */
+@media (max-width: 900px) {
+  .phase-step {
+    font-size: 0;
+    gap: 0;
+    padding: 2px 4px;
+  }
+  .phase-step > span {
+    font-size: 10px;
+  }
+  .game-tag.map-tag,
+  .game-bar h1 {
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
