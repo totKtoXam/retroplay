@@ -2,6 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyPresence,
+  balanceTeam,
+  newMatch,
+  setTeam,
+  updateMatch,
   effectsSince,
   fireEffect,
   memberFromRow,
@@ -12,6 +16,7 @@ import {
   sanitizePose,
 } from '../lib/room-hub-core.ts';
 import { isBlocked3D } from '../lib/world-collision.ts';
+import { getMap } from '../lib/maps/index.ts';
 
 const T = 1_000_000;
 const stand = (x, z) => ({ x, y: 0, z, yaw: 0, stance: 'stand', moving: false });
@@ -39,13 +44,30 @@ const member = (id, over = {}) => ({
   lastMoveAt: 0,
   refusedSince: 0,
   spawn: { x: 0, z: 4 },
+  team: '',
+  ...over,
+});
+const room = (over = {}) => ({
+  host: 'a',
+  anonymous: false,
+  respawnSeconds: 5,
+  archived: false,
+  map: 'hub',
+  teams: false,
+  friendlyFire: false,
+  friendlyFirePercent: 50,
+  matchMode: 'deathmatch',
+  killLimit: 30,
+  matchMinutes: 10,
+  roundWins: 5,
   ...over,
 });
 const hub = (...members) => ({
-  room: { host: 'a', anonymous: false, respawnSeconds: 5, archived: false, map: 'hub' },
+  room: room(),
   members: new Map(members.map((m) => [m.id, m])),
   effects: [],
   seq: 0,
+  match: { mode: 'deathmatch', score: { red: 0, blue: 0 }, round: 1, phase: 'live', until: 0 },
 });
 // Shooter stands at spawn (0,0,4); the victim at the origin is hit in the body.
 const shot = (kind = 'paint', over = {}) => ({
@@ -244,6 +266,88 @@ test('teleports are refused; a client stuck on refusals is resynced after 1.5 s'
   assert.equal(v.pose.x, 20, 'resynced');
   applyPresence(v, { pose: stand(20.3, 0), life: 0 }, T + 1650);
   assert.equal(v.pose.x, 20.3, 'normal movement continues');
+});
+
+// A battle map (teams on); the hub stays free-for-all.
+const battle = (...members) => {
+  const h = hub(...members);
+  h.room = room({ map: 'mansion', teams: true });
+  h.match = newMatch(h.room, T);
+  return h;
+};
+
+test('teams: friendly fire is off by default and the host sets its share', () => {
+  const h = battle(member('a', { team: 'red' }), member('v', { team: 'red', pose: stand(0, 0) }));
+  fire(h, 'a', T);
+  assert.equal(h.members.get('v').hp, 100, 'no damage to a teammate');
+  h.room.friendlyFire = true;
+  h.room.friendlyFirePercent = 50;
+  fire(h, 'a', T + 200);
+  assert.equal(h.members.get('v').hp, 90, 'half of a 20 HP paint hit');
+});
+
+test('teams: a kill scores for the team, a team kill scores nothing', () => {
+  const h = battle(member('a', { team: 'red' }), member('v', { team: 'blue', pose: stand(0, 0) }));
+  for (let i = 0; i < 5; i++) fire(h, 'a', T + i * 100);
+  assert.deepEqual(
+    [h.match.score.red, h.members.get('a').kills, h.members.get('v').deaths],
+    [1, 1, 1],
+  );
+  const t = battle(member('a', { team: 'red' }), member('v', { team: 'red', pose: stand(0, 0) }));
+  t.room.friendlyFire = true;
+  t.room.friendlyFirePercent = 100;
+  for (let i = 0; i < 5; i++) fire(t, 'a', T + i * 100);
+  const kill = t.effects.find((e) => e.kind === 'kill');
+  assert.deepEqual(
+    [t.match.score.red, t.members.get('a').kills, t.members.get('v').deaths, kill.teamkill],
+    [0, 0, 1, true],
+  );
+});
+
+test('teams: a new player joins the smaller side', () => {
+  const h = battle(member('a', { team: 'red' }), member('b', { team: 'red' }), member('c'));
+  assert.equal(balanceTeam(h, h.members.get('c')), true);
+  assert.equal(h.members.get('c').team, 'blue');
+  assert.equal(balanceTeam(h, h.members.get('a')), false, 'a team is never reassigned');
+});
+
+test('deathmatch ends on the kill limit and a new one starts after the result', () => {
+  const h = battle(member('a', { team: 'red' }));
+  h.room.killLimit = 2;
+  h.match = newMatch(h.room, T);
+  h.match.score.red = 2;
+  assert.equal(updateMatch(h, T + 10), true);
+  assert.deepEqual([h.match.phase, h.match.winner], ['ended', 'red']);
+  assert.equal(updateMatch(h, h.match.until + 1), true);
+  assert.deepEqual([h.match.phase, h.match.score], ['live', { red: 0, blue: 0 }]);
+});
+
+test('rounds: the dead wait for the next round and the surviving team takes it', () => {
+  const h = battle(member('a', { team: 'red' }), member('v', { team: 'blue', pose: stand(0, 0) }));
+  h.room.matchMode = 'rounds';
+  h.match = newMatch(h.room, T);
+  for (let i = 0; i < 5; i++) fire(h, 'a', T + i * 100);
+  const v = h.members.get('v');
+  assert.equal(v.hp, 0);
+  for (const m of h.members.values()) m.seen = T + 20_000;
+  resolveCombat(h, T + 20_000);
+  assert.equal(v.hp, 0, 'no respawn inside a round');
+  assert.deepEqual([h.match.score.red, h.match.phase], [1, 'intermission']);
+  resolveCombat(h, h.match.until + 1);
+  assert.deepEqual([h.match.phase, h.match.round, v.hp], ['live', 2, 100]);
+});
+
+test('the host moves a player to the other side and they respawn there', () => {
+  const h = battle(member('a', { team: 'red' }));
+  assert.equal(setTeam(h, 'a', 'blue', T), true);
+  const m = h.members.get('a');
+  assert.ok(getMap('mansion').spawns.blue.some((s) => s.x === m.pose.x && s.z === m.pose.z));
+  assert.deepEqual([m.team, m.life], ['blue', 1]);
+});
+
+test('the hub has no match: free-for-all', () => {
+  const h = hub(member('a'), member('b'));
+  assert.equal(updateMatch(h, T + 600_000), false);
 });
 
 test('walking into or through a wall is refused', () => {

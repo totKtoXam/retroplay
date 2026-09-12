@@ -255,6 +255,41 @@ export function WorldHud(props: WorldHudProps) {
           <strong>{props.shieldSeconds}с</strong>
         </div>
       )}
+      {props.room.match && (props.room.state.map ?? 'hub') !== 'hub' && (
+        <div
+          className="team-score-hud"
+          title="Счёт команд"
+          style={{
+            position: 'absolute',
+            top: 12,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '6px 14px',
+            borderRadius: 10,
+            background: '#182237de',
+            color: '#fff',
+            fontSize: 15,
+          }}
+        >
+          <strong style={{ color: '#ff8f8a' }}>{props.room.match.score.red}</strong>
+          <span style={{ opacity: 0.85, fontSize: 13 }}>
+            {props.room.match.mode === 'rounds'
+              ? `раунд ${props.room.match.round}`
+              : 'бой'}
+            {props.room.match.phase === 'intermission' && ' · перерыв'}
+            {props.room.match.phase === 'ended' &&
+              (props.room.match.winner === 'draw'
+                ? ' · ничья'
+                : props.room.match.winner === 'red'
+                  ? ' · победа красных'
+                  : ' · победа синих')}
+          </span>
+          <strong style={{ color: '#8fbcff' }}>{props.room.match.score.blue}</strong>
+        </div>
+      )}
       <div
         className="combat-stats-hud"
         title="Убийства / Смерти / Помощи (K/D/A)"

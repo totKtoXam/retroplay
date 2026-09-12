@@ -4,8 +4,11 @@ import type { Person, WorldEffect } from '@/lib/model';
 import { getMap } from '@/lib/maps';
 import {
   applyPresence,
+  balanceTeam,
   changeMap,
+  newMatch,
   placeIfInvalid,
+  setTeam,
   effectsSince,
   fireEffect,
   memberFromRow,
@@ -13,6 +16,7 @@ import {
   publicMembers,
   resolveCombat,
   roomFromState,
+  type HubMatch,
   type HubMember,
   type HubState,
 } from '@/lib/room-hub-core';
@@ -23,9 +27,15 @@ const TICK_MS = 100;
 const FLUSH_MS = 2000;
 const MAX_MESSAGE = 16_384;
 const MEMBER_COLUMNS =
-  'session,name,color,seen,pose,ping,mood,hat,cursor,hp,respawn_at,immune_until,life,kills,deaths,assists,recent_damage,last_shot';
+  'session,name,color,seen,pose,ping,mood,hat,cursor,hp,respawn_at,immune_until,life,kills,deaths,assists,recent_damage,last_shot,team';
 
-export type LiveView = { now: number; members: Person[]; effects: WorldEffect[] };
+export type LiveView = {
+  now: number;
+  members: Person[];
+  effects: WorldEffect[];
+  /** Team battle score and clock; free-for-all rooms keep it at zero. */
+  match: HubMatch;
+};
 
 /**
  * One instance per room (`idFromName(roomId)`). Owns the hot state — poses, HP, shots,
@@ -70,6 +80,14 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const now = Date.now();
     if (resolveCombat(hub, now)) this.markDirty();
     return this.view(hub, now, since);
+  }
+
+  /** The host moved a player to a team: they respawn on that side. */
+  async team(room: string, self: string, value: 'red' | 'blue') {
+    const hub = await this.state(room);
+    await this.member(hub, self);
+    if (setTeam(hub, self, value, Date.now())) this.markDirty();
+    return { ok: true };
   }
 
   /** A member joined or edited their profile: reload the cold fields from D1. */
@@ -195,6 +213,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       now,
       members: publicMembers(hub, now),
       effects: publicEffects(effectsSince(hub, now, since), hub.room.anonymous),
+      match: hub.match,
     };
   }
 
@@ -218,11 +237,13 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     ]);
     const row = rooms.results[0] as { host: string; state: string } | undefined;
     if (!row) throw Error('Комната не найдена');
+    const settings = roomFromState(row.host, JSON.parse(row.state));
     const hub: HubState = {
-      room: roomFromState(row.host, JSON.parse(row.state)),
+      room: settings,
       members: new Map(),
       effects: [],
       seq: 0,
+      match: newMatch(settings, Date.now()),
     };
     for (const r of members.results as Record<string, unknown>[]) {
       const m = memberFromRow(r);
@@ -230,7 +251,10 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     }
     this.hub = hub;
     const now = Date.now();
-    for (const m of hub.members.values()) if (placeIfInvalid(hub, m, now)) this.markDirty();
+    for (const m of hub.members.values()) {
+      if (balanceTeam(hub, m)) this.markDirty();
+      if (placeIfInvalid(hub, m, now)) this.markDirty();
+    }
     return hub;
   }
 
@@ -249,6 +273,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const known = hub.members.get(self);
     if (!known) {
       hub.members.set(self, fresh);
+      if (balanceTeam(hub, fresh)) this.markDirty();
       if (placeIfInvalid(hub, fresh, Date.now())) this.markDirty();
       return fresh;
     }
@@ -277,7 +302,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     this.dirty = false;
     const db = this.env.DB;
     const update = db.prepare(
-      'UPDATE members SET seen=?,pose=?,ping=?,cursor=?,hp=?,respawn_at=?,immune_until=?,life=?,kills=?,deaths=?,assists=?,recent_damage=?,last_shot=? WHERE room=? AND session=?',
+      'UPDATE members SET seen=?,pose=?,ping=?,cursor=?,hp=?,respawn_at=?,immune_until=?,life=?,kills=?,deaths=?,assists=?,recent_damage=?,last_shot=?,team=? WHERE room=? AND session=?',
     );
     const statements = [...hub.members.values()].map((m) =>
       update.bind(
@@ -294,6 +319,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
         m.assists,
         JSON.stringify(m.recentDamage),
         m.lastShot,
+        m.team,
         this.roomId,
         m.id,
       ),

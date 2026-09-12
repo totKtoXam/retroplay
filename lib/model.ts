@@ -155,6 +155,8 @@ export type WorldEffect = {
   scoped?: boolean;
   noScope?: boolean;
   pelletsHit?: number;
+  /** The killer and the victim were on the same team. */
+  teamkill?: boolean;
 };
 export type Pose = {
   x: number;
@@ -180,6 +182,8 @@ export type Person = {
   id: string;
   name: string;
   color: string;
+  /** 'red' | 'blue' in team battles, empty in free-for-all. */
+  team?: string;
   lastSeen: number;
   hp?: number;
   respawnAt?: number;
@@ -276,6 +280,17 @@ export type RoomState = {
   template: string;
   /** Game map id (lib/maps); missing means the hub. */
   map?: string;
+  /** Team battle settings; they apply on battle maps, the hub stays free-for-all. */
+  friendlyFire?: boolean;
+  /** Share of the damage a teammate takes when friendly fire is on, percent. */
+  friendlyFirePercent?: number;
+  matchMode?: 'deathmatch' | 'rounds';
+  /** Team kills that win a deathmatch (0: no limit). */
+  killLimit?: number;
+  /** Deathmatch length in minutes (0: no limit). */
+  matchMinutes?: number;
+  /** Rounds won that take the match in rounds mode. */
+  roundWins?: number;
   access?: RoomAccess;
   readyCheck?: {
     active: boolean;
@@ -284,9 +299,20 @@ export type RoomState = {
     readyUsers: string[];
   } | null;
 };
+/** Team battle score and clock, kept by the room's Durable Object. */
+export type Match = {
+  mode: 'deathmatch' | 'rounds';
+  score: { red: number; blue: number };
+  round: number;
+  phase: 'live' | 'intermission' | 'ended';
+  /** When the current phase ends (0: no timer). */
+  until: number;
+  winner?: 'red' | 'blue' | 'draw';
+};
 export type Room = {
   id: string;
   host: string;
+  match?: Match;
   version: number;
   state: RoomState;
   members: Person[];
@@ -583,6 +609,25 @@ export function applyOperation(
     if ('time' in p) s.time = oneOf(p.time, ['dawn', 'day', 'sunset', 'night']);
     // Same ids as MAP_IDS in lib/maps (tests/maps.test.mjs checks every one is accepted).
     if ('map' in p) s.map = oneOf(p.map, ['hub', 'mansion', 'bazaar', 'mountain']);
+    if ('friendlyFire' in p) s.friendlyFire = !!p.friendlyFire;
+    if ('friendlyFirePercent' in p) {
+      s.friendlyFirePercent = finite(p.friendlyFirePercent, 1, 100);
+      if (!Number.isInteger(s.friendlyFirePercent))
+        throw Error('Урон по своим задаётся целым процентом');
+    }
+    if ('matchMode' in p)
+      s.matchMode = oneOf(p.matchMode, ['deathmatch', 'rounds']) as
+        | 'deathmatch'
+        | 'rounds';
+    for (const [key, min, max] of [
+      ['killLimit', 0, 200],
+      ['matchMinutes', 0, 60],
+      ['roundWins', 1, 15],
+    ] as const)
+      if (key in p) {
+        s[key] = finite(p[key], min, max);
+        if (!Number.isInteger(s[key])) throw Error('Значение должно быть целым числом');
+      }
     for (const key of [
       'interior',
       'privateWriting',

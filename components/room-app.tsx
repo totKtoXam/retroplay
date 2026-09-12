@@ -1651,8 +1651,37 @@ export default function RoomApp({ id }: { id: string }) {
                         </strong>
                         <small className="role-text">
                           {m.id === room.host ? 'Ведущий' : 'Участник'}
+                          {(room.state.map ?? 'hub') !== 'hub' &&
+                            ` · ${m.team === 'red' ? 'красные' : m.team === 'blue' ? 'синие' : 'без команды'}`}
                         </small>
                       </span>
+                      {(room.state.map ?? 'hub') !== 'hub' && host && (
+                        <span style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+                          {(['red', 'blue'] as const).map((team) => (
+                            <button
+                              key={team}
+                              type="button"
+                              aria-label={`Перевести в команду ${team === 'red' ? 'красных' : 'синих'}`}
+                              disabled={m.team === team}
+                              onClick={() =>
+                                void act({ type: 'team.set', session: m.id, team })
+                              }
+                              style={{
+                                width: 22,
+                                height: 22,
+                                borderRadius: 6,
+                                border: '1px solid #00000022',
+                                background: team === 'red' ? '#e24b4a' : '#378add',
+                                color: '#fff',
+                                opacity: m.team === team ? 1 : 0.45,
+                                cursor: m.team === team ? 'default' : 'pointer',
+                              }}
+                            >
+                              {team === 'red' ? 'К' : 'С'}
+                            </button>
+                          ))}
+                        </span>
+                      )}
                     </div>
                     <span
                       className={`col-status ${
@@ -2213,6 +2242,7 @@ export default function RoomApp({ id }: { id: string }) {
               onMapChange={(map) =>
                 void act({ type: 'room.settings', patch: { map } })
               }
+              onSettings={(patch) => void act({ type: 'room.settings', patch })}
               onRespawnSecondsChange={(respawnSeconds) =>
                 void act({
                   type: 'room.settings',

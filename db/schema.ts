@@ -36,6 +36,8 @@ export const members = sqliteTable(
     mood: text('mood').notNull().default(''),
     hat: text('hat').notNull().default(''),
     cursor: text('cursor').notNull().default('{}'),
+    /** 'red' | 'blue' in team battles, empty in free-for-all. */
+    team: text('team').notNull().default(''),
   },
   (t) => [
     primaryKey({ columns: [t.room, t.session] }),

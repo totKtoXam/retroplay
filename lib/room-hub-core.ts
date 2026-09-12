@@ -12,7 +12,7 @@ import {
 import { uid, type Person, type Pose, type RoomState, type WorldEffect } from './model.ts';
 import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
 import { getMap } from './maps/index.ts';
-import { stanceHeight, type GameMap, type SpawnPoint } from './maps/types.ts';
+import { stanceHeight, type GameMap, type SpawnPoint, type Team } from './maps/types.ts';
 
 /** Effects older than this are neither resolved nor sent to clients. */
 export const EFFECT_TTL_MS = 15_000;
@@ -29,6 +29,11 @@ const MOVE_SPEED = 4.8 * 1.5;
 const MOVE_BUDGET = 5;
 /** A client whose moves have been refused this long is resynced to where it says it is. */
 const RESYNC_MS = 1500;
+/** Rounds mode: one round lasts this long, then the break before the next one. */
+const ROUND_MS = 120_000;
+const INTERMISSION_MS = 6_000;
+/** How long the result stays on screen before the next match starts. */
+const ENDED_MS = 12_000;
 /** Server-side body radius: below the client's 0.32 so rounded poses near walls still pass. */
 const BODY_RADIUS = 0.25;
 const EFFECT_KINDS = ['paint', 'confetti', 'grenade', 'sniper', 'like'];
@@ -63,6 +68,8 @@ export type HubMember = {
   refusedSince: number;
   /** Where the current life started; the first step away ends spawn protection. */
   spawn: { x: number; z: number };
+  /** Team in a team battle; empty in free-for-all. */
+  team: Team | '';
 };
 export type HubEffect = WorldEffect & {
   resolveAt: number;
@@ -79,12 +86,31 @@ export type HubRoom = {
   archived: boolean;
   /** Map id (lib/maps). */
   map: string;
+  /** Team battle: on for battle maps, off for the hub. */
+  teams: boolean;
+  friendlyFire: boolean;
+  friendlyFirePercent: number;
+  matchMode: 'deathmatch' | 'rounds';
+  killLimit: number;
+  matchMinutes: number;
+  roundWins: number;
+};
+export type MatchPhase = 'live' | 'intermission' | 'ended';
+export type HubMatch = {
+  mode: 'deathmatch' | 'rounds';
+  score: { red: number; blue: number };
+  round: number;
+  phase: MatchPhase;
+  /** When the current phase ends (0: no timer). */
+  until: number;
+  winner?: Team | 'draw';
 };
 export type HubState = {
   room: HubRoom;
   members: Map<string, HubMember>;
   effects: HubEffect[];
   seq: number;
+  match: HubMatch;
 };
 
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
@@ -109,6 +135,14 @@ export function roomFromState(host: string, state: Partial<RoomState>): HubRoom 
     respawnSeconds: state.respawnSeconds ?? 5,
     archived: !!state.archived,
     map: getMap(state.map).id,
+    // Battle maps are played in teams; the hub is a meeting place, so free-for-all.
+    teams: !!getMap(state.map).arena,
+    friendlyFire: !!state.friendlyFire,
+    friendlyFirePercent: clamp(state.friendlyFirePercent ?? 50, 0, 100),
+    matchMode: state.matchMode === 'rounds' ? 'rounds' : 'deathmatch',
+    killLimit: clamp(state.killLimit ?? 30, 0, 200),
+    matchMinutes: clamp(state.matchMinutes ?? 10, 0, 60),
+    roundWins: clamp(state.roundWins ?? 5, 1, 15),
   };
 }
 
@@ -141,6 +175,7 @@ export function memberFromRow(row: Record<string, unknown>): HubMember {
     lastMoveAt: 0,
     refusedSince: 0,
     spawn: { x: SPAWN_POSE.x, z: SPAWN_POSE.z },
+    team: row.team === 'red' || row.team === 'blue' ? row.team : '',
   };
 }
 
@@ -306,11 +341,21 @@ export function fireEffect(
   return { ok: true, effect };
 }
 
-/** The spawn point farthest from the other living players (teams share the list for now). */
-export function chooseSpawn(state: HubState, map: GameMap, self: string, now: number): SpawnPoint {
-  const points = [...map.spawns.red, ...map.spawns.blue];
+/** The team's spawn point farthest from the living rivals (both lists in free-for-all). */
+export function chooseSpawn(
+  state: HubState,
+  map: GameMap,
+  self: string,
+  now: number,
+  team: Team | '' = '',
+): SpawnPoint {
+  const points = state.room.teams && team ? map.spawns[team] : [...map.spawns.red, ...map.spawns.blue];
   const rivals = [...state.members.values()].filter(
-    (o) => o.id !== self && o.hp > 0 && o.seen > now - ONLINE_MS,
+    (o) =>
+      o.id !== self &&
+      o.hp > 0 &&
+      o.seen > now - ONLINE_MS &&
+      !(state.room.teams && team && o.team === team),
   );
   let best = points[0],
     bestScore = -1;
@@ -340,7 +385,119 @@ export function placeIfInvalid(state: HubState, m: HubMember, now: number) {
     b = map.bounds,
     p = m.pose;
   if (p.x > b.minX && p.x < b.maxX && p.z > b.minZ && p.z < b.maxZ && !blockedAt(map, p)) return false;
-  placeAt(m, chooseSpawn(state, map, m.id, now));
+  placeAt(m, chooseSpawn(state, map, m.id, now, m.team));
+  return true;
+}
+
+/** Puts a member without a team into the smaller one; returns whether anything changed. */
+export function balanceTeam(state: HubState, m: HubMember) {
+  if (!state.room.teams || m.team) return false;
+  let red = 0,
+    blue = 0;
+  for (const o of state.members.values()) {
+    if (o.id === m.id) continue;
+    if (o.team === 'red') red++;
+    else if (o.team === 'blue') blue++;
+  }
+  m.team = red <= blue ? 'red' : 'blue';
+  return true;
+}
+
+/** The host moves a player between teams; they respawn on their new side. */
+export function setTeam(state: HubState, self: string, team: Team, now: number) {
+  const m = state.members.get(self);
+  if (!m || m.team === team) return false;
+  m.team = team;
+  m.life += 1;
+  m.hp = 100;
+  m.respawnAt = 0;
+  m.immuneUntil = -1;
+  m.recentDamage = {};
+  placeAt(m, chooseSpawn(state, getMap(state.room.map), m.id, now, team));
+  return true;
+}
+
+export function newMatch(room: HubRoom, now: number): HubMatch {
+  return {
+    mode: room.matchMode,
+    score: { red: 0, blue: 0 },
+    round: 1,
+    phase: 'live',
+    until:
+      room.matchMode === 'rounds'
+        ? now + ROUND_MS
+        : room.matchMinutes > 0
+          ? now + room.matchMinutes * 60_000
+          : 0,
+  };
+}
+
+/** Everyone starts a new life at their team's spawn (new round, new match, new map). */
+export function respawnAll(state: HubState, now: number) {
+  const map = getMap(state.room.map);
+  for (const m of state.members.values()) {
+    m.life += 1;
+    m.hp = 100;
+    m.respawnAt = 0;
+    m.immuneUntil = -1;
+    m.recentDamage = {};
+    placeAt(m, chooseSpawn(state, map, m.id, now, m.team));
+  }
+}
+
+function endMatch(state: HubState, now: number) {
+  const match = state.match;
+  match.phase = 'ended';
+  match.winner =
+    match.score.red === match.score.blue ? 'draw' : match.score.red > match.score.blue ? 'red' : 'blue';
+  match.until = now + ENDED_MS;
+}
+
+/**
+ * Runs the match clock: ends a deathmatch on the kill limit or the time, ends a round when
+ * one side is wiped out or its time runs out, and starts the next round or match after the
+ * break. Free-for-all rooms (the hub) have no match.
+ */
+export function updateMatch(state: HubState, now: number) {
+  const room = state.room,
+    match = state.match;
+  if (!room.teams) return false;
+  if (match.mode !== room.matchMode) {
+    state.match = newMatch(room, now);
+    respawnAll(state, now);
+    return true;
+  }
+  if (match.phase === 'live' && room.matchMode === 'rounds') {
+    const alive = { red: 0, blue: 0 };
+    for (const m of state.members.values())
+      if (m.team && m.hp > 0 && m.seen > now - ONLINE_MS) alive[m.team] += 1;
+    const wiped = (alive.red === 0) !== (alive.blue === 0);
+    if (!wiped && !(match.until > 0 && now >= match.until)) return false;
+    const winner: Team | 'draw' =
+      alive.red === alive.blue ? 'draw' : alive.red > alive.blue ? 'red' : 'blue';
+    if (winner !== 'draw') match.score[winner] += 1;
+    if (match.score.red >= room.roundWins || match.score.blue >= room.roundWins) endMatch(state, now);
+    else {
+      match.phase = 'intermission';
+      match.until = now + INTERMISSION_MS;
+    }
+    return true;
+  }
+  if (match.phase === 'live') {
+    const limit = room.killLimit > 0 && (match.score.red >= room.killLimit || match.score.blue >= room.killLimit);
+    if (!limit && !(match.until > 0 && now >= match.until)) return false;
+    endMatch(state, now);
+    return true;
+  }
+  if (match.until === 0 || now < match.until) return false;
+  if (match.phase === 'intermission') {
+    match.round += 1;
+    match.phase = 'live';
+    match.until = now + ROUND_MS;
+  } else {
+    state.match = newMatch(room, now);
+  }
+  respawnAll(state, now);
   return true;
 }
 
@@ -349,20 +506,22 @@ export function placeIfInvalid(state: HubState, m: HubMember, now: number) {
  * life on a spawn point of it. Clients teleport when they see their life change.
  */
 export function changeMap(state: HubState, now: number) {
-  const map = getMap(state.room.map);
   state.effects = [];
+  state.match = newMatch(state.room, now);
   for (const m of state.members.values()) {
-    m.life += 1;
-    m.hp = 100;
-    m.respawnAt = 0;
-    m.immuneUntil = -1;
-    m.recentDamage = {};
-    placeAt(m, chooseSpawn(state, map, m.id, now));
+    m.kills = 0;
+    m.deaths = 0;
+    m.assists = 0;
+    if (state.room.teams) balanceTeam(state, m);
+    else m.team = '';
   }
+  respawnAll(state, now);
 }
 
 function revive(state: HubState, now: number) {
   let changed = false;
+  // In rounds mode the dead wait for the next round.
+  if (state.room.teams && state.room.matchMode === 'rounds') return changed;
   for (const m of state.members.values()) {
     if (m.hp !== 0 || m.respawnAt <= 0 || m.respawnAt > now) continue;
     m.hp = 100;
@@ -370,7 +529,7 @@ function revive(state: HubState, now: number) {
     m.life += 1;
     m.immuneUntil = -1;
     m.recentDamage = {};
-    placeAt(m, chooseSpawn(state, getMap(state.room.map), m.id, now));
+    placeAt(m, chooseSpawn(state, getMap(state.room.map), m.id, now, m.team));
     changed = true;
   }
   return changed;
@@ -402,6 +561,10 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
       const distance = Math.hypot(target[0] - origin[0], target[1] - origin[1], target[2] - origin[2]);
       damage = head ? 100 : effectDamage(e.kind, distance);
     }
+    // Teammates take no damage, or the share the host allows.
+    const friendly = !!(state.room.teams && author && p.team && author.team === p.team);
+    if (friendly) damage = Math.round(damage * (state.room.friendlyFire ? state.room.friendlyFirePercent / 100 : 0));
+    if (damage <= 0) continue;
     if (p.hp > damage) {
       p.hp = Math.max(0, p.hp - damage);
       p.recentDamage[e.author] = now;
@@ -420,8 +583,14 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
     p.respawnAt = now + state.room.respawnSeconds * 1000;
     p.deaths += 1;
     p.recentDamage = {};
-    if (author) author.kills += 1;
-    if (assisterMember) assisterMember.assists += 1;
+    // A team kill earns nothing; a proper kill scores for the shooter's team.
+    if (author && !friendly) {
+      author.kills += 1;
+      // In rounds mode the score counts rounds won, not kills.
+      if (state.room.teams && author.team && state.room.matchMode === 'deathmatch')
+        state.match.score[author.team] += 1;
+    }
+    if (assisterMember && !friendly) assisterMember.assists += 1;
     state.effects.push({
       id: uid(),
       kind: 'kill',
@@ -434,6 +603,7 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
       color: author?.color || '#ff647c',
       tool: e.kind,
       headshot: head,
+      teamkill: friendly || undefined,
       scoped: e.scoped,
       noScope: e.kind === 'sniper' && (e.noScope ?? !e.scoped),
       pelletsHit,
@@ -452,7 +622,8 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
  * effect whose fuse ran out. Each effect is resolved exactly once. Returns whether anything changed.
  */
 export function resolveCombat(state: HubState, now: number) {
-  let changed = revive(state, now);
+  let changed = updateMatch(state, now);
+  changed = revive(state, now) || changed;
   const before = state.effects.length;
   state.effects = state.effects.filter((e) => e.at > now - EFFECT_TTL_MS);
   if (state.effects.length !== before) changed = true;
@@ -502,6 +673,7 @@ export function publicMembers(state: HubState, now: number): Person[] {
       id: m.id,
       name: anonymous ? 'Участник' : m.name,
       color: m.color,
+      team: m.team,
       lastSeen: m.seen,
       pose: m.pose,
       ping: m.ping,

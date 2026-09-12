@@ -660,11 +660,14 @@ export function WorldPanel({
   onRespawnSecondsChange,
   maps,
   onMapChange,
+  onSettings,
 }: {
   s: RoomState;
   host: boolean;
   maps: { id: string; title: string }[];
   onMapChange: (map: string) => void;
+  /** Any other room.settings patch (team battle settings). */
+  onSettings: (patch: Record<string, unknown>) => void;
   onStyleChange: (visualStyle: string) => void;
   onThemeChange: (theme: string, season: string) => void;
   onTimeChange: (time: string) => void;
@@ -733,6 +736,77 @@ export function WorldPanel({
         disabled={!host}
         onChange={onInteriorChange}
       />
+      {(s.map ?? 'hub') !== 'hub' && (
+        <>
+          <Choice
+            label="Формат матча"
+            value={s.matchMode ?? 'deathmatch'}
+            disabled={!host}
+            onChange={(matchMode) => onSettings({ matchMode })}
+            options={[
+              { value: 'deathmatch', label: 'Бой с возрождением' },
+              { value: 'rounds', label: 'Раунды без возрождения' },
+            ]}
+          />
+          <div className="two-fields">
+            {((s.matchMode ?? 'deathmatch') === 'rounds'
+              ? ([['roundWins', 'Побед в матче', 1, 15, 5]] as const)
+              : ([
+                  ['killLimit', 'Убийств до победы (0 — без лимита)', 0, 200, 30],
+                  ['matchMinutes', 'Минут на матч (0 — без лимита)', 0, 60, 10],
+                ] as const)
+            ).map(([key, label, min, max, fallback]) => (
+              <label className="field" key={key}>
+                {label}
+                <input
+                  type="number"
+                  aria-label={label}
+                  key={s[key] ?? fallback}
+                  defaultValue={s[key] ?? fallback}
+                  min={min}
+                  max={max}
+                  step="1"
+                  disabled={!host}
+                  onBlur={(e) => {
+                    const value = Number(e.target.value);
+                    if (Number.isInteger(value) && value >= min && value <= max)
+                      onSettings({ [key]: value });
+                    else e.target.value = String(s[key] ?? fallback);
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+          <Toggle
+            label="Огонь по своим"
+            description="Выстрелы по своей команде наносят урон"
+            value={!!s.friendlyFire}
+            disabled={!host}
+            onChange={(friendlyFire) => onSettings({ friendlyFire })}
+          />
+          {s.friendlyFire && (
+            <label className="field">
+              Урон по своим, % от обычного
+              <input
+                type="number"
+                aria-label="Урон по своим в процентах"
+                key={s.friendlyFirePercent ?? 50}
+                defaultValue={s.friendlyFirePercent ?? 50}
+                min="1"
+                max="100"
+                step="1"
+                disabled={!host}
+                onBlur={(e) => {
+                  const value = Number(e.target.value);
+                  if (Number.isInteger(value) && value >= 1 && value <= 100)
+                    onSettings({ friendlyFirePercent: value });
+                  else e.target.value = String(s.friendlyFirePercent ?? 50);
+                }}
+              />
+            </label>
+          )}
+        </>
+      )}
       <label className="field">
         Возрождение, секунд
         <input

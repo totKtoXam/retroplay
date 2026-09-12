@@ -42,7 +42,13 @@ type RoomPayload = Room & {
 };
 /** Pushed by the room's Durable Object (worker/room-hub.ts). */
 type SocketMessage =
-  | { t: 'tick'; now: number; members: Room['members']; effects: WorldEffect[] }
+  | {
+      t: 'tick';
+      now: number;
+      members: Room['members'];
+      effects: WorldEffect[];
+      match?: Room['match'];
+    }
   | { t: 'refresh' }
   | { t: 'pong'; at: number }
   | { t: 'error'; message: string };
@@ -187,6 +193,7 @@ export function useRoomSync({
           return {
             ...old,
             members: data.members,
+            match: data.match ?? old.match,
             effects,
           };
         }
@@ -309,6 +316,7 @@ export function useRoomSync({
                   ...old,
                   members: msg.members,
                   serverNow: msg.now,
+                  match: msg.match ?? old.match,
                   effects: mergeEffects(old.effects, msg.effects),
                 } as Room)
               : old,

@@ -82,6 +82,7 @@ async function buildRoomSnapshot(
     ...r,
     self,
     serverNow: live.now,
+    match: live.match,
     joinRequests: pendingJoinRequests,
     effects: live.effects,
     state:
@@ -380,6 +381,12 @@ export async function POST(request: Request, context: Context) {
       .bind(id, self)
       .first();
     if (!member) return json({ error: 'Сначала войдите в комнату' }, 403);
+    if (op.type === 'team.set') {
+      if (self !== r.host) throw Error('Команды меняет ведущий');
+      if (op.team !== 'red' && op.team !== 'blue') throw Error('Неизвестная команда');
+      if (typeof op.session !== 'string') throw Error('Не указан участник');
+      return json(await roomHub(id).team(id, op.session, op.team));
+    }
     if (op.type === 'effect') {
       if (JSON.parse(r.state).archived) return json({ ok: false });
       return json(await roomHub(id).effect(id, self, op));
