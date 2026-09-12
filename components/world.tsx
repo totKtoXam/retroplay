@@ -1978,6 +1978,7 @@ export default function World(props: Props) {
       />
       {tabletInWorld && (
         <WorldTablet
+          now={props.now}
           room={props.room}
           host={props.host}
           onRoomSettings={props.onRoomSettings}

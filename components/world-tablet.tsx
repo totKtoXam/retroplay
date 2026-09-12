@@ -3,12 +3,15 @@ import { useState, useSyncExternalStore } from 'react';
 import Board from './board';
 import { ZONES, type Room, type RoomState, type Note } from '@/lib/model';
 import {
+  Bell,
+  Dices,
+  Hash,
   MousePointer,
   StickyNote,
+  Timer,
   Pencil,
   Link2,
   ThumbsUp,
-  PartyPopper,
   CheckSquare,
   Check,
   Clock,
@@ -38,6 +41,8 @@ type WorldTabletProps = {
   onOp?: (op: Record<string, unknown>) => Promise<unknown>;
   onEditNote?: (n: Note) => void;
   onAddNote?: (zone: string, x?: number, y?: number) => void;
+  /** Общее «сейчас» комнаты: в планшете нельзя звать Date.now() при отрисовке. */
+  now: number;
   onCursor?: (x: number, y: number) => void;
   closeTabletInWorld: () => void;
 };
@@ -47,6 +52,19 @@ export function WorldTablet(props: WorldTabletProps) {
   const [tabletTool, setTabletTool] = useState('pointer');
   const [actionItemsOpen, setActionItemsOpen] = useState(false);
   const [tabletSearch, setTabletSearch] = useState('');
+  const [timerOpen, setTimerOpen] = useState(false);
+  const round = props.room.state.rounds.at(-1)?.active
+    ? props.room.state.rounds.at(-1)
+    : null;
+  const myVotes = round
+    ? Object.values(round.votes[props.room.self] || {}).reduce((a, b) => a + b, 0)
+    : 0;
+  const left = props.room.state.timer.running
+    ? Math.max(0, Math.ceil((props.room.state.timer.end - props.now) / 1000))
+    : props.room.state.timer.remaining;
+  const timerText = `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(
+    left % 60,
+  ).padStart(2, '0')}`;
   const music = useSyncExternalStore(
     subscribeMusic,
     getMusicState,
@@ -114,135 +132,75 @@ export function WorldTablet(props: WorldTabletProps) {
 
         {tabletTab === 'board' && (
           <div className="tablet-board-layout">
-            <div className="tablet-retro-toolbar">
-              <div className="tablet-retro-tools-group">
+            <aside className="spreo-tools" aria-label="Инструменты доски">
+              {(
+                [
+                  ['pointer', MousePointer, 'Выбор и перемещение'],
+                  ['sticky', StickyNote, 'Стикер'],
+                  ['draw', Pencil, 'Маркер: зажмите мышь на холсте'],
+                  ['connector', Link2, 'Связать две карточки'],
+                  ['reaction', ThumbsUp, 'Быстрая реакция'],
+                ] as const
+              ).map(([id, Icon, title]) => (
                 <button
-                  className={`tablet-tool-btn ${tabletTool === 'pointer' ? 'active' : ''}`}
-                  onClick={() => setTabletTool('pointer')}
-                  title="Выбор и перемещение"
+                  key={id}
+                  className={tabletTool === id ? 'active' : ''}
+                  onClick={() => setTabletTool(id)}
+                  title={title}
+                  aria-label={title}
+                  aria-pressed={tabletTool === id}
                 >
-                  <MousePointer size={14} />
-                  <span>Выбор</span>
+                  <Icon size={16} />
                 </button>
-                <button
-                  className={`tablet-tool-btn ${tabletTool === 'sticky' ? 'active' : ''}`}
-                  onClick={() => setTabletTool('sticky')}
-                  title="Добавить стикер"
-                >
-                  <StickyNote size={14} />
-                  <span>Стикер</span>
-                </button>
-                <button
-                  className={`tablet-tool-btn ${tabletTool === 'draw' ? 'active' : ''}`}
-                  onClick={() => setTabletTool('draw')}
-                  title="Маркер (зажмите мышь на холсте)"
-                >
-                  <Pencil size={14} />
-                  <span>Маркер</span>
-                </button>
-                <button
-                  className={`tablet-tool-btn ${tabletTool === 'connector' ? 'active' : ''}`}
-                  onClick={() => setTabletTool('connector')}
-                  title="Соединить карточки стрелкой"
-                >
-                  <Link2 size={14} />
-                  <span>Связь</span>
-                </button>
-                <button
-                  className={`tablet-tool-btn ${tabletTool === 'reaction' ? 'active' : ''}`}
-                  onClick={() => setTabletTool('reaction')}
-                  title="Быстрая реакция"
-                >
-                  <ThumbsUp size={14} />
-                  <span>Реакция</span>
-                </button>
-              </div>
-
-              <div className="tablet-retro-actions-group">
-                <button
-                  className="tablet-confetti-btn"
-                  onClick={() => {
-                    void props.onOp?.({
-                      type: 'event',
-                      kind: 'confetti',
-                      value: 'classic',
-                    });
-                  }}
-                  title="Запустить праздничное конфетти"
-                >
-                  <PartyPopper size={14} />
-                  <span>Салют</span>
-                </button>
-
-                {(() => {
-                  const activeRound = props.room.state.rounds.at(-1)?.active
-                    ? props.room.state.rounds.at(-1)
-                    : null;
-                  const myVotes = activeRound
-                    ? Object.values(
-                        activeRound.votes[props.room.self] || {},
-                      ).reduce((a, b) => a + b, 0)
-                    : 0;
-                  return (
-                    <div className="tablet-vote-status">
-                      <span className="vote-badge">
-                        🗳️{' '}
-                        {activeRound
-                          ? `${myVotes}/${activeRound.limit}`
-                          : 'Голоса'}
-                      </span>
-                      {props.host && (
-                        <button
-                          className="tablet-vote-toggle"
-                          onClick={() => {
-                            if (activeRound?.active) {
-                              void props.onOp?.({ type: 'vote.end' });
-                            } else {
-                              void props.onOp?.({
-                                type: 'vote.start',
-                                limit: 5,
-                              });
-                            }
-                          }}
-                        >
-                          {activeRound?.active ? 'Стоп' : 'Старт'}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {(() => {
-                  const actionNotes = props.room.state.notes.filter(
-                    (n) => n.kind === 'action' || n.kind === 'task',
-                  );
-                  const doneCount = actionNotes.filter(
-                    (n) => n.done,
-                  ).length;
-                  return (
-                    <button
-                      className={`tablet-action-items-toggle ${actionItemsOpen ? 'active' : ''}`}
-                      onClick={() => setActionItemsOpen(!actionItemsOpen)}
-                      title="Список задач (Action Items)"
-                    >
-                      <CheckSquare size={14} />
-                      <span>
-                        Задачи ({doneCount}/{actionNotes.length})
-                      </span>
-                    </button>
-                  );
-                })()}
-              </div>
-
-              <div className="tablet-search-box">
-                <input
-                  placeholder="Поиск карточек…"
-                  value={tabletSearch}
-                  onChange={(e) => setTabletSearch(e.target.value)}
-                  aria-label="Поиск по доске"
-                />
-              </div>
-            </div>
+              ))}
+              <span className="spreo-tools-label">гаджеты</span>
+              <button
+                className={timerOpen ? 'active' : ''}
+                onClick={() => setTimerOpen(!timerOpen)}
+                title="Таймер встречи"
+                aria-label="Таймер встречи"
+              >
+                <Timer size={16} />
+              </button>
+              <button
+                onClick={() =>
+                  void props.onOp?.({
+                    type: 'event',
+                    kind: 'spin',
+                    value:
+                      props.room.members[
+                        Math.floor(Math.random() * props.room.members.length)
+                      ]?.name || '',
+                  })
+                }
+                title="Спиннер: кто говорит"
+                aria-label="Спиннер: кто говорит"
+              >
+                <Dices size={16} />
+              </button>
+              <button
+                onClick={() => void props.onOp?.({ type: 'counter' })}
+                title="Счётчик: +1"
+                aria-label="Счётчик"
+              >
+                <Hash size={16} />
+              </button>
+              <button
+                onClick={() => void props.onOp?.({ type: 'event', kind: 'buzzer' })}
+                title="Звонок: собрать внимание"
+                aria-label="Звонок"
+              >
+                <Bell size={16} />
+              </button>
+              <button
+                className={`spreo-tools-bottom ${actionItemsOpen ? 'active' : ''}`}
+                onClick={() => setActionItemsOpen(!actionItemsOpen)}
+                title="Задачи встречи"
+                aria-label="Задачи встречи"
+              >
+                <CheckSquare size={16} />
+              </button>
+            </aside>
 
             <div className="tablet-board-viewport-container">
               <Board
@@ -383,7 +341,91 @@ export function WorldTablet(props: WorldTabletProps) {
                   </footer>
                 </aside>
               )}
+              {timerOpen && (
+                <div className="spreo-timer-gadget">
+                  <strong>{timerText}</strong>
+                  {props.host && (
+                    <div>
+                      <button
+                        onClick={() =>
+                          void props.onOp?.({
+                            type: 'timer',
+                            action: props.room.state.timer.running
+                              ? 'pause'
+                              : 'start',
+                          })
+                        }
+                      >
+                        {props.room.state.timer.running ? 'Пауза' : 'Старт'}
+                      </button>
+                      <button
+                        onClick={() =>
+                          void props.onOp?.({ type: 'timer', action: 'reset' })
+                        }
+                      >
+                        Сброс
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+
+            <aside className="spreo-side" aria-label="Панель встречи">
+              <input
+                className="spreo-search"
+                placeholder="Найти карточку…"
+                value={tabletSearch}
+                onChange={(e) => setTabletSearch(e.target.value)}
+                aria-label="Поиск по доске"
+              />
+              <b>Голосование</b>
+              {round?.active ? (
+                <p>
+                  Раунд {props.room.state.rounds.length} · осталось{' '}
+                  {round.limit - myVotes} из {round.limit}
+                  <br />
+                  Чужие голоса скрыты до конца
+                </p>
+              ) : (
+                <p>Раунд не идёт</p>
+              )}
+              {props.host && (
+                <button
+                  className="spreo-side-action"
+                  onClick={() =>
+                    void props.onOp?.(
+                      round?.active
+                        ? { type: 'vote.end' }
+                        : { type: 'vote.start', limit: 5 },
+                    )
+                  }
+                >
+                  {round?.active ? 'Завершить раунд' : 'Начать раунд'}
+                </button>
+              )}
+              <b>Участники</b>
+              <p>
+                {props.room.members
+                  .filter((m) => props.now - m.lastSeen < 15000)
+                  .map((m) =>
+                    props.room.state.anonymousPlayers || props.room.state.anonymous
+                      ? 'Аноним'
+                      : m.name,
+                  )
+                  .join(' · ') || 'Пока никого'}
+                <br />
+                курсоры видны на холсте
+              </p>
+              <b>Счётчик</b>
+              <p>{props.room.state.counter}</p>
+              <button
+                className="spreo-side-action"
+                onClick={() => void props.onOp?.({ type: 'counter', down: true })}
+              >
+                Убавить
+              </button>
+            </aside>
           </div>
         )}
 

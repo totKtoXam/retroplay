@@ -7274,3 +7274,140 @@ h1 > span {
   transform: translateX(-50%);
   z-index: 6;
 }
+
+/* ==========================================================================
+   Доска в планшете по образцу Spreo: палитра слева, холст с сеткой,
+   панель встречи справа, гаджеты поверх холста.
+   ========================================================================== */
+.tablet-board-layout {
+  display: flex;
+  /* Три колонки Spreo: палитра, холст, панель встречи. */
+  flex-direction: row;
+  min-height: 0;
+  flex: 1;
+}
+.spreo-tools {
+  width: 46px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 0;
+  border-right: 1px solid #2a3550;
+  background: #121a2b;
+}
+.spreo-tools button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 28px;
+  border: 1px solid #2f3b57;
+  border-radius: 8px;
+  background: #182236;
+  color: #9fb1d0;
+}
+.spreo-tools button:hover {
+  color: #dbe7ff;
+}
+.spreo-tools button.active {
+  border-color: #7ee0ff;
+  color: #fff;
+}
+.spreo-tools-label {
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  color: #64748b;
+  margin-top: 8px;
+}
+.spreo-tools .spreo-tools-bottom {
+  margin-top: auto;
+}
+.tablet-board-viewport-container {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+/* Сетка холста — как в Spreo. */
+.tablet-board-viewport-container .board-viewport {
+  background:
+    radial-gradient(#dcd9d0 1px, transparent 1px) 0 0 / 18px 18px,
+    #fbfaf7;
+  cursor: grab;
+}
+.tablet-board-viewport-container .board-viewport[data-panning] {
+  cursor: grabbing;
+}
+.spreo-side {
+  width: 176px;
+  flex-shrink: 0;
+  border-left: 1px solid #2a3550;
+  background: #121a2b;
+  padding: 9px;
+  font-size: 11px;
+  color: #93a4c2;
+  overflow: auto;
+}
+.spreo-side b {
+  display: block;
+  color: #dbe7ff;
+  font-weight: 600;
+  margin: 12px 0 3px;
+  font-size: 11px;
+}
+.spreo-side p {
+  margin: 0;
+  line-height: 1.5;
+}
+.spreo-search {
+  width: 100%;
+  border: 1px solid #2f3b57;
+  border-radius: 7px;
+  background: #182236;
+  color: #dbe7ff;
+  padding: 5px 7px;
+  font-size: 11px;
+}
+.spreo-side-action {
+  margin-top: 5px;
+  width: 100%;
+  border: 1px solid #2f3b57;
+  border-radius: 7px;
+  background: #182236;
+  color: #b9c9e6;
+  padding: 4px 7px;
+  font-size: 11px;
+}
+.spreo-side-action:hover {
+  border-color: #7ee0ff;
+  color: #fff;
+}
+.spreo-timer-gadget {
+  position: absolute;
+  right: 12px;
+  bottom: 52px;
+  background: #101826e6;
+  border: 1px solid #ffffff1f;
+  border-radius: 9px;
+  padding: 7px 10px;
+  color: #e7eeff;
+  display: grid;
+  gap: 5px;
+  justify-items: center;
+  z-index: 6;
+}
+.spreo-timer-gadget strong {
+  font: 600 18px/1 ui-monospace, monospace;
+}
+.spreo-timer-gadget div {
+  display: flex;
+  gap: 5px;
+}
+.spreo-timer-gadget button {
+  border: 1px solid #ffffff33;
+  border-radius: 6px;
+  background: none;
+  color: #cfe0ff;
+  font-size: 10px;
+  padding: 2px 7px;
+}

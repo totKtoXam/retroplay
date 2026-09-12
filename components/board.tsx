@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Plus,
   Minus,
@@ -195,6 +195,7 @@ export default function Board({
     const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(clock);
   }, []);
+  // Холст шире планшета: при открытии показываем доску целиком по ширине.
   const [zoom, setZoom] = useState(0.65),
     [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(
       null,
@@ -202,10 +203,21 @@ export default function Board({
     [stroke, setStroke] = useState<number[][]>([]),
     [from, setFrom] = useState('');
   const viewport = useRef<HTMLDivElement>(null),
+    fitted = useRef(false),
     origin = useRef<{ x: number; y: number; nx: number; ny: number } | null>(
       null,
     ),
-    strokeRef = useRef<number[][]>([]);
+    strokeRef = useRef<number[][]>([]),
+    pan = useRef<{ x: number; y: number; left: number; top: number } | null>(
+      null,
+    );
+  const [panning, setPanning] = useState(false);
+  const fit = useCallback((node: HTMLDivElement | null) => {
+    viewport.current = node;
+    if (!node || fitted.current) return;
+    fitted.current = true;
+    setZoom(Math.max(0.3, Math.min(1, (node.clientWidth - 60) / 1540)));
+  }, []);
   const notes = room.state.notes.filter(
     (n) =>
       (!filter || n.zone === filter) &&
@@ -252,7 +264,39 @@ export default function Board({
             ? ' · Выберите вторую карточку'
             : ' · Выберите первую карточку')}
       </div>
-      <div className="board-viewport" ref={viewport}>
+      <div
+        className="board-viewport"
+        ref={fit}
+        onPointerDown={(e) => {
+          const onEmpty = !(e.target as HTMLElement).closest(
+            'button,article,input,textarea',
+          );
+          if (e.button !== 1 && !(e.button === 0 && tool === 'pointer' && onEmpty))
+            return;
+          pan.current = {
+            x: e.clientX,
+            y: e.clientY,
+            left: e.currentTarget.scrollLeft,
+            top: e.currentTarget.scrollTop,
+          };
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setPanning(true);
+        }}
+        onPointerMove={(e) => {
+          if (!pan.current) return;
+          e.currentTarget.scrollLeft = pan.current.left - (e.clientX - pan.current.x);
+          e.currentTarget.scrollTop = pan.current.top - (e.clientY - pan.current.y);
+        }}
+        onPointerUp={() => {
+          pan.current = null;
+          setPanning(false);
+        }}
+        onPointerCancel={() => {
+          pan.current = null;
+          setPanning(false);
+        }}
+        data-panning={panning || undefined}
+      >
         <div style={{ width: 1540 * zoom, height: 1630 * zoom }}>
           <div
             className={`board-plane tool-${tool}`}
