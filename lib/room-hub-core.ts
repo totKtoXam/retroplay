@@ -391,8 +391,11 @@ export function placeIfInvalid(state: HubState, m: HubMember, now: number) {
   return true;
 }
 
-/** Puts a member without a team into the smaller one; returns whether anything changed. */
-export function balanceTeam(state: HubState, m: HubMember) {
+/**
+ * Puts a member without a team into the smaller one and onto that team's spawn (they may
+ * be standing wherever the previous map or the hub left them). Returns whether it did.
+ */
+export function balanceTeam(state: HubState, m: HubMember, now: number) {
   if (!state.room.teams || m.team) return false;
   let red = 0,
     blue = 0;
@@ -402,6 +405,7 @@ export function balanceTeam(state: HubState, m: HubMember) {
     else if (o.team === 'blue') blue++;
   }
   m.team = red <= blue ? 'red' : 'blue';
+  placeAt(m, chooseSpawn(state, getMap(state.room.map), m.id, now, m.team));
   return true;
 }
 
@@ -514,7 +518,7 @@ export function changeMap(state: HubState, now: number) {
     m.kills = 0;
     m.deaths = 0;
     m.assists = 0;
-    if (state.room.teams) balanceTeam(state, m);
+    if (state.room.teams) balanceTeam(state, m, now);
     else m.team = '';
   }
   respawnAll(state, now);

@@ -304,11 +304,16 @@ test('teams: a kill scores for the team, a team kill scores nothing', () => {
   );
 });
 
-test('teams: a new player joins the smaller side', () => {
+test('teams: a new player joins the smaller side and lands on its spawn', () => {
   const h = battle(member('a', { team: 'red' }), member('b', { team: 'red' }), member('c'));
-  assert.equal(balanceTeam(h, h.members.get('c')), true);
-  assert.equal(h.members.get('c').team, 'blue');
-  assert.equal(balanceTeam(h, h.members.get('a')), false, 'a team is never reassigned');
+  assert.equal(balanceTeam(h, h.members.get('c'), T), true);
+  const c = h.members.get('c');
+  assert.equal(c.team, 'blue');
+  assert.ok(
+    getMap('mansion').spawns.blue.some((s) => s.x === c.pose.x && s.z === c.pose.z),
+    'moved off the hub spawn onto a blue point',
+  );
+  assert.equal(balanceTeam(h, h.members.get('a'), T), false, 'a team is never reassigned');
 });
 
 test('deathmatch ends on the kill limit and a new one starts after the result', () => {

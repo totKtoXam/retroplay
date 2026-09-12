@@ -8,6 +8,7 @@ import {
   changeMap,
   newMatch,
   placeIfInvalid,
+  respawnAll,
   setTeam,
   effectsSince,
   fireEffect,
@@ -252,8 +253,14 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     this.hub = hub;
     const now = Date.now();
     for (const m of hub.members.values()) {
-      if (balanceTeam(hub, m)) this.markDirty();
+      if (balanceTeam(hub, m, now)) this.markDirty();
       if (placeIfInvalid(hub, m, now)) this.markDirty();
+    }
+    // A cold start on a battle map is a fresh match: line everyone up on their team's side,
+    // wherever the previous map (or the hub) left them standing.
+    if (hub.room.teams) {
+      respawnAll(hub, now);
+      this.markDirty();
     }
     return hub;
   }
@@ -273,7 +280,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const known = hub.members.get(self);
     if (!known) {
       hub.members.set(self, fresh);
-      if (balanceTeam(hub, fresh)) this.markDirty();
+      if (balanceTeam(hub, fresh, Date.now())) this.markDirty();
       if (placeIfInvalid(hub, fresh, Date.now())) this.markDirty();
       return fresh;
     }
