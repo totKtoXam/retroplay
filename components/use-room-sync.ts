@@ -104,7 +104,6 @@ export function useRoomSync({
   id,
   pose,
   cursor,
-  modeRef,
   lastActivityRef,
   nameRef,
   busyRef,
@@ -115,7 +114,6 @@ export function useRoomSync({
   id: string;
   pose: RefObject<Pose>;
   cursor: RefObject<{ x: number; y: number; mode: string }>;
-  modeRef: RefObject<string>;
   lastActivityRef: RefObject<number>;
   nameRef: RefObject<string>;
   busyRef: RefObject<boolean>;
@@ -424,21 +422,13 @@ export function useRoomSync({
         : 0;
       // A socket packet costs no request, so presence goes out more often over it.
       const interval =
-        modeRef.current === '3d'
-          ? idleTime > 2000
-            ? viaSocket
-              ? 250
-              : 300
-            : viaSocket
-              ? 50
-              : 120
-          : idleTime > 3000
-            ? viaSocket
-              ? 1000
-              : 1400
-            : viaSocket
-              ? 150
-              : 800;
+        idleTime > 2000
+          ? viaSocket
+            ? 250
+            : 300
+          : viaSocket
+            ? 50
+            : 120;
       if (!stop) handle = setTimeout(tick, interval);
     };
     void ready()
@@ -460,8 +450,7 @@ export function useRoomSync({
     pose,
     cursor,
     lastActivityRef,
-    modeRef,
-    setError,
+      setError,
   ]);
 
   return {

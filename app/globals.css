@@ -7018,3 +7018,259 @@ h1 > span {
   border-radius: 50%;
   border: none;
 }
+
+/* ==========================================================================
+   Единая игровая шапка. Одна полоса поверх мира вместо прежних двух
+   (шапка комнаты + полоса встречи) и боковой панели: тёмное стекло, срезанный
+   угол у панелей, цвета команд. Спокойный вариант — в режиме ретроспективы.
+   ========================================================================== */
+.room-app {
+  --hud-glass: #0f1420d9;
+  --hud-line: #ffffff1f;
+  --hud-text: #e7eeff;
+  --hud-dim: #cfe0ff;
+  --team-red: #ff5d52;
+  --team-blue: #5aa9ff;
+  --hud-accent: #7ee0ff;
+}
+.room-app.mode-retro {
+  --hud-glass: #101826bf;
+  --hud-accent: #b9a6ff;
+}
+.game-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--hud-glass);
+  border-bottom: 1px solid var(--hud-line);
+  color: var(--hud-text);
+  backdrop-filter: blur(10px);
+}
+.game-bar h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.game-bar .editable-room-title,
+.game-bar-back {
+  color: var(--hud-text);
+  background: none;
+  border: 0;
+  display: flex;
+  align-items: center;
+}
+.game-bar .inline-room-title {
+  background: #ffffff14;
+  border: 1px solid var(--hud-line);
+  border-radius: 6px;
+  color: var(--hud-text);
+  font-size: 14px;
+  padding: 3px 7px;
+}
+.game-bar-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+.game-tag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #ffffff33;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--hud-dim);
+  background: none;
+  white-space: nowrap;
+}
+.game-tag:hover:not(:disabled) {
+  border-color: var(--hud-accent);
+  color: #fff;
+}
+.game-tag.on,
+.game-tag.running {
+  border-color: var(--hud-accent);
+  color: #fff;
+}
+.game-tag.alert {
+  border-color: #ffc86188;
+  color: #ffc861;
+}
+.game-tag.people {
+  gap: 0;
+  padding-right: 8px;
+}
+.game-tag.people .avatar {
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  margin-left: -5px;
+  border: 1px solid #0f1420;
+}
+.game-tag.people b {
+  margin-left: 6px;
+  font-size: 12px;
+}
+.game-tag.map-tag {
+  color: var(--hud-accent);
+  border-color: #ffffff26;
+}
+/* Этапы встречи — шаги задания в спокойной шапке ретро. */
+.phase-steps {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  overflow: hidden;
+}
+.phase-step {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #ffffff2e;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  color: var(--hud-dim);
+  background: none;
+  white-space: nowrap;
+}
+.phase-step > span {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #ffffff1f;
+  font-size: 10px;
+}
+.phase-step.current {
+  background: #ffffff1a;
+  border-color: var(--hud-accent);
+  color: #fff;
+}
+.phase-step.complete > span {
+  background: #4fbf9a;
+  color: #0f1420;
+}
+/* Счёт матча. */
+.match-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.match-bar .score {
+  font: 600 20px/1 ui-monospace, monospace;
+  letter-spacing: 1px;
+}
+.match-bar .score.red {
+  color: var(--team-red);
+}
+.match-bar .score.blue {
+  color: var(--team-blue);
+}
+.match-bar .clock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font: 600 15px/1.2 ui-monospace, monospace;
+  color: #dbe7ff;
+}
+.match-bar .clock small {
+  font: 400 10px/1.4 system-ui, sans-serif;
+  color: var(--hud-dim);
+  letter-spacing: 0.4px;
+}
+.pips {
+  display: flex;
+  gap: 3px;
+}
+.pip {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: #ffffff33;
+}
+.pip.win.red {
+  background: var(--team-red);
+}
+.pip.win.blue {
+  background: var(--team-blue);
+}
+/* Мир занимает всё окно: шапка лежит поверх него. */
+.room-app .main-surface {
+  flex: 1;
+  min-height: 0;
+}
+.world-failed {
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 40px;
+  text-align: center;
+}
+/* Меню комнаты: всё, что не нужно каждую секунду. */
+.room-menu {
+  display: grid;
+  gap: 6px;
+}
+.room-menu button {
+  display: grid;
+  grid-template-columns: 20px 1fr 16px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8e3;
+  border-radius: 9px;
+  text-align: left;
+}
+.room-menu strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+.room-menu small {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* Всё в мире опускается под единую шапку (её высота ~40px). */
+.room-app {
+  --bar-h: 40px;
+}
+.world-hud-top-left {
+  top: calc(var(--bar-h) + 10px);
+}
+.camera-toolbar {
+  top: calc(var(--bar-h) + 90px);
+}
+/* Зоны ретро — справа под шапкой, чтобы не спорить с панелью производительности. */
+.game-zone-buttons {
+  top: calc(var(--bar-h) + 10px);
+  left: auto;
+  right: 20px;
+  transform: none;
+}
+/* Кнопка готовности ретро — по центру под шапкой. */
+.world-hud-top-center {
+  position: absolute;
+  top: calc(var(--bar-h) + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+}

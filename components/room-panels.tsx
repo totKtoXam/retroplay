@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Backpack,
   Bell,
   Check,
   ChevronRight,
@@ -9,20 +10,26 @@ import {
   Download,
   Flag,
   Folder,
+  Gauge,
+  HelpCircle,
+  ListChecks,
   MousePointer2,
   PartyPopper,
   Pause,
   Play,
   Plus,
   RotateCcw,
+  Settings2,
   Smile,
+  Sun,
+  Swords,
   Vote,
   X,
-  type LucideIcon,
 } from 'lucide-react';
 import {
+  GAME_TOOLS,
   THEMES,
-  TOOL_HINTS,
+  type Match,
   voteCount,
   type Note,
   type Person,
@@ -32,6 +39,8 @@ import {
   type Round,
 } from '@/lib/model';
 import { mapsForMode, modeOf, MODES } from '@/lib/maps/catalog';
+import type { Slot } from '@/lib/loadout';
+import { TOOL_ICONS } from './tool-icons';
 import { Choice, Toggle } from './controls';
 import { StylePicker } from './style-picker';
 import { ResourcePackPicker } from './resource-pack-picker';
@@ -413,15 +422,14 @@ export function VotePanel({
 }
 
 export function ToolsPanel({
-  activeTools,
-  activeIcons,
+  slots,
   tool,
   onSelectTool,
   onOpenWidgets,
   onOpenHelp,
 }: {
-  activeTools: { id: string; label: string; key: string }[];
-  activeIcons: LucideIcon[];
+  slots: Slot[];
+  /** Индекс предмета в GAME_TOOLS. */
   tool: number;
   onSelectTool: (index: number) => void;
   onOpenWidgets: () => void;
@@ -430,20 +438,20 @@ export function ToolsPanel({
   return (
     <>
       <div className="tool-library">
-        {activeTools.map((t, i) => {
-          const Icon = activeIcons[i] || MousePointer2;
+        {slots.map((slot) => {
+          const Icon = TOOL_ICONS[GAME_TOOLS[slot.index].id] ?? MousePointer2;
           return (
             <button
-              key={t.id}
-              className={tool === i ? 'selected' : ''}
-              onClick={() => onSelectTool(i)}
+              key={slot.index}
+              className={tool === slot.index ? 'selected' : ''}
+              onClick={() => onSelectTool(slot.index)}
             >
               <Icon size={22} />
               <div>
-                <strong>{t.label}</strong>
-                <small>{TOOL_HINTS[t.id]}</small>
+                <strong>{slot.label}</strong>
+                <small>{slot.hint}</small>
               </div>
-              <kbd>{t.key}</kbd>
+              <kbd>{slot.key}</kbd>
             </button>
           );
         })}
@@ -651,6 +659,95 @@ export function ActionsPanel({
 }
 
 /** How the world looks: style, theme, sky. The map and the rules live in ModePanel. */
+/** Счёт матча в шапке: очки команд, часы и выигранные раунды. */
+export function MatchBar({
+  match,
+  rounds,
+  now,
+}: {
+  match: Match | undefined;
+  /** Побед в матче — сколько пипсов показывать в режиме раундов. */
+  rounds: number;
+  now: number;
+}) {
+  if (!match) return <span className="game-tag">Матч готовится…</span>;
+  const left = match.until ? Math.max(0, Math.ceil((match.until - now) / 1000)) : 0;
+  const clock = match.until
+    ? `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`
+    : match.mode === 'rounds'
+      ? `РАУНД ${match.round}`
+      : 'БОЙ';
+  const pips = (team: 'red' | 'blue') =>
+    match.mode === 'rounds' && (
+      <span className="pips">
+        {Array.from({ length: Math.max(rounds, match.score[team]) }, (_, i) => (
+          <span
+            key={i}
+            className={`pip ${i < match.score[team] ? 'win ' + team : ''}`}
+          />
+        ))}
+      </span>
+    );
+  return (
+    <div className="match-bar">
+      <strong className="score red">{match.score.red}</strong>
+      {pips('red')}
+      <span className="clock">
+        {clock}
+        {match.phase === 'intermission' && <small>перерыв</small>}
+        {match.phase === 'ended' && (
+          <small>
+            {match.winner === 'draw'
+              ? 'ничья'
+              : match.winner === 'red'
+                ? 'победа красных'
+                : 'победа синих'}
+          </small>
+        )}
+      </span>
+      {pips('blue')}
+      <strong className="score blue">{match.score.blue}</strong>
+    </div>
+  );
+}
+
+/** Всё, что не нужно в бою каждую секунду: настройки, история, экспорт. */
+export function MenuPanel({
+  actionsLeft,
+  onOpen,
+}: {
+  actionsLeft: number;
+  onOpen: (panel: string) => void;
+}) {
+  return (
+    <div className="room-menu">
+      {(
+        [
+          ['tools', Backpack, 'Инвентарь', 'Предметы этого режима'],
+          ['mode', Swords, 'Режим игры', 'Режим, карта и правила'],
+          ['world', Sun, 'Облик мира', 'Стиль, тема, время суток'],
+          ['settings', Settings2, 'Настройки встречи', 'Приватность и доступ'],
+          ['actions', ListChecks, 'План действий', `${actionsLeft} не сделано`],
+          ['widgets', Dices, 'Для живой встречи', 'Таймер, спиннер, счётчик'],
+          ['export', Download, 'Импорт / экспорт', 'JSON, CSV, Markdown'],
+          ['history', RotateCcw, 'История изменений', 'Последние 40 действий'],
+          ['fps', Gauge, 'Графика и управление', 'FPS, чувствительность мыши'],
+          ['help', HelpCircle, 'Управление', 'Клавиши и подсказки'],
+        ] as const
+      ).map(([id, Icon, title, hint]) => (
+        <button key={id} onClick={() => onOpen(id)}>
+          <Icon size={18} />
+          <div>
+            <strong>{title}</strong>
+            <small>{hint}</small>
+          </div>
+          <ChevronRight size={16} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function WorldPanel({
   s,
   host,

@@ -1,5 +1,6 @@
 'use client';
 import { GAME_TOOLS, type Room, type Person } from '@/lib/model';
+import type { GameMode } from '@/lib/maps/catalog';
 import type { Perspective } from '@/lib/game-camera';
 import { Eye, User, X } from 'lucide-react';
 import { SNIPER_ZOOM_LEVELS, SNIPER_ZOOM_FOVS } from './world-constants';
@@ -8,6 +9,8 @@ import type { KillMessage, PersonalAlert, HitEffect } from './world';
 type GameTool = (typeof GAME_TOOLS)[number];
 
 type WorldHudProps = {
+  /** Бой показывает здоровье, счёт и ленту попаданий; ретро — только спокойные элементы. */
+  mode: GameMode;
   room: Room;
   host?: boolean;
   onOp?: (op: Record<string, unknown>) => Promise<unknown>;
@@ -140,6 +143,7 @@ export function WorldHud(props: WorldHudProps) {
           <kbd>V</kbd>
         </fieldset>
       </div>
+      {props.mode === 'retro' && (
       <div className="world-hud-top-center">
         <button
           className={`ready-check-trigger-btn ${props.room.state.readyCheck?.active ? 'is-active' : ''}`}
@@ -158,7 +162,8 @@ export function WorldHud(props: WorldHudProps) {
           </span>
         </button>
       </div>
-      {props.room.state.readyCheck?.active && (
+      )}
+      {props.mode === 'retro' && props.room.state.readyCheck?.active && (
         <div className="ready-check-modal-overlay">
           <div className="ready-check-modal-card">
             <header className="ready-check-card-header">
@@ -245,7 +250,7 @@ export function WorldHud(props: WorldHudProps) {
         </div>
       )}
       {/* Immunity glow vignette removed */}
-      {props.shieldSeconds > 0 && !props.dead && (
+      {props.mode === 'battle' && props.shieldSeconds > 0 && !props.dead && (
         <div
           className="spawn-immunity-hud"
           title="Бессмертие после возрождения (5 секунд)"
@@ -255,41 +260,7 @@ export function WorldHud(props: WorldHudProps) {
           <strong>{props.shieldSeconds}с</strong>
         </div>
       )}
-      {props.room.match && (props.room.state.map ?? 'hub') !== 'hub' && (
-        <div
-          className="team-score-hud"
-          title="Счёт команд"
-          style={{
-            position: 'absolute',
-            top: 12,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            padding: '6px 14px',
-            borderRadius: 10,
-            background: '#182237de',
-            color: '#fff',
-            fontSize: 15,
-          }}
-        >
-          <strong style={{ color: '#ff8f8a' }}>{props.room.match.score.red}</strong>
-          <span style={{ opacity: 0.85, fontSize: 13 }}>
-            {props.room.match.mode === 'rounds'
-              ? `раунд ${props.room.match.round}`
-              : 'бой'}
-            {props.room.match.phase === 'intermission' && ' · перерыв'}
-            {props.room.match.phase === 'ended' &&
-              (props.room.match.winner === 'draw'
-                ? ' · ничья'
-                : props.room.match.winner === 'red'
-                  ? ' · победа красных'
-                  : ' · победа синих')}
-          </span>
-          <strong style={{ color: '#8fbcff' }}>{props.room.match.score.blue}</strong>
-        </div>
-      )}
+      {props.mode === 'battle' && (
       <div
         className="combat-stats-hud"
         title="Убийства / Смерти / Помощи (K/D/A)"
@@ -309,6 +280,7 @@ export function WorldHud(props: WorldHudProps) {
           <strong>{props.self?.assists ?? 0}</strong>
         </div>
       </div>
+      )}
       <div className="killfeed-container" aria-live="polite">
         {props.killfeed.map((msg, idx) => (
           <div
@@ -357,6 +329,7 @@ export function WorldHud(props: WorldHudProps) {
           {props.personalAlert.sub && <small>{props.personalAlert.sub}</small>}
         </div>
       )}
+      {props.mode === 'battle' && (
       <div className={`health-hud ${props.dead ? 'depleted' : ''}`}>
         <strong>{props.self?.hp ?? 100}</strong>
         <span>HP</span>
@@ -367,6 +340,7 @@ export function WorldHud(props: WorldHudProps) {
           aria-label="Здоровье"
         />
       </div>
+      )}
       {props.dead && (
         <div className="respawn-overlay">
           <span>ПЕРЕРЫВ НА КОНФЕТТИ</span>

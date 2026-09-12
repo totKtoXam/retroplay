@@ -35,7 +35,8 @@ import { createWorldPlayer } from './world-player';
 import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
-import { QUICK_SLOTS, slotForDigit, cycleSlot } from '@/lib/loadout';
+import { slotsFor, slotForDigit, cycleSlot } from '@/lib/loadout';
+import { modeOf } from '@/lib/maps/catalog';
 import { ToolMagazine, CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import {
   blocksCamera,
@@ -1255,7 +1256,7 @@ export default function World(props: Props) {
       }
       if ((!enabled() && !middle) || latest.current.blocked) return;
       if (middle) {
-        const slot = slotForDigit(e.code);
+        const slot = slotForDigit(modeOf(latest.current.room.state), e.code);
         if (slot !== undefined) {
           e.preventDefault();
           latest.current.onTool(slot);
@@ -1310,7 +1311,7 @@ export default function World(props: Props) {
           perspectiveRef.current === 'first' ? 'third' : 'first',
         );
       if (e.code.startsWith('Digit')) {
-        const slot = slotForDigit(e.code);
+        const slot = slotForDigit(modeOf(latest.current.room.state), e.code);
         if (slot !== undefined) {
           latest.current.onTool(slot);
           aimHeld = false;
@@ -1380,7 +1381,11 @@ export default function World(props: Props) {
       }
       if (e.altKey) engine.current?.distance(e.deltaY > 0 ? 1 : -1);
       else {
-        const next = cycleSlot(latest.current.tool, e.deltaY > 0 ? 1 : -1);
+        const next = cycleSlot(
+          modeOf(latest.current.room.state),
+          latest.current.tool,
+          e.deltaY > 0 ? 1 : -1,
+        );
         latest.current.onTool(next);
         aimHeld = false;
         setAiming(false);
@@ -1939,6 +1944,8 @@ export default function World(props: Props) {
       .then(() => engine.current?.refreshTargets());
   }, [resourcePack]);
   const current = GAME_TOOLS[props.tool];
+  const gameMode = modeOf(props.room.state);
+  const slots = slotsFor(gameMode);
   return (
     <div
       className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''}`}
@@ -1948,6 +1955,7 @@ export default function World(props: Props) {
       {packStatus === 'loading' && <output className="pack-status">Подготовка визуального пакета…</output>}
       {packStatus === 'error' && <div role="alert" className="pack-status">Пакет не загрузился. Игра продолжается с Default.</div>}
       <WorldHud
+        mode={gameMode}
         room={props.room}
         host={props.host}
         onOp={props.onOp}
@@ -2119,7 +2127,7 @@ export default function World(props: Props) {
         </span>
       </div>
       <div className="quick-loadout" aria-label="Быстрые предметы">
-        {QUICK_SLOTS.map((slot) => {
+        {slots.map((slot) => {
           const Icon = getSlotIcon(slot.index);
           return (
             <button
@@ -2303,7 +2311,7 @@ export default function World(props: Props) {
             />
           )}
           <div className="equipment-items">
-            {QUICK_SLOTS.map((slot) => {
+            {slots.map((slot) => {
               const Icon = getSlotIcon(slot.index);
               return (
                 <button

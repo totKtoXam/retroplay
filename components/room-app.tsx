@@ -14,47 +14,25 @@ import {
   Plus,
   Users,
   Link2,
-  Sun,
   Settings2,
-  RotateCcw,
   Check,
-  MousePointer2,
   StickyNote,
-  Folder,
-  PenLine,
-  Square,
-  Type,
-  MoveUpRight,
   Maximize,
   Minimize,
-  Smile,
-  ImageIcon,
-  ListChecks,
   Timer,
   Vote,
   Flag,
-  PanelTop,
   Box,
   ChevronRight,
-  Search,
-  Download,
   Copy,
   Trash2,
   Eye,
   EyeOff,
-  SprayCan,
-  Dices,
   Bell,
-  PartyPopper,
-  HelpCircle,
-  Menu,
   X,
   Wifi,
-  Bomb,
   Monitor,
   Send,
-  Crosshair,
-  Heart,
   Lock,
 } from 'lucide-react';
 import {
@@ -69,22 +47,17 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   ZONES,
-  THEMES,
   PHASES,
-  TOOLS,
   GAME_TOOLS,
-  TOOL_HINTS,
   voteCount,
   type Note,
   type Pose,
 } from '@/lib/model';
 import { api, download, parseCSV } from '@/lib/client';
 import { Choice, Toggle } from './controls';
-import { MusicPlayer } from './music-player';
-import Board, { Card } from './board';
+import { Card } from './board';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { readAimModes, type WeaponAimModes } from './world';
 import {
@@ -100,26 +73,17 @@ import {
   TimerPanel,
   ToolsPanel,
   VotePanel,
+  MatchBar,
+  MenuPanel,
   ModePanel,
   WidgetsPanel,
   WorldPanel,
 } from './room-panels';
 import { useRoomSync } from './use-room-sync';
-import { MAP_CATALOG, modeOf, MODES } from '@/lib/maps/catalog';
+import { MAP_CATALOG, modeOf } from '@/lib/maps/catalog';
+import { defaultSlot, hasSlot, slotsFor } from '@/lib/loadout';
 
 const World = lazy(() => import('./world'));
-const icons = [
-  MousePointer2,
-  StickyNote,
-  Folder,
-  PenLine,
-  Square,
-  Type,
-  MoveUpRight,
-  Smile,
-  ImageIcon,
-  ListChecks,
-];
 const kinds: Record<string, string> = {
   pointer: 'sticky',
   sticky: 'sticky',
@@ -159,8 +123,7 @@ export default function RoomApp({ id }: { id: string }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [quickSticky, setQuickSticky] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const [musicOpen, setMusicOpen] = useState(false),
-    [sensitivity, setSensitivity] = useState(1),
+  const [sensitivity, setSensitivity] = useState(1),
     [invertCamera, setInvertCamera] = useState(false);
   const [aimModes, setAimModes] = useState<WeaponAimModes>(() => readAimModes());
   const [paintColor, setPaintColor] = useState('#bc91f5');
@@ -170,8 +133,8 @@ export default function RoomApp({ id }: { id: string }) {
     [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
     [busy, setBusy] = useState(false),
-    [mode, setMode] = useState('3d'),
-    [tool, setTool] = useState(0),
+    [webglFailed, setWebglFailed] = useState(false),
+    [heldTool, setTool] = useState(0),
     [panel, setPanel] = useState(''),
     [selectedZone, setSelectedZone] = useState(''),
     [draft, setDraft] = useState<Draft | null>(null),
@@ -183,7 +146,6 @@ export default function RoomApp({ id }: { id: string }) {
     [seconds, setSeconds] = useState('300'),
     [voteLimit, setVoteLimit] = useState('5'),
     [groupTitle, setGroupTitle] = useState(''),
-    [search, setSearch] = useState(''),
     [sound, setSound] = useState(false),
     [spinner, setSpinner] = useState(''),
     [spinOptions, setSpinOptions] = useState(''),
@@ -195,29 +157,7 @@ export default function RoomApp({ id }: { id: string }) {
     [selectedBandanaColor, setSelectedBandanaColor] = useState<string>(() =>
       typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') || '#3b82f6' : '#3b82f6',
     );
-  const activeTools = mode === '3d' ? GAME_TOOLS : TOOLS;
-  const activeIcons =
-    mode === '3d'
-      ? [
-          SprayCan,
-          PartyPopper,
-          StickyNote,
-          Folder,
-          PenLine,
-          Square,
-          MoveUpRight,
-          Smile,
-          ListChecks,
-          MousePointer2,
-          Bomb,
-          Crosshair,
-          Heart,
-        ]
-      : icons;
   const cursor = useRef({ x: 0, y: 0, mode: '3d' });
-  useEffect(() => {
-    cursor.current.mode = mode;
-  }, [mode]);
   const [history, setHistory] = useState<
     { version: number; action: string; name: string; at: number }[]
   >([]);
@@ -233,10 +173,6 @@ export default function RoomApp({ id }: { id: string }) {
     lastFocus = useRef(0),
     audio = useRef<AudioContext | null>(null),
     soundRef = useRef(false);
-  const modeRef = useRef(mode);
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
   useEffect(() => {
     soundRef.current = sound;
   }, [sound]);
@@ -290,7 +226,6 @@ export default function RoomApp({ id }: { id: string }) {
     id,
     pose,
     cursor,
-    modeRef,
     lastActivityRef,
     nameRef,
     busyRef,
@@ -324,36 +259,6 @@ export default function RoomApp({ id }: { id: string }) {
   useEffect(() => {
     roomRef.current = room;
   }, [room]);
-  useEffect(() => {
-    if (mode !== 'board' || !room) return;
-    const key = (e: KeyboardEvent) => {
-      if (
-        e.repeat ||
-        e.ctrlKey ||
-        e.metaKey ||
-        e.altKey ||
-        draft ||
-        selectedZone ||
-        monitor ||
-        musicOpen ||
-        (panel && panel !== 'tools')
-      )
-        return;
-      const target = e.target as HTMLElement;
-      if (target.closest('input,textarea,select,[contenteditable="true"]'))
-        return;
-      if (e.code === 'KeyQ') {
-        e.preventDefault();
-        setPanel((p) => (p === 'tools' ? '' : 'tools'));
-      } else if (/^Digit[0-9]$/.test(e.code)) {
-        e.preventDefault();
-        setTool((Number(e.code.slice(-1)) + 9) % 10);
-        if (panel === 'tools') setPanel('');
-      }
-    };
-    window.addEventListener('keydown', key);
-    return () => window.removeEventListener('keydown', key);
-  }, [mode, room, draft, selectedZone, monitor, musicOpen, panel]);
   const beep = useCallback((frequency = 520) => {
     if (!soundRef.current) return;
     try {
@@ -535,10 +440,12 @@ export default function RoomApp({ id }: { id: string }) {
     host = room?.host === room?.self,
     s = room?.state,
     online = room?.members.filter((m) => now - m.lastSeen < 15000) || [],
-    theme = THEMES.find((t) => t.id === s?.theme) || THEMES[0],
     gameMode = modeOf(s ?? {}),
     mapTitle =
-      MAP_CATALOG.find((m) => m.id === (s?.map ?? 'hub'))?.title ?? 'Хаб';
+      MAP_CATALOG.find((m) => m.id === (s?.map ?? 'hub'))?.title ?? 'Хаб',
+    slots = slotsFor(gameMode),
+    // Предмет другого режима в руках не остаётся: берём предмет по умолчанию.
+    tool = hasSlot(gameMode, heldTool) ? heldTool : defaultSlot(gameMode);
   const enter = async (overrideName?: string) => {
     const playerName = (overrideName || name).trim();
     if (!playerName) return;
@@ -588,12 +495,12 @@ export default function RoomApp({ id }: { id: string }) {
     y?: number,
     stickyOnly = false,
   ) => {
-    if (!stickyOnly && activeTools[tool].id === 'group') {
+    if (!stickyOnly && GAME_TOOLS[tool]?.id === 'group') {
       setPanel('group');
       return;
     }
     const count = s?.notes.filter((n) => n.zone === zone).length || 0;
-    let kind = stickyOnly ? 'sticky' : kinds[activeTools[tool].id] || 'sticky';
+    let kind = stickyOnly ? 'sticky' : kinds[GAME_TOOLS[tool]?.id] || 'sticky';
     if (['draw', 'connector'].includes(kind)) kind = 'sticky';
     setQuickSticky(kind === 'sticky');
     setDraft({
@@ -647,11 +554,9 @@ export default function RoomApp({ id }: { id: string }) {
       if (draft.id) await op({ type: 'note.edit', id: draft.id, patch: data });
       else await op({ type: 'note.add', ...data });
       setDraft(null);
-      if (mode === '3d') {
-        setTimeout(() => {
-          void document.querySelector('canvas')?.requestPointerLock();
-        }, 50);
-      }
+      setTimeout(() => {
+        void document.querySelector('canvas')?.requestPointerLock();
+      }, 50);
       flash('Карточка сохранена');
     } catch {
     } finally {
@@ -977,91 +882,110 @@ export default function RoomApp({ id }: { id: string }) {
     <main
       data-resource-pack={resourcePack}
       className={
-        'room-app mode-' +
-        mode +
+        // mode-3d держит стили игрового HUD: комната теперь всегда 3D.
+        'room-app mode-3d mode-' +
+        gameMode +
         (s.visualStyle === 'anime' ? ' style-anime' : ' style-classic')
       }
     >
-      <header className="room-header">
-        <a href="/" className="back-button" aria-label="К комнатам">
-          <ArrowLeft size={19} />
+      <header className="game-bar">
+        <a href="/" className="game-bar-back" aria-label="К комнатам">
+          <ArrowLeft size={17} />
         </a>
-        <a className="brand room-brand" href="/">
-          <span className="brand-symbol">Ж</span>
-        </a>
-        <div className="room-heading">
-          {editingTitle ? (
-            <input
-              className="inline-room-title"
-              aria-label="Название встречи"
-              ref={(node) => node?.focus()}
-              defaultValue={s.title}
-              maxLength={100}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur();
-                if (e.key === 'Escape') {
-                  e.currentTarget.value = s.title;
-                  e.currentTarget.blur();
-                }
-              }}
-              onBlur={(e) => {
-                setEditingTitle(false);
-                if (e.target.value.trim() && e.target.value !== s.title)
-                  void act({
-                    type: 'room.settings',
-                    patch: { title: e.target.value },
-                  });
-              }}
-            />
+        {editingTitle ? (
+          <input
+            className="inline-room-title"
+            aria-label="Название встречи"
+            ref={(node) => node?.focus()}
+            defaultValue={s.title}
+            maxLength={100}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+              if (e.key === 'Escape') {
+                e.currentTarget.value = s.title;
+                e.currentTarget.blur();
+              }
+            }}
+            onBlur={(e) => {
+              setEditingTitle(false);
+              if (e.target.value.trim() && e.target.value !== s.title)
+                void act({
+                  type: 'room.settings',
+                  patch: { title: e.target.value },
+                });
+            }}
+          />
+        ) : (
+          <h1>
+            <button
+              className="editable-room-title"
+              disabled={!host}
+              title={host ? 'Нажмите, чтобы изменить название' : undefined}
+              onClick={() => setEditingTitle(true)}
+            >
+              {s.title}
+            </button>
+          </h1>
+        )}
+        <span className="game-tag map-tag">{mapTitle}</span>
+        <div className="game-bar-center">
+          {gameMode === 'battle' ? (
+            <MatchBar match={room.match} rounds={s.roundWins ?? 5} now={now} />
           ) : (
-            <h1>
+            <>
+              <div className="phase-steps">
+                {PHASES.map((p, i) => (
+                  <button
+                    key={p}
+                    className={`phase-step ${s.phase === i ? 'current' : ''} ${s.phase > i ? 'complete' : ''}`}
+                    disabled={!host || s.archived}
+                    onClick={() => void act({ type: 'phase', phase: i })}
+                  >
+                    <span>{s.phase > i ? <Check size={11} /> : i + 1}</span>
+                    {p}
+                  </button>
+                ))}
+              </div>
               <button
-                className="editable-room-title"
-                disabled={!host}
-                title={host ? 'Нажмите, чтобы изменить название' : undefined}
-                onClick={() => setEditingTitle(true)}
+                className={`game-tag clock ${s.timer.running ? 'running' : ''}`}
+                onClick={() => setPanel('timer')}
+                title="Время для главного"
               >
-                {s.title}
+                <Timer size={14} />
+                {timeText}
               </button>
-            </h1>
+              <button
+                className="game-tag"
+                onClick={() => setPanel('vote')}
+                title="Голосование"
+              >
+                <Vote size={14} />
+                {round?.active ? `${round.limit - used}` : 'Голоса'}
+              </button>
+              <button
+                className={`game-tag ${s.privateWriting ? 'on' : ''}`}
+                title="Приватное написание"
+                onClick={() =>
+                  host
+                    ? void act({
+                        type: 'room.settings',
+                        patch: { privateWriting: !s.privateWriting },
+                      })
+                    : flash('Режим приватного написания меняет ведущий')
+                }
+              >
+                <EyeOff size={14} />
+                {s.privateWriting ? 'Приватно' : 'Открыто'}
+              </button>
+            </>
           )}
-          <span>
-            {host ? 'Вы — ведущий' : 'Вы — участник'}
-            <i />
-            {s.archived
-              ? 'Встреча завершена'
-              : s.template === 'three'
-                ? 'Start / Stop / Continue'
-                : 'Good / Bad / Start / Stop'}
-          </span>
         </div>
-        <Tabs
-          className="mode-tabs"
-          value={mode}
-          onValueChange={(v) => {
-            setMode(String(v));
-            setTool(0);
-          }}
-        >
-          <TabsList>
-            <TabsTrigger value="3d">
-              <Box />
-              3D-мир
-            </TabsTrigger>
-            <TabsTrigger value="board">
-              <PanelTop />
-              Доска
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
         <button
-          className="header-people"
+          className="game-tag people"
           onClick={() => setMonitor(true)}
-          tabIndex={0}
-          onKeyDown={(e) => e.key === 'Enter' && setMonitor(true)}
           aria-label="Участники комнаты"
         >
-          {online.slice(0, 4).map((m) => (
+          {online.slice(0, 3).map((m) => (
             <span
               key={m.id}
               className="avatar"
@@ -1071,230 +995,54 @@ export default function RoomApp({ id }: { id: string }) {
               {m.name[0]}
             </span>
           ))}
-          <span className="online-count">{online.length}</span>
+          <b>{online.length}</b>
+        </button>
+        {host && joinRequests.length > 0 && (
+          <button
+            type="button"
+            className="game-tag alert"
+            onClick={() => setPanel('join_requests')}
+            aria-label="Запросы на вход"
+          >
+            <Bell size={14} className="bell-pulse" />
+            {joinRequests.length}
+          </button>
+        )}
+        <button className="game-tag" onClick={() => setPanel('share')}>
+          <Link2 size={14} />
+          Пригласить
         </button>
         <button
-          className="icon-button fullscreen-button"
+          className="game-tag"
           onClick={() => void enterFullscreen()}
           aria-label={
             fullscreen ? 'Выйти из полного экрана' : 'Полный экран для игры'
           }
           title="Полный экран · игровой ввод"
         >
-          {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-        </button>
-        {host && joinRequests.length > 0 && (
-          <button
-            type="button"
-            className="join-requests-alert-btn"
-            onClick={() => setPanel('join_requests')}
-            aria-label="Запросы на вход"
-            title="Ожидают подтверждения"
-          >
-            <Bell size={16} className="bell-pulse" />
-            <span>Запросы ({joinRequests.length})</span>
-          </button>
-        )}
-        <button
-          className="secondary invite-button"
-          onClick={() => setPanel('share')}
-        >
-          <Link2 size={16} />
-          Пригласить
+          {fullscreen ? <Minimize size={15} /> : <Maximize size={15} />}
         </button>
         <button
-          className="icon-button"
-          onClick={() => setPanel('settings')}
-          aria-label="Настройки встречи"
+          className="game-tag"
+          onClick={() => setPanel('menu')}
+          aria-label="Меню комнаты"
         >
-          <Settings2 size={19} />
+          <Settings2 size={15} />
         </button>
       </header>
-      <div className="meeting-bar">
-        <div className="phase-list">
-          {PHASES.map((p, i) => (
-            <button
-              key={p}
-              className={`${s.phase === i ? 'current' : ''} ${s.phase > i ? 'complete' : ''}`}
-              disabled={!host || s.archived}
-              onClick={() => void act({ type: 'phase', phase: i })}
-            >
-              <span>{s.phase > i ? <Check size={12} /> : i + 1}</span>
-              {p}
-            </button>
-          ))}
-        </div>
-        <div className="meeting-actions">
-          <button
-            className={s.privateWriting ? 'active-tool' : ''}
-            onClick={() =>
-              host
-                ? void act({
-                    type: 'room.settings',
-                    patch: { privateWriting: !s.privateWriting },
-                  })
-                : flash('Режим приватного написания меняет ведущий')
-            }
-            title="Приватное написание"
-          >
-            <EyeOff size={16} />
-            <span>{s.privateWriting ? 'Приватно' : 'Открыто'}</span>
-          </button>
-          <button
-            onClick={() => setPanel('timer')}
-            className={s.timer.running ? 'timer-active' : ''}
-          >
-            <Timer size={16} />
-            <b>{timeText}</b>
-          </button>
-          <button onClick={() => setPanel('vote')}>
-            <Vote size={16} />
-            <span>
-              {round?.active ? `${round.limit - used} голосов` : 'Голосование'}
-            </span>
-          </button>
-        </div>
-      </div>
-      <div className="room-workspace">
-        <aside className="session-sidebar">
-          <div className="sidebar-section-heading">
-            <span>ЭТА ВСТРЕЧА</span>
-            <button
-              onClick={() => setPanel('settings')}
-              aria-label="Настроить встречу"
-            >
-              <Settings2 size={15} />
-            </button>
-          </div>
-          <div className="world-preview">
-            <span className="world-preview-icon">
-              {gameMode === 'battle' ? '⚔️' : '🗒️'}
-            </span>
-            <div>
-              <strong>{MODES.find((m) => m.id === gameMode)?.title}</strong>
-              <span>{mapTitle}</span>
-            </div>
-            <button
-              onClick={() => setPanel('mode')}
-              aria-label="Изменить режим игры"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-          <div className="world-preview">
-            <span className="world-preview-icon">{theme.icon}</span>
-            <div>
-              <strong>{theme.name}</strong>
-              <span>{s.interior ? 'Мастерская' : 'Алатау · Открытый мир'}</span>
-            </div>
-            <button onClick={() => setPanel('world')} aria-label="Изменить мир">
-              <ChevronRight size={16} />
-            </button>
-          </div>
-          <div className="sidebar-section-heading space-top">
-            <span>ЗОНЫ РЕТРОСПЕКТИВЫ</span>
-          </div>
-          <div className="zone-nav">
-            {ZONES.filter((z) => s.template !== 'three' || z.id !== 'bad').map(
-              (z) => (
-                <button
-                  key={z.id}
-                  className={selectedZone === z.id ? 'selected' : ''}
-                  onClick={() => setSelectedZone(z.id)}
-                >
-                  <span className="zone-dot" style={{ background: z.color }} />
-                  <span>
-                    {s.template === 'three' && z.id === 'good'
-                      ? 'Продолжать делать'
-                      : z.title}
-                  </span>
-                  <small>
-                    {
-                      s.notes.filter(
-                        (n) =>
-                          n.zone === z.id &&
-                          !['draw', 'connector'].includes(n.kind),
-                      ).length
-                    }
-                  </small>
-                </button>
-              ),
-            )}
-          </div>
-          <button
-            className="add-note-side"
-            disabled={s.archived}
-            onClick={() => newNote(selectedZone || 'good')}
-          >
-            <Plus size={16} />
-            Добавить идею
-          </button>
-          <div className="sidebar-divider" />
-          <button
-            className="sidebar-action"
-            onClick={() => setPanel('actions')}
-          >
-            <ListChecks size={17} />
-            План действий
-            <span>
-              {s.notes.filter((n) => n.kind === 'action' && !n.done).length}
-            </span>
-          </button>
-          <button
-            className="sidebar-action"
-            onClick={() => setPanel('widgets')}
-          >
-            <Dices size={17} />
-            Для живой встречи
-          </button>
-          <button className="sidebar-action" onClick={() => setPanel('export')}>
-            <Download size={17} />
-            Импорт / экспорт
-          </button>
-          <button
-            className="sidebar-action"
-            onClick={() => {
-              setPanel('history');
-              void api<{ history: typeof history }>('/api/rooms/' + id, {
-                type: 'history',
-              })
-                .then((r) => setHistory(r.history))
-                .catch((e) => setError(e.message));
-            }}
-          >
-            <RotateCcw size={17} />
-            История изменений
-          </button>
-          <div className="sidebar-bottom">
-            <div className="session-tip">
-              <span>💡</span>
+      <section className="main-surface" aria-label="Игровой мир">
+          {webglFailed ? (
+            <div className="world-failed" role="alert">
+              <h2>Браузер не смог открыть 3D-мир</h2>
               <p>
-                {s.phase === 0
-                  ? 'Начните с настроения: как команда чувствует себя сегодня?'
-                  : s.phase === 1
-                    ? 'Одна мысль — один стикер. Конкретные примеры помогают обсуждению.'
-                    : s.phase === 2
-                      ? 'Объедините похожие наблюдения в общие темы.'
-                      : s.phase === 3
-                        ? 'Отдайте голоса тем идеям, которые важнее обсудить.'
-                        : 'Выберите конкретные действия и назначьте ответственных.'}
+                Нужен WebGL: включите аппаратное ускорение в настройках браузера
+                или откройте комнату в другом браузере.
               </p>
+              <a href="/" className="secondary">
+                К комнатам
+              </a>
             </div>
-            <div className="connection-state">
-              <span
-                className="live-dot"
-                style={error ? { background: '#c87b68' } : undefined}
-              />
-              {error ? 'Переподключение…' : 'Вы в комнате'}
-              <span>{ping} мс</span>
-            </div>
-          </div>
-        </aside>
-        <section
-          className="main-surface"
-          aria-label={mode === '3d' ? 'Игровой мир' : 'Общая доска'}
-        >
-          {mode === '3d' ? (
+          ) : (
             <Suspense
               fallback={
                 <div className="loading-world">Собираем мир Алатау…</div>
@@ -1313,19 +1061,9 @@ export default function RoomApp({ id }: { id: string }) {
                 onTool={setTool}
                 pendingJoinRequestsCount={joinRequests.length}
                 onOpenJoinRequests={() => setPanel('join_requests')}
-                onBoardTool={(id) => {
-                  setMode('board');
-                  setSelectedZone('');
-                  setTool(
-                    Math.max(
-                      0,
-                      TOOLS.findIndex((t) => t.id === id),
-                    ),
-                  );
-                  flash(
-                    'Инструмент выбран. Нажмите на доску, чтобы применить.',
-                  );
-                }}
+                onBoardTool={() =>
+                  flash('Доска открывается планшетом — предмет в инвентаре')
+                }
                 onZone={(zone) => newNote(zone, undefined, undefined, true)}
                 sensitivity={sensitivity}
                 invertCamera={invertCamera}
@@ -1361,12 +1099,7 @@ export default function RoomApp({ id }: { id: string }) {
                   lastActivityRef.current = Date.now();
                   cursor.current = { x, y, mode: 'tablet' };
                 }}
-                onFailure={() => {
-                  // 3D has more tool slots than the board; reset before switching.
-                  setTool(0);
-                  setMode('board');
-                  flash('WebGL недоступен. Открыта обычная доска.');
-                }}
+                onFailure={() => setWebglFailed(true)}
                 blocked={
                   !!panel ||
                   !!draft ||
@@ -1374,21 +1107,8 @@ export default function RoomApp({ id }: { id: string }) {
                 }
               />
             </Suspense>
-          ) : (
-            <Board
-              room={room}
-              tool={activeTools[tool].id}
-              onEdit={editNote}
-              onAdd={newNote}
-              onOp={act}
-              search={search}
-              onCursor={(x, y) => {
-                lastActivityRef.current = Date.now();
-                cursor.current = { x, y, mode };
-              }}
-            />
           )}
-          {mode === '3d' && (
+          {gameMode === 'retro' && (
             <div className="game-zone-buttons">
               {ZONES.filter(
                 (z) => s.template !== 'three' || z.id !== 'bad',
@@ -1405,94 +1125,6 @@ export default function RoomApp({ id }: { id: string }) {
               ))}
             </div>
           )}
-          <div className="surface-top-right">
-            <button className="surface-chip" onClick={() => setPanel('world')}>
-              <Sun size={15} />
-              {
-                (
-                  {
-                    dawn: 'Рассвет',
-                    day: 'День',
-                    sunset: 'Закат',
-                    night: 'Ночь',
-                  } as Record<string, string>
-                )[s.time]
-              }
-              <span>·</span>
-              {
-                (
-                  {
-                    spring: 'Весна',
-                    summer: 'Лето',
-                    autumn: 'Осень',
-                    winter: 'Зима',
-                  } as Record<string, string>
-                )[s.season]
-              }
-            </button>
-            <button
-              className="surface-icon"
-              onClick={() => setPanel('help')}
-              aria-label="Управление и помощь"
-            >
-              <HelpCircle size={18} />
-            </button>
-          </div>
-          {mode === 'board' && (
-            <div className="board-search">
-              <Search size={15} />
-              <input
-                placeholder="Найти идею…"
-                aria-label="Поиск заметок"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-          )}
-          {mode === 'board' && <MusicPlayer onOpenChange={setMusicOpen} />}
-          <div className="tool-status" aria-live="polite">
-            <span>{activeTools[tool]?.label}</span>
-            <small>
-              {mode === '3d'
-                ? TOOL_HINTS[activeTools[tool]?.id]
-                : 'Выберите инструмент и работайте на доске'}
-            </small>
-            <kbd>1–0 / Q</kbd>
-          </div>
-          <div className="hotbar" aria-label="Инвентарь и инструменты">
-            {activeTools.map((t, i) => {
-              const Icon = activeIcons[i] || MousePointer2;
-              return (
-                <button
-                  key={t.id}
-                  title={
-                    t.label + ' · ' + t.key + ' · ' + (TOOL_HINTS[t.id] || '')
-                  }
-                  aria-label={t.label}
-                  aria-pressed={tool === i}
-                  className={
-                    (tool === i ? 'selected ' : '') +
-                    (mode === '3d' && i === 2 ? 'tool-category-start' : '')
-                  }
-                  onClick={() => {
-                    setTool(i);
-                  }}
-                >
-                  <kbd>{t.key}</kbd>
-                  <Icon size={20} />
-                  <span>{t.label}</span>
-                </button>
-              );
-            })}
-            <div className="hotbar-separator" />
-            <button
-              title="Все инструменты"
-              aria-label="Все инструменты"
-              onClick={() => setPanel('tools')}
-            >
-              <Menu size={20} />
-            </button>
-          </div>
           {s.notes.some((n) => n.hidden && n.author === room.self) && (
             <button
               className="reveal-button primary"
@@ -1530,8 +1162,7 @@ export default function RoomApp({ id }: { id: string }) {
               ))}
             </div>
           )}
-        </section>
-      </div>
+      </section>
       {notice && (
         <output className="toast-message">
           <Check size={16} />
@@ -1634,7 +1265,7 @@ export default function RoomApp({ id }: { id: string }) {
               </div>
               <div className="metric-pill">
                 <Monitor size={12} />
-                <strong>{mode === '3d' ? fps : '—'}</strong>
+                <strong>{fps}</strong>
                 <small>FPS</small>
               </div>
               <div className="metric-pill">
@@ -1737,11 +1368,9 @@ export default function RoomApp({ id }: { id: string }) {
         onOpenChange={(v) => {
           if (!v) {
             setDraft(null);
-            if (mode === '3d') {
-              setTimeout(() => {
-                void document.querySelector('canvas')?.requestPointerLock();
-              }, 50);
-            }
+            setTimeout(() => {
+              void document.querySelector('canvas')?.requestPointerLock();
+            }, 50);
           }
         }}
       >
@@ -1789,11 +1418,9 @@ export default function RoomApp({ id }: { id: string }) {
           if (!v) {
             setDraft(null);
             setDeleteConfirm(false);
-            if (mode === '3d') {
-              setTimeout(() => {
-                void document.querySelector('canvas')?.requestPointerLock();
-              }, 50);
-            }
+            setTimeout(() => {
+              void document.querySelector('canvas')?.requestPointerLock();
+            }, 50);
           }
         }}
       >
@@ -2133,6 +1760,7 @@ export default function RoomApp({ id }: { id: string }) {
             {(
               {
                 history: 'История изменений',
+                menu: 'Меню комнаты',
                 settings: 'Настройки встречи',
                 world: 'Облик мира',
                 mode: 'Режим игры',
@@ -2157,7 +1785,9 @@ export default function RoomApp({ id }: { id: string }) {
                 ? 'Управление пользователями, ожидающими входа в комнату'
                 : panel === 'settings'
                   ? 'Приватность и правила совместной работы'
-                  : panel === 'world'
+                  : panel === 'menu'
+                    ? 'Настройки, история и всё, что не нужно каждую секунду'
+                    : panel === 'world'
                     ? 'Стиль, тема и время суток — как выглядит мир'
                     : panel === 'mode'
                       ? 'Во что играем: режим, карта и правила'
@@ -2167,8 +1797,7 @@ export default function RoomApp({ id }: { id: string }) {
           </DialogDescription>
           {panel === 'tools' && (
             <ToolsPanel
-              activeTools={activeTools}
-              activeIcons={activeIcons}
+              slots={slots}
               tool={tool}
               onSelectTool={(i) => {
                 setTool(i);
@@ -2260,6 +1889,22 @@ export default function RoomApp({ id }: { id: string }) {
               onInteriorChange={(interior) =>
                 void act({ type: 'room.settings', patch: { interior } })
               }
+            />
+          )}
+          {panel === 'menu' && (
+            <MenuPanel
+              actionsLeft={
+                s.notes.filter((n) => n.kind === 'action' && !n.done).length
+              }
+              onOpen={(next) => {
+                setPanel(next);
+                if (next === 'history')
+                  void api<{ history: typeof history }>('/api/rooms/' + id, {
+                    type: 'history',
+                  })
+                    .then((r) => setHistory(r.history))
+                    .catch((e) => setError(e.message));
+              }}
             />
           )}
           {panel === 'mode' && (
