@@ -1,3 +1,13 @@
+// Map names and modes only (lib/maps/catalog.ts): the model must stay free of map geometry,
+// it is shared by the worker, the lobby and the room.
+import {
+  defaultMapFor,
+  MAP_IDS,
+  modeOf,
+  modeOfMap,
+  type GameMode,
+} from './maps/catalog.ts';
+
 export const ZONES = [
   {
     id: 'good',
@@ -278,6 +288,8 @@ export type RoomState = {
   music: string;
   archived: boolean;
   template: string;
+  /** What the room is for: a retrospective or a team battle (lib/maps/catalog.ts). */
+  mode?: GameMode;
   /** Game map id (lib/maps); missing means the hub. */
   map?: string;
   /** Team battle settings; they apply on battle maps, the hub stays free-for-all. */
@@ -376,6 +388,8 @@ export function initialState(
     theme,
     visualStyle: 'classic',
     template,
+    mode: 'retro',
+    map: 'hub',
     season: THEMES.find((t) => t.id === theme)?.season || 'spring',
     time: 'day',
     interior: false,
@@ -607,8 +621,17 @@ export function applyOperation(
     if ('season' in p)
       s.season = oneOf(p.season, ['spring', 'summer', 'autumn', 'winter']);
     if ('time' in p) s.time = oneOf(p.time, ['dawn', 'day', 'sunset', 'night']);
-    // Same ids as MAP_IDS in lib/maps (tests/maps.test.mjs checks every one is accepted).
-    if ('map' in p) s.map = oneOf(p.map, ['hub', 'mansion', 'bazaar', 'mountain']);
+    // The mode comes first: a map only counts if it belongs to that mode. Switching the
+    // mode moves the room to that mode's default map when the old one does not fit.
+    if ('mode' in p || 'map' in p) {
+      const mode = ('mode' in p ? oneOf(p.mode, ['retro', 'battle']) : modeOf(s)) as GameMode;
+      const map = 'map' in p ? oneOf(p.map, MAP_IDS) : (s.map ?? 'hub');
+      if (modeOfMap(map) !== mode) {
+        if ('map' in p) throw Error('Эта карта не для выбранного режима');
+        s.map = defaultMapFor(mode);
+      } else s.map = map;
+      s.mode = mode;
+    }
     if ('friendlyFire' in p) s.friendlyFire = !!p.friendlyFire;
     if ('friendlyFirePercent' in p) {
       s.friendlyFirePercent = finite(p.friendlyFirePercent, 1, 100);

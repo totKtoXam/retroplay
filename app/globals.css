@@ -463,6 +463,35 @@ h3 {
   font-size: 23px;
   grid-row: span 2;
 }
+/* Mode cards: same look as theme cards, but full width text without an icon column. */
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+.mode-card {
+  border: 1px solid #e2e8e3;
+  border-radius: 10px;
+  padding: 13px;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+.mode-card strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+.mode-card small {
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 3px;
+  display: block;
+}
+.mode-card.selected {
+  border-color: #368c78;
+  box-shadow: 0 0 0 1px #368c78;
+}
 .theme-card strong {
   font-size: 13px;
   font-weight: 600;
@@ -2388,6 +2417,18 @@ h1 > span {
   border-color: #9b83d8;
   background: #f2edfc;
   box-shadow: 0 0 0 1px #9b83d8;
+}
+.mode-card {
+  background: #faf9fe;
+  border-color: #e6e1f2;
+}
+.mode-card.selected {
+  border-color: #9b83d8;
+  background: #f2edfc;
+  box-shadow: 0 0 0 1px #9b83d8;
+}
+.mode-card small {
+  color: #a09ab1;
 }
 .theme-card small {
   color: #a09ab1;

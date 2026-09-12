@@ -1,20 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import ts from 'typescript';
-
-const source = ts.transpileModule(
-  readFileSync(new URL('../lib/model.ts', import.meta.url), 'utf8'),
-  {
-    compilerOptions: {
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2022,
-    },
-  },
-).outputText;
-
-const { initialState, applyOperation, publicState } = await import(
-  'data:text/javascript;base64,' + Buffer.from(source).toString('base64')
-);
+import { initialState, applyOperation, publicState } from '../lib/model.ts';
 
 let passed = 0;
 function test(name, fn) {

@@ -31,6 +31,7 @@ import {
   type RoomState,
   type Round,
 } from '@/lib/model';
+import { mapsForMode, modeOf, MODES } from '@/lib/maps/catalog';
 import { Choice, Toggle } from './controls';
 import { StylePicker } from './style-picker';
 import { ResourcePackPicker } from './resource-pack-picker';
@@ -649,6 +650,7 @@ export function ActionsPanel({
   );
 }
 
+/** How the world looks: style, theme, sky. The map and the rules live in ModePanel. */
 export function WorldPanel({
   s,
   host,
@@ -657,33 +659,17 @@ export function WorldPanel({
   onTimeChange,
   onSeasonChange,
   onInteriorChange,
-  onRespawnSecondsChange,
-  maps,
-  onMapChange,
-  onSettings,
 }: {
   s: RoomState;
   host: boolean;
-  maps: { id: string; title: string }[];
-  onMapChange: (map: string) => void;
-  /** Any other room.settings patch (team battle settings). */
-  onSettings: (patch: Record<string, unknown>) => void;
   onStyleChange: (visualStyle: string) => void;
   onThemeChange: (theme: string, season: string) => void;
   onTimeChange: (time: string) => void;
   onSeasonChange: (season: string) => void;
   onInteriorChange: (interior: boolean) => void;
-  onRespawnSecondsChange: (respawnSeconds: number) => void;
 }) {
   return (
     <>
-      <Choice
-        label="Карта"
-        value={s.map ?? 'hub'}
-        disabled={!host}
-        onChange={onMapChange}
-        options={maps.map((m) => ({ value: m.id, label: m.title }))}
-      />
       <StylePicker
         value={s.visualStyle || 'classic'}
         disabled={!host}
@@ -729,14 +715,54 @@ export function WorldPanel({
           ].map(([value, label]) => ({ value, label }))}
         />
       </div>
-      <Toggle
-        label="Встретиться в интерьере"
-        description="Уютная мастерская с деревянными балками"
-        value={s.interior}
-        disabled={!host}
-        onChange={onInteriorChange}
+      {/* The interior is a room of the hub; battle maps have their own buildings. */}
+      {modeOf(s) === 'retro' && (
+        <Toggle
+          label="Встретиться в интерьере"
+          description="Уютная мастерская с деревянными балками"
+          value={s.interior}
+          disabled={!host}
+          onChange={onInteriorChange}
+        />
+      )}
+    </>
+  );
+}
+
+/** What is being played: the mode, its map and its rules. */
+export function ModePanel({
+  s,
+  host,
+  onSettings,
+}: {
+  s: RoomState;
+  host: boolean;
+  onSettings: (patch: Record<string, unknown>) => void;
+}) {
+  const mode = modeOf(s);
+  return (
+    <>
+      <div className="mode-grid">
+        {MODES.map((m) => (
+          <button
+            key={m.id}
+            disabled={!host}
+            className={`mode-card ${mode === m.id ? 'selected' : ''}`}
+            onClick={() => onSettings({ mode: m.id })}
+          >
+            <strong>{m.title}</strong>
+            <small>{m.hint}</small>
+          </button>
+        ))}
+      </div>
+      <Choice
+        label="Карта"
+        value={s.map ?? 'hub'}
+        disabled={!host || mapsForMode(mode).length < 2}
+        onChange={(map) => onSettings({ map })}
+        options={mapsForMode(mode).map((m) => ({ value: m.id, label: m.title }))}
       />
-      {(s.map ?? 'hub') !== 'hub' && (
+      {mode === 'battle' && (
         <>
           <Choice
             label="Формат матча"
@@ -821,7 +847,7 @@ export function WorldPanel({
           onBlur={(e) => {
             const value = Number(e.target.value);
             if (Number.isInteger(value) && value >= 1 && value <= 30)
-              onRespawnSecondsChange(value);
+              onSettings({ respawnSeconds: value });
             else e.target.value = String(s.respawnSeconds ?? 5);
           }}
         />

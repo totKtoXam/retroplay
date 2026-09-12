@@ -12,6 +12,7 @@ import {
 import { uid, type Person, type Pose, type RoomState, type WorldEffect } from './model.ts';
 import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
 import { getMap } from './maps/index.ts';
+import { modeOf } from './maps/catalog.ts';
 import { stanceHeight, type GameMap, type SpawnPoint, type Team } from './maps/types.ts';
 
 /** Effects older than this are neither resolved nor sent to clients. */
@@ -135,8 +136,8 @@ export function roomFromState(host: string, state: Partial<RoomState>): HubRoom 
     respawnSeconds: state.respawnSeconds ?? 5,
     archived: !!state.archived,
     map: getMap(state.map).id,
-    // Battle maps are played in teams; the hub is a meeting place, so free-for-all.
-    teams: !!getMap(state.map).arena,
+    // Teams belong to the battle mode; a retrospective is free-for-all.
+    teams: modeOf(state) === 'battle',
     friendlyFire: !!state.friendlyFire,
     friendlyFirePercent: clamp(state.friendlyFirePercent ?? 50, 0, 100),
     matchMode: state.matchMode === 'rounds' ? 'rounds' : 'deathmatch',

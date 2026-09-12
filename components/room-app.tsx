@@ -100,11 +100,12 @@ import {
   TimerPanel,
   ToolsPanel,
   VotePanel,
+  ModePanel,
   WidgetsPanel,
   WorldPanel,
 } from './room-panels';
 import { useRoomSync } from './use-room-sync';
-import { MAP_LIST } from '@/lib/maps';
+import { MAP_CATALOG, modeOf, MODES } from '@/lib/maps/catalog';
 
 const World = lazy(() => import('./world'));
 const icons = [
@@ -534,7 +535,10 @@ export default function RoomApp({ id }: { id: string }) {
     host = room?.host === room?.self,
     s = room?.state,
     online = room?.members.filter((m) => now - m.lastSeen < 15000) || [],
-    theme = THEMES.find((t) => t.id === s?.theme) || THEMES[0];
+    theme = THEMES.find((t) => t.id === s?.theme) || THEMES[0],
+    gameMode = modeOf(s ?? {}),
+    mapTitle =
+      MAP_CATALOG.find((m) => m.id === (s?.map ?? 'hub'))?.title ?? 'Хаб';
   const enter = async (overrideName?: string) => {
     const playerName = (overrideName || name).trim();
     if (!playerName) return;
@@ -1160,6 +1164,21 @@ export default function RoomApp({ id }: { id: string }) {
               aria-label="Настроить встречу"
             >
               <Settings2 size={15} />
+            </button>
+          </div>
+          <div className="world-preview">
+            <span className="world-preview-icon">
+              {gameMode === 'battle' ? '⚔️' : '🗒️'}
+            </span>
+            <div>
+              <strong>{MODES.find((m) => m.id === gameMode)?.title}</strong>
+              <span>{mapTitle}</span>
+            </div>
+            <button
+              onClick={() => setPanel('mode')}
+              aria-label="Изменить режим игры"
+            >
+              <ChevronRight size={16} />
             </button>
           </div>
           <div className="world-preview">
@@ -2115,7 +2134,8 @@ export default function RoomApp({ id }: { id: string }) {
               {
                 history: 'История изменений',
                 settings: 'Настройки встречи',
-                world: 'Настройки мира',
+                world: 'Облик мира',
+                mode: 'Режим игры',
                 fps: 'Графика и управление',
                 share: 'Пригласить команду',
                 join_requests: 'Запросы на вход',
@@ -2138,10 +2158,12 @@ export default function RoomApp({ id }: { id: string }) {
                 : panel === 'settings'
                   ? 'Приватность и правила совместной работы'
                   : panel === 'world'
-                    ? 'Общий облик мира и правила возрождения'
-                    : panel === 'fps'
-                      ? 'Настройки графики и поведения управления для вашего устройства'
-                      : 'Инструменты вашей ретроспективы'}
+                    ? 'Стиль, тема и время суток — как выглядит мир'
+                    : panel === 'mode'
+                      ? 'Во что играем: режим, карта и правила'
+                      : panel === 'fps'
+                        ? 'Настройки графики и поведения управления для вашего устройства'
+                        : 'Инструменты вашей ретроспективы'}
           </DialogDescription>
           {panel === 'tools' && (
             <ToolsPanel
@@ -2238,17 +2260,13 @@ export default function RoomApp({ id }: { id: string }) {
               onInteriorChange={(interior) =>
                 void act({ type: 'room.settings', patch: { interior } })
               }
-              maps={MAP_LIST}
-              onMapChange={(map) =>
-                void act({ type: 'room.settings', patch: { map } })
-              }
+            />
+          )}
+          {panel === 'mode' && (
+            <ModePanel
+              s={s}
+              host={host}
               onSettings={(patch) => void act({ type: 'room.settings', patch })}
-              onRespawnSecondsChange={(respawnSeconds) =>
-                void act({
-                  type: 'room.settings',
-                  patch: { respawnSeconds },
-                })
-              }
             />
           )}
           {panel === 'fps' && (

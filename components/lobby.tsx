@@ -17,6 +17,8 @@ import {
   Settings2,
   Globe,
   Lock,
+  NotebookPen,
+  Swords,
   Users,
 } from 'lucide-react';
 import {
@@ -28,6 +30,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { THEMES, PHASES, type RoomAccessType } from '@/lib/model';
 import { api, ready } from '@/lib/client';
+import { defaultMapFor, mapsForMode, MODES, type GameMode } from '@/lib/maps/catalog';
 import { Choice } from './controls';
 import { StylePicker } from './style-picker';
 import { ResourcePackPicker } from './resource-pack-picker';
@@ -67,6 +70,8 @@ export default function Lobby() {
     [theme, setTheme] = useState('nauryz'),
     [visualStyle, setVisualStyle] = useState('classic'),
     [template, setTemplate] = useState('four'),
+    [gameMode, setGameMode] = useState<GameMode>('retro'),
+    [map, setMap] = useState('hub'),
     [accessType, setAccessType] = useState<RoomAccessType>('public'),
     [maxPlayers, setMaxPlayers] = useState(8),
     [view, setView] = useState<'browser' | 'my_rooms'>('browser'),
@@ -134,6 +139,8 @@ export default function Lobby() {
           theme,
           template,
           visualStyle,
+          mode: gameMode,
+          map,
           access: accessType,
           maxPlayers,
         },
@@ -579,6 +586,41 @@ export default function Lobby() {
             </label>
 
             <div className="field">
+              <span className="field-label">Режим игры</span>
+              <div className="access-choice-cards">
+                {MODES.map((m) => (
+                  <button
+                    type="button"
+                    key={m.id}
+                    className={`access-choice-card ${gameMode === m.id ? 'selected' : ''}`}
+                    onClick={() => {
+                      setGameMode(m.id);
+                      setMap(defaultMapFor(m.id));
+                    }}
+                  >
+                    <div className="access-choice-head">
+                      {m.id === 'battle' ? <Swords size={18} /> : <NotebookPen size={18} />}
+                      <strong>{m.title}</strong>
+                    </div>
+                    <small>{m.hint}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {mapsForMode(gameMode).length > 1 && (
+              <Choice
+                label="Карта"
+                value={map}
+                onChange={setMap}
+                options={mapsForMode(gameMode).map((m) => ({
+                  value: m.id,
+                  label: m.title,
+                }))}
+              />
+            )}
+
+            <div className="field">
               <span className="field-label">Доступ к комнате</span>
               <div className="access-choice-cards">
                 <button
@@ -619,15 +661,17 @@ export default function Lobby() {
               ]}
             />
 
-            <Choice
-              label="Формат ретроспективы"
-              value={template}
-              onChange={setTemplate}
-              options={[
-                { value: 'four', label: 'Good / Bad / Start / Stop' },
-                { value: 'three', label: 'Start / Stop / Continue' },
-              ]}
-            />
+            {gameMode === 'retro' && (
+              <Choice
+                label="Формат ретроспективы"
+                value={template}
+                onChange={setTemplate}
+                options={[
+                  { value: 'four', label: 'Good / Bad / Start / Stop' },
+                  { value: 'three', label: 'Start / Stop / Continue' },
+                ]}
+              />
+            )}
             <StylePicker value={visualStyle} onChange={setVisualStyle} />
             <span className="field">Выберите мир</span>
             <div className="theme-grid">

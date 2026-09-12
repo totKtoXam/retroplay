@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MAP_IDS, getMap } from '../lib/maps/index.ts';
+import { defaultMapFor, modeOf, modeOfMap } from '../lib/maps/catalog.ts';
+import { roomFromState } from '../lib/room-hub-core.ts';
 import { buildArena, perimeterWalls, stanceHeight } from '../lib/maps/types.ts';
 import { isBlocked3D } from '../lib/world-collision.ts';
 import { applyOperation, initialState } from '../lib/model.ts';
@@ -63,11 +65,48 @@ test('reachable() follows the hub: plaza to the campus hall and up its stairs', 
 test('the host picks the map; unknown ids are rejected', () => {
   let s = initialState('Retro');
   for (const map of MAP_IDS) {
-    s = applyOperation(s, { type: 'room.settings', patch: { map } }, 'host', 'host');
+    const mode = modeOfMap(map);
+    s = applyOperation(s, { type: 'room.settings', patch: { mode, map } }, 'host', 'host');
     assert.equal(s.map, map);
+    assert.equal(s.mode, mode);
   }
   assert.throws(() => applyOperation(s, { type: 'room.settings', patch: { map: 'dust2' } }, 'host', 'host'));
   assert.throws(() => applyOperation(s, { type: 'room.settings', patch: { map: 'hub' } }, 'guest', 'host'));
+});
+
+test('the mode decides the map: a foreign map is rejected, a mode switch moves the room', () => {
+  const set = (s, patch) => applyOperation(s, { type: 'room.settings', patch }, 'host', 'host');
+  let s = initialState('Retro');
+  assert.equal(modeOf(s), 'retro');
+  assert.equal(s.map, 'hub');
+  // A battle map while the room is a retrospective: refused, the room does not move.
+  assert.throws(() => set(s, { map: 'mansion' }), /не для выбранного режима/);
+  assert.equal(s.map, 'hub');
+  // Switching the mode alone carries the room to that mode's first map.
+  s = set(s, { mode: 'battle' });
+  assert.equal(s.map, defaultMapFor('battle'));
+  assert.equal(modeOf(s), 'battle');
+  // Within the mode any of its maps is fine, and the hub is now the foreign one.
+  s = set(s, { map: 'mountain' });
+  assert.equal(s.map, 'mountain');
+  assert.throws(() => set(s, { map: 'hub' }), /не для выбранного режима/);
+  // Coming back keeps the battle map out.
+  s = set(s, { mode: 'retro' });
+  assert.equal(s.map, 'hub');
+  // Mode and map together are accepted as one change.
+  s = set(s, { mode: 'battle', map: 'bazaar' });
+  assert.deepEqual([s.mode, s.map], ['battle', 'bazaar']);
+  assert.throws(() => set(s, { mode: 'retro', map: 'bazaar' }), /не для выбранного режима/);
+  // Legacy rooms have no mode: it is read from the map they are on.
+  assert.equal(modeOf({ map: 'mansion' }), 'battle');
+  assert.equal(modeOf({}), 'retro');
+});
+
+test('teams are on in battle mode and off in a retrospective', () => {
+  assert.equal(roomFromState('h', { mode: 'battle', map: 'mansion' }).teams, true);
+  assert.equal(roomFromState('h', { mode: 'retro', map: 'hub' }).teams, false);
+  // A legacy room without a mode follows its map.
+  assert.equal(roomFromState('h', { map: 'bazaar' }).teams, true);
 });
 
 test('floor slabs are ground from above and ceiling from below; ramps interpolate', () => {
