@@ -31,6 +31,7 @@ import { PAINTS, CONFETTI, GRENADES, FIREWORKS, SHOTGUN_PELLET_OFFSETS } from '@
 import { createWorldVfx } from './world-vfx';
 import { createWorldProjectiles } from './world-projectiles';
 import { createWorldRemotePlayers } from './world-remote-players';
+import { createWorldPlayer } from './world-player';
 import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
@@ -46,18 +47,12 @@ import {
   wrapAngle,
   type Perspective,
 } from '@/lib/game-camera';
-import { isBlocked3D } from '@/lib/world-collision';
 import { getMap } from '@/lib/maps';
-import { stanceHeight } from '@/lib/maps/types';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import {
-  animateAvatar,
-  avatarShoot,
-  followCameraHeading,
-} from './world-avatar';
+import { animateAvatar, avatarShoot } from './world-avatar';
 import {
   MousePointer2,
   MoveUp,
@@ -674,21 +669,10 @@ export default function World(props: Props) {
     const initial = latest.current.room.members.find(
       (m) => m.id === latest.current.room.self,
     )?.pose;
-    const pos = new T.Vector3(
-      initial?.x ?? 0,
-      initial?.y ?? 0,
-      initial?.z ?? 15,
-    );
-    let cameraYaw = initial?.yaw || 0,
-      heading = cameraYaw,
-      viewHeight = eyeHeight(initial?.stance || 'stand'),
-      pitch = 0.16,
+    let viewHeight = eyeHeight(initial?.stance || 'stand'),
       distance = 6.5,
       currentCamDist = 6.5,
       obstacleHoldTimer = 0,
-      vy = 0,
-      currentStance: 'stand' | 'sit' | 'lie' = initial?.stance || 'stand',
-      lastC = -1000,
       raf = 0,
       last = 0,
       poseAt = 0,
@@ -699,8 +683,6 @@ export default function World(props: Props) {
       left = false,
       aimHeld = false,
       aimBlend = 0,
-      crouchHeld = false,
-      beforeCrouch: 'stand' | 'sit' | 'lie' = 'stand',
       equippedTool = latest.current.tool,
       activeControl = false,
       softLook = false,
@@ -710,6 +692,16 @@ export default function World(props: Props) {
     const keys = new Set<string>(),
       ray = new T.Raycaster(),
       mouse = new T.Vector2(0, 0);
+    const player = createWorldPlayer({
+      map,
+      keys,
+      initial,
+      // `isDead` is declared further down; wrap it so the player factory does
+      // not read it before its initializer has run.
+      isDead: () => isDead(),
+      onStance: setStance,
+    });
+    const { pos } = player;
     const vfx = createWorldVfx({ scene, quality: props.quality });
     const { burst, paintDropletGeo } = vfx;
     // Per-frame camera-update scratch vectors, reused to avoid allocating on every tick.
@@ -963,13 +955,13 @@ export default function World(props: Props) {
             .clone()
             .add(
               new T.Vector3(
-                Math.cos(cameraYaw) * 0.38,
-                currentStance === 'lie'
+                Math.cos(player.cameraYaw) * 0.38,
+                player.stance === 'lie'
                   ? 0.5
-                  : currentStance === 'sit'
+                  : player.stance === 'sit'
                     ? 1.05
                     : 1.5,
-                -Math.sin(cameraYaw) * 0.38,
+                -Math.sin(player.cameraYaw) * 0.38,
               ),
             );
       // Ствол не должен стрелять через препятствие, находящееся ближе центра прицела.
@@ -1182,7 +1174,7 @@ export default function World(props: Props) {
       fire: spawn,
       refreshTargets: rebuildSceneryTargets,
       orbit: (d) => {
-        cameraYaw = wrapAngle(cameraYaw + d);
+        player.cameraYaw = wrapAngle(player.cameraYaw + d);
         canvas.focus();
       },
       shadow: () => {
@@ -1192,8 +1184,8 @@ export default function World(props: Props) {
         distance = T.MathUtils.clamp(distance + d, 3, 17);
       },
       reset: () => {
-        cameraYaw = heading;
-        pitch = perspectiveRef.current === 'first' ? 0 : 0.16;
+        player.cameraYaw = player.heading;
+        player.pitch = perspectiveRef.current === 'first' ? 0 : 0.16;
         distance = 6.5;
         canvas.focus();
       },
@@ -1226,11 +1218,7 @@ export default function World(props: Props) {
       }
       aimHeld = false;
       setAiming(false);
-      if (crouchHeld) {
-        if (canStand(beforeCrouch)) currentStance = beforeCrouch;
-        crouchHeld = false;
-        setStance(currentStance);
-      }
+      player.releaseCrouch();
     };
     const onKey = (e: KeyboardEvent) => {
       if (
@@ -1306,31 +1294,10 @@ export default function World(props: Props) {
       if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
         latest.current.onMonitor(true);
       if (e.code === 'KeyR') beginReload();
-      if (e.code.startsWith('Control') && !crouchHeld) {
-        beforeCrouch = currentStance;
-        crouchHeld = true;
-        currentStance = 'sit';
-        setStance('sit');
-      }
+      if (e.code.startsWith('Control')) player.holdCrouch();
       if (isDead()) return;
-      const groundYNow = map.groundHeight(pos.x, pos.z, pos.y);
-      if (e.code === 'Space' && Math.abs(pos.y - groundYNow) <= 0.08 && canStand('stand')) {
-        currentStance = 'stand';
-        setStance('stand');
-        vy = 5.7;
-      }
-      if (e.code === 'KeyC' && !crouchHeld) {
-        const now = performance.now();
-        const nextStance =
-          now - lastC < 360
-            ? 'lie'
-            : currentStance === 'stand'
-              ? 'sit'
-              : 'stand';
-        if (canStand(nextStance)) currentStance = nextStance;
-        lastC = now;
-        setStance(currentStance);
-      }
+      if (e.code === 'Space') player.jump();
+      if (e.code === 'KeyC') player.toggleStance(performance.now());
       if (e.code === 'KeyE' && nearZone) {
         engine.current?.pause();
         if (document.pointerLockElement) document.exitPointerLock();
@@ -1355,14 +1322,10 @@ export default function World(props: Props) {
       keys.delete(e.code);
       if (
         e.code.startsWith('Control') &&
-        crouchHeld &&
         !keys.has('ControlLeft') &&
         !keys.has('ControlRight')
-      ) {
-        if (canStand(beforeCrouch)) currentStance = beforeCrouch;
-        crouchHeld = false;
-        setStance(currentStance);
-      }
+      )
+        player.releaseCrouch();
       if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
         latest.current.onMonitor(false);
     };
@@ -1388,9 +1351,9 @@ export default function World(props: Props) {
           ? Math.max(0.12, 1 / (SNIPER_ZOOM_LEVELS[sniperZoomIndexRef.current] * 0.75))
           : 1;
         const sens = latest.current.sensitivity * zoomScale;
-        cameraYaw = wrapAngle(cameraYaw - mx * 0.0023 * sens);
-        pitch = T.MathUtils.clamp(
-          pitch +
+        player.cameraYaw = wrapAngle(player.cameraYaw - mx * 0.0023 * sens);
+        player.pitch = T.MathUtils.clamp(
+          player.pitch +
           my *
           0.002 *
           sens *
@@ -1538,13 +1501,6 @@ export default function World(props: Props) {
     canvas.addEventListener('contextmenu', context);
     canvas.addEventListener('auxclick', context);
     canvas.addEventListener('webglcontextlost', context);
-    // Body height follows the stance, so crouching or lying fits through low openings.
-    const blocked = (x: number, z: number, y = pos.y, stance = currentStance) =>
-      isBlocked3D(x, z, y, 0.32, stanceHeight(stance), map.colliders);
-    /** Whether there is room to take `stance` here (no standing up inside a crawl hole). */
-    const canStand = (stance: 'stand' | 'sit' | 'lie') =>
-      !blocked(pos.x, pos.z, pos.y, stance) &&
-      pos.y + stanceHeight(stance) < map.ceilingHeight(pos.x, pos.z, pos.y) + 0.01;
     let life =
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.life || 0;
@@ -1574,10 +1530,7 @@ export default function World(props: Props) {
       );
       if ((own?.life || 0) !== life) {
         life = own?.life || 0;
-        // The server put us on a spawn point of the room's map.
-        pos.set(own?.pose.x ?? 0, own?.pose.y ?? 0, own?.pose.z ?? 4);
-        vy = 0;
-        currentStance = 'stand';
+        player.teleport(own?.pose.x ?? 0, own?.pose.y ?? 0, own?.pose.z ?? 4);
         clear();
       }
       if (isDead()) clear();
@@ -1667,129 +1620,21 @@ export default function World(props: Props) {
         trajectoryLine.visible = false;
         landingMarker.visible = false;
       }
-      let dx = 0,
-        dz = 0;
       const control =
         enabled() && !latest.current.blocked && !middle && !isDead();
-      if (control) {
-        if (softLook && mouseInWorld && Math.abs(mouse.x) > 0.88)
-          cameraYaw = wrapAngle(cameraYaw - Math.sign(mouse.x) * 1.35 * dt);
-        dx = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
-        dz = Number(keys.has('KeyS')) - Number(keys.has('KeyW'));
-        cameraYaw = wrapAngle(
-          cameraYaw +
-          (Number(keys.has('ArrowLeft')) - Number(keys.has('ArrowRight'))) *
-          dt *
-          1.5,
-        );
-        pitch = T.MathUtils.clamp(
-          pitch +
-          (Number(keys.has('ArrowDown')) - Number(keys.has('ArrowUp'))) *
-          dt *
-          0.8,
-          -1.35,
-          1.4,
-        );
-      }
-      cameraYaw = wrapAngle(cameraYaw);
-      const moving = !!(dx || dz),
-        slow = keys.has('ShiftLeft') || keys.has('ShiftRight');
-      const speed =
-        currentStance === 'lie'
-          ? 0.65
-          : currentStance === 'sit'
-            ? 1.5
-            : slow
-              ? 2
-              : aimHeld
-                ? 3
-                : 4.8;
-      if (moving) {
-        const len = Math.hypot(dx, dz);
-        dx /= len;
-        dz /= len;
-        const vx = dx * Math.cos(cameraYaw) + dz * Math.sin(cameraYaw),
-          vz = -dx * Math.sin(cameraYaw) + dz * Math.cos(cameraYaw);
-        const nx = T.MathUtils.clamp(pos.x + vx * speed * dt, -36, 36),
-          nz = T.MathUtils.clamp(pos.z + vz * speed * dt, -36, 36);
-
-        // Try X movement with step-up assist:
-        const nextGroundX = map.groundHeight(nx, pos.z, pos.y);
-        const stepDeltaX = nextGroundX - pos.y;
-        if (
-          stepDeltaX <= 0.55 &&
-          !blocked(nx, pos.z, Math.max(pos.y, nextGroundX))
-        ) {
-          pos.x = nx;
-          if (stepDeltaX > 0.01 && pos.y < nextGroundX) {
-            pos.y = T.MathUtils.lerp(pos.y, nextGroundX, Math.min(1, 20 * dt));
-          }
-        }
-
-        // Try Z movement with step-up assist:
-        const nextGroundZ = map.groundHeight(pos.x, nz, pos.y);
-        const stepDeltaZ = nextGroundZ - pos.y;
-        if (
-          stepDeltaZ <= 0.55 &&
-          !blocked(pos.x, nz, Math.max(pos.y, nextGroundZ))
-        ) {
-          pos.z = nz;
-          if (stepDeltaZ > 0.01 && pos.y < nextGroundZ) {
-            pos.y = T.MathUtils.lerp(pos.y, nextGroundZ, Math.min(1, 20 * dt));
-          }
-        }
-      }
-      heading = wrapAngle(followCameraHeading(heading, cameraYaw, dt));
-
-      // Dynamic ground height detection & gravity:
-      const groundY = map.groundHeight(pos.x, pos.z, pos.y);
-      vy -= 13 * dt;
-      pos.y = pos.y + vy * dt;
-      if (pos.y <= groundY) {
-        pos.y = groundY;
-        vy = 0;
-      }
-      // Ceiling collision to prevent head clipping through floors/roofs:
-      const ceilY = map.ceilingHeight(pos.x, pos.z, pos.y);
-      const bodyHeight = stanceHeight(currentStance);
-      if (pos.y + bodyHeight >= ceilY) {
-        pos.y = Math.max(groundY, ceilY - bodyHeight);
-        if (vy > 0) vy = 0;
-      }
-
-      // Anti-stuck depenetration: guarantee player never gets stuck inside colliders
-      const playerRadius = 0.32;
-      const worldColliders = map.colliders;
-      for (const c of worldColliders) {
-        if (
-          pos.x + playerRadius > c.minX &&
-          pos.x - playerRadius < c.maxX &&
-          pos.z + playerRadius > c.minZ &&
-          pos.z - playerRadius < c.maxZ
-        ) {
-          const feetY = pos.y + 0.35;
-          const headY = pos.y + stanceHeight(currentStance) - 0.05;
-          if (headY > c.minY && feetY < c.maxY) {
-            if (pos.y >= c.maxY - 0.55) {
-              pos.y = c.maxY;
-              if (vy < 0) vy = 0;
-            } else {
-              const overlapLeft = (pos.x + playerRadius) - c.minX;
-              const overlapRight = c.maxX - (pos.x - playerRadius);
-              const overlapBack = (pos.z + playerRadius) - c.minZ;
-              const overlapFront = c.maxZ - (pos.z - playerRadius);
-              const minOverlap = Math.min(overlapLeft, overlapRight, overlapBack, overlapFront);
-              if (minOverlap === overlapLeft) pos.x = c.minX - playerRadius;
-              else if (minOverlap === overlapRight) pos.x = c.maxX + playerRadius;
-              else if (minOverlap === overlapBack) pos.z = c.minZ - playerRadius;
-              else pos.z = c.maxZ + playerRadius;
-            }
-          }
-        }
-      }
+      const { moving, speed, dx, dz, groundY } = player.update(dt, {
+        control,
+        aimHeld,
+        // Soft look turns the camera when the pointer sits at the screen edge;
+        // the player module stays free of mouse state, so resolve it here.
+        edgeTurn:
+          softLook && mouseInWorld && Math.abs(mouse.x) > 0.88
+            ? Math.sign(mouse.x)
+            : 0,
+      });
       avatar.position.copy(pos);
       avatar.position.y += 0.27;
-      avatar.rotation.y = heading;
+      avatar.rotation.y = player.heading;
 
       const myMember = latest.current.room.members.find(
         (m) => m.id === latest.current.room.self,
@@ -1812,13 +1657,13 @@ export default function World(props: Props) {
           strafe: dx,
           forward: -dz,
           airborne: Math.abs(pos.y - groundY) > 0.03,
-          velocityY: vy,
-          stance: currentStance,
+          velocityY: player.vy,
+          stance: player.stance,
           tool: GAME_TOOLS[latest.current.tool]?.id || 'pointer',
           variant: selection.current.grenadeStyle,
-          pitch,
+          pitch: player.pitch,
           working: latest.current.working,
-          crouching: crouchHeld,
+          crouching: player.crouching,
           aiming: aimHeld,
           reload: magazine.current.progress(now),
           inventory: middle,
@@ -1831,14 +1676,14 @@ export default function World(props: Props) {
       shadow.scale.setScalar(Math.max(0.5, 1 - (pos.y - groundY) * 0.1));
       viewHeight = T.MathUtils.lerp(
         viewHeight,
-        eyeHeight(currentStance),
+        eyeHeight(player.stance),
         1 - Math.exp(-10 * dt),
       );
       const mode = perspectiveRef.current;
       const view = cameraFrame(
         pos,
-        cameraYaw,
-        pitch,
+        player.cameraYaw,
+        player.pitch,
         viewHeight,
         mode,
         distance,
@@ -1962,7 +1807,7 @@ export default function World(props: Props) {
         setNear(nearest);
       }
       remotePlayers.update(now, dt);
-      projectiles.update(now, currentStance);
+      projectiles.update(now, player.stance);
       vfx.update(now, dt);
       if (now - poseAt > 120) {
         latest.current.onPose({
@@ -1972,13 +1817,13 @@ export default function World(props: Props) {
           x: pos.x,
           z: pos.z,
           y: pos.y,
-          yaw: heading,
-          stance: currentStance,
+          yaw: player.heading,
+          stance: player.stance,
           moving,
           speed: moving ? speed : 0,
           strafe: dx,
           forward: -dz,
-          pitch,
+          pitch: player.pitch,
           tool: [
             'paint',
             'confetti',
@@ -1991,7 +1836,7 @@ export default function World(props: Props) {
             : 'other',
           variant: selection.current.grenadeStyle,
           working: latest.current.working || middle,
-          crouching: crouchHeld,
+          crouching: player.crouching,
           aiming: aimHeld,
           reload: magazine.current.progress(now),
         });
