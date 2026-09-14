@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import { initialState, applyOperation, publicState } from '../lib/model.ts';
+import {
+  initialState,
+  applyOperation,
+  publicState,
+  kdaRatio,
+} from '../lib/model.ts';
 let passed = 0;
 function test(name, fn) {
   fn();
@@ -138,3 +143,17 @@ test('Import validates each row and does not mutate source on failure', () => {
   assert.equal(s.notes.length, 0);
 });
 console.log(`${passed} behavioral tests passed`);
+
+test('KDA ratio counts assists and never divides by zero', () => {
+  assert.equal(kdaRatio({ kills: 4, assists: 2, deaths: 3 }), 2);
+  // Без смертей коэффициент считается как за одну: иначе он был бы бесконечным.
+  assert.equal(kdaRatio({ kills: 3, assists: 0, deaths: 0 }), 3);
+  assert.equal(kdaRatio({}), 0);
+  // Сортировка табло: выше тот, у кого коэффициент больше.
+  const board = [
+    { name: 'a', kills: 1, deaths: 5, assists: 0 },
+    { name: 'b', kills: 6, deaths: 2, assists: 2 },
+    { name: 'c', kills: 2, deaths: 1, assists: 1 },
+  ].sort((x, y) => kdaRatio(y) - kdaRatio(x));
+  assert.deepEqual(board.map((p) => p.name), ['b', 'c', 'a']);
+});

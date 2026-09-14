@@ -107,10 +107,16 @@ export function blocksCamera(
 const wallScratchRay = new T.Raycaster();
 const wallScratchVisible: T.Object3D[] = [];
 /** Камера сокращает расстояние до ближайшей стены, сохраняя запас перед поверхностью. */
+/**
+ * Камера у стены. `minDistance` не даёт ей влезть в голову персонажа: иначе
+ * вид от третьего лица незаметно превращался в вид от первого, и игрок
+ * переставал видеть своего героя (а значит и свой скин).
+ */
 export function avoidCameraWalls(
   eye: T.Vector3,
   desired: T.Vector3,
   objects: T.Object3D[],
+  minDistance = 0.08,
 ) {
   const delta = desired.clone().sub(eye),
     distance = delta.length();
@@ -125,6 +131,6 @@ export function avoidCameraWalls(
     .intersectObjects(wallScratchVisible, false)
     .find((h) => blocksCamera(h.object, h.face?.materialIndex));
   return hit
-    ? eye.clone().addScaledVector(delta, Math.max(0.08, hit.distance - 0.22))
+    ? eye.clone().addScaledVector(delta, Math.max(minDistance, hit.distance - 0.22))
     : desired.clone();
 }

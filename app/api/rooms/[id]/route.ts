@@ -382,9 +382,12 @@ export async function POST(request: Request, context: Context) {
       .first();
     if (!member) return json({ error: 'Сначала войдите в комнату' }, 403);
     if (op.type === 'team.set') {
-      if (self !== r.host) throw Error('Команды меняет ведущий');
-      if (op.team !== 'red' && op.team !== 'blue') throw Error('Неизвестная команда');
       if (typeof op.session !== 'string') throw Error('Не указан участник');
+      // Сторону себе игрок выбирает сам (как в сетевых шутерах); чужую —
+      // только ведущий.
+      if (self !== r.host && op.session !== self)
+        throw Error('Чужую команду меняет ведущий');
+      if (op.team !== 'red' && op.team !== 'blue') throw Error('Неизвестная команда');
       return json(await roomHub(id).team(id, op.session, op.team));
     }
     if (op.type === 'effect') {

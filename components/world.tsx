@@ -1725,6 +1725,8 @@ export default function World(props: Props) {
           view.eye,
           view.position,
           cameraObstacles,
+          // Ближе персонаж закрывает весь экран, а его самого уже не видно.
+          1.45,
         );
         const hitDist = desired.distanceTo(view.eye);
         const fullDist = view.position.distanceTo(view.eye);

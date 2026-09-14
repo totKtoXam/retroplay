@@ -4594,7 +4594,7 @@ h1 > span {
 }
 .monitor-table-header {
   display: grid;
-  grid-template-columns: 1fr 64px 44px 34px 34px 34px 60px;
+  grid-template-columns: 1fr 64px 44px 30px 30px 30px 50px 56px;
   align-items: center;
   padding: 7px 10px;
   font-size: 10px;
@@ -4610,7 +4610,7 @@ h1 > span {
 }
 .monitor-table-row {
   display: grid;
-  grid-template-columns: 1fr 64px 44px 34px 34px 34px 60px;
+  grid-template-columns: 1fr 64px 44px 30px 30px 30px 50px 56px;
   align-items: center;
   padding: 6px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -6334,4 +6334,64 @@ h1 > span {
 }
 .item-wheel .wheel-center {
   background: #0f1420b3;
+}
+
+/* Табло: коэффициент KDA и смена стороны одной кнопкой. */
+.monitor-card {
+  pointer-events: auto;
+}
+.col-kda {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.side-swap {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  border: 1px solid #ffffff2e;
+  background: #ffffff14;
+  color: #cfe0ff;
+}
+.side-swap.red {
+  border-color: #ff5d5266;
+  color: #ff8f8a;
+}
+.side-swap.blue {
+  border-color: #5aa9ff66;
+  color: #8fbcff;
+}
+.side-swap:hover {
+  background: #ffffff26;
+  color: #fff;
+}
+/* Выбор стороны: две карточки команд. */
+.team-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 4px 0 10px;
+}
+.team-card {
+  border: 1px solid #e2e8e3;
+  border-left: 4px solid var(--team);
+  border-radius: 10px;
+  padding: 12px;
+  text-align: left;
+}
+.team-card strong {
+  display: block;
+  color: var(--team);
+  font-size: 14px;
+}
+.team-card small {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  opacity: 0.75;
+}
+.team-card.selected {
+  box-shadow: 0 0 0 1px var(--team);
 }

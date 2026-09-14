@@ -14,6 +14,7 @@ import {
   Plus,
   Users,
   Link2,
+  Repeat,
   Settings2,
   Check,
   StickyNote,
@@ -51,6 +52,7 @@ import {
   ZONES,
   PHASES,
   GAME_TOOLS,
+  kdaRatio,
   voteCount,
   type Note,
   type Pose,
@@ -75,6 +77,7 @@ import {
   VotePanel,
   MatchBar,
   MenuPanel,
+  TeamPanel,
   ModePanel,
   WidgetsPanel,
   WorldPanel,
@@ -1282,10 +1285,13 @@ export default function RoomApp({ id }: { id: string }) {
                 <span className="col-num col-k">K</span>
                 <span className="col-num col-d">D</span>
                 <span className="col-num col-a">A</span>
+                <span className="col-num col-kda">KDA</span>
                 <span className="col-num col-ping">ПИНГ</span>
               </div>
               <div className="monitor-table-body">
-                {room.members.map((m) => (
+                {[...room.members]
+                  .sort((a, b) => kdaRatio(b) - kdaRatio(a))
+                  .map((m) => (
                   <div key={m.id} className="monitor-table-row">
                     <div className="col-user">
                       <span
@@ -1305,32 +1311,34 @@ export default function RoomApp({ id }: { id: string }) {
                             ` · ${m.team === 'red' ? 'красные' : m.team === 'blue' ? 'синие' : 'без команды'}`}
                         </small>
                       </span>
-                      {(room.state.map ?? 'hub') !== 'hub' && host && (
-                        <span style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
-                          {(['red', 'blue'] as const).map((team) => (
-                            <button
-                              key={team}
-                              type="button"
-                              aria-label={`Перевести в команду ${team === 'red' ? 'красных' : 'синих'}`}
-                              disabled={m.team === team}
-                              onClick={() =>
-                                void act({ type: 'team.set', session: m.id, team })
-                              }
-                              style={{
-                                width: 22,
-                                height: 22,
-                                borderRadius: 6,
-                                border: '1px solid #00000022',
-                                background: team === 'red' ? '#e24b4a' : '#378add',
-                                color: '#fff',
-                                opacity: m.team === team ? 1 : 0.45,
-                                cursor: m.team === team ? 'default' : 'pointer',
-                              }}
-                            >
-                              {team === 'red' ? 'К' : 'С'}
-                            </button>
-                          ))}
-                        </span>
+                      {gameMode === 'battle' && (host || m.id === room.self) && (
+                        <button
+                          type="button"
+                          className={`side-swap ${m.team || 'none'}`}
+                          title={
+                            m.id === room.self
+                              ? 'Сторона и внешний вид'
+                              : 'Перевести в другую команду'
+                          }
+                          aria-label={
+                            m.id === room.self
+                              ? 'Выбрать сторону и скин'
+                              : `Перевести игрока ${m.name} в другую команду`
+                          }
+                          onClick={() => {
+                            if (m.id === room.self) {
+                              setMonitor(false);
+                              setPanel('team');
+                            } else
+                              void act({
+                                type: 'team.set',
+                                session: m.id,
+                                team: m.team === 'red' ? 'blue' : 'red',
+                              });
+                          }}
+                        >
+                          <Repeat size={13} />
+                        </button>
                       )}
                     </div>
                     <span
@@ -1350,15 +1358,18 @@ export default function RoomApp({ id }: { id: string }) {
                     <span className="col-num col-k">{m.kills ?? 0}</span>
                     <span className="col-num col-d">{m.deaths ?? 0}</span>
                     <span className="col-num col-a">{m.assists ?? 0}</span>
+                    <span className="col-num col-kda">
+                      {kdaRatio(m).toFixed(2)}
+                    </span>
                     <span className="col-num col-ping">
                       {now - m.lastSeen < 15000 ? `${m.ping} мс` : '—'}
                     </span>
                   </div>
-                ))}
+                  ))}
               </div>
             </div>
             <p className="monitor-footer-note">
-              Синхронизация ~1 раз/сек · Для скрытия отпустите «Ё»
+              Отсортировано по KDA · (убийства + помощь) / смерти
             </p>
           </div>
         </section>
@@ -1761,6 +1772,7 @@ export default function RoomApp({ id }: { id: string }) {
               {
                 history: 'История изменений',
                 menu: 'Меню комнаты',
+                team: 'Сторона и внешний вид',
                 settings: 'Настройки встречи',
                 world: 'Облик мира',
                 mode: 'Режим игры',
@@ -1785,7 +1797,9 @@ export default function RoomApp({ id }: { id: string }) {
                 ? 'Управление пользователями, ожидающими входа в комнату'
                 : panel === 'settings'
                   ? 'Приватность и правила совместной работы'
-                  : panel === 'menu'
+                  : panel === 'team'
+                    ? 'Выберите сторону и внешний вид бойца'
+                    : panel === 'menu'
                     ? 'Настройки, история и всё, что не нужно каждую секунду'
                     : panel === 'world'
                     ? 'Стиль, тема и время суток — как выглядит мир'
@@ -1893,6 +1907,7 @@ export default function RoomApp({ id }: { id: string }) {
           )}
           {panel === 'menu' && (
             <MenuPanel
+              battle={gameMode === 'battle'}
               actionsLeft={
                 s.notes.filter((n) => n.kind === 'action' && !n.done).length
               }
@@ -1904,6 +1919,31 @@ export default function RoomApp({ id }: { id: string }) {
                   })
                     .then((r) => setHistory(r.history))
                     .catch((e) => setError(e.message));
+              }}
+            />
+          )}
+          {panel === 'team' && (
+            <TeamPanel
+              self={me}
+              members={room.members}
+              onTeam={(team) =>
+                void act({ type: 'team.set', session: room.self, team })
+              }
+              selectedSkin={selectedSkin}
+              onSelectSkin={(skinId) => {
+                setSelectedSkin(skinId);
+                localStorage.setItem('jinaly-custom-skin', skinId);
+                void act({
+                  type: 'profile',
+                  hat: skinId,
+                  color: selectedBandanaColor,
+                });
+              }}
+              selectedBandanaColor={selectedBandanaColor}
+              onBandanaColorChange={(color) => {
+                setSelectedBandanaColor(color);
+                localStorage.setItem('jinaly-bandana-color', color);
+                void act({ type: 'profile', hat: selectedSkin, color });
               }}
             />
           )}

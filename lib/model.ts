@@ -902,6 +902,17 @@ export function publicState(
   );
   return s;
 }
+/**
+ * Коэффициент KDA: (убийства + помощь) на смерть. Смерти считаются минимум за
+ * одну, иначе у игрока без смертей коэффициент был бы бесконечным.
+ */
+export function kdaRatio(p: {
+  kills?: number;
+  deaths?: number;
+  assists?: number;
+}) {
+  return ((p.kills ?? 0) + (p.assists ?? 0)) / Math.max(1, p.deaths ?? 0);
+}
 export function voteCount(s: RoomState, id: string) {
   return Object.values(s.rounds.at(-1)?.votes || {}).reduce(
     (sum, v) => sum + (v[id] || 0),
