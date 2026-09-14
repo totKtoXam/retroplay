@@ -22,6 +22,7 @@ import { getMap } from '../lib/maps/index.ts';
 import { stanceHeight } from '../lib/maps/types.ts';
 import { isBlocked3D, rayCastWorldObstacle } from '../lib/world-collision.ts';
 import { inHitRange } from '../lib/game-items.ts';
+import { WEAPONS, weaponCooldown, isBlaster } from '../lib/weapon-definition.ts';
 
 // ---------------------------------------------------------------- параметры
 
@@ -118,11 +119,11 @@ const SCORE_WAIT_MS = 2500;
 const ONLINE_MS = 15_000;
 
 /** Пауза между выстрелами на сервере (lib/game-items.ts, effectCooldown). */
-const TOOL_COOLDOWN = { paint: 90, confetti: 650, grenade: 1200, sniper: 1100 };
+const TOOL_COOLDOWN = Object.fromEntries(['paint', 'confetti', 'grenade', 'sniper'].map(tool => [tool, weaponCooldown(tool)]));
 const TOOL_VARIANT = { paint: 'classic', confetti: 'stars', grenade: 'pinata', sniper: 'salute' };
 /** Заряды и перезарядка — как у игрока (lib/tool-magazine.ts). */
-const CAPACITY = { paint: 24, confetti: 6, sniper: 5, grenade: 3 };
-const RELOAD_MS = { paint: 1450, confetti: 1700, sniper: 1900, grenade: 1600 };
+const CAPACITY = { paint: WEAPONS.paint.capacity, confetti: WEAPONS.confetti.capacity, sniper: WEAPONS.sniper.capacity, grenade: 3 };
+const RELOAD_MS = { paint: WEAPONS.paint.reload, confetti: WEAPONS.confetti.reload, sniper: WEAPONS.sniper.reload, grenade: 1600 };
 /** Темп стрельбы человека, мс: очередь и пауза между очередями. */
 const CADENCE = {
   paint: [240, 420],
@@ -1534,6 +1535,7 @@ class Bot {
   // ------------------------------------------------------------ стрельба
 
   startReload(now) {
+    if (isBlaster(this.tool)) void this.post({ type: 'weapon', id: crypto.randomUUID(), action: 'reload', tool: this.tool, life: this.life });
     this.reloadUntil = now + RELOAD_MS[this.tool];
     this.roundsLeft = CAPACITY[this.tool];
   }
@@ -1607,7 +1609,7 @@ class Bot {
       );
     if (r.status !== 200 || !r.data || r.data.ok !== true) return;
     this.shots++;
-    this.roundsLeft--;
+    this.roundsLeft = isBlaster(this.tool) && r.data.magazine ? r.data.magazine.rounds[this.tool] : this.roundsLeft - 1;
     // Отдача: прицел подбрасывает вверх, доводка вернёт его обратно.
     this.aimPitch = clamp(this.aimPitch - rand(0.006, 0.02) * (this.tool === 'sniper' ? 2.5 : 1), -1.3, 1.35);
     // Урон ждём только там, где по правилам сервера выстрел точно попал:

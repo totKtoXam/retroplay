@@ -44,8 +44,8 @@ import { TOOL_ICONS } from './tool-icons';
 import { Choice, Toggle } from './controls';
 import { StylePicker } from './style-picker';
 import { ResourcePackPicker } from './resource-pack-picker';
-import { type WeaponAimModes } from './world';
-import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from './world-skins';
+import { type WeaponAimModes } from '@/lib/aim-settings';
+import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from '@/lib/avatar-catalog';
 
 export function HelpPanel() {
   return (

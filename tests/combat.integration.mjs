@@ -95,7 +95,7 @@ await Promise.all([
 ]);
 assert.equal((await member()).hp, 80, 'duplicate deliveries resolve only once');
 for (let i = 0; i < 4; i++) {
-  await wait(130);
+  await wait(210);
   await req(host, path, fire());
 }
 const dead = await member();

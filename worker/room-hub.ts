@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { ensureCombatColumns } from '@/db/combat';
+import { controlWeapon, weaponReply } from '@/lib/weapon-authority';
 import type { Person, WorldEffect } from '@/lib/model';
 import { getMap } from '@/lib/maps';
 import {
@@ -75,12 +76,20 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
 
   async effect(room: string, self: string, op: Record<string, unknown>) {
     const hub = await this.state(room);
-    await this.member(hub, self);
+    const member = await this.member(hub, self);
     const now = Date.now();
-    const result = fireEffect(hub, self, op, now);
+    let result;
+    try { result = fireEffect(hub, self, op, now); }
+    catch (error) { return weaponReply(member, typeof op.id === 'string' ? op.id : '', now, false, (error as Error).message); }
     resolveCombat(hub, now);
     this.markDirty();
-    return { ok: result.ok, reason: result.reason };
+    return weaponReply(member, typeof op.id === 'string' ? op.id : '', now, result.ok, result.reason);
+  }
+
+  async weapon(room: string, self: string, op: Record<string, unknown>) {
+    const hub = await this.state(room);
+    const member = await this.member(hub, self);
+    return controlWeapon(member, op, Date.now());
   }
 
   async live(room: string, since: number | null) {
@@ -146,6 +155,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     server.addEventListener('error', drop);
     // Catch the new socket up on the last couple of seconds; clients dedupe effects by id.
     const now = Date.now();
+    if (resolveCombat(hub, now)) this.markDirty();
     server.send(JSON.stringify({ t: 'tick', ...this.view(hub, now, now - 2000) }));
     this.startTicking();
     return new Response(null, { status: 101, webSocket: client });
@@ -159,6 +169,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     } catch {
       return;
     }
+    if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
     const hub = this.hub;
     const m = hub?.members.get(self);
     if (!hub || !m) return;
@@ -168,13 +179,17 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       this.markDirty();
     } else if (msg.t === 'effect') {
       try {
-        if (fireEffect(hub, self, msg, now).ok) {
+        const result = fireEffect(hub, self, msg, now);
+        if (result.ok) {
           resolveCombat(hub, now);
           this.markDirty();
         }
+        ws.send(JSON.stringify({ t: 'weapon', ...weaponReply(m, typeof msg.id === 'string' ? msg.id : '', now, result.ok, result.reason) }));
       } catch (e) {
-        ws.send(JSON.stringify({ t: 'error', message: (e as Error).message }));
+        ws.send(JSON.stringify({ t: 'weapon', ...weaponReply(m, typeof msg.id === 'string' ? msg.id : '', now, false, (e as Error).message) }));
       }
+    } else if (msg.t === 'weapon') {
+      ws.send(JSON.stringify({ t: 'weapon', ...controlWeapon(m, msg, now) }));
     } else if (msg.t === 'ping') {
       ws.send(JSON.stringify({ t: 'pong', at: msg.at }));
     }
@@ -199,9 +214,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     this.broadcast(
       JSON.stringify({
         t: 'tick',
-        now,
-        members: publicMembers(hub, now),
-        effects: publicEffects(fresh, hub.room.anonymous),
+        ...this.snapshot(hub, now, fresh),
       }),
     );
   }
@@ -217,10 +230,19 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
   }
 
   private view(hub: HubState, now: number, since: number | null): LiveView {
+    return this.snapshot(hub, now, effectsSince(hub, now, since));
+  }
+
+  /** Build every transport snapshot from the same live-state contract. */
+  private snapshot(
+    hub: HubState,
+    now: number,
+    effects: HubState['effects'],
+  ): LiveView {
     return {
       now,
       members: publicMembers(hub, now),
-      effects: publicEffects(effectsSince(hub, now, since), hub.room.anonymous),
+      effects: publicEffects(effects, hub.room.anonymous),
       match: hub.match,
     };
   }

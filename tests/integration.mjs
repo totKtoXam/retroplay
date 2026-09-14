@@ -40,6 +40,12 @@ const created = await req(host, '/api/rooms', {
 assert.equal(created.status, 201, JSON.stringify(created.data));
 const id = created.data.id,
   path = '/api/rooms/' + id;
+// A client hydration recovery must not hide a broken server-rendered room document.
+for (const page of ['/', '/room/' + id]) {
+  const response = await fetch(base + page);
+  assert.equal(response.status, 200, `document ${page}`);
+  assert.ok(!(await response.text()).includes('id="__next_error__"'), `SSR error shell at ${page}`);
+}
 assert.equal((await req(stranger, path)).data.join, true);
 assert.equal(
   (await req(stranger, path, { type: 'note.add', text: 'Intrusion' })).status,

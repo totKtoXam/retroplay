@@ -61,7 +61,7 @@ import { api, download, parseCSV } from '@/lib/client';
 import { Choice, Toggle } from './controls';
 import { Card } from './board';
 import { useResourcePack } from '../hooks/use-resource-pack';
-import { readAimModes, type WeaponAimModes } from './world';
+import { readAimModes, type WeaponAimModes } from '@/lib/aim-settings';
 import {
   ActionsPanel,
   ExportPanel,
@@ -225,6 +225,7 @@ export default function RoomApp({ id }: { id: string }) {
     op,
     act,
     fire,
+    weapon,
   } = useRoomSync({
     id,
     pose,
@@ -1089,6 +1090,7 @@ export default function RoomApp({ id }: { id: string }) {
                   void act({ type: 'event', kind: 'reaction', value: '👍' })
                 }
                 onFire={fire}
+                onWeapon={weapon}
                 paintColor={paintColor}
                 working={!!draft || !!selectedZone}
                 host={host}

@@ -1,6 +1,9 @@
 // Hot room state (poses, HP, shots, combat) kept in memory by the room's Durable Object.
 // Pure functions only: the rules are the ones the D1 version enforced in app/api/rooms/[id]
 // and db/combat.ts, so HTTP fallback and WebSocket clients see the same game.
+import { memberWeapon } from './weapon-authority.ts';
+import { isBlaster } from './weapon-definition.ts';
+import type { ToolMagazine } from './tool-magazine.ts';
 import {
   calculatePelletsHit,
   effectCooldown,
@@ -46,6 +49,7 @@ const TOOLS = ['paint', 'confetti', 'grenade', 'sniper', 'pointer', 'other'];
 
 export type Cursor = { x: number; y: number; mode: 'board' | '3d' };
 export type HubMember = {
+  weapon?: { life: number; magazine: ToolMagazine; revision: number };
   id: string;
   name: string;
   color: string;
@@ -306,7 +310,7 @@ export function applyPresence(
 
 export type FireResult = {
   ok: boolean;
-  reason?: 'respawning' | 'immune' | 'freeze';
+  reason?: 'respawning' | 'immune' | 'freeze' | 'cooldown' | 'magazine' | 'stale-life' | 'duplicate';
   effect?: HubEffect;
 };
 
@@ -327,6 +331,7 @@ export function fireEffect(
   if (isFrozen(state, now)) return { ok: false, reason: 'freeze' };
   const shooter = state.members.get(self);
   if (!shooter || shooter.hp <= 0) return { ok: false, reason: 'respawning' };
+  if (op.life !== undefined && op.life !== shooter.life) return { ok: false, reason: 'stale-life' };
   if (isImmune(shooter, now)) return { ok: false, reason: 'immune' };
   if (
     Math.hypot(origin[0] - shooter.pose.x, origin[1] - shooter.pose.y, origin[2] - shooter.pose.z) > 9 ||
@@ -334,8 +339,10 @@ export function fireEffect(
   )
     throw Error('Предмет слишком далеко');
   const id = typeof op.id === 'string' && /^[a-f0-9-]{36}$/.test(op.id) ? op.id : uid();
-  if (state.effects.some((e) => e.id === id)) return { ok: false };
-  if (shooter.lastShot > now - effectCooldown(kind)) return { ok: false };
+  if (state.effects.some((e) => e.id === id)) return { ok: false, reason: 'duplicate' };
+  if (shooter.lastShot > now - effectCooldown(kind)) return { ok: false, reason: 'cooldown' };
+  if (isBlaster(kind) && !memberWeapon(shooter).magazine.fire(kind, now))
+    return { ok: false, reason: 'magazine' };
   const effect: HubEffect = {
     id,
     kind,

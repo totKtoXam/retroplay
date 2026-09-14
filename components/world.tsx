@@ -37,7 +37,10 @@ import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { slotsFor, slotForDigit, cycleSlot } from '@/lib/loadout';
 import { modeOf } from '@/lib/maps/catalog';
-import { ToolMagazine, CAPACITY, type Blaster } from '@/lib/tool-magazine';
+import { CAPACITY, type Blaster } from '@/lib/tool-magazine';
+import { WeaponPrediction } from '@/lib/weapon-prediction';
+import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
+import { isBlaster } from '@/lib/weapon-definition';
 import {
   blocksCamera,
   blocksProjectile,
@@ -72,32 +75,7 @@ import {
 
 import { SNIPER_ZOOM_LEVELS, SNIPER_ZOOM_FOVS } from './world-constants';
 
-export type AimMode = 'hold' | 'toggle';
-export type WeaponAimModes = {
-  paint: AimMode;
-  confetti: AimMode;
-  sniper: AimMode;
-};
-export const DEFAULT_AIM_MODES: WeaponAimModes = {
-  paint: 'hold',
-  confetti: 'hold',
-  sniper: 'hold',
-};
-export function readAimModes(): WeaponAimModes {
-  if (typeof window === 'undefined') return { ...DEFAULT_AIM_MODES };
-  try {
-    const raw = localStorage.getItem('jinaly-aim-modes');
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<WeaponAimModes>;
-      return {
-        paint: parsed.paint === 'toggle' ? 'toggle' : 'hold',
-        confetti: parsed.confetti === 'toggle' ? 'toggle' : 'hold',
-        sniper: parsed.sniper === 'toggle' ? 'toggle' : 'hold',
-      };
-    }
-  } catch {}
-  return { ...DEFAULT_AIM_MODES };
-}
+import { readAimModes, type WeaponAimModes } from '@/lib/aim-settings';
 
 // Shield aura mesh removed — immunity is now indicated only by HUD text/icon
 
@@ -124,7 +102,8 @@ type Props = {
   onMonitor: (v: boolean | ((prev: boolean) => boolean)) => void;
   onFps: (v: number) => void;
   onAction: (kind: string) => void;
-  onFire: (effect: WorldEffect) => void;
+  onFire: (effect: WorldEffect) => Promise<WeaponReply>;
+  onWeapon: (command: WeaponCommand) => Promise<WeaponReply>;
   onFailure: () => void;
   blocked: boolean;
   working?: boolean;
@@ -503,7 +482,9 @@ export default function World(props: Props) {
     }, 1000);
     return () => clearTimeout(t);
   }, [hitEffect]);
-  const magazine = useRef(new ToolMagazine());
+  const [weaponState] = useState(() => new WeaponPrediction());
+  const prediction = useRef(weaponState);
+  const magazine = useRef(weaponState.magazine);
   const [showAgent, setShowAgent] = useState(false);
   const [rounds, setRounds] = useState({ ...CAPACITY }),
     [reloading, setReloading] = useState(false),
@@ -852,6 +833,24 @@ export default function World(props: Props) {
         setReloading(lastReportedReloading);
       }
     };
+    let weaponDisposed = false;
+    const applyWeaponReply = (reply: WeaponReply) => {
+      if (weaponDisposed) return;
+      prediction.current.acknowledge(reply, performance.now());
+      updateAmmo();
+    };
+    const weaponFailure = (id: string, error: unknown) => {
+      prediction.current.forget(id);
+      if (!weaponDisposed) setCaptureError(error instanceof Error ? error.message : 'Действие не подтверждено');
+    };
+    const sendWeaponControl = (action: WeaponCommand['action'], tool?: Blaster) => {
+      const id = uid();
+      prediction.current.remember(id, action, tool, performance.now());
+      const life = latest.current.room.members.find((m) => m.id === latest.current.room.self)?.life ?? 0;
+      void latest.current.onWeapon({ id, action, tool, life }).then(applyWeaponReply).catch((error) => weaponFailure(id, error));
+    };
+    prediction.current.reset(latest.current.room.members.find((m) => m.id === latest.current.room.self)?.life ?? 0);
+    sendWeaponControl('sync');
     const beginReload = () => {
       const tool = GAME_TOOLS[latest.current.tool]?.id;
       if (
@@ -861,6 +860,7 @@ export default function World(props: Props) {
         tool === 'like'
       ) {
         magazine.current.reload(tool as Blaster, performance.now());
+        sendWeaponControl('reload', tool as Blaster);
         aimHeld = false;
         setAiming(false);
         updateAmmo();
@@ -892,6 +892,7 @@ export default function World(props: Props) {
       )
         return;
       const now = performance.now();
+      const wasReloading = magazine.current.reloading;
       if (tool === 'grenade') {
         if (now - lastGrenade < 1200) return;
         lastGrenade = now;
@@ -900,7 +901,10 @@ export default function World(props: Props) {
         tool !== 'grenade' &&
         !magazine.current.fire(tool as Blaster, now)
       ) {
-        if (magazine.current.reloading) setReloading(true);
+        if (magazine.current.reloading) {
+          setReloading(true);
+          if (!wasReloading) sendWeaponControl('reload', tool as Blaster);
+        }
         if (tool === 'sniper') {
           aimHeld = false;
           setAiming(false);
@@ -912,9 +916,6 @@ export default function World(props: Props) {
       if (tool === 'sniper' && magazine.current.rounds.sniper === 0) {
         aimHeld = false;
         setAiming(false);
-        magazine.current.reload('sniper', now);
-        setReloading(true);
-        updateAmmo();
       }
 
       const screenCoord = (
@@ -1114,7 +1115,12 @@ export default function World(props: Props) {
       }
       avatarShoot(avatar);
       hands.shoot(tool);
-      p.onFire(e);
+      prediction.current.remember(e.id, 'fire', isBlaster(tool) ? tool : undefined, now);
+      void p.onFire(e).then((reply) => {
+        applyWeaponReply(reply);
+        if (!reply.ok && !weaponDisposed) setCaptureError('Выстрел не принят: ' + (reply.reason ?? 'состояние комнаты'));
+      }).catch((error) => weaponFailure(e.id, error));
+      if (tool === 'sniper' && magazine.current.rounds.sniper === 0) beginReload();
       shotsFired++;
       if (now - lastShotsFlush >= 500) {
         lastShotsFlush = now;
@@ -1575,6 +1581,8 @@ export default function World(props: Props) {
       );
       if ((own?.life || 0) !== life) {
         life = own?.life || 0;
+        prediction.current.reset(life);
+        sendWeaponControl('sync');
         player.teleport(own?.pose.x ?? 0, own?.pose.y ?? 0, own?.pose.z ?? 4);
         clear();
       }
@@ -1590,6 +1598,7 @@ export default function World(props: Props) {
       if (equippedTool !== latest.current.tool) {
         equippedTool = latest.current.tool;
         magazine.current.cancel();
+        sendWeaponControl('cancel');
         aimHeld = false;
         setAiming(false);
         updateAmmo();
@@ -1946,6 +1955,7 @@ export default function World(props: Props) {
           });
         }
       });
+      weaponDisposed = true;
       projectiles.dispose();
       vfx.dispose();
       trajectoryGeo.dispose();

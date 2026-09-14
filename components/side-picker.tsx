@@ -2,7 +2,7 @@
 
 import type { Person } from '@/lib/model';
 import { AvatarPreview } from './avatar-preview';
-import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from './world-skins';
+import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from '@/lib/avatar-catalog';
 
 type Side = 'red' | 'blue';
 

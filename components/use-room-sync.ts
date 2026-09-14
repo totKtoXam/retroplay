@@ -11,6 +11,7 @@ import {
 } from 'react';
 import type { Room, RoomState, Pose, WorldEffect } from '@/lib/model';
 import { api, ready } from '@/lib/client';
+import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
 
 export type JoinRequest = {
   id: string;
@@ -51,6 +52,7 @@ type SocketMessage =
     }
   | { t: 'refresh' }
   | { t: 'pong'; at: number }
+  | ({ t: 'weapon' } & WeaponReply)
   | { t: 'error'; message: string };
 
 /** While the socket is down the board still refetches at least this often. */
@@ -257,7 +259,36 @@ export function useRoomSync({
     },
     [op],
   );
-  /** A shot or other world effect: over the socket when it is up, otherwise over HTTP. */
+  const weaponRequests = useRef(new Map<string, { resolve: (reply: WeaponReply) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>());
+  const httpWeaponQueue = useRef<Promise<unknown>>(Promise.resolve());
+  useEffect(() => () => {
+    for (const pending of weaponRequests.current.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('Подключение закрыто'));
+    }
+    weaponRequests.current.clear();
+  }, [id]);
+  const sendWeapon = useCallback((body: Record<string, unknown>): Promise<WeaponReply> => {
+    const commandId = String(body.id);
+    const life = roomRef.current?.members.find((m) => m.id === roomRef.current?.self)?.life ?? 0;
+    const data = { ...body, life: body.life ?? life };
+    const ws = socketRef.current;
+    if (ws?.readyState === WebSocket.OPEN) return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        weaponRequests.current.delete(commandId);
+        reject(new Error('Сервер не подтвердил действие. Переподключитесь к комнате.'));
+      }, 5000);
+      weaponRequests.current.set(commandId, { resolve, reject, timer });
+      try { ws.send(JSON.stringify({ ...data, t: body.type === 'effect' ? 'effect' : 'weapon' })); }
+      catch (error) { clearTimeout(timer); weaponRequests.current.delete(commandId); reject(error); }
+    });
+    // Preserve fire/reload/cancel order in the fallback, including after a failed request.
+    const request = httpWeaponQueue.current.catch(() => {}).then(() => api<WeaponReply>('/api/rooms/' + id, data));
+    httpWeaponQueue.current = request;
+    return request;
+  }, [id]);
+  const weapon = useCallback((command: WeaponCommand) => sendWeapon({ ...command, type: 'weapon' }), [sendWeapon]);
+  /** A shot returns an authoritative acknowledgement, including rejected shots. */
   const fire = useCallback(
     (effect: object) => {
       // Server time of the world the player was looking at: the server checks the hit
@@ -266,12 +297,9 @@ export function useRoomSync({
       const seenAt = clock
         ? Math.round(clock.server + performance.now() - clock.local - RENDER_DELAY_MS)
         : undefined;
-      const ws = socketRef.current;
-      if (ws?.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ ...effect, seenAt, t: 'effect' }));
-      else void act({ type: 'effect', ...effect, seenAt });
+      return sendWeapon({ type: 'effect', ...effect, seenAt });
     },
-    [act],
+    [sendWeapon],
   );
 
   // The socket needs a membership, so it opens once the room snapshot has arrived.
@@ -305,7 +333,15 @@ export function useRoomSync({
         } catch {
           return;
         }
-        if (msg.t === 'tick') {
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.t === 'weapon') {
+          const pending = weaponRequests.current.get(msg.id);
+          if (pending) {
+            clearTimeout(pending.timer);
+            weaponRequests.current.delete(msg.id);
+            pending.resolve(msg);
+          }
+        } else if (msg.t === 'tick') {
           clockRef.current = { server: msg.now, local: performance.now() };
           noteEffects(msg.effects);
           setRoom((old) =>
@@ -328,6 +364,11 @@ export function useRoomSync({
         }
       };
       ws.onclose = () => {
+        for (const pending of weaponRequests.current.values()) {
+          clearTimeout(pending.timer);
+          pending.reject(new Error('Связь с сервером потеряна'));
+        }
+        weaponRequests.current.clear();
         clearInterval(pinger);
         if (socketRef.current === ws) socketRef.current = null;
         if (stop) return;
@@ -465,5 +506,6 @@ export function useRoomSync({
     op,
     act,
     fire,
+    weapon,
   };
 }
