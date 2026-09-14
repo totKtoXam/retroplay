@@ -934,16 +934,6 @@ kbd {
   height: 25px;
   font-size: 12px;
 }
-.world-help {
-  position: absolute;
-  display: flex;
-  flex-wrap: wrap;
-  pointer-events: none;
-}
-.world-help > span {
-  display: flex;
-  align-items: center;
-}
 .mobile-world {
   display: none;
 }
@@ -1721,15 +1711,6 @@ kbd {
   font-size: 14px;
   text-decoration: underline;
 }
-@media (min-width: 1600px) {
-  .world-help {
-    font-size: 12px;
-    gap: 18px;
-  }
-  .world-help > span {
-    font-size: 10px;
-  }
-}
 @media (max-width: 1150px) {
   .world-location {
     top: 17px;
@@ -1743,14 +1724,6 @@ kbd {
   }
 }
 @media (max-width: 600px) {
-  .world-help {
-    max-height: 45px;
-    overflow: hidden;
-  }
-  .world-help kbd {
-    padding: 1px 3px;
-    min-width: 13px;
-  }
   .interact-prompt > span {
     display: none;
   }
@@ -1769,9 +1742,6 @@ kbd {
   .mobile-world svg {
     width: 12px;
     height: 12px;
-  }
-  .world-help > span:nth-child(n + 4) {
-    display: none;
   }
   .board-viewport {
     padding: 90px 10px 100px;
@@ -2249,34 +2219,6 @@ h1 > span {
 .equipped-card > svg {
   margin-left: auto;
 }
-.world-help {
-  bottom: 103px;
-  color: #a9b7d3;
-  z-index: 3;
-  gap: 12px;
-  left: 20px;
-  right: auto;
-  justify-content: flex-start;
-  max-width: calc(100% - 340px);
-  padding: 8px 11px;
-  border-radius: 7px;
-  background: #26334d66;
-  backdrop-filter: blur(6px);
-}
-.world-help > span {
-  font-size: 9px;
-  color: #c1cbe3;
-  text-shadow: none;
-  gap: 4px;
-}
-.world-help kbd {
-  font-size: 9px;
-  color: #d4dced;
-  border: 1px solid #b1c1df42;
-  background: #5a6d8c50;
-  box-shadow: none;
-  min-width: 17px;
-}
 .interact-prompt {
   background: #202c46eb;
   color: #dae4fb;
@@ -2450,21 +2392,10 @@ h1 > span {
 .mobile-world {
   z-index: 5;
 }
-.world-help kbd {
-  font-family: 'Segoe UI', Arial, sans-serif;
-}
-
 @media (min-width: 1500px) {
   .equipped-card {
     bottom: 25px;
     right: 25px;
-  }
-  .world-help {
-    bottom: 27px;
-    max-width: 300px;
-    flex-wrap: wrap;
-    left: 25px;
-    gap: 8px;
   }
 }
 @media (max-width: 1150px) {
@@ -2475,11 +2406,6 @@ h1 > span {
   }
   .camera-toolbar {
     top: 145px;
-  }
-  .world-help {
-    bottom: 102px;
-    max-width: calc(100% - 310px);
-    gap: 6px;
   }
   .equipped-card {
     min-width: 220px;
@@ -2512,15 +2438,6 @@ h1 > span {
   }
   .equipped-card > svg {
     display: none;
-  }
-  .world-help {
-    left: 16px;
-    bottom: 112px;
-    max-width: calc(100% - 240px);
-    padding: 8px;
-  }
-  .world-help > span {
-    font-size: 8px;
   }
   .game-zone-buttons {
     left: 16px;
@@ -2610,25 +2527,6 @@ h1 > span {
   .weapon-number {
     font-size: 18px;
     padding-right: 7px;
-  }
-  .world-help {
-    left: 12px;
-    bottom: 84px;
-    max-width: calc(100% - 215px);
-    gap: 6px;
-    background: #22334b9c;
-  }
-  .world-help > span {
-    font-size: 8px;
-  }
-  .world-help > span:nth-child(n + 5) {
-    display: none;
-  }
-  .world-help > span:nth-child(4) {
-    display: flex;
-  }
-  .world-help kbd {
-    font-size: 8px;
   }
   .interact-prompt {
     bottom: 205px;
@@ -2835,17 +2733,6 @@ h1 > span {
 }
 .style-anime.mode-3d .camera-onboarding strong {
   color: #675078;
-}
-.style-anime.mode-3d .world-help {
-  background: #f7eef1d6;
-}
-.style-anime.mode-3d .world-help > span {
-  color: #8f779c;
-}
-.style-anime.mode-3d .world-help kbd {
-  color: #795d8c;
-  background: #e9deed;
-  border-color: #d4c2de;
 }
 .style-anime.mode-3d .main-surface:after {
   box-shadow: inset 0 0 130px #b18dd512;
@@ -3088,10 +2975,6 @@ h1 > span {
   .equipped-card {
     display: none;
   }
-  .world-help {
-    bottom: 145px;
-    max-width: 290px;
-  }
   .camera-onboarding {
     bottom: 200px;
   }
@@ -3128,10 +3011,6 @@ h1 > span {
     top: 138px;
     max-width: 168px;
   }
-  .world-help {
-    bottom: 129px;
-    max-width: 280px;
-  }
   .camera-onboarding {
     bottom: 185px;
   }
@@ -3139,15 +3018,6 @@ h1 > span {
 @media (prefers-reduced-motion: reduce) {
   .is-playing .music-bars i {
     animation: none;
-  }
-}
-/* Compact controls remain separate from the active-tool action. */
-@media (min-width: 901px) {
-  .world-help {
-    max-width: 330px;
-    bottom: 100px;
-    flex-wrap: wrap;
-    gap: 5px 10px;
   }
 }
 .style-anime.mode-3d .camera-onboarding span,
@@ -3246,10 +3116,6 @@ h1 > span {
 .style-classic.mode-3d .camera-onboarding small {
   color: #a6b4b8;
 }
-.style-classic.mode-3d .world-help {
-  color: #acbbbf;
-  border-color: #ffffff15;
-}
 .style-classic.mode-3d .main-surface:after {
   box-shadow: inset 0 0 140px #07101425;
 }
@@ -3325,10 +3191,6 @@ h1 > span {
 }
 .style-classic.mode-3d .view-switch button {
   border-radius: 2px;
-}
-.style-classic.mode-3d .world-help {
-  border-radius: 3px;
-  background: #132131e6;
 }
 .style-classic.mode-3d .equipped-card {
   display: none;

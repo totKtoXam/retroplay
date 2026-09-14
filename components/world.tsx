@@ -2101,33 +2101,6 @@ export default function World(props: Props) {
       {active && captureError && (
         <div className="camera-fallback-hint">{captureError}</div>
       )}
-      <div className="world-help">
-        <span>
-          <kbd>Мышь</kbd> камера · <kbd>Esc</kbd> курсор
-        </span>
-        <span>
-          <kbd>V</kbd> 1-е / 3-е лицо · <kbd>WASD</kbd> движение
-        </span>
-        <span>
-          <kbd>Пробел</kbd> прыжок
-        </span>
-        <span>
-          <kbd>C</kbd> сесть · 2×C лечь
-        </span>
-        <span>
-          <kbd>Ctrl</kbd> присесть
-        </span>
-        <span>
-          <kbd>Shift</kbd> шаг
-        </span>
-        <span>
-          <kbd>Ё</kbd> кто в сети
-        </span>
-        <span>
-          <kbd>1–{slots.length}</kbd> предметы · <kbd>Колесо</kbd> сменить ·{' '}
-          <kbd>СКМ</kbd> стили
-        </span>
-      </div>
       <div className="quick-loadout" aria-label="Быстрые предметы">
         {slots.map((slot) => {
           const Icon = getSlotIcon(slot.index);
