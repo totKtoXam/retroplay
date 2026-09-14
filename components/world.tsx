@@ -589,6 +589,9 @@ export default function World(props: Props) {
     kit.update(latest.current.room.state);
     kit.setNotes(latest.current.room.state);
     const cameraObstacles: T.Object3D[] = [];
+    // Отладочный доступ к сцене: в dev и по ?debug=1 — чтобы разбирать визуальные баги с натуры.
+    if (typeof location !== 'undefined' && location.search.includes('debug=1'))
+      (window as unknown as { __world?: unknown }).__world = { scene, camera };
     scene.updateMatrixWorld(true);
     scene.traverse((o) => {
       if (blocksCamera(o)) {
