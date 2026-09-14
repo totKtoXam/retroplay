@@ -32,6 +32,13 @@ export function ItemWheel({
   ];
   const active = items[hover];
 
+  // Пока колесо открыто, помечаем body: так CSS убирает затемняющий оверлей
+  // диалога — бой за меню должен оставаться видимым.
+  useEffect(() => {
+    document.body.classList.add('item-wheel-open');
+    return () => document.body.classList.remove('item-wheel-open');
+  }, []);
+
   // При захваченной мыши курсора на экране нет, поэтому сектор выбирается по
   // накопленному движению мыши: меню открывается, не отпуская захват.
   useEffect(() => {
@@ -133,6 +140,7 @@ export function ItemWheel({
               return (
                 <path
                   key={item.id}
+                  className={`wheel-sector${hover === i ? ' highlighted' : ''}${selected === item.id ? ' selected' : ''}`}
                   d={`M${p.join(',')} A222 222 0 0 1 ${q.join(',')} L${r.join(',')} A94 94 0 0 0 ${s.join(',')}Z`}
                   fill={hover === i ? item.color : '#1d2635'}
                   stroke={selected === item.id ? '#fff' : '#566173'}
@@ -142,7 +150,14 @@ export function ItemWheel({
                 />
               );
             })}
-            <circle cx="240" cy="240" r="84" fill="#111a27" stroke="#69788b" />
+            <circle
+              className="wheel-hub"
+              cx="240"
+              cy="240"
+              r="84"
+              fill="#111a27"
+              stroke="#69788b"
+            />
           </svg>
           {items.map((item, i) => {
             const p = point(
