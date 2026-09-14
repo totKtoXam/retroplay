@@ -3,6 +3,7 @@ import { GAME_TOOLS, type Room, type Person } from '@/lib/model';
 import type { GameMode } from '@/lib/maps/catalog';
 import type { Perspective } from '@/lib/game-camera';
 import { Eye, User, X } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { SNIPER_ZOOM_LEVELS, SNIPER_ZOOM_FOVS } from './world-constants';
 import type { KillMessage, PersonalAlert, HitEffect } from './world';
 
@@ -36,7 +37,94 @@ type WorldHudProps = {
   freezeSeconds: number;
 };
 
+/**
+ * Прицел краскомёта в режиме ПКМ: точка попадания в центре и четыре лепестка,
+ * которые расходятся от движения и от непрерывной стрельбы. Данные о движении и
+ * отдаче берутся из тех же событий ввода, что и у движка (WASD/стрелки + ЛКМ),
+ * поэтому дополнительные пропсы `WorldHud` не нужны.
+ */
+function PaintAimReticle() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const moveKeys = new Set([
+      'KeyW',
+      'KeyA',
+      'KeyS',
+      'KeyD',
+      'ArrowUp',
+      'ArrowDown',
+      'ArrowLeft',
+      'ArrowRight',
+    ]);
+    const pressed = new Set<string>();
+    let firing = false;
+    let heat = 0;
+    let moveBlend = 0;
+    let last = performance.now();
+    let raf = 0;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (moveKeys.has(e.code)) pressed.add(e.code);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      pressed.delete(e.code);
+    };
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 0) firing = true;
+    };
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button === 0) firing = false;
+    };
+    const onBlur = () => {
+      pressed.clear();
+      firing = false;
+    };
+    const tick = (now: number) => {
+      const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+      last = now;
+      // Краскомёт стреляет очередью, пока зажата ЛКМ: отдача копится и спадает.
+      heat = Math.min(1, Math.max(0, heat + (firing ? dt * 3.4 : -dt * 2.4)));
+      const moving = pressed.size > 0 ? 1 : 0;
+      moveBlend += (moving - moveBlend) * Math.min(1, dt * 11);
+      const spread = 6 + moveBlend * 8 + heat * 13;
+      const el = ref.current;
+      if (el) {
+        el.style.setProperty('--paint-spread', `${spread.toFixed(2)}px`);
+        el.style.setProperty('--paint-heat', heat.toFixed(3));
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
+  return (
+    <div ref={ref} className="paint-aim-reticle" aria-hidden="true">
+      <span className="paint-aim-dot" />
+      <i className="paint-aim-petal paint-aim-up" />
+      <i className="paint-aim-petal paint-aim-down" />
+      <i className="paint-aim-petal paint-aim-left" />
+      <i className="paint-aim-petal paint-aim-right" />
+    </div>
+  );
+}
+
 export function WorldHud(props: WorldHudProps) {
+  const paintAiming =
+    props.current?.id === 'paint' &&
+    props.aiming &&
+    props.perspective === 'first' &&
+    !props.dead;
   return (
     <>
       {props.hitEffect && (
@@ -52,12 +140,13 @@ export function WorldHud(props: WorldHudProps) {
         />
       )}
       <div
-        className={`crosshair modern-crosshair ${props.current?.id === 'sniper' ? 'is-hidden' : ''
+        className={`crosshair modern-crosshair ${props.current?.id === 'sniper' || paintAiming ? 'is-hidden' : ''
           }`}
       >
         <i />
         <i />
       </div>
+      {paintAiming && <PaintAimReticle />}
       {props.mode === 'battle' && props.hitMark && (
         <div
           key={props.hitMark.key}
