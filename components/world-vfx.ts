@@ -16,15 +16,30 @@ type Particle = {
  * per-frame simulation and disposal of the shared geometries.
  * Extracted verbatim from the engine effect in world.tsx.
  */
+/** Ближе этого расстояния до камеры частица не рисуется. */
+const PARTICLE_NEAR_CULL = 0.45;
+/** До этого расстояния частица уменьшается, чтобы не закрывать обзор. */
+const PARTICLE_NEAR_FADE = 1.3;
+
 export function createWorldVfx({
   scene,
   quality,
+  camera,
 }: {
   scene: T.Scene;
   quality: string;
+  /** Нужна, чтобы гасить частицы, пролетающие вплотную к глазам игрока. */
+  camera?: T.Camera;
 }) {
   const splats: { mesh: T.Mesh; born: number }[] = [],
     bursts: Particle[] = [];
+  const nearCameraScale = (p: T.Vector3) => {
+    if (!camera) return 1;
+    const d = p.distanceTo(camera.position);
+    if (d >= PARTICLE_NEAR_FADE) return 1;
+    if (d <= PARTICLE_NEAR_CULL) return 0;
+    return (d - PARTICLE_NEAR_CULL) / (PARTICLE_NEAR_FADE - PARTICLE_NEAR_CULL);
+  };
   const dummy = new T.Object3D(),
     paintDropletGeo = new T.SphereGeometry(0.04, 6, 4),
     confettiGeo = new T.PlaneGeometry(0.07, 0.13),
@@ -122,6 +137,7 @@ export function createWorldVfx({
       );
       dummy.position.copy(at);
       dummy.rotation.copy(rotations[i]);
+      dummy.scale.setScalar(1);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
     }
@@ -239,6 +255,9 @@ export function createWorldVfx({
         b.rotations[j].z += dt * ((j % 2 ? 3.2 : -3.2) + (j % 5) * 0.4);
         dummy.position.copy(b.positions[j]);
         dummy.rotation.copy(b.rotations[j]);
+        // Частица размером 10 см в 20 см от глаза закрывает пол-экрана: то, что
+        // подлетело вплотную к камере, схлопываем, а рядом плавно уменьшаем.
+        dummy.scale.setScalar(nearCameraScale(b.positions[j]));
         dummy.updateMatrix();
         b.mesh.setMatrixAt(j, dummy.matrix);
       }

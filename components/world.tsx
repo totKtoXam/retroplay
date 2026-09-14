@@ -715,7 +715,7 @@ export default function World(props: Props) {
       onStance: setStance,
     });
     const { pos } = player;
-    const vfx = createWorldVfx({ scene, quality: props.quality });
+    const vfx = createWorldVfx({ scene, quality: props.quality, camera });
     const { burst, paintDropletGeo } = vfx;
     // Per-frame camera-update scratch vectors, reused to avoid allocating on every tick.
     const scratchCamDir = new T.Vector3(),
