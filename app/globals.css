@@ -4185,7 +4185,8 @@ h1 > span {
 
 .combat-personal-alert {
   position: absolute;
-  top: 38%;
+  /* Своя полоса под прицелом: баннер матча сверху, прицел в центре, оповещение ниже. */
+  top: 62%;
   left: 50%;
   transform: translate(-50%, -50%);
   display: flex;
@@ -6344,8 +6345,9 @@ h1 > span {
 .match-banner {
   position: absolute;
   left: 50%;
-  top: 42%;
-  transform: translate(-50%, -50%);
+  /* Под шапкой и щитом возрождения (68px): центр экрана занимает прицел. */
+  top: 104px;
+  transform: translateX(-50%);
   text-align: center;
   z-index: 7;
   pointer-events: none;
@@ -6531,6 +6533,15 @@ body.item-wheel-open [data-slot='dialog-overlay'] {
 .item-wheel svg path.wheel-sector.highlighted {
   fill-opacity: 0.88;
   stroke-opacity: 1;
+}
+/* Уже выбранный предмет обязан читаться и без наведения. */
+.item-wheel svg path.wheel-sector.selected {
+  fill-opacity: 0.46;
+  stroke-opacity: 1;
+  stroke-width: 2.5;
+}
+.item-wheel svg path.wheel-sector.selected.highlighted {
+  fill-opacity: 0.88;
 }
 .item-wheel svg circle.wheel-hub {
   fill-opacity: 0.38;

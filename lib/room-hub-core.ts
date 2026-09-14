@@ -595,6 +595,8 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
         : inHitRange(e.kind, origin, target, pose, colliders);
     // After a respawn a player can neither take nor deal damage.
     if (!hit || authorImmune || isImmune(p, now)) continue;
+    // Безвредное (лайк) не ранит и не убивает даже попаданием в голову.
+    if (e.kind !== 'confetti' && effectDamage(e.kind) <= 0) continue;
     // Взрыв гранаты накрывает целиком, у остального оружия урон зависит от зоны попадания:
     // голова — сразу насмерть, туловище — полный урон, руки и ноги — ослабленный.
     const zone = e.kind === 'grenade' ? 'torso' : hitZone(origin, target, pose);

@@ -425,3 +425,10 @@ test('hit zones: the head kills, the torso takes full damage, arms and legs less
   assert.equal(hp('paint', 1.5), 80, 'краска в туловище');
   assert.equal(hp('paint', 0.6), 88, 'краска в ногу');
 });
+
+test('a like never wounds, even straight in the head', () => {
+  const h = duel();
+  fire(h, 'a', T, 'like', { origin: [0, 2.07, 4], target: [0, 2.07, 0] });
+  assert.equal(h.members.get('v').hp, 100, 'лайк безвреден');
+  assert.equal(h.effects.some((e) => e.kind === 'kill'), false, 'и никого не убивает');
+});
