@@ -33,6 +33,8 @@ const RESYNC_MS = 1500;
 /** Rounds mode: one round lasts this long, then the break before the next one. */
 const ROUND_MS = 120_000;
 const INTERMISSION_MS = 6_000;
+/** Подготовка в начале раунда: никто не двигается, не стреляет и не получает урон. */
+const FREEZE_MS = 5_000;
 /** How long the result stays on screen before the next match starts. */
 const ENDED_MS = 12_000;
 /** Server-side body radius: below the client's 0.32 so rounded poses near walls still pass. */
@@ -96,7 +98,8 @@ export type HubRoom = {
   matchMinutes: number;
   roundWins: number;
 };
-export type MatchPhase = 'live' | 'intermission' | 'ended';
+/** 'freeze' — подготовка в начале раунда: стоим на спавне, оружие молчит. */
+export type MatchPhase = 'freeze' | 'live' | 'intermission' | 'ended';
 export type HubMatch = {
   mode: 'deathmatch' | 'rounds';
   score: { red: number; blue: number };
@@ -260,6 +263,8 @@ export function applyPresence(
   op: { pose?: unknown; cursor?: unknown; ping?: unknown; life?: unknown },
   now: number,
   map: GameMap = getMap('hub'),
+  /** Подготовка раунда: поворот и стойка принимаются, шаги — нет. */
+  frozen = false,
 ) {
   const pose = sanitizePose(op.pose);
   const cursor = sanitizeCursor(op.cursor);
@@ -268,6 +273,13 @@ export function applyPresence(
   m.ping = finite(op.ping) ? clamp(Math.round(op.ping), 0, 60000) : 0;
   if (cursor) m.cursor = cursor;
   if (!pose || m.hp <= 0 || m.life !== life) return;
+  if (frozen) {
+    const from = m.pose;
+    m.pose = { ...pose, x: from.x, y: from.y, z: from.z, moving: false };
+    m.lastMoveAt = now;
+    recordPose(m, now);
+    return;
+  }
   const dt = m.lastMoveAt ? Math.max(0, now - m.lastMoveAt) / 1000 : Infinity;
   m.lastMoveAt = now;
   m.moveBudget = Math.min(MOVE_BUDGET, m.moveBudget + MOVE_SPEED * dt);
@@ -290,7 +302,11 @@ export function applyPresence(
     m.immuneUntil = now + 5000;
 }
 
-export type FireResult = { ok: boolean; reason?: 'respawning' | 'immune'; effect?: HubEffect };
+export type FireResult = {
+  ok: boolean;
+  reason?: 'respawning' | 'immune' | 'freeze';
+  effect?: HubEffect;
+};
 
 /** Validates a shot and queues it; damage is dealt by `resolveCombat`. Throws on malformed input. */
 export function fireEffect(
@@ -306,6 +322,7 @@ export function fireEffect(
   if (!isVec3(origin) || !isVec3(target) || !isVec3(normal)) throw Error('Некорректная траектория');
   if (typeof op.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(op.color))
     throw Error('Некорректный цвет');
+  if (isFrozen(state, now)) return { ok: false, reason: 'freeze' };
   const shooter = state.members.get(self);
   if (!shooter || shooter.hp <= 0) return { ok: false, reason: 'respawning' };
   if (isImmune(shooter, now)) return { ok: false, reason: 'immune' };
@@ -425,18 +442,31 @@ export function setTeam(state: HubState, self: string, team: Team, now: number) 
 }
 
 export function newMatch(room: HubRoom, now: number): HubMatch {
+  // Раунды начинаются с подготовки; в бою с возрождением ждать нечего.
+  const rounds = room.matchMode === 'rounds';
   return {
     mode: room.matchMode,
     score: { red: 0, blue: 0 },
     round: 1,
-    phase: 'live',
-    until:
-      room.matchMode === 'rounds'
-        ? now + ROUND_MS
-        : room.matchMinutes > 0
-          ? now + room.matchMinutes * 60_000
-          : 0,
+    phase: rounds ? 'freeze' : 'live',
+    until: rounds
+      ? now + FREEZE_MS
+      : room.matchMinutes > 0
+        ? now + room.matchMinutes * 60_000
+        : 0,
   };
+}
+
+/** Идёт подготовка раунда: движение, выстрелы и урон отключены. */
+export function isFrozen(state: HubState, now: number) {
+  const m = state.match;
+  return (
+    state.room.teams &&
+    m.mode === 'rounds' &&
+    m.phase === 'freeze' &&
+    m.until > 0 &&
+    now < m.until
+  );
 }
 
 /** Everyone starts a new life at their team's spawn (new round, new match, new map). */
@@ -497,10 +527,16 @@ export function updateMatch(state: HubState, now: number) {
     return true;
   }
   if (match.until === 0 || now < match.until) return false;
-  if (match.phase === 'intermission') {
-    match.round += 1;
+  if (match.phase === 'freeze') {
+    // Подготовка кончилась — раунд пошёл, все уже стоят на своих спавнах.
     match.phase = 'live';
     match.until = now + ROUND_MS;
+    return true;
+  }
+  if (match.phase === 'intermission') {
+    match.round += 1;
+    match.phase = 'freeze';
+    match.until = now + FREEZE_MS;
   } else {
     state.match = newMatch(room, now);
   }

@@ -331,15 +331,42 @@ test('rounds: the dead wait for the next round and the surviving team takes it',
   const h = battle(member('a', { team: 'red' }), member('v', { team: 'blue', pose: stand(0, 0) }));
   h.room.matchMode = 'rounds';
   h.match = newMatch(h.room, T);
-  for (let i = 0; i < 5; i++) fire(h, 'a', T + i * 100);
+  // Раунд начинается с пяти секунд подготовки: стрелять можно только после неё.
+  resolveCombat(h, T + 5001);
+  for (let i = 0; i < 5; i++) fire(h, 'a', T + 6000 + i * 100);
   const v = h.members.get('v');
   assert.equal(v.hp, 0);
   for (const m of h.members.values()) m.seen = T + 20_000;
   resolveCombat(h, T + 20_000);
   assert.equal(v.hp, 0, 'no respawn inside a round');
   assert.deepEqual([h.match.score.red, h.match.phase], [1, 'intermission']);
+  // Перерыв кончился: новый раунд начинается с подготовки, все уже живы.
   resolveCombat(h, h.match.until + 1);
-  assert.deepEqual([h.match.phase, h.match.round, v.hp], ['live', 2, 100]);
+  assert.deepEqual([h.match.phase, h.match.round, v.hp], ['freeze', 2, 100]);
+  // Через пять секунд подготовки раунд идёт по-настоящему.
+  resolveCombat(h, h.match.until + 1);
+  assert.equal(h.match.phase, 'live');
+});
+
+test('подготовка раунда: пять секунд без движения, выстрелов и урона', () => {
+  const h = battle(member('a', { team: 'red' }), member('v', { team: 'blue', pose: stand(0, 0) }));
+  h.room.matchMode = 'rounds';
+  h.match = newMatch(h.room, T);
+  assert.deepEqual([h.match.phase, h.match.until], ['freeze', T + 5000]);
+  const v = h.members.get('v');
+  const start = { ...v.pose };
+  // Шаг во время подготовки не двигает игрока, но поворот принимается.
+  applyPresence(v, { pose: { ...stand(2, 0), yaw: 1 }, life: 0 }, T + 100, getMap('hub'), true);
+  assert.deepEqual([v.pose.x, v.pose.z, v.pose.yaw], [start.x, start.z, 1]);
+  // Выстрел отклоняется, урона нет.
+  assert.equal(fire(h, 'a', T + 200).ok, false);
+  assert.equal(v.hp, 100);
+  // После подготовки всё работает как обычно.
+  resolveCombat(h, T + 5001);
+  assert.equal(h.match.phase, 'live');
+  applyPresence(v, { pose: stand(0.2, 0), life: 0 }, T + 5100, getMap('hub'), false);
+  assert.ok(Math.abs(v.pose.x - 0.2) < 1e-6);
+  assert.equal(fire(h, 'a', T + 5200).ok, true);
 });
 
 test('teammates never respawn on the same point while another is free', () => {

@@ -316,7 +316,8 @@ export type Match = {
   mode: 'deathmatch' | 'rounds';
   score: { red: number; blue: number };
   round: number;
-  phase: 'live' | 'intermission' | 'ended';
+  /** 'freeze' — подготовка в начале раунда (5 с без движения и выстрелов). */
+  phase: 'freeze' | 'live' | 'intermission' | 'ended';
   /** When the current phase ends (0: no timer). */
   until: number;
   winner?: 'red' | 'blue' | 'draw';

@@ -12,6 +12,7 @@ import {
   setTeam,
   effectsSince,
   fireEffect,
+  isFrozen,
   memberFromRow,
   publicEffects,
   publicMembers,
@@ -60,7 +61,13 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
   async presence(room: string, self: string, op: Record<string, unknown>, since: number | null) {
     const hub = await this.state(room);
     const now = Date.now();
-    applyPresence(await this.member(hub, self), op, now, getMap(hub.room.map));
+    applyPresence(
+      await this.member(hub, self),
+      op,
+      now,
+      getMap(hub.room.map),
+      isFrozen(hub, now),
+    );
     resolveCombat(hub, now);
     this.markDirty();
     return this.view(hub, now, since);
@@ -157,7 +164,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     if (!hub || !m) return;
     const now = Date.now();
     if (msg.t === 'presence') {
-      applyPresence(m, msg, now, getMap(hub.room.map));
+      applyPresence(m, msg, now, getMap(hub.room.map), isFrozen(hub, now));
       this.markDirty();
     } else if (msg.t === 'effect') {
       try {

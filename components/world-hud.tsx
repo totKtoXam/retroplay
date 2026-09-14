@@ -30,6 +30,8 @@ type WorldHudProps = {
   killfeed: KillMessage[];
   personalAlert: PersonalAlert | null;
   respawnSeconds: number;
+  /** Сколько секунд осталось до конца подготовки раунда. */
+  freezeSeconds: number;
 };
 
 export function WorldHud(props: WorldHudProps) {
@@ -327,14 +329,18 @@ export function WorldHud(props: WorldHudProps) {
             <b
               style={{
                 color:
-                  props.room.match.winner === 'red'
-                    ? '#ff5d52'
-                    : props.room.match.winner === 'blue'
-                      ? '#5aa9ff'
-                      : '#e7eeff',
+                  props.room.match.phase === 'freeze'
+                    ? '#e7eeff'
+                    : props.room.match.winner === 'red'
+                      ? '#ff5d52'
+                      : props.room.match.winner === 'blue'
+                        ? '#5aa9ff'
+                        : '#e7eeff',
               }}
             >
-              {props.room.match.phase === 'ended'
+              {props.room.match.phase === 'freeze'
+                ? 'ПРИГОТОВЬТЕСЬ'
+                : props.room.match.phase === 'ended'
                 ? props.room.match.winner === 'draw'
                   ? 'НИЧЬЯ'
                   : props.room.match.winner === 'red'
@@ -347,7 +353,9 @@ export function WorldHud(props: WorldHudProps) {
                     : 'РАУНД ОКОНЧЕН'}
             </b>
             <small>
-              {props.room.match.score.red} : {props.room.match.score.blue}
+              {props.room.match.phase === 'freeze'
+                ? `Раунд ${props.room.match.round} начнётся через ${props.freezeSeconds} с`
+                : `${props.room.match.score.red} : ${props.room.match.score.blue}`}
               {props.room.match.phase === 'intermission' &&
                 ' · следующий раунд вот-вот начнётся'}
             </small>

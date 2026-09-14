@@ -869,6 +869,7 @@ export default function World(props: Props) {
       return immuneExpireRef.current > performance.now();
     };
     const shoot = () => {
+      if (latest.current.room.match?.phase === 'freeze') return;
       const p = latest.current;
       if (p.blocked || middle || isDead() || isImmune() || p.room.state.archived)
         return;
@@ -1654,8 +1655,11 @@ export default function World(props: Props) {
         trajectoryLine.visible = false;
         landingMarker.visible = false;
       }
+      // Подготовка раунда: сервер всё равно не примет шаг, поэтому и локально
+      // игрок стоит — иначе картинка «уезжает», а потом возвращается назад.
+      const frozen = latest.current.room.match?.phase === 'freeze';
       const control =
-        enabled() && !latest.current.blocked && !middle && !isDead();
+        enabled() && !latest.current.blocked && !middle && !isDead() && !frozen;
       const { moving, speed, dx, dz, groundY } = player.update(dt, {
         control,
         aimHeld,
@@ -2000,6 +2004,10 @@ export default function World(props: Props) {
         killfeed={killfeed}
         personalAlert={personalAlert}
         respawnSeconds={respawnSeconds}
+        freezeSeconds={Math.max(
+          0,
+          Math.ceil(((props.room.match?.until ?? 0) - props.now) / 1000),
+        )}
       />
       {tabletInWorld && (
         <WorldTablet
