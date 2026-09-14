@@ -6316,3 +6316,22 @@ h1 > span {
     text-overflow: ellipsis;
   }
 }
+
+/* Меню предметов по колёсику — прозрачное: мир под ним остаётся виден. */
+.item-wheel-dialog[data-slot='dialog-content'] {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.item-wheel-dialog[data-slot='dialog-content'] [data-slot='dialog-title'],
+.item-wheel-dialog[data-slot='dialog-content'] [data-slot='dialog-description'] {
+  text-shadow: 0 1px 8px #000c;
+}
+.item-wheel svg path {
+  fill-opacity: 0.62;
+}
+.item-wheel .wheel-center {
+  background: #0f1420b3;
+}

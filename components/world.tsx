@@ -687,7 +687,11 @@ export default function World(props: Props) {
       equippedTool = latest.current.tool,
       activeControl = false,
       softLook = false,
-      mouseInWorld = false;
+      // Кнопка мыши зажата: единственный способ осмотреться, когда захват
+      // мыши недоступен (обзор по краям экрана убран — он уводил камеру сам).
+      dragLook = false,
+      // Первое движение после захвата мыши браузер отдаёт скачком.
+      skipNextMove = false;
     let grenadeAiming = false;
     let continuousShots = 0;
     const keys = new Set<string>(),
@@ -1115,12 +1119,12 @@ export default function World(props: Props) {
       const fallback = () => {
         softLook = true;
         activeControl = true;
-        mouseInWorld = true;
         setActive(true);
         setCaptureError(
-          'Обзор внутри окна · края экрана поворачивают камеру · Esc — курсор',
+          'Захват мыши недоступен · зажмите кнопку мыши, чтобы осмотреться · Esc — курсор',
         );
       };
+      skipNextMove = true;
       try {
         if (!canvas.requestPointerLock)
           throw new Error('Захват мыши недоступен');
@@ -1150,10 +1154,8 @@ export default function World(props: Props) {
         setContextWheel(true);
         setRadial(false);
         clear();
-        softLook = false;
-        activeControl = false;
-        setActive(false);
-        if (document.pointerLockElement) document.exitPointerLock();
+        // Захват мыши сохраняется: сектор выбирается движением мыши, а камера
+        // не дёргается от повторного захвата при закрытии меню.
       },
       openInventory: () => {
         setContextWheel(false);
@@ -1300,8 +1302,8 @@ export default function World(props: Props) {
       if (e.code === 'Space') player.jump();
       if (e.code === 'KeyC') player.toggleStance(performance.now());
       if (e.code === 'KeyE' && nearZone) {
-        engine.current?.pause();
-        if (document.pointerLockElement) document.exitPointerLock();
+        // Курсор освободит сам диалог карточки (эффект на props.blocked):
+        // лишний exitPointerLock здесь возвращал мышь даже без диалога.
         latest.current.onUseTool(nearZone);
         clear();
       }
@@ -1332,19 +1334,25 @@ export default function World(props: Props) {
     };
     const onMouse = (e: MouseEvent) => {
       const b = canvas.getBoundingClientRect();
-      mouseInWorld = e.target === canvas;
       mouse.set(
         ((e.clientX - b.left) / b.width) * 2 - 1,
         (-(e.clientY - b.top) / b.height) * 2 + 1,
       );
       if (latest.current.blocked || middle) return;
-      if (
-        document.pointerLockElement === canvas ||
-        (softLook && mouseInWorld)
-      ) {
-        // Only filters pointer-lock spikes; ±120 used to cut real fast flicks.
-        const mx = T.MathUtils.clamp(e.movementX, -400, 400);
-        const my = T.MathUtils.clamp(e.movementY, -400, 400);
+      // Без захвата мыши камера вращается только при зажатой кнопке (drag-look):
+      // прежний «обзор по краям экрана» сам уводил камеру в сторону.
+      if (document.pointerLockElement === canvas || (softLook && dragLook)) {
+        // Браузер иногда отдаёт один огромный movement — сразу после захвата
+        // мыши, после сворачивания окна или скачка курсора. Такое событие
+        // нужно отбросить целиком: обрезанный до предела скачок — это тот же
+        // рывок камеры, только на 25° вместо 50°.
+        if (skipNextMove) {
+          skipNextMove = false;
+          return;
+        }
+        if (Math.abs(e.movementX) > 300 || Math.abs(e.movementY) > 300) return;
+        const mx = T.MathUtils.clamp(e.movementX, -180, 180);
+        const my = T.MathUtils.clamp(e.movementY, -180, 180);
         // Scale sensitivity down when sniper is scoped
         const tool = GAME_TOOLS[latest.current.tool]?.id;
         const isSniperZoom = tool === 'sniper' && aimHeld;
@@ -1394,6 +1402,18 @@ export default function World(props: Props) {
     const onDown = (e: MouseEvent) => {
       if (latest.current.blocked || middle) return;
       canvas.focus();
+      // Пока кнопка зажата, события мыши приходят даже за пределами окна —
+      // курсор больше не «выскакивает» с экрана посреди прицеливания.
+      if (e.button === 0 || e.button === 2) {
+        dragLook = true;
+        try {
+          canvas.setPointerCapture?.(
+            (e as MouseEvent & { pointerId?: number }).pointerId ?? 1,
+          );
+        } catch {
+          // Старый браузер без pointer capture: обзор всё равно работает.
+        }
+      }
       if (e.button === 1) {
         e.preventDefault();
         engine.current?.openContext();
@@ -1442,8 +1462,6 @@ export default function World(props: Props) {
           if (tabletInWorldRef.current) closeTabletInWorld();
           else openTabletInWorld();
         } else if (t === 'sticky') {
-          engine.current?.pause();
-          if (document.pointerLockElement) document.exitPointerLock();
           latest.current.onUseTool(selection.current.tabletZone || nearZone);
           clear();
         } else {
@@ -1453,7 +1471,6 @@ export default function World(props: Props) {
           );
           const hit = ray.intersectObjects(kit.boards.map((b) => b.panel))[0];
           if (hit) {
-            document.exitPointerLock();
             latest.current.onUseTool(hit.object.userData.zone);
             clear();
           } else if (t === 'reaction') latest.current.onAction('reaction');
@@ -1465,6 +1482,16 @@ export default function World(props: Props) {
       }
     };
     const onMouseUp = (e: MouseEvent) => {
+      if (e.button === 0 || e.button === 2) {
+        dragLook = false;
+        try {
+          canvas.releasePointerCapture?.(
+            (e as MouseEvent & { pointerId?: number }).pointerId ?? 1,
+          );
+        } catch {
+          // Захват мог не начаться — освобождать нечего.
+        }
+      }
       if (e.button === 0) {
         left = false;
         continuousShots = 0;
@@ -1489,8 +1516,10 @@ export default function World(props: Props) {
       activeControl = captured;
       setLocked(captured);
       setActive(captured);
-      if (!captured) {
+      if (captured) skipNextMove = true;
+      else {
         softLook = false;
+        dragLook = false;
         clear();
       }
     };
@@ -1630,12 +1659,6 @@ export default function World(props: Props) {
       const { moving, speed, dx, dz, groundY } = player.update(dt, {
         control,
         aimHeld,
-        // Soft look turns the camera when the pointer sits at the screen edge;
-        // the player module stays free of mouse state, so resolve it here.
-        edgeTurn:
-          softLook && mouseInWorld && Math.abs(mouse.x) > 0.88
-            ? Math.sign(mouse.x)
-            : 0,
       });
       avatar.position.copy(pos);
       avatar.position.y += 0.27;

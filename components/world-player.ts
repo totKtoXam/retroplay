@@ -108,20 +108,17 @@ export function createWorldPlayer({
 
   /**
    * One frame of movement and physics. `control` is false while the pointer is
-   * free, a dialog is open or we are dead; `edgeTurn` is the soft-look edge
-   * turn (-1/0/1) the mouse handler computes, passed in so that no mouse state
-   * has to live here. Returns what the caller still needs for the avatar
-   * animation, the shadow and the pose it sends to the server.
+   * free, a dialog is open or we are dead. Returns what the caller still needs
+   * for the avatar animation, the shadow and the pose it sends to the server.
+   *
+   * The camera turns only from the mouse and the arrow keys: the old
+   * screen-edge turn kept rotating the view on its own whenever the pointer
+   * happened to rest near the edge.
    */
-  const update = (
-    dt: number,
-    input: { control: boolean; aimHeld: boolean; edgeTurn: number },
-  ) => {
+  const update = (dt: number, input: { control: boolean; aimHeld: boolean }) => {
     let dx = 0,
       dz = 0;
     if (input.control) {
-      if (input.edgeTurn)
-        cameraYaw = wrapAngle(cameraYaw - input.edgeTurn * 1.35 * dt);
       dx = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
       dz = Number(keys.has('KeyS')) - Number(keys.has('KeyW'));
       cameraYaw = wrapAngle(

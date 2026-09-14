@@ -4,8 +4,14 @@
     {
       "name": "retro3d-dev",
       "runtimeExecutable": "npm.cmd",
-      "runtimeArgs": ["run", "dev", "--", "--port", "3100"],
-      "port": 3100
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "3101"
+      ],
+      "port": 3101
     }
   ]
 }

@@ -32,6 +32,25 @@ export function ItemWheel({
   ];
   const active = items[hover];
 
+  // При захваченной мыши курсора на экране нет, поэтому сектор выбирается по
+  // накопленному движению мыши: меню открывается, не отпуская захват.
+  useEffect(() => {
+    let x = 0,
+      y = 0;
+    const move = (e: MouseEvent) => {
+      if (!document.pointerLockElement) return;
+      x = Math.max(-240, Math.min(240, x + e.movementX));
+      y = Math.max(-240, Math.min(240, y + e.movementY));
+      if (Math.hypot(x, y) <= 25) return;
+      let angle = Math.atan2(y, x) + Math.PI / 2;
+      if (angle < 0) angle += Math.PI * 2;
+      const sector = (Math.PI * 2) / items.length;
+      setHover(Math.floor((angle + sector / 2) / sector) % items.length);
+    };
+    window.addEventListener('mousemove', move);
+    return () => window.removeEventListener('mousemove', move);
+  }, [items.length]);
+
   useEffect(() => {
     const handleUp = (e: MouseEvent) => {
       if (e.button === 1) {
@@ -87,7 +106,7 @@ export function ItemWheel({
       >
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>
-          Удерживайте колёсико и наведите курсор · отпустите для выбора
+          Удерживайте колёсико и ведите мышью · отпустите для выбора
         </DialogDescription>
         <div
           className="item-wheel"

@@ -45,7 +45,7 @@ const player = (over = {}) => {
   const run = (frames, input = {}) => {
     let last;
     for (let i = 0; i < frames; i++)
-      last = p.update(1 / 60, { control: true, aimHeld: false, edgeTurn: 0, ...input });
+      last = p.update(1 / 60, { control: true, aimHeld: false, ...input });
     return last;
   };
   return { p, keys, stances, run };
