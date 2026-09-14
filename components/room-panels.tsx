@@ -713,86 +713,7 @@ export function MatchBar({
   );
 }
 
-/** Выбор стороны и внешнего вида: команда, скин, цвет банданы. */
-/** «1 игрок», «2 игрока», «5 игроков». */
-const players = (n: number) => {
-  const tail = n % 100 > 10 && n % 100 < 15 ? 0 : n % 10;
-  return `${n} ${tail === 1 ? 'игрок' : tail > 1 && tail < 5 ? 'игрока' : 'игроков'}`;
-};
-export function TeamPanel({
-  self,
-  members,
-  onTeam,
-  selectedSkin,
-  onSelectSkin,
-  selectedBandanaColor,
-  onBandanaColorChange,
-}: {
-  self: Person | undefined;
-  members: Person[];
-  onTeam: (team: 'red' | 'blue') => void;
-  selectedSkin: string;
-  onSelectSkin: (skinId: string) => void;
-  selectedBandanaColor: string;
-  onBandanaColorChange: (color: string) => void;
-}) {
-  const size = (team: 'red' | 'blue') =>
-    members.filter((m) => m.team === team).length;
-  return (
-    <>
-      <div className="team-choice">
-        {(
-          [
-            ['red', 'Красные', '#ff5d52'],
-            ['blue', 'Синие', '#5aa9ff'],
-          ] as const
-        ).map(([team, title, color]) => (
-          <button
-            key={team}
-            className={`team-card ${self?.team === team ? 'selected' : ''}`}
-            style={{ '--team': color } as React.CSSProperties}
-            onClick={() => onTeam(team)}
-          >
-            <strong>{title}</strong>
-            <small>
-              {players(size(team))}
-              {self?.team === team ? ' · вы здесь' : ''}
-            </small>
-          </button>
-        ))}
-      </div>
-      <p className="muted">
-        Смена стороны возрождает вас на спавне новой команды.
-      </p>
-      <p className="field">Скин</p>
-      <div className="skin-picker-grid">
-        {AVATAR_SKINS.map((sk) => (
-          <button
-            key={sk.id}
-            className={`skin-card ${selectedSkin === sk.id ? 'selected' : ''}`}
-            title={sk.description}
-            onClick={() => onSelectSkin(sk.id)}
-          >
-            <span className="skin-icon">{sk.icon}</span>
-            <span className="skin-name">{sk.name}</span>
-          </button>
-        ))}
-      </div>
-      <p className="field">Цвет банданы</p>
-      <div className="bandana-color-swatches">
-        {PRESET_BANDANA_COLORS.map((c) => (
-          <button
-            key={c}
-            className={`bandana-swatch ${selectedBandanaColor === c ? 'selected' : ''}`}
-            style={{ background: c }}
-            aria-label={'Цвет ' + c}
-            onClick={() => onBandanaColorChange(c)}
-          />
-        ))}
-      </div>
-    </>
-  );
-}
+/* Выбор стороны и внешнего вида живёт в components/side-picker.tsx. */
 
 /** Всё, что не нужно в бою каждую секунду: настройки, история, экспорт. */
 export function MenuPanel({
@@ -810,7 +731,7 @@ export function MenuPanel({
       {(
         [
           ...(battle
-            ? ([['team', Swords, 'Сторона и внешний вид', 'Команда, скин, бандана']] as const)
+            ? ([['team', Swords, 'Выбор стороны', 'Команда, скин, бандана']] as const)
             : []),
           ['tools', Backpack, 'Инвентарь', 'Предметы этого режима'],
           ['mode', Swords, 'Режим игры', 'Режим, карта и правила'],

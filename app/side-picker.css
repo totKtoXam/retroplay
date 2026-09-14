@@ -1,0 +1,401 @@
+/*
+ * Экран выбора стороны и скина (components/side-picker.tsx).
+ * Панель игровая: поверх 3D-сцены, поэтому тёмная в обеих темах.
+ * Селекторы держим сильнее `html[data-theme='dark'] .app-dialog` из theme.css.
+ */
+
+:root {
+  --sp-bg: #0c1018;
+  --sp-bg-2: #131a26;
+  --sp-line: #ffffff1f;
+  --sp-line-strong: #ffffff33;
+  --sp-text: #e7eef7;
+  --sp-muted: #93a3b8;
+}
+
+.app-dialog.side-picker-dialog,
+html[data-theme='light'] .app-dialog.side-picker-dialog,
+html[data-theme='dark'] .app-dialog.side-picker-dialog {
+  background:
+    radial-gradient(120% 90% at 50% -10%, #1c2635 0%, transparent 60%),
+    var(--sp-bg) !important;
+  color: var(--sp-text) !important;
+  width: min(880px, calc(100vw - 28px)) !important;
+  max-width: min(880px, calc(100vw - 28px)) !important;
+  padding: 22px 24px 18px !important;
+  border-radius: 14px !important;
+  max-height: min(92dvh, 880px);
+  overflow-y: auto;
+  box-shadow:
+    0 0 0 1px #ffffff1a,
+    0 30px 70px #000000b8;
+}
+.app-dialog.side-picker-dialog [data-slot='dialog-title'],
+html[data-theme='dark']
+  .app-dialog.side-picker-dialog
+  [data-slot='dialog-title'] {
+  color: var(--sp-text);
+  font-size: 19px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.app-dialog.side-picker-dialog [data-slot='dialog-description'],
+html[data-theme='dark']
+  .app-dialog.side-picker-dialog
+  [data-slot='dialog-description'] {
+  color: var(--sp-muted);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+.app-dialog.side-picker-dialog [data-slot='dialog-close'] {
+  color: var(--sp-muted);
+  background: transparent;
+}
+.app-dialog.side-picker-dialog [data-slot='dialog-close']:hover {
+  color: #fff;
+  background: #ffffff1f;
+}
+
+.side-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-family: 'Segoe UI', Arial, sans-serif;
+}
+.side-picker *:focus-visible {
+  outline: 2px solid #8ecbff;
+  outline-offset: 2px;
+}
+
+/* --- Две карточки сторон -------------------------------------------------- */
+.sp-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.sp-side {
+  --sp-team: #8aa0bd;
+  display: grid;
+  gap: 9px;
+  align-content: start;
+  text-align: left;
+  padding: 15px 15px 13px;
+  min-height: 176px;
+  cursor: pointer;
+  color: var(--sp-text);
+  border: 1px solid var(--sp-line);
+  border-top: 3px solid color-mix(in srgb, var(--sp-team) 70%, transparent);
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--sp-team) 16%, transparent) 0%,
+      transparent 65%
+    ),
+    var(--sp-bg-2);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.15s ease;
+}
+.sp-side:hover:not([aria-disabled='true']):not([aria-pressed='true']) {
+  border-color: var(--sp-team);
+  transform: translateY(-2px);
+}
+.sp-side[aria-pressed='true'] {
+  border-color: var(--sp-team);
+  box-shadow:
+    inset 0 0 0 1px var(--sp-team),
+    0 0 22px color-mix(in srgb, var(--sp-team) 30%, transparent);
+  cursor: default;
+}
+.sp-side[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.sp-side-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.sp-side-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #0b0f16;
+  background: var(--sp-team);
+}
+.sp-side-name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.sp-side-name strong {
+  font-size: 17px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  color: var(--sp-team);
+}
+.sp-side-name small {
+  font-size: 11px;
+  color: var(--sp-muted);
+}
+.sp-side-count {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: #cbd8e8;
+}
+.sp-side-roster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-height: 22px;
+}
+.sp-side-roster em {
+  font-size: 11px;
+  color: #6f8098;
+  font-style: normal;
+}
+.sp-chip {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #dbe6f3;
+  background: #ffffff14;
+  border: 1px solid var(--sp-line);
+}
+.sp-chip.more {
+  color: var(--sp-muted);
+}
+.sp-side-state {
+  justify-self: start;
+  margin-top: auto;
+  padding: 5px 11px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  color: var(--sp-team);
+  background: color-mix(in srgb, var(--sp-team) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sp-team) 45%, transparent);
+}
+.sp-side[aria-pressed='true'] .sp-side-state {
+  color: #0b0f16;
+  background: var(--sp-team);
+  border-color: var(--sp-team);
+}
+.sp-side[aria-disabled='true'] .sp-side-state {
+  color: var(--sp-muted);
+  background: #ffffff0f;
+  border-color: var(--sp-line);
+}
+
+.sp-hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--sp-muted);
+}
+
+/* --- Внешний вид ---------------------------------------------------------- */
+.sp-look {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  gap: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--sp-line);
+}
+.sp-look-preview .agent-preview {
+  margin: 0;
+  background: radial-gradient(ellipse at 50% 40%, #26313f, #0e131c);
+  border: 1px solid var(--sp-line);
+}
+.sp-look-preview .agent-preview-canvas {
+  height: 230px;
+}
+.sp-look-preview .agent-preview-controls {
+  color: var(--sp-muted);
+  gap: 16px;
+}
+.sp-look-preview .agent-preview-controls button {
+  background: #ffffff14;
+  border: 1px solid var(--sp-line-strong);
+  color: var(--sp-text);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sp-look-preview .agent-preview-controls button:hover {
+  background: #ffffff2b;
+}
+.sp-look-caption {
+  display: grid;
+  gap: 2px;
+  margin: 9px 0 0;
+}
+.sp-look-caption strong {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sp-text);
+}
+.sp-look-caption small {
+  font-size: 11px;
+  color: var(--sp-muted);
+}
+
+.sp-look-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.sp-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.sp-subtitle {
+  margin: 0;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--sp-muted);
+}
+.sp-skins {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
+}
+.sp-skin {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  padding: 11px 6px 9px;
+  cursor: pointer;
+  border-radius: 10px;
+  border: 1px solid var(--sp-line);
+  background: var(--sp-bg-2);
+  color: var(--sp-text);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.15s ease;
+}
+.sp-skin:hover {
+  border-color: var(--sp-line-strong);
+  background: #1b2432;
+  transform: translateY(-1px);
+}
+.sp-skin.is-on {
+  border-color: #8ecbff;
+  background: #16293d;
+  box-shadow: inset 0 0 0 1px #8ecbff66;
+}
+.sp-skin-icon {
+  font-size: 25px;
+  line-height: 1;
+}
+.sp-skin-name {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.sp-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sp-color {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  border: 2px solid #ffffff24;
+  transition:
+    transform 0.12s ease,
+    border-color 0.12s ease;
+}
+.sp-color:hover {
+  transform: scale(1.14);
+  border-color: #ffffff8c;
+}
+.sp-color.is-on {
+  border-color: #fff;
+  transform: scale(1.16);
+  box-shadow: 0 0 9px #ffffff5c;
+}
+
+/* --- Низ панели ----------------------------------------------------------- */
+.sp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--sp-line);
+}
+.sp-esc {
+  font-size: 11px;
+  color: var(--sp-muted);
+}
+.sp-esc kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 1px;
+  border-radius: 5px;
+  font: inherit;
+  font-weight: 650;
+  color: #dbe6f3;
+  background: #ffffff17;
+  border: 1px solid var(--sp-line-strong);
+}
+.sp-done {
+  padding: 9px 24px;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid #8ecbff5c;
+  background: #1d3348;
+  color: #dff0ff;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+}
+.sp-done:hover {
+  background: #274a68;
+  color: #fff;
+}
+
+@media (max-width: 720px) {
+  .sp-sides {
+    grid-template-columns: 1fr;
+  }
+  .sp-side {
+    min-height: 0;
+  }
+  .sp-look {
+    grid-template-columns: 1fr;
+  }
+  .sp-look-preview .agent-preview-canvas {
+    height: 190px;
+  }
+}

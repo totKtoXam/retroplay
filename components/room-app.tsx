@@ -77,11 +77,11 @@ import {
   VotePanel,
   MatchBar,
   MenuPanel,
-  TeamPanel,
   ModePanel,
   WidgetsPanel,
   WorldPanel,
 } from './room-panels';
+import { SidePicker } from './side-picker';
 import { useRoomSync } from './use-room-sync';
 import { MAP_CATALOG, modeOf } from '@/lib/maps/catalog';
 import { defaultSlot, hasSlot, slotsFor } from '@/lib/loadout';
@@ -1321,7 +1321,7 @@ export default function RoomApp({ id }: { id: string }) {
                           className={`side-swap ${m.team || 'none'}`}
                           title={
                             m.id === room.self
-                              ? 'Сторона и внешний вид'
+                              ? 'Выбор стороны и скина'
                               : 'Перевести в другую команду'
                           }
                           aria-label={
@@ -1774,7 +1774,12 @@ export default function RoomApp({ id }: { id: string }) {
       <Dialog open={!!panel} onOpenChange={(v) => !v && setPanel('')}>
         <DialogContent
           className={
-            'app-dialog ' + (panel === 'settings' ? 'settings-dialog' : '')
+            'app-dialog ' +
+            (panel === 'settings'
+              ? 'settings-dialog'
+              : panel === 'team'
+                ? 'side-picker-dialog'
+                : '')
           }
         >
           <DialogTitle>
@@ -1782,7 +1787,7 @@ export default function RoomApp({ id }: { id: string }) {
               {
                 history: 'История изменений',
                 menu: 'Меню комнаты',
-                team: 'Сторона и внешний вид',
+                team: 'Выбор стороны',
                 settings: 'Настройки встречи',
                 world: 'Облик мира',
                 mode: 'Режим игры',
@@ -1808,7 +1813,7 @@ export default function RoomApp({ id }: { id: string }) {
                 : panel === 'settings'
                   ? 'Приватность и правила совместной работы'
                   : panel === 'team'
-                    ? 'Выберите сторону и внешний вид бойца'
+                    ? 'Сторона, скин и цвет банданы вашего бойца'
                     : panel === 'menu'
                     ? 'Настройки, история и всё, что не нужно каждую секунду'
                     : panel === 'world'
@@ -1935,9 +1940,12 @@ export default function RoomApp({ id }: { id: string }) {
             />
           )}
           {panel === 'team' && (
-            <TeamPanel
+            <SidePicker
               self={me}
               members={room.members}
+              anime={s.visualStyle === 'anime'}
+              anonymous={!!s.anonymousPlayers}
+              onClose={() => setPanel('')}
               onTeam={(team) =>
                 void act({ type: 'team.set', session: room.self, team })
               }

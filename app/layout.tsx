@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import '../components/resource-packs/packs.css';
 import './theme.css';
+import './side-picker.css';
 /**
  * Ставит тему на <html> до первой отрисовки, чтобы не было вспышки светлого
  * фона. Логика повторяет applyTheme() из hooks/use-theme.ts.
