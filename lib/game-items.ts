@@ -65,6 +65,11 @@ export const SHOTGUN_PELLET_OFFSETS: [number, number][] = [
   [Math.PI * 1.45, 0.92],
 ];
 
+/** Снайперка: попадание в туловище или голову — смерть, по конечностям — ранение. */
+export const SNIPER_LIMB_DAMAGE = 45;
+/** Остальное оружие: по рукам и ногам урон ниже, чем по туловищу. */
+export const LIMB_DAMAGE_SCALE = 0.6;
+
 export const effectDamage = (kind: string, distance?: number) => {
   if (kind === 'like') return 0;
   if (kind === 'grenade') return 45;
@@ -252,15 +257,15 @@ export function inHitRange(
   return true;
 }
 
-/** Check if projectile ray hit the player head (headshot). */
-export function isHeadshot(
-  kind: string,
+/**
+ * Попадание в голову по геометрии, без учёта оружия: хитбокс у всех один,
+ * по-разному работает только оружие.
+ */
+export function isHeadHit(
   origin: number[],
   target: number[],
   pose: { x: number; y: number; z: number; yaw?: number; stance: string },
 ): boolean {
-  if (kind === 'grenade') return false;
-
   const yaw = pose.yaw || 0;
   let headCenter: number[];
 
@@ -283,6 +288,104 @@ export function isHeadshot(
   // Hitbox radius 0.27 ensures hits are strictly on the head, never on the chest (which is at Y ~ 1.52).
   const dist = pointToSegmentDist(headCenter, origin, target);
   return dist < 0.27;
+}
+
+/** Хедшот для оружия: взрыв гранаты по голове не считается. */
+export function isHeadshot(
+  kind: string,
+  origin: number[],
+  target: number[],
+  pose: { x: number; y: number; z: number; yaw?: number; stance: string },
+): boolean {
+  return kind === 'grenade' ? false : isHeadHit(origin, target, pose);
+}
+
+export type HitZone = 'head' | 'torso' | 'limb';
+
+/** Радиус туловища: грудь модели — цилиндр R 0.285, пояс — коробка полушириной 0.24. */
+const TORSO_RADIUS = 0.3;
+
+/**
+ * Отрезок «таз — шея» для стойки. Всё, что попало в капсулу тела,
+ * но прошло мимо этого отрезка и мимо головы, считается рукой или ногой.
+ */
+function torsoSegment(pose: {
+  x: number;
+  y: number;
+  z: number;
+  yaw?: number;
+  stance: string;
+}): [number[], number[]] {
+  if (pose.stance === 'lie') {
+    // Лёжа тело вытянуто по yaw: 0 — ступни, 1.6 — макушка.
+    const sinY = Math.sin(pose.yaw || 0);
+    const cosY = Math.cos(pose.yaw || 0);
+    return [
+      [pose.x - sinY * 0.75, pose.y + 0.25, pose.z - cosY * 0.75],
+      [pose.x - sinY * 1.35, pose.y + 0.25, pose.z - cosY * 1.35],
+    ];
+  }
+  if (pose.stance === 'sit') {
+    return [
+      [pose.x, pose.y + 0.7, pose.z],
+      [pose.x, pose.y + 1.45, pose.z],
+    ];
+  }
+  // Стоя: таз модели около 1.0, пояс 1.15, плечи 1.8. Ниже таза идут бёдра.
+  return [
+    [pose.x, pose.y + 1.0, pose.z],
+    [pose.x, pose.y + 1.8, pose.z],
+  ];
+}
+
+/**
+ * Насколько выстрел [p1, p2] прошёл от оси тела [a, b] и на какой её доле.
+ * Вдоль выстрела параметр зажат отрезком, вдоль оси — нет: туловище считаем
+ * цилиндром, а не капсулой, иначе выстрел под тазом попадал бы в «туловище».
+ */
+function shotVsBodyAxis(
+  p1: number[],
+  p2: number[],
+  a: number[],
+  b: number[],
+): { along: number; dist: number } {
+  const u = [p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]];
+  const v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const w = [p1[0] - a[0], p1[1] - a[1], p1[2] - a[2]];
+  const dot = (m: number[], n: number[]) => m[0] * n[0] + m[1] * n[1] + m[2] * n[2];
+  const A = dot(u, u),
+    B = dot(u, v),
+    C = dot(v, v),
+    D = dot(u, w),
+    E = dot(v, w);
+  const denom = A * C - B * B;
+  let s = denom > 1e-7 ? (B * E - C * D) / denom : 0;
+  s = Math.max(0, Math.min(1, s));
+  const along = C > 1e-9 ? (E + B * s) / C : 0;
+  return {
+    along,
+    dist: Math.hypot(
+      p1[0] + s * u[0] - (a[0] + along * v[0]),
+      p1[1] + s * u[1] - (a[1] + along * v[1]),
+      p1[2] + s * u[2] - (a[2] + along * v[2]),
+    ),
+  };
+}
+
+/**
+ * Куда пришлось попадание. Хитбокс общий для всего оружия — как оружие
+ * переводит зону в урон, решает уже вызывающий код.
+ * Вызывать после `inHitRange`: функция различает зоны внутри засчитанного попадания.
+ */
+export function hitZone(
+  origin: number[],
+  target: number[],
+  pose: { x: number; y: number; z: number; yaw?: number; stance: string },
+): HitZone {
+  if (isHeadHit(origin, target, pose)) return 'head';
+  const [hips, neck] = torsoSegment(pose);
+  const { along, dist } = shotVsBodyAxis(origin, target, hips, neck);
+  return dist < TORSO_RADIUS && along >= 0 && along <= 1 ? 'torso' : 'limb';
 }
 
 /** Calculate how many shotgun pellets from an 8-pellet conical blast strike the player capsule. */

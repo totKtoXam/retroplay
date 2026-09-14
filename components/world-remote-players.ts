@@ -5,6 +5,10 @@ import type { GameMap } from '@/lib/maps/types';
 import type { WorldKit } from './world-map-scene';
 import { animateAvatar, setAvatarAnonymous } from './world-avatar';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
+import { modeOf } from '@/lib/maps/catalog';
+
+/** Цвета сторон: боец и его метка окрашены в цвет команды, а не личный. */
+const TEAM_COLORS: Record<string, string> = { red: '#ff5d52', blue: '#5aa9ff' };
 
 /**
  * Remote player avatars of the world engine: creation/retirement, name
@@ -37,25 +41,40 @@ export function createWorldRemotePlayers({
         lastTime: number;
       }
     >();
-  const addLabel = (name: string, color: string) => {
+  /** Цвет игрока на поле: в бою — цвет его команды, на встрече — личный. */
+  const colorOf = (member: { team?: string; color: string }) =>
+    (modeOf(latest.current.room.state) === 'battle' &&
+      TEAM_COLORS[member.team ?? '']) ||
+    member.color;
+  /** Своя ли это сторона (в свободной игре все «свои»). */
+  const isAlly = (member: { team?: string }) => {
+    if (modeOf(latest.current.room.state) !== 'battle') return true;
+    const mine = latest.current.room.members.find(
+      (m) => m.id === latest.current.room.self,
+    )?.team;
+    return !!mine && mine === member.team;
+  };
+  const addLabel = (name: string, color: string, ally = false) => {
     const c = document.createElement('canvas');
     c.width = 256;
     c.height = 64;
     const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#182237de';
+    ctx.fillStyle = ally ? '#12362bdd' : '#182237de';
     ctx.roundRect(0, 0, 256, 60, 15);
     ctx.fill();
     ctx.fillStyle = color;
     ctx.fillRect(8, 13, 4, 30);
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = ally ? '#d8ffe9' : '#fff';
     ctx.font = '500 23px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(name.slice(0, 18), 132, 39);
     const tex = new T.CanvasTexture(c);
     tex.colorSpace = T.SRGBColorSpace;
     const sprite = new T.Sprite(
-      new T.SpriteMaterial({ map: tex, transparent: true, depthTest: true }),
+      // Метка союзника видна сквозь стены — так проще не стрелять по своим.
+      new T.SpriteMaterial({ map: tex, transparent: true, depthTest: !ally }),
     );
+    if (ally) sprite.renderOrder = 6;
     sprite.scale.set(1.8, 0.45, 1);
     sprite.position.y = 2.55;
     return sprite;
@@ -105,7 +124,7 @@ export function createWorldRemotePlayers({
       liveRemoteIds.add(member.id);
       let remote = remoteAvatars.get(member.id);
       if (!remote) {
-        remote = kit.avatarFactory(member.color);
+        remote = kit.avatarFactory(colorOf(member));
         remoteAvatars.set(member.id, remote);
         remoteKey = Array.from(remoteAvatars.keys()).join(',');
         remote.traverse((o) => {
@@ -115,8 +134,8 @@ export function createWorldRemotePlayers({
         // Attach custom skins to remote avatar
         const remoteSkinResult = attachCustomSkins(remote);
         remoteBandanaMats.set(member.id, remoteSkinResult.bandanaMat);
-        applyAvatarSkin(remote, member.hat || member.skin || 'agent', member.bandanaColor || member.color, remoteSkinResult.bandanaMat);
-        const label = addLabel(member.name, member.color);
+        applyAvatarSkin(remote, member.hat || member.skin || 'agent', colorOf(member), remoteSkinResult.bandanaMat);
+        const label = addLabel(member.name, colorOf(member), isAlly(member));
         labels.set(member.id, label);
         remote.add(label);
         if (member.pose) {
@@ -149,12 +168,14 @@ export function createWorldRemotePlayers({
       );
       const isRemoteShielded = (member.immuneRemaining || 0) > 0;
       // Update remote skin if changed
-      applyAvatarSkin(remote, member.hat || member.skin || 'agent', member.bandanaColor || member.color, remoteBandanaMats.get(member.id));
+      applyAvatarSkin(remote, member.hat || member.skin || 'agent', colorOf(member), remoteBandanaMats.get(member.id));
+      const ally = isAlly(member);
+      const mark = modeOf(latest.current.room.state) === 'battle' ? (ally ? '▲ ' : '✖ ') : '';
       const caption = isRemoteDead
         ? '💀 ПОГИБ'
         : latest.current.room.state.anonymousPlayers
-          ? `${member.hp ?? 100} HP${isRemoteShielded ? ' 🛡️' : ''}`
-          : `${member.name.slice(0, 12)} · ${member.hp ?? 100}${isRemoteShielded ? ' 🛡️' : ''}`;
+          ? `${mark}${member.hp ?? 100} HP${isRemoteShielded ? ' 🛡️' : ''}`
+          : `${mark}${member.name.slice(0, 12)} · ${member.hp ?? 100}${isRemoteShielded ? ' 🛡️' : ''}`;
       let label = labels.get(member.id);
       // Hide label when host setting hidePlayerStatus is on
       const shouldHideLabel = !!latest.current.room.state.hidePlayerStatus;
@@ -164,7 +185,7 @@ export function createWorldRemotePlayers({
           label.material.map?.dispose();
           label.material.dispose();
         }
-        label = addLabel(caption, member.color);
+        label = addLabel(caption, colorOf(member), ally);
         label.userData.caption = caption;
         labels.set(member.id, label);
         remote.add(label);

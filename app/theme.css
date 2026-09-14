@@ -1,0 +1,434 @@
+/* ==========================================================================
+   Светлая и тёмная тема для страниц вне игры: лобби, диалоги, вход в комнату.
+   Тема ставится атрибутом data-theme на <html> (см. app/layout.tsx и
+   hooks/use-theme.ts). Правила globals.css не переписываются: здесь только
+   точечные переопределения цветов для html[data-theme='dark'].
+   Игровые экраны (.room-app, .world-*, .game-bar, .spreo-*) не затрагиваются.
+   ========================================================================== */
+
+/* --- Палитра: светлая (значения повторяют текущий вид лобби) -------------- */
+:root {
+  color-scheme: light;
+  --jin-bg: #f5f6fb;
+  --jin-bg-soft: #f6f7fc;
+  --jin-surface: #ffffff;
+  --jin-surface-2: #fafaff;
+  --jin-surface-3: #f3f3fc;
+  --jin-border: #e1e4f0;
+  --jin-border-strong: #e1dfec;
+  --jin-text: #2a3043;
+  --jin-text-muted: #838ca3;
+  --jin-text-faint: #9199b1;
+  --jin-accent: #7868e6;
+  --jin-accent-strong: #7868dc;
+  --jin-accent-hover: #6958cd;
+  --jin-accent-soft: #efedfc;
+  --jin-danger-bg: #fbede7;
+  --jin-danger-text: #9e5641;
+  --jin-card-shadow: 0 10px 24px #2d4b3c10;
+  --jin-theme-ease: 140ms ease;
+}
+
+/* --- Палитра: тёмная ------------------------------------------------------ */
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --jin-bg: #12151c;
+  --jin-bg-soft: #171b24;
+  --jin-surface: #1c2130;
+  --jin-surface-2: #222839;
+  --jin-surface-3: #1b2030;
+  --jin-border: #2b3242;
+  --jin-border-strong: #39415a;
+  --jin-text: #e6e9f2;
+  --jin-text-muted: #9aa3b8;
+  --jin-text-faint: #8b94ab;
+  --jin-accent: #8b7cf0;
+  --jin-accent-strong: #6f5ddb;
+  --jin-accent-hover: #7f6fe6;
+  --jin-accent-soft: #262046;
+  --jin-danger-bg: #3a2420;
+  --jin-danger-text: #ffb4a2;
+  --jin-card-shadow: 0 12px 28px #05070c66;
+
+  /* Переменные shadcn/Tailwind: закрывают порталы (диалоги, выпадающие списки). */
+  --background: var(--jin-bg);
+  --foreground: var(--jin-text);
+  --popover: var(--jin-surface);
+  --primary: var(--jin-accent);
+  --muted: #262d3e;
+  --muted-foreground: var(--jin-text-muted);
+  --border: var(--jin-border);
+}
+
+/* --- Переключатель темы --------------------------------------------------- */
+.theme-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 1px solid var(--jin-border);
+  background: var(--jin-surface);
+  color: var(--jin-text-muted);
+  transition:
+    background-color var(--jin-theme-ease),
+    color var(--jin-theme-ease),
+    border-color var(--jin-theme-ease);
+}
+.theme-toggle:hover {
+  color: var(--jin-accent);
+  border-color: var(--jin-accent);
+}
+
+/* --- Плавная смена цвета (без анимации раскладки) ------------------------- */
+body,
+.lobby-body,
+.main-header,
+.side-nav,
+.search-box,
+.search-box input,
+.new-room-card,
+.create-circle,
+.count,
+.app-dialog,
+.join-card,
+.field input,
+.field textarea,
+.text-input,
+.theme-card,
+.mode-card,
+.access-choice-card,
+.error-banner,
+.loading-state,
+.empty-rooms-state,
+.primary,
+.secondary,
+.light-button,
+.text-button {
+  transition:
+    background-color var(--jin-theme-ease),
+    color var(--jin-theme-ease),
+    border-color var(--jin-theme-ease),
+    transform 150ms ease;
+}
+.room-card {
+  transition:
+    background-color var(--jin-theme-ease),
+    color var(--jin-theme-ease),
+    border-color var(--jin-theme-ease),
+    transform 0.2s,
+    box-shadow 0.2s;
+}
+@media (prefers-reduced-motion: reduce) {
+  body,
+  .lobby-body,
+  .main-header,
+  .side-nav,
+  .search-box,
+  .search-box input,
+  .new-room-card,
+  .create-circle,
+  .count,
+  .app-dialog,
+  .join-card,
+  .field input,
+  .field textarea,
+  .text-input,
+  .theme-card,
+  .mode-card,
+  .access-choice-card,
+  .error-banner,
+  .loading-state,
+  .empty-rooms-state,
+  .primary,
+  .secondary,
+  .light-button,
+  .text-button,
+  .room-card {
+    transition: none;
+  }
+}
+
+/* ==========================================================================
+   Тёмная тема
+   ========================================================================== */
+
+/* --- Каркас лобби --------------------------------------------------------- */
+html[data-theme='dark'] body {
+  background: var(--jin-bg);
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .lobby-body {
+  background: var(--jin-bg-soft);
+}
+html[data-theme='dark'] .main-header,
+html[data-theme='dark'] .side-nav {
+  background: var(--jin-surface);
+  border-color: var(--jin-border);
+}
+html[data-theme='dark'] .brand {
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .brand-suffix,
+html[data-theme='dark'] .header-caption,
+html[data-theme='dark'] .nav-bottom,
+html[data-theme='dark'] .lobby-foot {
+  color: var(--jin-text-muted);
+}
+html[data-theme='dark'] .avatar {
+  background: #3a3358;
+  border-color: var(--jin-border);
+  color: #e3ddff;
+}
+html[data-theme='dark'] .side-nav button {
+  color: var(--jin-text-muted);
+}
+html[data-theme='dark'] .side-nav button:hover {
+  background: #232a3b;
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .side-nav .nav-active {
+  background: var(--jin-accent-soft);
+  color: #b7a9ff;
+}
+html[data-theme='dark'] .lobby-main {
+  color: var(--jin-text);
+}
+
+/* --- Заголовки и вспомогательный текст ------------------------------------ */
+html[data-theme='dark'] .page-heading h1,
+html[data-theme='dark'] .section-heading h2 {
+  color: var(--jin-text);
+}
+html[data-theme='dark'] h1 > span {
+  color: var(--jin-accent);
+}
+html[data-theme='dark'] .muted {
+  color: var(--jin-text-muted);
+}
+html[data-theme='dark'] .eyebrow {
+  color: var(--jin-text-faint);
+}
+html[data-theme='dark'] .count {
+  background: #262d3e;
+  color: #aab3c9;
+}
+
+/* --- Поиск и фильтры ------------------------------------------------------ */
+html[data-theme='dark'] .search-box {
+  background: var(--jin-surface);
+  border-color: var(--jin-border);
+  color: var(--jin-text-muted);
+}
+html[data-theme='dark'] .search-box input {
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .search-box input::placeholder {
+  color: var(--jin-text-faint);
+}
+html[data-theme='dark'] .lobby-filters [data-slot='tabs-list'] {
+  background: var(--jin-surface-2);
+}
+html[data-theme='dark'] .lobby-filters [data-slot='tabs-trigger'][data-active] {
+  background: #2f3750;
+  color: var(--jin-text);
+}
+
+/* --- Карточки комнат ------------------------------------------------------ */
+html[data-theme='dark'] .room-card {
+  background: var(--jin-surface);
+  border-color: var(--jin-border);
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .room-card:hover {
+  box-shadow: var(--jin-card-shadow);
+}
+/* Обложка приходит инлайновым цветом темы мира — приглушаем её накладкой. */
+html[data-theme='dark'] .room-cover {
+  box-shadow: inset 0 0 0 999px #12151c73;
+}
+html[data-theme='dark'] .room-card-body h3 {
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .room-card .eyebrow,
+html[data-theme='dark'] .room-card-body .eyebrow {
+  color: var(--jin-text-faint);
+}
+html[data-theme='dark'] .room-meta {
+  color: var(--jin-text-muted);
+}
+html[data-theme='dark'] .room-meta > svg {
+  color: var(--jin-accent);
+}
+html[data-theme='dark'] .new-room-card {
+  background: var(--jin-surface-3);
+  border-color: #343c52;
+  color: #a99ee0;
+}
+html[data-theme='dark'] .new-room-card:hover {
+  background: #20263a;
+}
+html[data-theme='dark'] .new-room-card h3 {
+  color: #a99ee0;
+}
+html[data-theme='dark'] .new-room-card p {
+  color: var(--jin-text-muted);
+}
+html[data-theme='dark'] .create-circle {
+  background: #262d40;
+  color: var(--jin-accent);
+  box-shadow: none;
+}
+
+/* --- Кнопки --------------------------------------------------------------- */
+html[data-theme='dark'] .primary {
+  background: var(--jin-accent-strong);
+  color: #fff;
+}
+html[data-theme='dark'] .primary:hover {
+  background: var(--jin-accent-hover);
+}
+html[data-theme='dark'] .secondary {
+  background: var(--jin-surface-2);
+  border-color: var(--jin-border);
+  color: #c3cadb;
+}
+html[data-theme='dark'] .secondary:hover {
+  background: #2a3145;
+}
+html[data-theme='dark'] .light-button {
+  background: #2a2450;
+  color: #c2b6ff;
+}
+html[data-theme='dark'] .text-button {
+  color: #a79aee;
+}
+
+/* --- Поля ввода и выпадающие списки --------------------------------------- */
+html[data-theme='dark'] .field {
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .field input,
+html[data-theme='dark'] .field textarea,
+html[data-theme='dark'] .field select,
+html[data-theme='dark'] .text-input {
+  background: var(--jin-surface-2);
+  border-color: var(--jin-border-strong);
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .field input::placeholder,
+html[data-theme='dark'] .field textarea::placeholder,
+html[data-theme='dark'] .text-input::placeholder {
+  color: var(--jin-text-faint);
+}
+html[data-theme='dark'] .field input:focus,
+html[data-theme='dark'] .field textarea:focus,
+html[data-theme='dark'] .text-input:focus {
+  border-color: var(--jin-accent);
+  box-shadow: 0 0 0 3px #8b7cf033;
+}
+html[data-theme='dark'] .field select option {
+  background: var(--jin-surface-2);
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .choice-trigger {
+  background: var(--jin-surface-2) !important;
+  border-color: var(--jin-border-strong) !important;
+  color: var(--jin-text) !important;
+}
+
+/* --- Диалоги -------------------------------------------------------------- */
+html[data-theme='dark'] .app-dialog {
+  background: var(--jin-surface) !important;
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .app-dialog [data-slot='dialog-title'] {
+  color: var(--jin-text);
+}
+html[data-theme='dark']
+  [data-slot='dialog-content']:not(.equipment-panel):not(
+    .item-wheel-dialog
+  ):not(.quick-sticky-dialog) {
+  box-shadow: 0 24px 60px #05070ca8;
+}
+html[data-theme='dark']
+  [data-slot='dialog-content']:not(.equipment-panel):not(
+    .item-wheel-dialog
+  ):not(.quick-sticky-dialog)
+  [data-slot='dialog-description'] {
+  color: var(--jin-text-muted);
+}
+html[data-theme='dark'] [data-slot='dialog-overlay'] {
+  background: #05070c8c;
+}
+html[data-theme='dark'] .theme-card,
+html[data-theme='dark'] .mode-card,
+html[data-theme='dark'] .access-choice-card {
+  background: var(--jin-surface-2);
+  border-color: #343c52;
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .theme-card.selected,
+html[data-theme='dark'] .mode-card.selected,
+html[data-theme='dark'] .access-choice-card.selected {
+  background: #2a2450;
+  border-color: var(--jin-accent);
+  box-shadow: 0 0 0 1px var(--jin-accent);
+}
+html[data-theme='dark'] .theme-card small,
+html[data-theme='dark'] .mode-card small,
+html[data-theme='dark'] .access-choice-card small,
+html[data-theme='dark'] .toggle-row small {
+  color: var(--jin-text-muted);
+}
+html[data-theme='dark'] .help-copy {
+  color: var(--jin-text-muted);
+}
+html[data-theme='dark'] .help-copy b {
+  color: #c5bcf0;
+}
+
+/* --- Загрузка, пустые списки и ошибки ------------------------------------- */
+html[data-theme='dark'] .loading-state {
+  color: var(--jin-text-muted);
+}
+html[data-theme='dark'] .loading-orbit {
+  color: #9f8ff0;
+  border-color: #343c52;
+}
+html[data-theme='dark'] .empty-rooms-state {
+  background: #1a1f2c;
+  border-color: #333b50;
+}
+html[data-theme='dark'] .empty-rooms-state h3 {
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .empty-rooms-state p {
+  color: var(--jin-text-muted);
+}
+html[data-theme='dark'] .empty-rooms-state .empty-icon {
+  color: #6b748d;
+}
+html[data-theme='dark'] .error-banner {
+  background: var(--jin-danger-bg);
+  color: var(--jin-danger-text);
+}
+html[data-theme='dark'] .error-banner button {
+  color: inherit;
+}
+
+/* --- Экран входа в комнату ------------------------------------------------ */
+html[data-theme='dark'] .join-screen {
+  background: radial-gradient(ellipse at top, #241f42, #12151c);
+  color: var(--jin-text);
+}
+html[data-theme='dark'] .join-card {
+  background: var(--jin-surface);
+  color: var(--jin-text);
+  box-shadow: 0 24px 70px #05070c7a;
+}
+html[data-theme='dark'] .join-card h1,
+html[data-theme='dark'] .join-card h2 {
+  color: var(--jin-text);
+}

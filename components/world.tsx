@@ -57,12 +57,6 @@ import { animateAvatar, avatarShoot } from './world-avatar';
 import {
   MousePointer2,
   MoveUp,
-  RotateCcw,
-  Camera,
-  ChevronLeft,
-  ChevronRight,
-  Plus,
-  Minus,
   Crosshair,
   Users,
   Palette,
@@ -508,7 +502,7 @@ export default function World(props: Props) {
   useEffect(() => {
     aimModesRef.current = props.aimModes || readAimModes();
   }, [props.aimModes]);
-  const [locked, setLocked] = useState(false),
+  const [, setLocked] = useState(false),
     [radial, setRadial] = useState(false),
     [near, setNear] = useState(''),
     [stance, setStance] = useState('stand'),
@@ -2024,51 +2018,6 @@ export default function World(props: Props) {
           closeTabletInWorld={closeTabletInWorld}
         />
       )}
-      <div className="camera-toolbar">
-        <span>
-          <Camera size={14} />
-          КАМЕРА
-        </span>
-        <button
-          onClick={() => engine.current?.orbit(0.4)}
-          aria-label="Повернуть камеру влево"
-        >
-          <ChevronLeft size={16} />
-        </button>
-        <button
-          onClick={() => engine.current?.orbit(-0.4)}
-          aria-label="Повернуть камеру вправо"
-        >
-          <ChevronRight size={16} />
-        </button>
-        <button
-          onClick={() => engine.current?.distance(-1.5)}
-          disabled={perspective === 'first'}
-          aria-label="Приблизить камеру"
-        >
-          <Plus size={16} />
-        </button>
-        <button
-          onClick={() => engine.current?.distance(1.5)}
-          disabled={perspective === 'first'}
-          aria-label="Отдалить камеру"
-        >
-          <Minus size={16} />
-        </button>
-        <button
-          onClick={() => engine.current?.reset()}
-          aria-label="Камера за персонажем"
-        >
-          <RotateCcw size={16} />
-        </button>
-        <button
-          className={locked ? 'enabled' : ''}
-          onClick={() => (locked ? document.exitPointerLock() : lock())}
-          aria-label={locked ? 'Освободить курсор' : 'Играть: свободная камера'}
-        >
-          <Crosshair size={16} />
-        </button>
-      </div>
       {!active && !radial && !contextWheel && !dead && !props.blocked && (
         <div className="camera-onboarding">
           <MousePointer2 size={24} />

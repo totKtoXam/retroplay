@@ -285,7 +285,13 @@ export function WorldHud(props: WorldHudProps) {
       )}
       {props.mode === 'battle' && (
       <div className="killfeed-container" aria-live="polite">
-        {props.killfeed.map((msg, idx) => (
+        {props.killfeed.map((msg, idx) => {
+          // Имена в ленте окрашены по сторонам: сразу видно, чей это размен.
+          const teamColor = (id?: string) => {
+            const team = props.room.members.find((m) => m.id === id)?.team;
+            return team === 'red' ? '#ff8f8a' : team === 'blue' ? '#8fbcff' : '#d7dee9';
+          };
+          return (
           <div
             key={`${msg.id}-${idx}`}
             className={`killfeed-item ${msg.killer === props.room.self
@@ -298,7 +304,8 @@ export function WorldHud(props: WorldHudProps) {
               } ${msg.headshot ? 'is-headshot' : ''} ${msg.noScope ? 'is-noscope' : ''}`}
             style={
               {
-                '--killer-color': msg.color || '#ff647c',
+                '--killer-color': teamColor(msg.killer),
+                '--victim-color': teamColor(msg.victim),
               } as React.CSSProperties
             }
           >
@@ -321,7 +328,8 @@ export function WorldHud(props: WorldHudProps) {
             </span>
             <span className="killfeed-victim">{msg.victimName}</span>
           </div>
-        ))}
+          );
+        })}
       </div>
       )}
       {props.mode === 'battle' &&

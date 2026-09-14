@@ -139,6 +139,21 @@ h3 {
   font-size: 14px;
   color: #7b8a84;
 }
+/* Правая часть шапки: имя игрока без действия + переключатель темы. */
+.main-header .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+.main-header .header-player {
+  font-size: 13px;
+  color: #7b8a84;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .avatar {
   border: 2px solid #fff;
   background: #ead8bc;
@@ -205,10 +220,10 @@ h3 {
   align-items: center;
   justify-content: space-between;
   gap: 25px;
-  margin-bottom: 36px;
+  margin-bottom: 30px;
 }
 .page-heading h1 {
-  margin: 12px 0;
+  margin: 0 0 8px;
 }
 .primary,
 .secondary,
@@ -223,28 +238,6 @@ h3 {
   font-weight: 600;
   border: 1px solid transparent;
   white-space: nowrap;
-}
-.welcome-panel {
-  min-height: 278px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  overflow: hidden;
-  border-radius: 18px;
-  padding: 34px 40px;
-  position: relative;
-}
-.welcome-panel h2 {
-  font-size: 30px;
-  line-height: 1.28;
-  margin: 18px 0 12px;
-  letter-spacing: -0.6px;
-}
-.welcome-panel p {
-  font-size: 14px;
-  max-width: 410px;
-  line-height: 1.7;
-  margin-bottom: 22px;
 }
 .pill {
   display: inline-block;
@@ -269,7 +262,7 @@ h3 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 35px 0 20px;
+  margin: 0 0 16px;
   gap: 15px;
 }
 .section-heading h2 {
@@ -280,16 +273,6 @@ h3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px;
 }
-.new-room-card {
-  min-height: 228px;
-  border: 1.5px dashed #cbd9d2;
-  border-radius: 13px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
 .create-circle {
   background: white;
   width: 46px;
@@ -299,24 +282,6 @@ h3 {
   place-items: center;
   margin-bottom: 17px;
   box-shadow: 0 3px 12px #17352708;
-}
-.new-room-card h3 {
-  margin-bottom: 8px;
-}
-.new-room-card p {
-  font-size: 12px;
-}
-.lobby-foot {
-  display: flex;
-  gap: 30px;
-  margin-top: 34px;
-  font-size: 12px;
-  color: #8b9a93;
-}
-.lobby-foot span {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 .app-dialog {
   background: white !important;
@@ -396,21 +361,11 @@ h3 {
   }
   .page-heading {
     flex-direction: column;
+    align-items: stretch;
     margin-bottom: 24px;
-  }
-  .welcome-panel {
-    padding: 25px;
-    min-height: 245px;
-  }
-  .welcome-panel h2 {
-    font-size: 25px;
   }
   .room-grid {
     grid-template-columns: 1fr;
-  }
-  .lobby-foot {
-    flex-direction: column;
-    gap: 12px;
   }
   .section-heading {
     align-items: flex-start;
@@ -535,7 +490,8 @@ h3 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
   gap: 15px;
 }
 .lobby-filters [data-slot='tabs-list'] {
@@ -611,10 +567,21 @@ h3 {
 }
 .room-card-body h3 {
   font-size: 16px;
-  margin: 8px 0 20px;
+  margin: 8px 0 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Пометка «своей» комнаты в единой карточке списка. */
+.room-card-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  background: #efedfc;
+  color: #7064b5;
 }
 .room-meta {
   display: flex;
@@ -1889,17 +1856,6 @@ h1 > span {
 .lobby-main {
   padding-top: 44px;
 }
-.welcome-panel {
-  background: linear-gradient(110deg, #24243b, #3b355e 60%, #4a4576);
-  border: 1px solid #58517c;
-  color: #fff;
-}
-.welcome-panel h2 {
-  font-weight: 550;
-}
-.welcome-panel p {
-  color: #bdbad7;
-}
 .world-emblem {
   color: #a7a2da;
 }
@@ -1907,22 +1863,8 @@ h1 > span {
   background: #edebff;
   color: #7064b5;
 }
-.new-room-card {
-  background: #f3f3fc;
-  border-color: #d9d5ef;
-  color: #8276ad;
-}
-.new-room-card:hover {
-  background: #eeecfb;
-}
-.new-room-card p {
-  color: #a19abb;
-}
 .lobby-filters [data-slot='tabs-list'] {
   background: #ececf6;
-}
-.new-room-card h3 {
-  font-size: 15px;
 }
 .room-card {
   border-color: #e5e2f0;
@@ -4100,7 +4042,8 @@ h1 > span {
 }
 .killfeed-killer {
   font-weight: 700;
-  color: #ffffff;
+  /* Цвет стороны: красные и синие видно без чтения имён. */
+  color: var(--killer-color, #fff);
 }
 .killfeed-assist {
   font-size: 11px;
@@ -4114,7 +4057,7 @@ h1 > span {
 }
 .killfeed-victim {
   font-weight: 700;
-  color: #e2e8f0;
+  color: var(--victim-color, #e2e8f0);
 }
 .killfeed-item.is-headshot {
   border-right: 3px solid #facc15;
@@ -5236,22 +5179,22 @@ h1 > span {
   text-align: left;
   padding: 12px 14px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  color: #e2e8f0;
+  border: 1px solid #e1dfec;
+  background: #fafaff;
+  color: #3d3a53;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .access-choice-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.22);
+  background: #f3f2fd;
+  border-color: #cdc7e8;
 }
 
 .access-choice-card.selected {
-  background: rgba(124, 104, 157, 0.28);
-  border-color: #a78bfa;
-  box-shadow: 0 0 16px rgba(167, 139, 250, 0.2);
+  background: #efedfc;
+  border-color: #8b78ed;
+  box-shadow: 0 0 0 1px #8b78ed;
 }
 
 .access-choice-head {
@@ -5259,13 +5202,46 @@ h1 > span {
   align-items: center;
   gap: 8px;
   margin-bottom: 4px;
-  color: #f1f5f9;
+  color: #3d3a53;
 }
 
 .access-choice-card small {
   font-size: 11.5px;
   line-height: 1.35;
-  color: #94a3b8;
+  color: #838ca3;
+}
+
+/* Крупный выбор режима — первый и самый заметный блок формы создания. */
+.access-choice-cards-lg .access-choice-card {
+  padding: 16px 18px;
+  border-radius: 13px;
+}
+.access-choice-cards-lg .access-choice-head {
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 16px;
+}
+.access-choice-cards-lg .access-choice-card small {
+  font-size: 12px;
+}
+
+/* «Дополнительно» — редкие настройки формы, свёрнутые по умолчанию. */
+.access-choice-advanced {
+  border: 1px solid #e1dfec;
+  border-radius: 10px;
+  padding: 0 14px;
+  margin: 14px 0 4px;
+}
+.access-choice-advanced > summary {
+  cursor: pointer;
+  padding: 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: inherit;
+  list-style-position: inside;
+}
+.access-choice-advanced[open] {
+  padding-bottom: 12px;
 }
 
 .empty-rooms-state {
@@ -5275,26 +5251,26 @@ h1 > span {
   justify-content: center;
   text-align: center;
   padding: 60px 20px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background: #f3f3fc;
+  border: 1px dashed #d9d5ef;
   border-radius: 16px;
   margin: 20px 0;
 }
 
 .empty-rooms-state .empty-icon {
-  color: #64748b;
+  color: #a79bd8;
   margin-bottom: 16px;
 }
 
 .empty-rooms-state h3 {
   font-size: 18px;
   margin: 0 0 8px;
-  color: #f8fafc;
+  color: #3d3a53;
 }
 
 .empty-rooms-state p {
   font-size: 14px;
-  color: #94a3b8;
+  color: #838ca3;
   max-width: 440px;
   margin: 0 0 20px;
 }

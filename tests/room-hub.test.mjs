@@ -408,3 +408,20 @@ test('walking into or through a wall is refused', () => {
   applyPresence(v, { pose: stand(-3, -12.5), life: 0 }, T + 200);
   assert.equal(v.pose.z, -12.5);
 });
+
+test('hit zones: the head kills, the torso takes full damage, arms and legs less', () => {
+  const at = (y) => ({ origin: [0, y, 4], target: [0, y, 0] });
+  const hp = (kind, y) => {
+    const h = duel();
+    fire(h, 'a', T, kind, at(y));
+    return h.members.get('v').hp;
+  };
+  // Снайперка: голова и туловище — сразу насмерть, нога — ранение.
+  assert.equal(hp('sniper', 2.07), 0, 'снайперка в голову');
+  assert.equal(hp('sniper', 1.5), 0, 'снайперка в туловище');
+  assert.equal(hp('sniper', 0.6), 55, 'снайперка в ногу ранит');
+  // Краска: 100 в голову, 20 в туловище, 12 по конечностям.
+  assert.equal(hp('paint', 2.07), 0, 'краска в голову');
+  assert.equal(hp('paint', 1.5), 80, 'краска в туловище');
+  assert.equal(hp('paint', 0.6), 88, 'краска в ногу');
+});

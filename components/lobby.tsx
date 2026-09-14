@@ -1,18 +1,14 @@
 'use client';
 /* oxlint-disable next/no-html-link-for-pages -- Полная навигация обходит ошибку RSC prefetch в production-сборке vinext. */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 
 import {
   Plus,
   ArrowUpRight,
-  Mountain,
-  Compass,
   LayoutGrid,
   Link2,
   Clock3,
-  ChevronRight,
   Search,
-  Gamepad2,
   BookOpen,
   Settings2,
   Globe,
@@ -34,6 +30,7 @@ import { defaultMapFor, mapsForMode, MODES, type GameMode } from '@/lib/maps/cat
 import { Choice } from './controls';
 import { StylePicker } from './style-picker';
 import { ResourcePackPicker } from './resource-pack-picker';
+import { ThemeToggle } from './theme-toggle';
 import { useResourcePack } from '../hooks/use-resource-pack';
 type Summary = {
   id: string;
@@ -61,6 +58,35 @@ type PublicSummary = {
   status: 'available' | 'full' | 'in_progress' | 'closed';
   accessType: 'public';
 };
+/** Комната в едином списке: свои и публичные слиты по id, `mine` помечает свои. */
+type RoomItem = {
+  id: string;
+  title: string;
+  theme: string;
+  archived: boolean;
+  phase: number;
+  created: number;
+  mine: boolean;
+  notes: number | null;
+  hostName: string | null;
+  membersCount: number | null;
+  maxPlayers: number | null;
+  status: PublicSummary['status'] | null;
+};
+/** Единственный фильтр списка: заменяет прежнюю пару «вкладка + фильтр». */
+type RoomFilter = 'all' | 'mine' | 'active' | 'archive';
+const FILTERS: { value: RoomFilter; label: string }[] = [
+  { value: 'all', label: 'Все' },
+  { value: 'mine', label: 'Мои' },
+  { value: 'active', label: 'Активные' },
+  { value: 'archive', label: 'Завершённые' },
+];
+const STATUS_LABELS: Record<PublicSummary['status'], string> = {
+  available: 'Доступна',
+  full: 'Заполнена',
+  in_progress: 'Идёт ретро',
+  closed: 'Закрыта',
+};
 export default function Lobby() {
   const resourcePack = useResourcePack();
   const [packsOpen, setPacksOpen] = useState(false);
@@ -74,14 +100,13 @@ export default function Lobby() {
     [map, setMap] = useState('hub'),
     [accessType, setAccessType] = useState<RoomAccessType>('public'),
     [maxPlayers, setMaxPlayers] = useState(8),
-    [view, setView] = useState<'browser' | 'my_rooms'>('browser'),
     [rooms, setRooms] = useState<Summary[]>([]),
     [publicRooms, setPublicRooms] = useState<PublicSummary[]>([]),
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(''),
     [query, setQuery] = useState(''),
-    [filter, setFilter] = useState('active'),
+    [filter, setFilter] = useState<RoomFilter>('all'),
     [join, setJoin] = useState(false),
     [joinCode, setJoinCode] = useState(''),
     [help, setHelp] = useState(false);
@@ -117,15 +142,13 @@ export default function Lobby() {
         void api<{ rooms: PublicSummary[] }>('/api/rooms?browse=public')
           .then((r) => setPublicRooms(r.rooms || []))
           .catch(() => {});
-        if (view === 'my_rooms') {
-          void api<{ rooms: Summary[] }>('/api/rooms')
-            .then((r) => setRooms(r.rooms || []))
-            .catch(() => {});
-        }
+        void api<{ rooms: Summary[] }>('/api/rooms')
+          .then((r) => setRooms(r.rooms || []))
+          .catch(() => {});
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [view]);
+  }, []);
 
   const createRoom = async () => {
     setBusy(true);
@@ -235,13 +258,53 @@ export default function Lobby() {
     });
     return () => abort.abort();
   }, []);
-  const shown = rooms.filter(
+  // Один список: публичные и свои комнаты сливаются по id, свои получают флаг mine.
+  const allRooms = useMemo<RoomItem[]>(() => {
+    const byId = new Map<string, RoomItem>();
+    for (const r of publicRooms)
+      byId.set(r.id, {
+        id: r.id,
+        title: r.title,
+        theme: r.theme,
+        archived: r.archived,
+        phase: r.phase,
+        created: r.created,
+        mine: false,
+        notes: null,
+        hostName: r.hostName,
+        membersCount: r.membersCount,
+        maxPlayers: r.maxPlayers,
+        status: r.status,
+      });
+    for (const r of rooms) {
+      const prev = byId.get(r.id);
+      byId.set(r.id, {
+        id: r.id,
+        title: r.title,
+        theme: r.theme,
+        archived: r.archived,
+        phase: r.phase,
+        created: r.created,
+        mine: true,
+        notes: r.notes,
+        hostName: prev?.hostName ?? null,
+        membersCount: prev?.membersCount ?? null,
+        maxPlayers: prev?.maxPlayers ?? null,
+        status: prev?.status ?? null,
+      });
+    }
+    return [...byId.values()].sort((a, b) => b.created - a.created);
+  }, [rooms, publicRooms]);
+  const shown = allRooms.filter(
     (r) =>
       r.title.toLowerCase().includes(query.toLowerCase()) &&
-      (filter === 'all' || (filter === 'archive' ? r.archived : !r.archived)),
-  );
-  const shownPublic = publicRooms.filter((r) =>
-    r.title.toLowerCase().includes(query.toLowerCase()),
+      (filter === 'all'
+        ? true
+        : filter === 'mine'
+          ? r.mine
+          : filter === 'archive'
+            ? r.archived
+            : !r.archived),
   );
   return (
     <main className="lobby" data-resource-pack={resourcePack}>
@@ -251,64 +314,39 @@ export default function Lobby() {
           <span className="brand-symbol">Ж</span>jinaly
           <span className="brand-suffix">RETRO WORLD</span>
         </a>
-        <span className="header-caption">
-          Место, где команда становится ближе
-        </span>
-        <button
-          className="avatar"
-          onClick={() => setCreate(true)}
-          aria-label="Ваш профиль"
-        >
-          {name[0]?.toUpperCase() || 'Я'}
-        </button>
+        <div className="header-actions">
+          {name && (
+            <span className="header-player" title="Ваше имя">
+              {name}
+            </span>
+          )}
+          <ThemeToggle />
+        </div>
       </header>
       <div className="lobby-body">
         <nav className="side-nav" aria-label="Главное меню">
-          <p className="eyebrow">ПРОСТРАНСТВО КОМАНДЫ</p>
-          <button
-            className={view === 'browser' ? 'nav-active' : ''}
-            onClick={() => setView('browser')}
-          >
-            <Globe size={18} /> Обзор комнат
+          <button className="nav-active" type="button" aria-current="page">
+            <LayoutGrid size={18} /> Комнаты
           </button>
-          <button
-            className={view === 'my_rooms' ? 'nav-active' : ''}
-            onClick={() => {
-              setView('my_rooms');
-              setFilter('active');
-            }}
-          >
-            <LayoutGrid size={18} /> Мои комнаты
-          </button>
-          <button onClick={() => setCreate(true)}>
-            <Plus size={18} /> Создать комнату
-          </button>
-          <button onClick={() => setJoin(true)}>
+          <button type="button" onClick={() => setJoin(true)}>
             <Link2 size={18} /> Войти по ссылке
           </button>
-          <button onClick={() => setHelp(true)}>
+          <button type="button" onClick={() => setHelp(true)}>
             <BookOpen size={18} /> Как играть
           </button>
-          <button onClick={() => setPacksOpen(true)}><Settings2 size={18} /> Визуальный пакет</button>
+          <button type="button" onClick={() => setPacksOpen(true)}>
+            <Settings2 size={18} /> Визуальный пакет
+          </button>
           <div className="nav-bottom">
-            <Mountain size={23} />
-            <p>
-              Создано для встреч.
-              <br />
-              Вдохновлено Казахстаном.
-            </p>
             <span className="version-tag">JINALY · EARLY ACCESS</span>
           </div>
         </nav>
         <section className="lobby-main">
           <div className="page-heading">
             <div>
-              <p className="eyebrow">СОБИРАЕМСЯ. ОБСУЖДАЕМ. РАСТЁМ.</p>
-              <h1>
-                Ваше место для ретро<span>.</span>
-              </h1>
+              <h1>Комнаты</h1>
               <p className="muted">
-                Одна команда. Общие идеи. Новый взгляд на каждый спринт.
+                Зайдите в открытую комнату или создайте свою.
               </p>
             </div>
             <button className="primary" onClick={() => setCreate(true)}>
@@ -316,247 +354,161 @@ export default function Lobby() {
               Создать комнату
             </button>
           </div>
-          <section className="welcome-panel">
-            <div>
-              <span className="pill">НОВЫЙ ФОРМАТ ВСТРЕЧ</span>
-              <h2>
-                Меньше формальностей.
-                <br />
-                Больше живого общения.
-              </h2>
-              <p>Встретьтесь в 3D-мире или соберите идеи на привычной доске.</p>
-              <button className="light-button" onClick={() => setCreate(true)}>
-                Собрать команду <ArrowUpRight size={18} />
-              </button>
+
+          <div className="section-heading">
+            <h2>
+              Список комнат <span className="count">{shown.length}</span>
+            </h2>
+            <div className="search-box">
+              <Search size={16} />
+              <input
+                aria-label="Поиск комнат"
+                placeholder="Найти комнату"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
             </div>
-            <div className="world-emblem">
-              <Compass size={180} strokeWidth={0.7} />
-              <span>43°14′ N · 76°53′ E</span>
-            </div>
-          </section>
+          </div>
+          <div className="lobby-filters">
+            <Tabs
+              value={filter}
+              onValueChange={(v) => setFilter(String(v) as RoomFilter)}
+            >
+              <TabsList aria-label="Фильтр комнат">
+                {FILTERS.map((f) => (
+                  <TabsTrigger key={f.value} value={f.value}>
+                    {f.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+            <button className="text-button" onClick={() => setJoin(true)}>
+              <Link2 size={15} /> Войти по ссылке
+            </button>
+          </div>
 
-          {view === 'browser' ? (
-            <>
-              <div className="section-heading">
-                <h2>
-                  Доступные комнаты <span className="count">{shownPublic.length}</span>
-                </h2>
-                <div className="search-box">
-                  <Search size={16} />
-                  <input
-                    aria-label="Поиск комнат"
-                    placeholder="Найти публичную комнату"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {error && (
-                <p role="alert" className="error-banner">
-                  {error}{' '}
-                  <button onClick={() => location.reload()}>Повторить</button>
-                </p>
-              )}
-
-              {loading ? (
-                <div className="loading-state">Загружаем список комнат…</div>
-              ) : shownPublic.length === 0 ? (
-                <div className="empty-rooms-state">
-                  <Globe size={48} className="empty-icon" />
-                  <h3>Нет доступных публичных комнат</h3>
-                  <p>
-                    Создайте комнату или подключитесь к приватной по ссылке-приглашению.
-                  </p>
-                  <button className="primary" onClick={() => setCreate(true)}>
-                    <Plus size={18} /> Создать комнату
-                  </button>
-                </div>
-              ) : (
-                <div className="room-grid">
-                  {shownPublic.map((r) => {
-                    const t = THEMES.find((th) => th.id === r.theme) || THEMES[0];
-                    const isFull = r.status === 'full';
-                    const isClosed = r.status === 'closed';
-                    const statusLabel =
-                      r.status === 'available'
-                        ? 'Доступна'
-                        : r.status === 'full'
-                          ? 'Заполнена'
-                          : r.status === 'in_progress'
-                            ? 'Идёт ретро'
-                            : 'Закрыта';
-                    return (
-                      <div key={r.id} className="room-card public-room-card">
-                        <div
-                          className="room-cover"
-                          style={{ background: t.color + '55' }}
-                        >
-                          <span className="room-theme-emoji">{t.icon}</span>
-                          <span className="room-format">
-                            <Globe size={13} />
-                            Публичная
-                          </span>
-                          <span className={`room-status status-${r.status}`}>
-                            {statusLabel}
-                          </span>
-                        </div>
-                        <div className="room-card-body">
-                          <span className="eyebrow">
-                            {t.name} · Ведущий: {r.hostName}
-                          </span>
-                          <h3>{r.title}</h3>
-                          <div className="room-meta">
-                            <span>
-                              <Users size={13} />
-                              {r.membersCount} / {r.maxPlayers}
-                            </span>
-                            <span>
-                              <Clock3 size={13} />
-                              {new Date(r.created).toLocaleDateString('ru-RU', {
-                                day: 'numeric',
-                                month: 'short',
-                              })}
-                            </span>
-                          </div>
-                          <button
-                            className="primary full-width room-join-btn"
-                            disabled={isFull || isClosed}
-                            onClick={() => {
-                              location.href = '/room/' + r.id;
-                            }}
-                          >
-                            {isFull
-                              ? 'Заполнена'
-                              : isClosed
-                                ? 'Закрыта'
-                                : 'Присоединиться'}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <button
-                    className="new-room-card"
-                    onClick={() => setCreate(true)}
-                  >
-                    <span className="create-circle">
-                      <Plus />
-                    </span>
-                    <h3>Создать публичную комнату</h3>
-                    <p>Соберите команду для ретроспективы</p>
-                  </button>
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <div className="section-heading">
-                <h2>
-                  Мои комнаты ретроспектив <span className="count">{rooms.length}</span>
-                </h2>
-                <div className="search-box">
-                  <Search size={16} />
-                  <input
-                    aria-label="Поиск комнат"
-                    placeholder="Найти комнату"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="lobby-filters">
-                <Tabs value={filter} onValueChange={(v) => setFilter(String(v))}>
-                  <TabsList>
-                    <TabsTrigger value="active">Активные</TabsTrigger>
-                    <TabsTrigger value="archive">Завершённые</TabsTrigger>
-                    <TabsTrigger value="all">Все комнаты</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-                <button className="text-button" onClick={() => setJoin(true)}>
-                  <Link2 size={15} /> Войти по ссылке
-                </button>
-              </div>
-              {error && (
-                <p role="alert" className="error-banner">
-                  {error}{' '}
-                  <button onClick={() => location.reload()}>Повторить</button>
-                </p>
-              )}
-              {loading ? (
-                <div className="loading-state">Подключаем ваши комнаты…</div>
-              ) : (
-                <div className="room-grid">
-                  {shown.map((r) => {
-                    const t = THEMES.find((th) => th.id === r.theme) || THEMES[0];
-                    return (
-                      <a
-                        href={'/room/' + r.id}
-                        key={r.id}
-                        className="room-card"
-                        aria-label={r.title}
-                      >
-                        <div
-                          className="room-cover"
-                          style={{ background: t.color + '55' }}
-                        >
-                          <span className="room-theme-emoji">{t.icon}</span>
-                          <span className="room-format">
-                            <Gamepad2 size={14} />
-                            3D + Доска
-                          </span>
-                          <span className="room-status">
-                            {r.archived ? 'Завершена' : PHASES[r.phase]}
-                          </span>
-                        </div>
-                        <div className="room-card-body">
-                          <span className="eyebrow">{t.name}</span>
-                          <h3>{r.title}</h3>
-                          <div className="room-meta">
-                            <span>
-                              <Clock3 size={13} />
-                              {new Date(r.created).toLocaleDateString('ru-RU', {
-                                day: 'numeric',
-                                month: 'short',
-                              })}
-                            </span>
-                            <span>{r.notes} идей</span>
-                            <ChevronRight size={17} />
-                          </div>
-                        </div>
-                      </a>
-                    );
-                  })}
-                  <button
-                    className="new-room-card"
-                    onClick={() => setCreate(true)}
-                  >
-                    <span className="create-circle">
-                      <Plus />
-                    </span>
-                    <h3>Новая история команды</h3>
-                    <p>Создайте комнату и пригласите коллег</p>
-                  </button>
-                </div>
-              )}
-            </>
+          {error && (
+            <p role="alert" className="error-banner">
+              {error} <button onClick={() => location.reload()}>Повторить</button>
+            </p>
           )}
 
-          <div className="lobby-foot">
-            <span>
-              <Link2 size={16} /> По ссылке — вместе, из любой точки
-            </span>
-            <span>
-              <Settings2 size={16} /> Лёгкий 3D-мир и общая доска
-            </span>
-          </div>
+          {loading ? (
+            <div className="loading-state">Загружаем список комнат…</div>
+          ) : shown.length === 0 ? (
+            <div className="empty-rooms-state">
+              <Globe size={48} className="empty-icon" />
+              <h3>Комнат пока нет</h3>
+              <p>
+                Создайте комнату или подключитесь к приватной по
+                ссылке-приглашению.
+              </p>
+              <button className="primary" onClick={() => setCreate(true)}>
+                <Plus size={18} /> Создать комнату
+              </button>
+            </div>
+          ) : (
+            <div className="room-grid">
+              {shown.map((r) => {
+                const t = THEMES.find((th) => th.id === r.theme) || THEMES[0];
+                const isPublic = r.status !== null;
+                const blocked =
+                  !r.mine && (r.status === 'full' || r.status === 'closed');
+                const statusLabel = r.mine
+                  ? r.archived
+                    ? 'Завершена'
+                    : PHASES[r.phase]
+                  : STATUS_LABELS[r.status ?? 'available'];
+                return (
+                  <article key={r.id} className="room-card">
+                    <div
+                      className="room-cover"
+                      style={{ background: t.color + '55' }}
+                    >
+                      <span className="room-theme-emoji">{t.icon}</span>
+                      <span className="room-format">
+                        {isPublic ? <Globe size={13} /> : <Lock size={13} />}
+                        {isPublic ? 'Публичная' : 'Приватная'}
+                      </span>
+                      <span
+                        className={
+                          r.status ? `room-status status-${r.status}` : 'room-status'
+                        }
+                      >
+                        {statusLabel}
+                      </span>
+                    </div>
+                    <div className="room-card-body">
+                      <span className="eyebrow">
+                        {t.name}
+                        {r.hostName ? ` · Ведущий: ${r.hostName}` : ''}
+                      </span>
+                      <h3>{r.title}</h3>
+                      {r.mine && (
+                        <span className="room-card-badge">Вы участник</span>
+                      )}
+                      <div className="room-meta">
+                        {r.membersCount !== null && r.maxPlayers !== null && (
+                          <span>
+                            <Users size={13} />
+                            {r.membersCount} / {r.maxPlayers}
+                          </span>
+                        )}
+                        {r.mine && r.notes !== null && (
+                          <span>
+                            <NotebookPen size={13} />
+                            {r.notes} идей
+                          </span>
+                        )}
+                        <span>
+                          <Clock3 size={13} />
+                          {new Date(r.created).toLocaleDateString('ru-RU', {
+                            day: 'numeric',
+                            month: 'short',
+                          })}
+                        </span>
+                      </div>
+                      {r.mine ? (
+                        <a
+                          className="primary full-width room-join-btn"
+                          href={'/room/' + r.id}
+                          aria-label={'Войти в комнату ' + r.title}
+                        >
+                          Войти в комнату
+                        </a>
+                      ) : (
+                        <button
+                          className="primary full-width room-join-btn"
+                          disabled={blocked}
+                          aria-label={'Присоединиться к комнате ' + r.title}
+                          onClick={() => {
+                            location.href = '/room/' + r.id;
+                          }}
+                        >
+                          {r.status === 'full'
+                            ? 'Заполнена'
+                            : r.status === 'closed'
+                              ? 'Закрыта'
+                              : 'Присоединиться'}
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </section>
       </div>
       <Dialog open={create} onOpenChange={setCreate}>
         <DialogContent className="app-dialog">
-          <DialogTitle>Соберёмся на ретро?</DialogTitle>
+          <DialogTitle>
+            {gameMode === 'battle' ? 'Готовы к бою?' : 'Соберёмся на ретро?'}
+          </DialogTitle>
           <DialogDescription>
-            Создайте отдельную комнату для этой встречи.
+            {gameMode === 'battle'
+              ? 'Выберите карту и позовите команду на матч.'
+              : 'Создайте отдельную комнату для этой встречи.'}
           </DialogDescription>
           <form
             onSubmit={(e) => {
@@ -564,6 +516,30 @@ export default function Lobby() {
               void createRoom();
             }}
           >
+            <div className="field">
+              <span className="field-label">Режим игры</span>
+              <div className="access-choice-cards access-choice-cards-lg">
+                {MODES.map((m) => (
+                  <button
+                    type="button"
+                    key={m.id}
+                    className={`access-choice-card ${gameMode === m.id ? 'selected' : ''}`}
+                    aria-pressed={gameMode === m.id}
+                    onClick={() => {
+                      setGameMode(m.id);
+                      setMap(defaultMapFor(m.id));
+                    }}
+                  >
+                    <div className="access-choice-head">
+                      {m.id === 'battle' ? <Swords size={22} /> : <NotebookPen size={22} />}
+                      <strong>{m.title}</strong>
+                    </div>
+                    <small>{m.hint}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <label className="field">
               Название комнаты
               <input
@@ -585,29 +561,6 @@ export default function Lobby() {
               />
             </label>
 
-            <div className="field">
-              <span className="field-label">Режим игры</span>
-              <div className="access-choice-cards">
-                {MODES.map((m) => (
-                  <button
-                    type="button"
-                    key={m.id}
-                    className={`access-choice-card ${gameMode === m.id ? 'selected' : ''}`}
-                    onClick={() => {
-                      setGameMode(m.id);
-                      setMap(defaultMapFor(m.id));
-                    }}
-                  >
-                    <div className="access-choice-head">
-                      {m.id === 'battle' ? <Swords size={18} /> : <NotebookPen size={18} />}
-                      <strong>{m.title}</strong>
-                    </div>
-                    <small>{m.hint}</small>
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {mapsForMode(gameMode).length > 1 && (
               <Choice
                 label="Карта"
@@ -620,74 +573,82 @@ export default function Lobby() {
               />
             )}
 
-            <div className="field">
-              <span className="field-label">Доступ к комнате</span>
-              <div className="access-choice-cards">
-                <button
-                  type="button"
-                  className={`access-choice-card ${accessType === 'public' ? 'selected' : ''}`}
-                  onClick={() => setAccessType('public')}
-                >
-                  <div className="access-choice-head">
-                    <Globe size={18} />
-                    <strong>Публичная</strong>
-                  </div>
-                  <small>Отображается в общем списке. Любой может присоединиться.</small>
-                </button>
-                <button
-                  type="button"
-                  className={`access-choice-card ${accessType === 'private' ? 'selected' : ''}`}
-                  onClick={() => setAccessType('private')}
-                >
-                  <div className="access-choice-head">
-                    <Lock size={18} />
-                    <strong>Приватная</strong>
-                  </div>
-                  <small>Скрыта из общего списка. Вход только по ссылке с подтверждением ведущего.</small>
-                </button>
+            <details className="access-choice-advanced">
+              <summary>Дополнительно</summary>
+
+              <div className="field">
+                <span className="field-label">Доступ к комнате</span>
+                <div className="access-choice-cards">
+                  <button
+                    type="button"
+                    className={`access-choice-card ${accessType === 'public' ? 'selected' : ''}`}
+                    aria-pressed={accessType === 'public'}
+                    onClick={() => setAccessType('public')}
+                  >
+                    <div className="access-choice-head">
+                      <Globe size={18} />
+                      <strong>Публичная</strong>
+                    </div>
+                    <small>Отображается в общем списке. Любой может присоединиться.</small>
+                  </button>
+                  <button
+                    type="button"
+                    className={`access-choice-card ${accessType === 'private' ? 'selected' : ''}`}
+                    aria-pressed={accessType === 'private'}
+                    onClick={() => setAccessType('private')}
+                  >
+                    <div className="access-choice-head">
+                      <Lock size={18} />
+                      <strong>Приватная</strong>
+                    </div>
+                    <small>Скрыта из общего списка. Вход только по ссылке с подтверждением ведущего.</small>
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <Choice
-              label="Вместимость комнаты"
-              value={String(maxPlayers)}
-              onChange={(v) => setMaxPlayers(Number(v))}
-              options={[
-                { value: '4', label: '4 игрока' },
-                { value: '8', label: '8 игроков (стандарт)' },
-                { value: '12', label: '12 игроков' },
-                { value: '16', label: '16 игроков' },
-                { value: '24', label: '24 игрока' },
-              ]}
-            />
-
-            {gameMode === 'retro' && (
               <Choice
-                label="Формат ретроспективы"
-                value={template}
-                onChange={setTemplate}
+                label="Вместимость комнаты"
+                value={String(maxPlayers)}
+                onChange={(v) => setMaxPlayers(Number(v))}
                 options={[
-                  { value: 'four', label: 'Good / Bad / Start / Stop' },
-                  { value: 'three', label: 'Start / Stop / Continue' },
+                  { value: '4', label: '4 игрока' },
+                  { value: '8', label: '8 игроков (стандарт)' },
+                  { value: '12', label: '12 игроков' },
+                  { value: '16', label: '16 игроков' },
+                  { value: '24', label: '24 игрока' },
                 ]}
               />
-            )}
-            <StylePicker value={visualStyle} onChange={setVisualStyle} />
-            <span className="field">Выберите мир</span>
-            <div className="theme-grid">
-              {THEMES.map((t) => (
-                <button
-                  type="button"
-                  key={t.id}
-                  className={`theme-card ${theme === t.id ? 'selected' : ''}`}
-                  onClick={() => setTheme(t.id)}
-                >
-                  <span>{t.icon}</span>
-                  <strong>{t.name}</strong>
-                  <small>{t.subtitle}</small>
-                </button>
-              ))}
-            </div>
+
+              {gameMode === 'retro' && (
+                <Choice
+                  label="Формат ретроспективы"
+                  value={template}
+                  onChange={setTemplate}
+                  options={[
+                    { value: 'four', label: 'Good / Bad / Start / Stop' },
+                    { value: 'three', label: 'Start / Stop / Continue' },
+                  ]}
+                />
+              )}
+              <StylePicker value={visualStyle} onChange={setVisualStyle} />
+              <span className="field">Выберите мир</span>
+              <div className="theme-grid">
+                {THEMES.map((t) => (
+                  <button
+                    type="button"
+                    key={t.id}
+                    className={`theme-card ${theme === t.id ? 'selected' : ''}`}
+                    aria-pressed={theme === t.id}
+                    onClick={() => setTheme(t.id)}
+                  >
+                    <span>{t.icon}</span>
+                    <strong>{t.name}</strong>
+                    <small>{t.subtitle}</small>
+                  </button>
+                ))}
+              </div>
+            </details>
+
             {error && (
               <p className="error-banner" role="alert">
                 {error}
@@ -698,7 +659,11 @@ export default function Lobby() {
               type="submit"
               disabled={busy}
             >
-              {busy ? 'Создаём пространство…' : 'Создать комнату'}{' '}
+              {busy
+                ? 'Создаём пространство…'
+                : gameMode === 'battle'
+                  ? 'Начать бой'
+                  : 'Собрать команду'}{' '}
               <ArrowUpRight size={17} />
             </button>
           </form>

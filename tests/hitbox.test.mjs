@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { inHitRange, isHeadshot, calculatePelletsHit } from '../lib/game-items.ts';
+import { inHitRange, isHeadshot, calculatePelletsHit, hitZone } from '../lib/game-items.ts';
 
 test('Headshot is strictly registered on head, not on chest or torso', () => {
   const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
@@ -128,3 +128,22 @@ test('Shotgun point-blank against sitting stance adapts capsule height', () => {
   assert.equal(sitHit.damage, 104);
 });
 
+
+test('Hit zones: head, torso and limbs are told apart', () => {
+  const stand = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
+  const zoneAt = (y, x = 0) => hitZone([x, y, 5], [x, y, -5], stand);
+
+  assert.equal(zoneAt(2.07), 'head', 'голова');
+  assert.equal(zoneAt(1.5), 'torso', 'грудь');
+  assert.equal(zoneAt(1.2), 'torso', 'живот');
+  assert.equal(zoneAt(0.5), 'limb', 'ноги');
+  assert.equal(zoneAt(0.9), 'limb', 'бёдра');
+  // Руки модели вынесены на 0.345 вбок от оси тела.
+  assert.equal(zoneAt(1.6, 0.4), 'limb', 'рука');
+  assert.equal(zoneAt(1.6, 0.1), 'torso', 'грудь при небольшом смещении');
+
+  const sit = { x: 0, y: 0, z: 0, yaw: 0, stance: 'sit' };
+  assert.equal(hitZone([0, 1.67, 5], [0, 1.67, -5], sit), 'head');
+  assert.equal(hitZone([0, 1.1, 5], [0, 1.1, -5], sit), 'torso');
+  assert.equal(hitZone([0, 0.35, 5], [0, 0.35, -5], sit), 'limb');
+});

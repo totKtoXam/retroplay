@@ -6,8 +6,10 @@ import {
   effectCooldown,
   effectDamage,
   effectStyle,
+  hitZone,
   inHitRange,
-  isHeadshot,
+  LIMB_DAMAGE_SCALE,
+  SNIPER_LIMB_DAMAGE,
 } from './game-items.ts';
 import { uid, type Person, type Pose, type RoomState, type WorldEffect } from './model.ts';
 import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
@@ -593,16 +595,29 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
         : inHitRange(e.kind, origin, target, pose, colliders);
     // After a respawn a player can neither take nor deal damage.
     if (!hit || authorImmune || isImmune(p, now)) continue;
-    const head = isHeadshot(e.kind, origin, target, pose);
+    // Взрыв гранаты накрывает целиком, у остального оружия урон зависит от зоны попадания:
+    // голова — сразу насмерть, туловище — полный урон, руки и ноги — ослабленный.
+    const zone = e.kind === 'grenade' ? 'torso' : hitZone(origin, target, pose);
+    const head = zone === 'head';
     let damage: number;
     let pelletsHit: number | undefined;
     if (e.kind === 'confetti') {
       const pellets = calculatePelletsHit(origin, target, pose, 8, colliders);
       pelletsHit = pellets.pelletsHit;
-      damage = head ? 100 : pellets.damage;
+      damage = head
+        ? 100
+        : zone === 'limb'
+          ? Math.round(pellets.damage * LIMB_DAMAGE_SCALE)
+          : pellets.damage;
+    } else if (head) {
+      damage = 100;
+    } else if (e.kind === 'sniper') {
+      // Снайперка убивает с одного выстрела в голову и в туловище, по конечностям — ранит.
+      damage = zone === 'limb' ? SNIPER_LIMB_DAMAGE : 100;
     } else {
       const distance = Math.hypot(target[0] - origin[0], target[1] - origin[1], target[2] - origin[2]);
-      damage = head ? 100 : effectDamage(e.kind, distance);
+      damage = effectDamage(e.kind, distance);
+      if (zone === 'limb') damage = Math.round(damage * LIMB_DAMAGE_SCALE);
     }
     // Teammates take no damage, or the share the host allows.
     const friendly = !!(state.room.teams && author && p.team && author.team === p.team);
