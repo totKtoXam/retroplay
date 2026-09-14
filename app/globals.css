@@ -3415,12 +3415,6 @@ h1 > span {
   display: none;
 }
 
-.mode-3d .equipped-card,
-.mode-3d .world-help,
-.mode-3d .camera-toolbar {
-  display: none;
-}
-
 .mode-3d .ammo-panel {
   bottom: 28px;
   right: 24px;
@@ -6394,4 +6388,25 @@ h1 > span {
 }
 .team-card.selected {
   box-shadow: 0 0 0 1px var(--team);
+}
+
+/* Очень узкий экран: в шапке остаются название, счёт и кнопки справа. */
+@media (max-width: 620px) {
+  .game-bar {
+    gap: 5px;
+    padding: 6px 8px;
+  }
+  .game-bar .map-tag,
+  .game-bar-center .game-tag span,
+  .phase-steps {
+    display: none;
+  }
+  .game-bar h1 {
+    max-width: 90px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .game-tag.people .avatar {
+    display: none;
+  }
 }

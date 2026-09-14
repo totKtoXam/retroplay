@@ -1282,10 +1282,14 @@ export default function RoomApp({ id }: { id: string }) {
                 <span className="col-user">УЧАСТНИК</span>
                 <span className="col-status">СТАТУС</span>
                 <span className="col-num">HP</span>
-                <span className="col-num col-k">K</span>
-                <span className="col-num col-d">D</span>
-                <span className="col-num col-a">A</span>
-                <span className="col-num col-kda">KDA</span>
+                {gameMode === 'battle' && (
+                  <>
+                    <span className="col-num col-k">K</span>
+                    <span className="col-num col-d">D</span>
+                    <span className="col-num col-a">A</span>
+                    <span className="col-num col-kda">KDA</span>
+                  </>
+                )}
                 <span className="col-num col-ping">ПИНГ</span>
               </div>
               <div className="monitor-table-body">
@@ -1307,7 +1311,7 @@ export default function RoomApp({ id }: { id: string }) {
                         </strong>
                         <small className="role-text">
                           {m.id === room.host ? 'Ведущий' : 'Участник'}
-                          {(room.state.map ?? 'hub') !== 'hub' &&
+                          {gameMode === 'battle' &&
                             ` · ${m.team === 'red' ? 'красные' : m.team === 'blue' ? 'синие' : 'без команды'}`}
                         </small>
                       </span>
@@ -1355,12 +1359,16 @@ export default function RoomApp({ id }: { id: string }) {
                     >
                       {m.hp ?? 100}
                     </span>
-                    <span className="col-num col-k">{m.kills ?? 0}</span>
-                    <span className="col-num col-d">{m.deaths ?? 0}</span>
-                    <span className="col-num col-a">{m.assists ?? 0}</span>
-                    <span className="col-num col-kda">
-                      {kdaRatio(m).toFixed(2)}
-                    </span>
+                    {gameMode === 'battle' && (
+                      <>
+                        <span className="col-num col-k">{m.kills ?? 0}</span>
+                        <span className="col-num col-d">{m.deaths ?? 0}</span>
+                        <span className="col-num col-a">{m.assists ?? 0}</span>
+                        <span className="col-num col-kda">
+                          {kdaRatio(m).toFixed(2)}
+                        </span>
+                      </>
+                    )}
                     <span className="col-num col-ping">
                       {now - m.lastSeen < 15000 ? `${m.ping} мс` : '—'}
                     </span>
@@ -1369,7 +1377,9 @@ export default function RoomApp({ id }: { id: string }) {
               </div>
             </div>
             <p className="monitor-footer-note">
-              Отсортировано по KDA · (убийства + помощь) / смерти
+              {gameMode === 'battle'
+                ? 'Отсортировано по KDA · (убийства + помощь) / смерти'
+                : 'Участники встречи · «ё» закрывает табло'}
             </p>
           </div>
         </section>
@@ -1807,7 +1817,9 @@ export default function RoomApp({ id }: { id: string }) {
                       ? 'Во что играем: режим, карта и правила'
                       : panel === 'fps'
                         ? 'Настройки графики и поведения управления для вашего устройства'
-                        : 'Инструменты вашей ретроспективы'}
+                        : gameMode === 'battle'
+                          ? 'Снаряжение бойца'
+                          : 'Инструменты вашей ретроспективы'}
           </DialogDescription>
           {panel === 'tools' && (
             <ToolsPanel

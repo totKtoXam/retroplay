@@ -191,8 +191,9 @@ class Bot {
     this.slideSign = index % 2 ? 1 : -1;
     this.strafeSign = index % 2 ? 1 : -1;
     this.strafeUntil = 0;
-    this.stuckSince = 0;
-    this.stuckFrom = { x: 0, z: 0 };
+    // Лучшее расстояние до текущей точки патрулирования и когда оно улучшалось.
+    this.goalBest = Infinity;
+    this.goalBestAt = 0;
     this.jumpUntil = 0;
     this.stanceUntil = 0;
     // Оружие.
@@ -507,7 +508,8 @@ class Bot {
 
   nextWaypoint() {
     this.waypointIndex = (this.waypointIndex + 1) % Math.max(1, this.waypoints.length);
-    this.stuckSince = 0;
+    this.goalBest = Infinity;
+    this.goalBestAt = Date.now();
   }
 
   /** Ближайший видимый живой враг. */
@@ -584,6 +586,18 @@ class Bot {
         this.speed = 0;
         return;
       }
+      // Без настоящего поиска пути бот может «тереться» о стену, не приближаясь
+      // к цели: если за 5 с не стало ближе — идём к следующей точке.
+      if (len < this.goalBest - 0.5) {
+        this.goalBest = len;
+        this.goalBestAt = now;
+      } else if (now - this.goalBestAt > 5000) {
+        this.slideSign = -this.slideSign;
+        this.nextWaypoint();
+        this.moving = false;
+        this.speed = 0;
+        return;
+      }
       dirX = toX / len;
       dirZ = toZ / len;
       this.forward = 1;
@@ -601,6 +615,9 @@ class Bot {
     dirZ /= dirLen;
     const speed = RUN_SPEED * (this.stance === 'sit' ? 0.45 : 1);
     const step = speed * dt;
+    // Подъём в прыжке входит в проверку стен: в воздухе тело задевает то, что
+    // на земле обходится (сервер проверяет луч на высоте поднятой позы).
+    const lift = now < this.jumpUntil ? Math.sin(Math.PI * (1 - (this.jumpUntil - now) / 620)) * 0.9 : 0;
     // «Скользящий» обход: если прямо — стена, пробуем повернуть шаг.
     const turns = [0, 0.45, -0.45, 0.95, -0.95, 1.57, -1.57, 2.4, -2.4];
     let moved = false;
@@ -610,13 +627,12 @@ class Bot {
       const sin = Math.sin(a);
       const nx = this.pose.x + (dirX * cos - dirZ * sin) * step;
       const nz = this.pose.z + (dirX * sin + dirZ * cos) * step;
-      const ny = this.map.groundHeight(nx, nz, this.pose.y);
+      const ny = clamp(this.map.groundHeight(nx, nz, this.pose.y) + lift, 0, 10);
       if (this.blocked(nx, nz, ny, this.stance)) continue;
       this.pose.x = nx;
       this.pose.z = nz;
-      this.pose.y = clamp(ny, 0, 10);
+      this.pose.y = ny;
       moved = true;
-      if (turn) this.slideSign = a > 0 ? 1 : -1;
       break;
     }
     if (!moved) {
@@ -624,23 +640,8 @@ class Bot {
       this.slideSign = -this.slideSign;
       this.nextWaypoint();
     }
-    if (now < this.jumpUntil) {
-      const k = 1 - (this.jumpUntil - now) / 620;
-      this.pose.y = clamp(this.pose.y + Math.sin(Math.PI * k) * 0.9, 0, 10);
-    }
     this.moving = moved;
     this.speed = moved ? speed : 0;
-    // Если бот топчется на месте — идём к другой точке.
-    if (Math.hypot(this.pose.x - this.stuckFrom.x, this.pose.z - this.stuckFrom.z) > 0.5) {
-      this.stuckFrom = { x: this.pose.x, z: this.pose.z };
-      this.stuckSince = now;
-    } else if (!this.stuckSince) this.stuckSince = now;
-    else if (now - this.stuckSince > 4000) {
-      this.slideSign = -this.slideSign;
-      this.nextWaypoint();
-      this.stuckFrom = { x: this.pose.x, z: this.pose.z };
-      this.stuckSince = now;
-    }
   }
 
   // ------------------------------------------------------------ выстрелы
@@ -695,9 +696,14 @@ class Bot {
       this.roundsLeft = MAGAZINE;
       this.reloadUntil = now + RELOAD_MS;
     }
-    // Точный выстрел в упор по уязвимой цели обязан снять HP.
+    // Точный выстрел по уязвимой цели обязан снять HP. Считаем только те
+    // выстрелы, чей снимок мира сервер ещё может отмотать (не старше 250 мс):
+    // иначе промах — это нормальная работа компенсации задержки, а не баг.
     const trackable =
-      !miss && (this.tool === 'paint' || this.tool === 'sniper') && !victim.immuneRemaining;
+      !miss &&
+      (this.tool === 'paint' || this.tool === 'sniper') &&
+      !victim.immuneRemaining &&
+      serverNow - this.serverNow < 200;
     if (trackable)
       this.pendingHits.push({
         victim: victim.id,
@@ -715,9 +721,11 @@ class Bot {
   async tick() {
     const now = Date.now();
     const foe = this.enemy();
+    // Поза, которую сервер принял в прошлом такте: от неё он и считает шаг.
+    const from = { x: this.pose.x, y: this.pose.y, z: this.pose.z };
     this.move(now, foe);
     const sentLife = this.life;
-    const sent = { x: this.pose.x, z: this.pose.z };
+    const sent = { x: this.pose.x, y: this.pose.y, z: this.pose.z };
     const pose = {
       x: r3(this.pose.x),
       y: r3(this.pose.y),
@@ -768,10 +776,14 @@ class Bot {
         Date.now() > this.graceUntil
       )
         anomaly('move-refused', this, {
-          sent: { x: r3(sent.x), z: r3(sent.z) },
-          server: { x: r3(server.x), z: r3(server.z) },
+          from: { x: r3(from.x), y: r3(from.y), z: r3(from.z) },
+          sent: { x: r3(sent.x), y: r3(sent.y), z: r3(sent.z) },
+          server: { x: r3(server.x), y: r3(server.y), z: r3(server.z) },
+          stepM: r3(Math.hypot(sent.x - from.x, sent.z - from.z)),
           driftM: r3(drift),
           stance: this.stance,
+          life: me.life,
+          hp: me.hp,
         });
       // Дальше идём от позиции сервера — она главная.
       this.pose.x = server.x;
@@ -780,7 +792,8 @@ class Bot {
       if (lifeChanged) {
         this.graceUntil = Date.now() + 1500;
         this.waypointIndex = this.index % Math.max(1, this.waypoints.length);
-        this.stuckSince = 0;
+        this.goalBest = Infinity;
+        this.goalBestAt = Date.now();
         this.roundsLeft = MAGAZINE;
         this.pendingHits = [];
       }

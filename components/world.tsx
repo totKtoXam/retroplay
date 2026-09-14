@@ -127,7 +127,7 @@ type Props = {
   invertCamera: boolean;
   aimModes?: WeaponAimModes;
   onPose: (p: Pose) => void;
-  onMonitor: (v: boolean) => void;
+  onMonitor: (v: boolean | ((prev: boolean) => boolean)) => void;
   onFps: (v: number) => void;
   onAction: (kind: string) => void;
   onFire: (effect: WorldEffect) => void;
@@ -1295,8 +1295,10 @@ export default function World(props: Props) {
         e.preventDefault();
       keys.add(e.code);
       if (e.repeat) return;
+      // Переключатель, а не удержание: в табло есть кнопки, по которым надо
+      // успеть нажать.
       if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
-        latest.current.onMonitor(true);
+        latest.current.onMonitor((v) => !v);
       if (e.code === 'KeyR') beginReload();
       if (e.code.startsWith('Control')) player.holdCrouch();
       if (isDead()) return;
@@ -1330,8 +1332,7 @@ export default function World(props: Props) {
         !keys.has('ControlRight')
       )
         player.releaseCrouch();
-      if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
-        latest.current.onMonitor(false);
+
     };
     const onMouse = (e: MouseEvent) => {
       const b = canvas.getBoundingClientRect();
@@ -1975,6 +1976,7 @@ export default function World(props: Props) {
   const current = GAME_TOOLS[props.tool];
   const gameMode = modeOf(props.room.state);
   const slots = slotsFor(gameMode);
+  const currentSlot = slots.find((s) => s.index === props.tool);
   return (
     <div
       className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''}`}
@@ -2106,7 +2108,7 @@ export default function World(props: Props) {
         </div>
       )}
       <div className="equipped-card">
-        <span className="weapon-number">{current?.key}</span>
+        <span className="weapon-number">{currentSlot?.key ?? '—'}</span>
         <div>
           <strong>{current?.label}</strong>
           <span>
@@ -2157,7 +2159,8 @@ export default function World(props: Props) {
           <kbd>Ё</kbd> кто в сети
         </span>
         <span>
-          <kbd>1–6</kbd> оружие · <kbd>Колесо</kbd> сменить · <kbd>СКМ</kbd> стили
+          <kbd>1–{slots.length}</kbd> предметы · <kbd>Колесо</kbd> сменить ·{' '}
+          <kbd>СКМ</kbd> стили
         </span>
       </div>
       <div className="quick-loadout" aria-label="Быстрые предметы">
@@ -2367,37 +2370,6 @@ export default function World(props: Props) {
               );
             })}
           </div>
-          <h3>Работа с ретроспективой</h3>
-          <p>
-            Инструмент сразу откроет обычную доску. В 3D нажмите E рядом со
-            стендом.
-          </p>
-          <div className="equipment-retro">
-            {GAME_TOOLS.filter(
-              (t) =>
-                ![
-                  'paint',
-                  'confetti',
-                  'grenade',
-                  'sniper',
-                  'sticky',
-                  'reaction',
-                  'pointer',
-                  'like',
-                ].includes(t.id),
-            ).map((t) => (
-              <button
-                key={t.id}
-                onClick={() => {
-                  engine.current?.closeInventory(false);
-                  props.onBoardTool(t.id);
-                }}
-              >
-                {t.label}
-                <span>Открыть доску ↗</span>
-              </button>
-            ))}
-          </div>
           <button
             className="equipment-reaction"
             onClick={() => {
@@ -2430,7 +2402,7 @@ export default function World(props: Props) {
           <MoveUp />
           Доска
         </button>
-        <button onClick={() => props.onMonitor(true)}>
+        <button onClick={() => props.onMonitor((v) => !v)}>
           <Users />В сети
         </button>
       </div>

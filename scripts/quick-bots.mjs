@@ -2,7 +2,7 @@
 // патрулируют спавны своей команды, стреляют по ближайшему врагу и умирают.
 // Запуск: node --experimental-strip-types quick-bots.mjs --url http://host:port --room <id>
 import { getMap } from '../lib/maps/index.ts';
-import { isBlocked3D } from '../lib/world-collision.ts';
+import { isBlocked3D, rayCastWorldObstacle } from '../lib/world-collision.ts';
 
 const arg = (name, fallback) => {
   const i = process.argv.indexOf('--' + name);
@@ -48,6 +48,28 @@ async function req(a, body) {
 
 const map = { current: null };
 const dist = (p, q) => Math.hypot(p.x - q.x, p.z - q.z);
+/** Угол между направлением взгляда и целью, радианы. */
+const angleTo = (pose, q) => {
+  const want = Math.atan2(q.x - pose.x, q.z - pose.z);
+  let d = want - pose.yaw;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d <= -Math.PI) d += Math.PI * 2;
+  return d;
+};
+/** Бот видит цель так же, как живой игрок: в пределах обзора и без стены на пути. */
+const canSee = (pose, q, gm) => {
+  if (Math.abs(angleTo(pose, q)) > FOV / 2) return false;
+  const wall = rayCastWorldObstacle(
+    [pose.x, pose.y + 1.5, pose.z],
+    [q.x, (q.y ?? 0) + 1.1, q.z],
+    gm.colliders,
+  );
+  return !wall;
+};
+/** Поле зрения по горизонтали (как у игрока с обычным FOV). */
+const FOV = (100 * Math.PI) / 180;
+/** Скорость доворота прицела, рад/с: мгновенных разворотов у бота нет. */
+const TURN_RATE = 3.2;
 /** Шаг к цели, обходящий стены «скольжением» вдоль них. */
 function step(pose, target, speed, dt, gm) {
   const dx = target.x - pose.x,
@@ -78,6 +100,7 @@ async function run(bot, index) {
   let pose = { ...(me()?.pose ?? { x: 0, y: 0, z: 4, yaw: 0, stance: 'stand', moving: false }) };
   let route = [];
   let target = null;
+  let seen = null;
   let lastShot = 0;
   let lastSeenTick = 0;
   let serverNow = Date.now();
@@ -122,11 +145,17 @@ async function run(bot, index) {
         );
         const spawns = gm.spawns[team === 'red' ? 'blue' : 'red'] ?? gm.spawns.red;
         if (!route.length) route = spawns.map((s) => ({ x: s.x, z: s.z }));
-        const near = enemies.sort((a, b) => dist(a.pose, pose) - dist(b.pose, pose))[0];
+        // Видимые враги: в поле зрения и без стены между нами.
+        const visible = enemies
+          .filter((m) => dist(m.pose, pose) < 30 && canSee(pose, m.pose, gm))
+          .sort((a, b) => dist(a.pose, pose) - dist(b.pose, pose));
+        const near = visible[0];
+        seen = near ? { x: near.pose.x, z: near.pose.z } : seen;
         target = near ? { x: near.pose.x, z: near.pose.z } : route[index % route.length];
-        // Стрельба по видимому врагу.
         const frozen = state.match?.phase === 'freeze';
-        if (near && !frozen && dist(near.pose, pose) < 26 && Date.now() - lastShot > 900) {
+        // Стреляем только по тому, кого действительно видим и на кого навелись.
+        const aimed = near && Math.abs(angleTo(pose, near.pose)) < 0.12;
+        if (near && aimed && !frozen && Date.now() - lastShot > 900) {
           lastShot = Date.now();
           const miss = Math.random() < 0.35 ? 0.9 : 0;
           await req(bot, {
@@ -150,10 +179,12 @@ async function run(bot, index) {
     if (target) {
       const next = step(pose, target, 4.2, dt, gm);
       const moved = Math.hypot(next.x - pose.x, next.z - pose.z) > 0.01;
+      const turn = angleTo({ ...pose, yaw: pose.yaw }, target);
+      const maxTurn = TURN_RATE * dt;
       pose = {
         ...pose,
         ...next,
-        yaw: Math.atan2(target.x - pose.x, target.z - pose.z),
+        yaw: pose.yaw + Math.max(-maxTurn, Math.min(maxTurn, turn)),
         moving: moved,
         speed: moved ? 4.2 : 0,
         tool,

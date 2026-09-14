@@ -283,6 +283,7 @@ export function WorldHud(props: WorldHudProps) {
         </div>
       </div>
       )}
+      {props.mode === 'battle' && (
       <div className="killfeed-container" aria-live="polite">
         {props.killfeed.map((msg, idx) => (
           <div
@@ -322,6 +323,7 @@ export function WorldHud(props: WorldHudProps) {
           </div>
         ))}
       </div>
+      )}
       {props.mode === 'battle' &&
         props.room.match &&
         props.room.match.phase !== 'live' && (
@@ -370,7 +372,7 @@ export function WorldHud(props: WorldHudProps) {
           {props.personalAlert.sub && <small>{props.personalAlert.sub}</small>}
         </div>
       )}
-      {props.mode === 'battle' && (
+      {/* Здоровье есть и на ретроспективе: там тоже можно словить залп конфетти. */}
       <div className={`health-hud ${props.dead ? 'depleted' : ''}`}>
         <strong>{props.self?.hp ?? 100}</strong>
         <span>HP</span>
@@ -381,7 +383,6 @@ export function WorldHud(props: WorldHudProps) {
           aria-label="Здоровье"
         />
       </div>
-      )}
       {props.dead && (
         <div className="respawn-overlay">
           <span>ПЕРЕРЫВ НА КОНФЕТТИ</span>
