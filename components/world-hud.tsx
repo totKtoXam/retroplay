@@ -26,6 +26,8 @@ type WorldHudProps = {
   dead: boolean;
   sniperZoomIndex: number;
   hitEffect: HitEffect | null;
+  /** Куда попал сам игрок последним выстрелом. */
+  hitMark: { zone: 'head' | 'torso' | 'limb'; key: number } | null;
   shieldSeconds: number;
   killfeed: KillMessage[];
   personalAlert: PersonalAlert | null;
@@ -56,6 +58,21 @@ export function WorldHud(props: WorldHudProps) {
         <i />
         <i />
       </div>
+      {props.mode === 'battle' && props.hitMark && (
+        <div
+          key={props.hitMark.key}
+          className={`hit-mark hit-mark-${props.hitMark.zone}`}
+          aria-hidden="true"
+        >
+          <i />
+          <i />
+          <i />
+          <i />
+          {props.hitMark.zone !== 'torso' && (
+            <b>{props.hitMark.zone === 'head' ? 'В ГОЛОВУ' : 'ПО КОНЕЧНОСТИ'}</b>
+          )}
+        </div>
+      )}
       {props.current?.id === 'sniper' && props.aiming && props.perspective === 'first' && !props.dead && (
         <div className="sniper-scope-overlay" aria-hidden="true">
           <div className="scope-vignette" />

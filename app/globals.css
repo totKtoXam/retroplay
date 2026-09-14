@@ -777,6 +777,98 @@ h3 {
   );
   animation: hitGlowPulse 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+/* Отметка своего попадания: цвет и размер говорят, куда пришёлся выстрел. */
+.hit-mark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34px;
+  height: 34px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 3;
+  animation: hitMarkPop 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.hit-mark i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  height: 11px;
+  margin: -5.5px 0 0 -1px;
+  border-radius: 1px;
+  background: var(--mark-color, #f4f7ff);
+  box-shadow: 0 0 4px rgb(0 0 0 / 0.75);
+}
+.hit-mark i:nth-child(1) {
+  transform: rotate(45deg) translateY(-10px);
+}
+.hit-mark i:nth-child(2) {
+  transform: rotate(135deg) translateY(-10px);
+}
+.hit-mark i:nth-child(3) {
+  transform: rotate(225deg) translateY(-10px);
+}
+.hit-mark i:nth-child(4) {
+  transform: rotate(315deg) translateY(-10px);
+}
+.hit-mark b {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translate(-50%, 6px);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  white-space: nowrap;
+  color: var(--mark-color, #f4f7ff);
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.85);
+}
+.hit-mark-head {
+  --mark-color: #ff5d52;
+  width: 44px;
+  height: 44px;
+}
+.hit-mark-torso {
+  --mark-color: #ffd166;
+}
+.hit-mark-limb {
+  --mark-color: #9fb0c8;
+  width: 26px;
+  height: 26px;
+}
+@keyframes hitMarkPop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.55);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.12);
+  }
+  40% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hit-mark {
+    animation-duration: 0.7s;
+    animation-name: hitMarkFade;
+  }
+  @keyframes hitMarkFade {
+    0%,
+    70% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+}
 .loading-world {
   height: 100%;
   display: grid;
@@ -6385,4 +6477,110 @@ h1 > span {
   .game-tag.people .avatar {
     display: none;
   }
+}
+
+/* --- прозрачное колесо предметов --- */
+/* Меню по зажатию колёсика больше не перекрывает бой: подложка диалога —
+   лёгкая тёмная вуаль с размытием, затемняющий оверлей сцены снят,
+   читаемость держится на локальных подложках и тенях текста. */
+body.item-wheel-open [data-slot='dialog-overlay'] {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+[data-slot='dialog-content'].item-wheel-dialog.item-wheel-dialog {
+  background: rgba(9, 14, 23, 0.32) !important;
+  border: 1px solid rgba(190, 210, 235, 0.16) !important;
+  border-radius: 16px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32) !important;
+  backdrop-filter: blur(4px) saturate(1.05) !important;
+  -webkit-backdrop-filter: blur(4px) saturate(1.05) !important;
+}
+/* Заголовок и подсказка держатся на собственной подложке: над светлой картой
+   или взрывом одной тени тексту не хватает. */
+[data-slot='dialog-content'].item-wheel-dialog [data-slot='dialog-title'],
+[data-slot='dialog-content'].item-wheel-dialog [data-slot='dialog-description'] {
+  justify-self: center;
+  width: fit-content;
+  max-width: 100%;
+  color: #f4f8ff;
+  background: rgba(7, 11, 18, 0.72);
+  border-radius: 8px;
+  padding: 3px 12px;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 10px rgba(0, 0, 0, 0.8);
+}
+[data-slot='dialog-content'].item-wheel-dialog
+  [data-slot='dialog-description'] {
+  color: #dbe6f4;
+  padding: 2px 10px;
+}
+
+/* Сектора: невыбранные почти прозрачные, активный — плотный и яркий. */
+.item-wheel svg {
+  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.65));
+}
+.item-wheel svg path.wheel-sector {
+  fill-opacity: 0.3;
+  stroke-opacity: 0.55;
+  transition:
+    fill 0.1s,
+    fill-opacity 0.1s;
+}
+.item-wheel svg path.wheel-sector.highlighted {
+  fill-opacity: 0.88;
+  stroke-opacity: 1;
+}
+.item-wheel svg circle.wheel-hub {
+  fill-opacity: 0.38;
+  stroke-opacity: 0.6;
+}
+
+/* Подписи: подложка только под текстом, не под всем меню. */
+.item-wheel .wheel-sector-label b {
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 8px rgba(0, 0, 0, 0.85);
+}
+.item-wheel .wheel-sector-label span {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(7, 11, 18, 0.72);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  color: #eef4ff;
+}
+.item-wheel .wheel-sector-label.highlighted b {
+  text-shadow:
+    0 1px 2px rgba(255, 255, 255, 0.85),
+    0 0 8px rgba(255, 255, 255, 0.6);
+}
+.item-wheel .wheel-sector-label.highlighted span {
+  background: rgba(255, 255, 255, 0.92);
+  color: #0d1624;
+}
+
+/* Центр: полупрозрачная шайба внутри ступицы колеса. */
+.item-wheel .wheel-center {
+  width: 132px;
+  height: 132px;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(8, 13, 21, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.item-wheel .wheel-center b,
+.item-wheel .wheel-center strong {
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 8px rgba(0, 0, 0, 0.85);
+}
+.item-wheel .wheel-center strong {
+  color: #f2f7ff;
+}
+.item-wheel .wheel-center small {
+  color: #b9c8dd;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
 }

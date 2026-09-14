@@ -1,6 +1,6 @@
 import * as T from 'three';
 import type { Room, WorldEffect } from '@/lib/model';
-import { inHitRange } from '@/lib/game-items';
+import { hitZone, inHitRange, type HitZone } from '@/lib/game-items';
 import type { Perspective } from '@/lib/game-camera';
 import {
   partyGeometry,
@@ -42,6 +42,7 @@ export function createWorldProjectiles({
   pos,
   perspectiveRef,
   hitGlowHandler,
+  hitMarker,
   burst,
   splat,
   smearPlayerWithPaint,
@@ -55,6 +56,8 @@ export function createWorldProjectiles({
   pos: T.Vector3;
   perspectiveRef: { readonly current: Perspective };
   hitGlowHandler: { readonly current: (color: string) => void };
+  /** Отметка своего попадания: игрок должен видеть, куда пришёлся выстрел. */
+  hitMarker: { readonly current: (zone: HitZone) => void };
   burst: Vfx['burst'];
   splat: Vfx['splat'];
   smearPlayerWithPaint: Vfx['smearPlayerWithPaint'];
@@ -193,6 +196,21 @@ export function createWorldProjectiles({
             ) {
               isHitOnPlayer = true;
               hitPlayerGroup = remote;
+              // Своё попадание отмечаем зоной: по гранате зон нет, она накрывает целиком.
+              if (f.author === latest.current.room.self && f.kind !== 'grenade')
+                hitMarker.current(
+                  hitZone(
+                    [f.origin.x, f.origin.y, f.origin.z],
+                    [f.target.x, f.target.y, f.target.z],
+                    {
+                      x: member.pose.x,
+                      y: member.pose.y,
+                      z: member.pose.z,
+                      yaw: member.pose.yaw,
+                      stance: member.pose.stance,
+                    },
+                  ),
+                );
               break;
             }
           }

@@ -27,7 +27,7 @@ import { createVisualProvider } from './resource-packs/provider';
 import { createFieldOptics } from './resource-packs/realistic/post';
 import { visualBudget } from '../lib/resource-packs';
 import { createFirstPersonHands } from './world-hands';
-import { PAINTS, CONFETTI, GRENADES, FIREWORKS, SHOTGUN_PELLET_OFFSETS } from '@/lib/game-items';
+import { PAINTS, CONFETTI, GRENADES, FIREWORKS, SHOTGUN_PELLET_OFFSETS, type HitZone } from '@/lib/game-items';
 import { createWorldVfx } from './world-vfx';
 import { createWorldProjectiles } from './world-projectiles';
 import { createWorldRemotePlayers } from './world-remote-players';
@@ -408,6 +408,17 @@ export default function World(props: Props) {
   useEffect(() => {
     hitGlowHandler.current = triggerHitGlow;
   });
+
+  // Отметка своего попадания: голова, корпус или конечность.
+  const [hitMark, setHitMark] = useState<{ zone: HitZone; key: number } | null>(null);
+  const hitMarker = useRef((zone: HitZone) => {
+    setHitMark({ zone, key: Date.now() });
+  });
+  useEffect(() => {
+    if (!hitMark) return;
+    const timer = setTimeout(() => setHitMark(null), 700);
+    return () => clearTimeout(timer);
+  }, [hitMark]);
 
   const [shieldSeconds, setShieldSeconds] = useState(0);
   const immuneExpireRef = useRef(0);
@@ -813,6 +824,7 @@ export default function World(props: Props) {
       pos,
       perspectiveRef,
       hitGlowHandler,
+      hitMarker,
       burst,
       splat: vfx.splat,
       smearPlayerWithPaint: vfx.smearPlayerWithPaint,
@@ -1996,6 +2008,7 @@ export default function World(props: Props) {
         dead={dead}
         sniperZoomIndex={sniperZoomIndex}
         hitEffect={hitEffect}
+        hitMark={hitMark}
         shieldSeconds={shieldSeconds}
         killfeed={killfeed}
         personalAlert={personalAlert}
