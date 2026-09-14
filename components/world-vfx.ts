@@ -16,6 +16,8 @@ type Particle = {
  * per-frame simulation and disposal of the shared geometries.
  * Extracted verbatim from the engine effect in world.tsx.
  */
+/** Сколько вспышек живёт одновременно: больше — экран превращается в стену частиц. */
+const MAX_LIVE_BURSTS = 12;
 /** Ближе этого расстояния до камеры частица не рисуется. */
 const PARTICLE_NEAR_CULL = 0.45;
 /** До этого расстояния частица уменьшается, чтобы не закрывать обзор. */
@@ -78,10 +80,10 @@ export function createWorldVfx({
             ? 60
             : 36
         : isCinematicQuality
-          ? 80
+          ? 30
           : isBalancedQuality
-            ? 48
-            : 26;
+            ? 20
+            : 12;
     const geo =
       style === 'paint'
         ? paintDropletGeo
@@ -149,8 +151,17 @@ export function createWorldVfx({
       positions,
       rotations,
       born: now,
-      lifetime: isPaint ? 1.6 : isFirework ? 2.5 : 4,
+      lifetime: isPaint ? 1.6 : isFirework ? 2.5 : 2.2,
     });
+    // В перестрелке десяти стрелков вспышки идут непрерывно: без потолка
+    // на экране копятся тысячи частиц, они закрывают бой и роняют FPS.
+    while (bursts.length > MAX_LIVE_BURSTS) {
+      const oldest = bursts.shift();
+      if (!oldest) break;
+      oldest.mesh.removeFromParent();
+      oldest.mesh.dispose();
+      (oldest.mesh.material as T.Material).dispose();
+    }
   };
   const splat = (
     at: T.Vector3,

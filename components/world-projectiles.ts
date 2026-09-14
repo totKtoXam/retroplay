@@ -66,8 +66,15 @@ export function createWorldProjectiles({
     normal: T.Vector3,
   ) => { point: T.Vector3; normal: T.Vector3 } | null;
 }) {
-  const flights: Flight[] = [],
-    seen = new Set<string>();
+  const flights: Flight[] = [];
+  /**
+   * Уже проигранные выстрелы: id → когда увидели. Память обязана жить дольше,
+   * чем сервер держит эффект (EFFECT_TTL_MS = 15 с), иначе в перестрелке
+   * id вытесняется за несколько секунд, эффект всё ещё лежит в состоянии
+   * комнаты — и клиент запускает его заново, рождая выстрелы из ниоткуда.
+   */
+  const seen = new Map<string, number>();
+  const SEEN_TTL_MS = 25_000;
   const paintGeo = new T.SphereGeometry(0.105, 7, 5);
   const spawn = (e: WorldEffect) => {
     if (
@@ -80,13 +87,13 @@ export function createWorldProjectiles({
       Date.now() - e.at > (e.kind === 'paint' ? 14000 : 5000)
     )
       return;
-    seen.add(e.id);
+    const now = Date.now();
+    seen.set(e.id, now);
     const remote = remoteAvatars.get(e.author);
     if (remote) avatarShoot(remote);
-    if (seen.size > 200) {
-      const first = seen.values().next().value;
-      if (first) seen.delete(first);
-    }
+    if (seen.size > 300)
+      for (const [id, at] of seen)
+        if (now - at > SEEN_TTL_MS) seen.delete(id);
     const start = new T.Vector3(...e.origin),
       target = new T.Vector3(...e.target),
       normal = new T.Vector3(...e.normal).normalize();
