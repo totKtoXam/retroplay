@@ -439,6 +439,33 @@ export default function RoomApp({ id }: { id: string }) {
     document.addEventListener('fullscreenchange', change);
     return () => document.removeEventListener('fullscreenchange', change);
   }, []);
+  // Карточка или лист зоны перехватывают ввод: клавиша стороны при них молчит.
+  const editorOpenRef = useRef(false);
+  useEffect(() => {
+    editorOpenRef.current = !!draft || !!selectedZone;
+  }, [draft, selectedZone]);
+  // «G» открывает и закрывает выбор стороны прямо из игры, без табло счёта.
+  // Смотрим на e.code, а не на e.key: в русской раскладке это «п».
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyG' || e.repeat || e.ctrlKey || e.metaKey || e.altKey)
+        return;
+      // Пока игрок печатает, клавиша остаётся обычной буквой.
+      if (
+        (e.target as HTMLElement | null)?.closest(
+          'input,textarea,select,[contenteditable=true]',
+        )
+      )
+        return;
+      if (!roomRef.current || editorOpenRef.current) return;
+      e.preventDefault();
+      // Чужую открытую панель клавиша не подменяет: только своя открывается
+      // и закрывается.
+      setPanel((p) => (p === 'team' ? '' : p === '' ? 'team' : p));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const me = room?.members.find((m) => m.id === room.self),
     host = room?.host === room?.self,
     s = room?.state,
@@ -1321,12 +1348,12 @@ export default function RoomApp({ id }: { id: string }) {
                           className={`side-swap ${m.team || 'none'}`}
                           title={
                             m.id === room.self
-                              ? 'Выбор стороны и скина'
+                              ? 'Выбор стороны и скина · клавиша G'
                               : 'Перевести в другую команду'
                           }
                           aria-label={
                             m.id === room.self
-                              ? 'Выбрать сторону и скин'
+                              ? 'Выбрать сторону и скин, клавиша G'
                               : `Перевести игрока ${m.name} в другую команду`
                           }
                           onClick={() => {
