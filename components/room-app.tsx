@@ -1084,6 +1084,7 @@ export default function RoomApp({ id }: { id: string }) {
                   pose.current = p;
                 }}
                 onMonitor={setMonitor}
+                monitor={monitor}
                 onFps={setFps}
                 onAction={() =>
                   void act({ type: 'event', kind: 'reaction', value: '👍' })
@@ -1255,7 +1256,7 @@ export default function RoomApp({ id }: { id: string }) {
                 className="monitor-close"
                 onClick={() => setMonitor(false)}
                 aria-label="Закрыть"
-                title="Закрыть (Ё)"
+                title="Закрыть (Esc)"
               >
                 <X size={14} />
               </button>
@@ -1379,7 +1380,7 @@ export default function RoomApp({ id }: { id: string }) {
             <p className="monitor-footer-note">
               {gameMode === 'battle'
                 ? 'Отсортировано по KDA · (убийства + помощь) / смерти'
-                : 'Участники встречи · «ё» закрывает табло'}
+                : 'Участники встречи · держите «ё», ЛКМ закрепляет табло'}
             </p>
           </div>
         </section>
