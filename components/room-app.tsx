@@ -80,6 +80,7 @@ import {
   ModePanel,
   WidgetsPanel,
   WorldPanel,
+  FPS_LIMITS,
 } from './room-panels';
 import { SidePicker } from './side-picker';
 import { useRoomSync } from './use-room-sync';
@@ -252,7 +253,7 @@ export default function RoomApp({ id }: { id: string }) {
         savedQuality === 'high' ? 'cinematic' : savedQuality || 'balanced',
       );
       const savedFps = Number(localStorage.getItem('jinaly-fps-limit'));
-      setFpsLimit([20, 30, 60].includes(savedFps) ? savedFps : 60);
+      setFpsLimit(FPS_LIMITS.includes(savedFps) ? savedFps : 60);
     },
   });
   useEffect(() => {
