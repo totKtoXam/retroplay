@@ -8,6 +8,11 @@ import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { modeOf } from '@/lib/maps/catalog';
 import { createFlashlightBeam, type FlashlightBeam } from './world-flashlight';
 import { createShieldBubble, type ShieldBubble } from './world-shield';
+import {
+  createOpticMark,
+  opticCatches,
+  type OpticMark,
+} from './world-optic-mark';
 
 /** Цвета сторон: боец и его метка окрашены в цвет команды, а не личный. */
 const TEAM_COLORS: Record<string, string> = { red: '#ff5d52', blue: '#5aa9ff' };
@@ -23,12 +28,22 @@ export function createWorldRemotePlayers({
   quality,
   latest,
   map,
+  camera,
+  opticWindow,
 }: {
   scene: T.Scene;
   kit: WorldKit;
   quality: string;
   latest: { readonly current: { room: Room } };
   map: GameMap;
+  camera: T.Camera;
+  /**
+   * Прямоугольник окна коллиматора в координатах экрана (NDC) или `null`,
+   * когда в прицел не смотрят. Считает его `world.tsx`: где рамка — знает
+   * только модель оружия, а кого она поймала — удобнее проверять здесь, рядом
+   * с аватарами и коллизиями карты.
+   */
+  opticWindow?: () => T.Box2 | null;
 }) {
   const remoteAvatars = new Map<string, T.Group>(),
     remoteBandanaMats = new Map<string, T.MeshStandardMaterial>(),
@@ -39,6 +54,8 @@ export function createWorldRemotePlayers({
     // Пузырь щита живёт вместе с аватаром: без щита он просто невидим, и
     // создавать его заново на каждое возрождение незачем.
     shields = new Map<string, ShieldBubble>(),
+    // Обводка цели в прицеле: живёт с аватаром, вне прицела просто невидима.
+    marks = new Map<string, OpticMark>(),
     remoteMotion = new Map<
       string,
       {
@@ -103,6 +120,8 @@ export function createWorldRemotePlayers({
     beams.delete(id);
     shields.get(id)?.dispose();
     shields.delete(id);
+    marks.get(id)?.dispose();
+    marks.delete(id);
     labels.delete(id);
     remoteBandanaMats.delete(id);
     remoteMotion.delete(id);
@@ -126,7 +145,33 @@ export function createWorldRemotePlayers({
       }
     });
   };
+  const markScratch = new T.Vector3(),
+    markEye = new T.Vector3();
+  /**
+   * Поймал ли прицел этого бойца: он в рамке окна и его не закрывает стена.
+   * Подсветка сквозь стены превратила бы прицел в рентген, а этого в игре нет
+   * ни у ботов, ни у людей.
+   */
+  const markedByOptic = (remote: T.Group, box: T.Box2) => {
+    markScratch.set(
+      remote.position.x,
+      remote.position.y + 0.95,
+      remote.position.z,
+    );
+    if (!opticCatches(markScratch, box, camera)) return false;
+    return !rayCastWorldObstacle(
+      [markEye.x, markEye.y, markEye.z],
+      [markScratch.x, markScratch.y, markScratch.z],
+      map.colliders,
+    )?.hit;
+  };
   const update = (now: number, dt: number) => {
+    // Рамку берём один раз на кадр: она общая для всех бойцов.
+    const opticBox = opticWindow?.() ?? null;
+    if (opticBox) {
+      camera.updateMatrixWorld();
+      camera.getWorldPosition(markEye);
+    }
     const serverNow =
       (latest.current.room as Room & { serverNow?: number }).serverNow ??
       Date.now();
@@ -158,6 +203,9 @@ export function createWorldRemotePlayers({
         const shield = createShieldBubble();
         shields.set(member.id, shield);
         remote.add(shield.group);
+        const mark = createOpticMark();
+        marks.set(member.id, mark);
+        remote.add(mark.group);
         if (member.pose) {
           remote.position.set(
             member.pose.x,
@@ -186,6 +234,12 @@ export function createWorldRemotePlayers({
         remote,
         !!latest.current.room.state.anonymousPlayers,
       );
+      marks
+        .get(member.id)
+        ?.set(
+          !!opticBox && remote.visible && markedByOptic(remote, opticBox),
+          now / 1000,
+        );
       const isRemoteShielded = (member.immuneRemaining || 0) > 0;
       // Щит видно самим силуэтом бойца, а не только значком в подписи: подпись
       // закрывают стены и прячет настройка «скрывать статус игроков».

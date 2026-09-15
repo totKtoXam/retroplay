@@ -6212,6 +6212,19 @@ body.item-wheel-open [data-slot='dialog-overlay'] {
   color: #0d1624;
 }
 
+/*
+ * Плотная группа колеса: восемь красок делят половину круга, и подписи под
+ * значками налезали бы друг на друга. Остаётся один значок — название всё
+ * равно читается в центре колеса, под тем, на что наведено.
+ */
+.item-wheel .wheel-sector-label.compact {
+  padding: 4px;
+  max-width: 46px;
+}
+.item-wheel .wheel-sector-label.compact b {
+  font-size: 34px;
+}
+
 /* Центр: полупрозрачная шайба внутри ступицы колеса. */
 .item-wheel .wheel-center {
   width: 132px;

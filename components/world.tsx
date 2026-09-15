@@ -19,12 +19,13 @@ import {
   type WorldEffect,
   type Note,
 } from '@/lib/model';
-import { ItemWheel } from './item-wheel';
+import { ItemWheel, type WheelGroup } from './item-wheel';
 import { WorldTablet } from './world-tablet';
 import { AmmoIndicator, WorldHud } from './world-hud';
 import { createMapScene, type WorldKit } from './world-map-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
+import { opticNdcBox } from './world-optic-mark';
 import { createFieldOptics } from './resource-packs/realistic/post';
 import { visualBudget } from '../lib/resource-packs';
 import { createFirstPersonHands } from './world-hands';
@@ -88,6 +89,13 @@ import {
 import { SNIPER_ZOOM_LEVELS, SNIPER_ZOOM_FOVS } from './world-constants';
 
 import { readAimModes, type WeaponAimModes } from '@/lib/aim-settings';
+import {
+  PAINT_SIGHT_OPTIONS,
+  DEFAULT_PAINT_SIGHT,
+  readPaintSight,
+  writePaintSight,
+  type PaintSight,
+} from '@/lib/weapon-sights';
 
 // Shield aura mesh removed — immunity is now indicated only by HUD text/icon
 
@@ -260,6 +268,20 @@ export default function World(props: Props) {
   const [grenadeStyle, setGrenadeStyle] = useState('pinata');
   const [fireworkStyle, setFireworkStyle] = useState('salute');
   const [tabletZone, setTabletZone] = useState('good');
+  const [paintSight, setPaintSight] = useState<PaintSight>(DEFAULT_PAINT_SIGHT);
+  useEffect(() => {
+    // Читаем только после монтирования: на сервере localStorage нет, и разметка
+    // первого кадра разошлась бы с гидрацией. `storage` заодно подхватывает
+    // выбор, сделанный в соседней вкладке.
+    const sync = () => setPaintSight(readPaintSight());
+    sync();
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, []);
+  const applyPaintSight = useCallback((value: PaintSight) => {
+    setPaintSight(value);
+    writePaintSight(value);
+  }, []);
   const [tabletInWorld, setTabletInWorld] = useState(false);
   const [sniperZoomIndex, setSniperZoomIndex] = useState(1);
   const sniperZoomIndexRef = useRef(1);
@@ -303,6 +325,7 @@ export default function World(props: Props) {
     grenadeStyle,
     fireworkStyle,
     tabletZone,
+    paintSight,
   });
   useEffect(() => {
     selection.current = {
@@ -310,8 +333,9 @@ export default function World(props: Props) {
       grenadeStyle,
       fireworkStyle,
       tabletZone,
+      paintSight,
     };
-  }, [confettiStyle, grenadeStyle, fireworkStyle, tabletZone]);
+  }, [confettiStyle, grenadeStyle, fireworkStyle, tabletZone, paintSight]);
   /** Changing the room's map rebuilds the engine with that map's scene and collision. */
   const mapId = props.room.state.map ?? 'hub';
   const self = props.room.members.find((m) => m.id === props.room.self);
@@ -709,12 +733,32 @@ export default function World(props: Props) {
     let appliedLocalSkinId = cachedLocalSkinId;
     let appliedLocalBandanaColor = cachedLocalBandanaColor;
     applyAvatarSkin(avatar, appliedLocalSkinId, appliedLocalBandanaColor, localBandanaMat);
+    const opticBox = new T.Box2();
     const remotePlayers = createWorldRemotePlayers({
       scene,
       kit,
       quality: props.quality,
       latest,
       map,
+      camera,
+      opticWindow: () => {
+        /*
+         * Рамка есть только тогда, когда в неё действительно смотрят: от
+         * бедра, из-за плеча, с механическим прицелом или мёртвым подсвечивать
+         * некому и незачем. `0.85` — почти доведённое прицеливание: пока рука
+         * идёт к глазу, рамка ещё не стоит на месте.
+         */
+        if (
+          perspectiveRef.current !== 'first' ||
+          GAME_TOOLS[latest.current.tool]?.id !== 'paint' ||
+          selection.current.paintSight !== 'dot' ||
+          aimBlend < 0.85 ||
+          isDead()
+        )
+          return null;
+        camera.updateMatrixWorld();
+        return opticNdcBox(hands.opticGlass, camera, opticBox);
+      },
     });
     const { remoteAvatars, deadTimers } = remotePlayers;
     const shadow = new T.Mesh(
@@ -1981,6 +2025,7 @@ export default function World(props: Props) {
           ? selection.current.tabletZone
           : selection.current.grenadeStyle,
         tabletInspectRef.current,
+        selection.current.paintSight,
       );
       const sniperFov = SNIPER_ZOOM_FOVS[sniperZoomIndexRef.current];
       const baseTargetFov =
@@ -2177,6 +2222,77 @@ export default function World(props: Props) {
   const gameMode = modeOf(props.room.state);
   const slots = slotsFor(gameMode);
   const currentSlot = slots.find((s) => s.index === props.tool);
+  /*
+   * Что лежит в колесе СКМ для нынешнего инструмента. У краскомёта групп две —
+   * прицелы сверху, краска снизу: и то и другое меняют посреди боя, а второй
+   * кнопки под это нет. У остальных инструментов группа одна, и колесо
+   * выглядит как раньше.
+   */
+  const wheelGroups: WheelGroup[] =
+    current.id === 'paint'
+      ? [
+          {
+            id: 'sight',
+            title: 'Прицел',
+            selected: paintSight,
+            items: PAINT_SIGHT_OPTIONS,
+          },
+          {
+            id: 'paint',
+            title: 'Краска',
+            selected:
+              PAINTS.find((p) => p.color === props.paintColor)?.id || 'violet',
+            items: PAINTS,
+          },
+        ]
+      : [
+          current.id === 'confetti'
+            ? {
+                id: 'confetti',
+                title: 'Набор конфетти',
+                selected: confettiStyle,
+                items: CONFETTI,
+              }
+            : current.id === 'grenade'
+              ? {
+                  id: 'grenade',
+                  title: 'Пиньято',
+                  selected: grenadeStyle,
+                  items: GRENADES,
+                }
+              : current.id === 'sniper'
+                ? {
+                    id: 'sniper',
+                    title: 'Фейерверки',
+                    selected: fireworkStyle,
+                    items: FIREWORKS,
+                  }
+                : current.id === 'sticky'
+                  ? {
+                      id: 'sticky',
+                      title: 'Зона стикера',
+                      selected: tabletZone,
+                      items: ZONES.map((z) => ({
+                        id: z.id,
+                        label: z.title,
+                        color: z.color,
+                        icon: z.emoji,
+                      })),
+                    }
+                  : {
+                      id: 'board',
+                      title: 'Планшет',
+                      selected: 'board',
+                      items: [
+                        {
+                          id: 'board',
+                          label: 'Открыть доску',
+                          color: '#64d4ef',
+                          icon: '📱',
+                        },
+                      ],
+                    },
+        ];
   return (
     <div
       className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''}`}
@@ -2348,7 +2464,7 @@ export default function World(props: Props) {
                     : '📱'}
         </span>
         {current.id === 'paint'
-          ? 'Выбрать краску'
+          ? 'Краска и прицел'
           : current.id === 'confetti'
             ? CONFETTI.find((c) => c.id === confettiStyle)?.label
             : current.id === 'grenade'
@@ -2364,58 +2480,12 @@ export default function World(props: Props) {
         <ItemWheel
           key={current.id}
           title={
-            current.id === 'paint'
-              ? 'Палитра'
-              : current.id === 'confetti'
-                ? 'Набор конфетти'
-                : current.id === 'grenade'
-                  ? 'Пиньято'
-                  : current.id === 'sniper'
-                    ? 'Фейерверки'
-                    : current.id === 'sticky'
-                      ? 'Зона стикера'
-                      : 'Планшет'
+            current.id === 'paint' ? 'Краскомёт' : wheelGroups[0].title
           }
-          items={
-            current.id === 'paint'
-              ? PAINTS
-              : current.id === 'confetti'
-                ? CONFETTI
-                : current.id === 'grenade'
-                  ? GRENADES
-                  : current.id === 'sniper'
-                    ? FIREWORKS
-                    : current.id === 'sticky'
-                      ? ZONES.map((z) => ({
-                        id: z.id,
-                        label: z.title,
-                        color: z.color,
-                        icon: z.emoji,
-                      }))
-                      : [
-                        {
-                          id: 'board',
-                          label: 'Открыть доску',
-                          color: '#64d4ef',
-                          icon: '📱',
-                        },
-                      ]
-          }
-          selected={
-            current.id === 'paint'
-              ? PAINTS.find((p) => p.color === props.paintColor)?.id || 'violet'
-              : current.id === 'confetti'
-                ? confettiStyle
-                : current.id === 'grenade'
-                  ? grenadeStyle
-                  : current.id === 'sniper'
-                    ? fireworkStyle
-                    : current.id === 'sticky'
-                      ? tabletZone
-                      : 'board'
-          }
-          onSelect={(id: string) => {
-            if (current.id === 'paint')
+          groups={wheelGroups}
+          onSelect={(id: string, group: string) => {
+            if (group === 'sight') applyPaintSight(id as PaintSight);
+            else if (current.id === 'paint')
               props.onPaintColor(PAINTS.find((p) => p.id === id)!.color);
             else if (current.id === 'confetti') setConfettiStyle(id);
             else if (current.id === 'grenade') setGrenadeStyle(id);
