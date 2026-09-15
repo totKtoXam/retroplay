@@ -121,7 +121,11 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     return this.view(hub, now, since);
   }
 
-  /** The host moved a player to a team: they respawn on that side. */
+  /**
+   * Игрок (или ведущий за него) сменил сторону: в бою это стоит жизни и очка убийства,
+   * возрождение поставит бойца на спавн новой команды. Счёт считает сервер — клиент
+   * присылает только желаемую сторону.
+   */
   async team(room: string, self: string, value: 'red' | 'blue') {
     const hub = await this.state(room);
     await this.member(hub, self);

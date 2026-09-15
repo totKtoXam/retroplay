@@ -449,17 +449,44 @@ export function balanceTeam(state: HubState, m: HubMember, now: number) {
   return true;
 }
 
-/** The host moves a player between teams; they respawn on their new side. */
+/**
+ * Переход в другую команду. В бою он платный: иначе выгодно перебегать к тем, кто
+ * выигрывает, — поэтому боец гибнет и отдаёт одно очко убийства. Очко уходит в минус
+ * осознанно: при нуле штраф иначе ничего не стоил бы и переход был бы бесплатным.
+ *
+ * Крайние случаи:
+ *  - та же сторона — не изменение, выходим до штрафа;
+ *  - уже мёртв — второй раз не убиваем и таймер возрождения не продлеваем (он и так
+ *    его отсиживает), но очко снимаем: иначе достаточно дождаться смерти и перейти даром;
+ *  - стороны ещё не было — это первое назначение, а не побег из команды: бесплатно;
+ *  - вне боя (ретро-комната, `teams` выключен) команд и счёта нет — просто переставляем.
+ *
+ * Платит тот, кого переводят, — и когда сторону меняет он сам, и когда его двигает
+ * ведущий: иначе «попроси ведущего перевести» было бы бесплатным обходом правила.
+ *
+ * На спавн новой стороны бойца поставит обычное возрождение (`revive`/`respawnAll`),
+ * которое уже читает `m.team`; так смена стороны идёт по существующим правилам режима —
+ * в раундах мёртвый ждёт конца раунда, в бою с возрождением — свои секунды.
+ */
 export function setTeam(state: HubState, self: string, team: Team, now: number) {
   const m = state.members.get(self);
   if (!m || m.team === team) return false;
+  const previous = m.team;
   m.team = team;
-  m.life += 1;
-  m.hp = 100;
-  m.respawnAt = 0;
-  m.immuneUntil = -1;
   m.recentDamage = {};
-  placeAt(m, chooseSpawn(state, getMap(state.room.map), m.id, now, team));
+  if (!state.room.teams || !previous) {
+    m.life += 1;
+    m.hp = 100;
+    m.respawnAt = 0;
+    m.immuneUntil = -1;
+    placeAt(m, chooseSpawn(state, getMap(state.room.map), m.id, now, team));
+    return true;
+  }
+  m.kills -= 1;
+  if (m.hp > 0) {
+    m.hp = 0;
+    m.respawnAt = now + state.room.respawnSeconds * 1000;
+  }
   return true;
 }
 
