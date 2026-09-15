@@ -2,6 +2,7 @@
 import { useState, useSyncExternalStore } from 'react';
 import Board from './board';
 import { ZONES, type Room, type RoomState, type Note } from '@/lib/model';
+import { dayMoment } from '@/lib/day-cycle';
 import {
   Bell,
   Dices,
@@ -441,7 +442,10 @@ export function WorldTablet(props: WorldTabletProps) {
                   { id: 'night', label: 'Ночь', icon: Moon },
                 ].map((item) => {
                   const Icon = item.icon;
-                  const active = props.room.state.time === item.id;
+                  // Пока сутки идут, подсвечена та фаза, что сейчас на небе, а
+                  // не сохранённое `time`: иначе планшет спорил бы с картинкой.
+                  const active =
+                    dayMoment(props.room.state, props.now).time === item.id;
                   return (
                     <button
                       key={item.id}
