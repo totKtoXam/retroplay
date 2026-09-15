@@ -41,7 +41,6 @@ export function createWorldProjectiles({
   hands,
   pos,
   perspectiveRef,
-  hitGlowHandler,
   hitMarker,
   burst,
   splat,
@@ -55,7 +54,6 @@ export function createWorldProjectiles({
   hands: { group: T.Object3D };
   pos: T.Vector3;
   perspectiveRef: { readonly current: Perspective };
-  hitGlowHandler: { readonly current: (color: string) => void };
   /** Отметка своего попадания: игрок должен видеть, куда пришёлся выстрел. */
   hitMarker: { readonly current: (zone: HitZone) => void };
   burst: Vfx['burst'];
@@ -152,6 +150,10 @@ export function createWorldProjectiles({
 
         const myPos = pos;
         const myCenter = new T.Vector3(myPos.x, myPos.y + 0.95, myPos.z);
+        // Грубая клиентская проверка — только для декораций (брызги краски на своём
+        // аватаре и на руках в первом лице). Она заведомо шире серверной: радиус 1.15 м
+        // ловит промахи рядом, поза берётся текущая, а не отмотанная, и без коллайдеров
+        // текущей карты. Урон по ней НЕ показываем — вспышку даёт падение hp с сервера.
         const hitMe =
           f.target.distanceTo(myCenter) < 1.15 ||
           inHitRange(
@@ -164,7 +166,6 @@ export function createWorldProjectiles({
         if (hitMe && f.author !== latest.current.room.self) {
           isHitOnPlayer = true;
           hitPlayerGroup = avatar;
-          hitGlowHandler.current(f.color);
           if (perspectiveRef.current === 'first') {
             splat(
               new T.Vector3(0.04, -0.02, -0.45),

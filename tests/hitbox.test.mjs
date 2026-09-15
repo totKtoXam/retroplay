@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { inHitRange, isHeadshot, calculatePelletsHit, hitZone } from '../lib/game-items.ts';
+import {
+  inHitRange,
+  isHeadshot,
+  calculatePelletsHit,
+  hitZone,
+  effectDamage,
+} from '../lib/game-items.ts';
 
 test('Headshot is strictly registered on head, not on chest or torso', () => {
   const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
@@ -146,4 +152,40 @@ test('Hit zones: head, torso and limbs are told apart', () => {
   assert.equal(hitZone([0, 1.67, 5], [0, 1.67, -5], sit), 'head');
   assert.equal(hitZone([0, 1.1, 5], [0, 1.1, -5], sit), 'torso');
   assert.equal(hitZone([0, 0.35, 5], [0, 0.35, -5], sit), 'limb');
+});
+
+/**
+ * Почему вспышка не должна зависеть от клиентской геометрии: сцена одна,
+ * а ответы у клиента и сервера разные. Раньше `components/world-projectiles.ts`
+ * зажигал виньетку по своей проверке, и во всех трёх случаях ниже она врала.
+ */
+test('Клиентская догадка о попадании по себе шире серверного правила', () => {
+  // Дословно бывшая клиентская проверка: радиус вокруг груди ИЛИ хитбокс,
+  // причём без коллайдеров текущей карты.
+  const clientThoughtItHitMe = (kind, origin, target, pose) => {
+    const center = [pose.x, pose.y + 0.95, pose.z];
+    const near = Math.hypot(...center.map((v, i) => v - target[i])) < 1.15;
+    return near || inHitRange(kind, origin, target, pose);
+  };
+  const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
+
+  // 1. Промах в метре от груди: краска легла рядом, урона нет, а вспышка была.
+  const missOrigin = [5, 0.95, 0];
+  const missTarget = [1, 0.95, 0];
+  assert.equal(clientThoughtItHitMe('paint', missOrigin, missTarget, pose), true);
+  assert.equal(inHitRange('paint', missOrigin, missTarget, pose), false);
+
+  // 2. Стена на пути: сервер считает с коллайдерами карты, клиент — без них.
+  const wallShot = { origin: [5, 1.4, 0], target: [-5, 1.4, 0] };
+  const wall = { minX: 2, maxX: 2.4, minZ: -3, maxZ: 3, minY: 0, maxY: 4 };
+  assert.equal(inHitRange('paint', wallShot.origin, wallShot.target, pose), true);
+  assert.equal(
+    inHitRange('paint', wallShot.origin, wallShot.target, pose, [wall]),
+    false,
+    'выстрел перекрыт стеной — сервер попадание не засчитает',
+  );
+
+  // 3. Сердечко попадает в корпус, но урона у него нет вовсе.
+  assert.equal(inHitRange('like', [5, 1.4, 0], [-5, 1.4, 0], pose), true);
+  assert.equal(effectDamage('like'), 0);
 });

@@ -12,6 +12,7 @@ import {
   GAME_TOOLS,
   TOOL_HINTS,
   uid,
+  type Person,
   type Pose,
   type Room,
   type RoomState,
@@ -143,6 +144,47 @@ export type HitEffect = {
   color: string;
   key: number;
 };
+/** Запасной цвет вспышки, когда чужих выстрелов рядом не нашлось. */
+const FALLBACK_HIT_COLOR = '#ff647c';
+/**
+ * Сервер не сообщает, чей именно выстрел снял здоровье, поэтому цвет вспышки
+ * выбираем сами: среди свежих чужих эффектов берём тот, чья точка попадания
+ * ближе всего к нам, при равной близости — более поздний. Граната взрывается
+ * через 1100 мс после выстрела, отсюда и ширина окна.
+ */
+export function hitGlowColor(
+  effects: WorldEffect[] | undefined,
+  selfId: string,
+  me: Person | undefined,
+  now = Date.now(),
+) {
+  const enemy = (effects || []).filter(
+    (e) => e.kind !== 'kill' && e.author !== selfId && !!e.color,
+  );
+  if (enemy.length === 0) return FALLBACK_HIT_COLOR;
+  // Окно на всякий случай может оказаться пустым (расхождение часов) — тогда
+  // смотрим на весь список, он и так ограничен временем жизни эффектов.
+  const fresh = enemy.filter((e) => now - e.at <= 1800);
+  const pool = fresh.length > 0 ? fresh : enemy;
+  const center = me ? [me.pose.x, me.pose.y + 0.95, me.pose.z] : null;
+  let best = pool[0];
+  let bestDist = Infinity;
+  for (const e of pool) {
+    const d =
+      center && e.target
+        ? Math.hypot(
+            e.target[0] - center[0],
+            e.target[1] - center[1],
+            e.target[2] - center[2],
+          )
+        : 0;
+    if (d < bestDist || (d === bestDist && e.at > best.at)) {
+      bestDist = d;
+      best = e;
+    }
+  }
+  return best.color || FALLBACK_HIT_COLOR;
+}
 function readPerspective(): Perspective {
   try {
     return localStorage.getItem('jinaly-perspective') === 'first'
@@ -377,18 +419,13 @@ export default function World(props: Props) {
   }, [personalAlert]);
 
   const [hitEffect, setHitEffect] = useState<HitEffect | null>(null);
-  const lastHitColorRef = useRef<string | null>(null);
-  const lastGlowTimeRef = useRef<number>(0);
+  // Каждая вспышка получает свой ключ: HUD перемонтирует виньетку и анимация
+  // начинается заново, поэтому подряд идущие попадания видно все до одного.
+  const glowKeyRef = useRef(0);
   const triggerHitGlow = (color: string) => {
-    const now = Date.now();
-    lastHitColorRef.current = color;
-    lastGlowTimeRef.current = now;
-    setHitEffect({ color, key: now });
+    glowKeyRef.current += 1;
+    setHitEffect({ color, key: glowKeyRef.current });
   };
-  const hitGlowHandler = useRef(triggerHitGlow);
-  useEffect(() => {
-    hitGlowHandler.current = triggerHitGlow;
-  });
 
   // Отметка своего попадания: голова, корпус или конечность.
   const [hitMark, setHitMark] = useState<{ zone: HitZone; key: number } | null>(null);
@@ -462,20 +499,15 @@ export default function World(props: Props) {
   const prevHpRef = useRef(currentHp);
 
   useEffect(() => {
-    if (prevHpRef.current > currentHp) {
-      const now = Date.now();
-      if (now - lastGlowTimeRef.current > 400) {
-        const enemyEffects = (props.room.effects || []).filter(
-          (e) => e.author !== props.room.self,
-        );
-        const latestEnemyEffect = enemyEffects[enemyEffects.length - 1];
-        const color =
-          lastHitColorRef.current || latestEnemyEffect?.color || '#ff647c';
-        triggerHitGlow(color);
-      }
-    }
+    // Источник истины по урону — только сервер. Клиентская геометрия попаданий не
+    // совпадает с серверной (нет отмотки поз, коллайдеров карты, иммунитета и
+    // огня по своим), поэтому вспышку даёт исключительно падение своего hp.
+    if (!self) return; // без своего участника hp — не показатель, а заглушка
+    const prev = prevHpRef.current;
     prevHpRef.current = currentHp;
-  }, [currentHp, props.room.effects, props.room.self]);
+    if (currentHp >= prev) return;
+    triggerHitGlow(hitGlowColor(props.room.effects, props.room.self, self));
+  }, [currentHp, self, props.room.effects, props.room.self]);
 
   useEffect(() => {
     if (!hitEffect) return;
@@ -821,7 +853,6 @@ export default function World(props: Props) {
       hands,
       pos,
       perspectiveRef,
-      hitGlowHandler,
       hitMarker,
       burst,
       splat: vfx.splat,
