@@ -165,21 +165,29 @@
   align-items: center;
   justify-content: center;
   width: var(--hp-anchor-width, min(320px, calc(100vw - 28px)));
-  /* 10px — минимум, в который ещё влезает строка цифр. Ниже пришлось бы
-     выносить число наружу, и вместо одной тонкой полоски получилось бы два
-     объекта на экране. */
-  height: 10px;
+  /* 13px вместо прежних 10: на десяти блик и внутренняя тень сливаются в
+     грязную полосу, и стекла не получается — видно только цветную заливку. */
+  height: 13px;
   overflow: hidden;
-  /* Подложка и обводка приглушены до фона: полоску читает заливка, а рамка
-     нужна лишь чтобы пустой (почти мёртвый) остаток не растворился в кадре. */
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  /* Стеклянная колба: светлая кромка по периметру ловит свет, внутренняя тень
+     снизу даёт толщину стенки, размытие за спиной довершает прозрачность. */
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-bottom: 0;
   /* Скругляем только верх и садимся на кромку панели: так полоска читается
      как её продолжение, а не как отдельная плашка. */
-  border-radius: 6px 6px 0 0;
-  background: rgba(6, 10, 20, 0.34);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  border-radius: 7px 7px 0 0;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.1) 0%,
+      rgba(255, 255, 255, 0) 45%
+    ),
+    rgba(6, 12, 10, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
   transform: translateX(-50%);
   pointer-events: none;
   user-select: none;
@@ -190,12 +198,31 @@
   bottom: 0;
   left: 0;
   width: var(--hp-fill, 100%);
-  /* Без прежнего бликового градиента: на 10px он занимал половину высоты и
-     делал полоску объёмной кнопкой вместо плоской шкалы. */
-  background-color: var(--hp-color, hsl(130 62% 47%));
+  /*
+   * Зелёное стекло, а не плоская краска. Три слоя поверх цвета: узкий блик по
+   * верхней кромке, мягкое высветление в верхней трети и затемнение у дна —
+   * вместе они читаются как толща подсвеченной жидкости за стеклом.
+   * Сам цвет остаётся из --hp-color: при низком здоровье он уходит в красный,
+   * и терять этот сигнал ради оттенка нельзя.
+   */
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.55) 0,
+      rgba(255, 255, 255, 0.18) 2px,
+      rgba(255, 255, 255, 0.06) 40%,
+      rgba(0, 0, 0, 0.18) 100%
+    );
+  background-color: var(--hp-color, hsl(140 70% 45%));
+  /* Свечение наружу — то, чем подсвеченное стекло отличается от матовой
+     полоски; держим слабым, иначе в бою полоска начинает слепить. */
+  box-shadow:
+    0 0 7px color-mix(in srgb, var(--hp-color, #2ec54a) 55%, transparent),
+    inset 0 0 6px rgba(255, 255, 255, 0.16);
   transition:
     width 0.18s ease-out,
-    background-color 0.18s linear;
+    background-color 0.18s linear,
+    box-shadow 0.18s linear;
 }
 .health-bar-value {
   position: relative;
@@ -228,7 +255,9 @@
     max-width: 150px;
   }
   .health-bar-hud {
-    height: 9px;
+    /* 11px, а не 9: ниже блик и внутренняя тень стекла сливаются и полоска
+       снова выглядит плоской краской. */
+    height: 11px;
   }
   .health-bar-value {
     font-size: 7.5px;
