@@ -50,7 +50,6 @@ import {
 } from '@/components/ui/sheet';
 import {
   ZONES,
-  PHASES,
   GAME_TOOLS,
   kdaRatio,
   voteCount,
@@ -83,6 +82,7 @@ import {
   FPS_LIMITS,
 } from './room-panels';
 import { SidePicker } from './side-picker';
+import { PhaseBar } from './phase-bar';
 import { useRoomSync } from './use-room-sync';
 import { MAP_CATALOG, modeOf } from '@/lib/maps/catalog';
 import { defaultSlot, hasSlot, slotsFor } from '@/lib/loadout';
@@ -965,19 +965,9 @@ export default function RoomApp({ id }: { id: string }) {
             <MatchBar match={room.match} rounds={s.roundWins ?? 5} now={now} />
           ) : (
             <>
-              <div className="phase-steps">
-                {PHASES.map((p, i) => (
-                  <button
-                    key={p}
-                    className={`phase-step ${s.phase === i ? 'current' : ''} ${s.phase > i ? 'complete' : ''}`}
-                    disabled={!host || s.archived}
-                    onClick={() => void act({ type: 'phase', phase: i })}
-                  >
-                    <span>{s.phase > i ? <Check size={11} /> : i + 1}</span>
-                    {p}
-                  </button>
-                ))}
-              </div>
+              {/* Этапы уехали из шапки в PhaseBar над сценой: шесть кнопок
+                  занимали всю середину ради действия, которое делают пять раз
+                  за встречу, и вытесняли таймер, голоса и приватность. */}
               <button
                 className={`game-tag clock ${s.timer.running ? 'running' : ''}`}
                 onClick={() => setPanel('timer')}
@@ -1063,6 +1053,18 @@ export default function RoomApp({ id }: { id: string }) {
         </button>
       </header>
       <section className="main-surface" aria-label="Игровой мир">
+          {/* Этапы есть только у ретро: в командном бою их роль играет MatchBar
+              в шапке. Плашка лежит в левой колонке HUD под .camera-toolbar —
+              свободное место, где она не спорит ни с зонами справа, ни с
+              панелью предметов внизу (подробности — в app/phases.css). */}
+          {gameMode === 'retro' && (
+            <PhaseBar
+              phase={s.phase}
+              host={host}
+              archived={s.archived}
+              onPhase={(phase) => void act({ type: 'phase', phase })}
+            />
+          )}
           {webglFailed ? (
             <div className="world-failed" role="alert">
               <h2>Браузер не смог открыть 3D-мир</h2>

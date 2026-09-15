@@ -1,0 +1,170 @@
+/*
+ * Этапы ретроспективы (components/phase-bar.tsx).
+ *
+ * Плашка лежит поверх 3D-сцены, а не в шапке, поэтому цвета не берутся из
+ * --jin-* (app/theme.css): фон под ней — небо и трава, а не поверхность
+ * интерфейса. Как и соседи по HUD (.view-switch, .camera-toolbar), плашка
+ * тёмная и полупрозрачная в обеих темах — светлая подложка на светлом небе
+ * просто растворяется.
+ *
+ * Место — левая колонка сразу под .camera-toolbar (у той top: bar-h + 90px и
+ * высота ~40px). Левый столбец уже читается как «служебные элементы встречи»:
+ * FPS, вид камеры, теперь этап. Остальные края заняты: сверху по центру —
+ * кнопка готовности (.world-hud-top-center), справа сверху — зоны
+ * (.game-zone-buttons), справа ниже — музыка (.music-dock), снизу по центру —
+ * предметы (.quick-loadout), снизу справа — снаряжение (.equipped-card).
+ */
+
+.phase-bar {
+  position: absolute;
+  left: 20px;
+  top: calc(var(--bar-h) + 142px);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  max-width: calc(100% - 40px);
+  color: #e6ecf8;
+}
+
+.phase-bar-current {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 5px 9px;
+  border: 1px solid #ffffff24;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.68);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: inherit;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.phase-bar-current:hover,
+.phase-bar-current.open {
+  border-color: #ffffff45;
+  background: rgba(15, 23, 42, 0.82);
+}
+/* Стрелка смотрит вверх, пока список открыт: единственная подсказка состояния,
+   потому что сам список может уехать за нижний край на низком окне. */
+.phase-bar-current.open > svg {
+  transform: rotate(180deg);
+}
+.phase-bar-current > svg {
+  flex: none;
+  opacity: 0.65;
+  transition: transform 140ms ease;
+}
+
+.phase-bar-index {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #ffffff1f;
+  font: 600 10px/1 ui-monospace, monospace;
+  letter-spacing: 0.4px;
+}
+.phase-bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.phase-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 168px;
+  /* Низкое окно: список не должен упираться в «Раскрыть мои заметки» внизу
+     слева, поэтому лучше прокрутка, чем перекрытие. */
+  max-height: calc(100dvh - var(--bar-h) - 210px);
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid #ffffff24;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.86);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 10px 28px #05070c5c;
+}
+
+.phase-bar-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: #a9b7d1;
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+}
+.phase-bar-step:not(:disabled):hover {
+  background: #ffffff14;
+  color: #eef3ff;
+}
+/* Участник видит порядок этапов, но не переключает: приглушаем только курсор,
+   не текст, — читаемость плана встречи важнее «выключенного» вида. */
+.phase-bar-step:disabled {
+  cursor: default;
+}
+.phase-bar-step.current {
+  border-color: #8b7cf0;
+  background: #ffffff14;
+  color: #fff;
+}
+.phase-bar-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff1f;
+  font-size: 10px;
+}
+.phase-bar-step.complete .phase-bar-mark {
+  background: #4fbf9a;
+  color: #0f1420;
+}
+
+.phase-bar-note {
+  margin: 3px 5px 1px;
+  color: #7f8dab;
+  font-size: 9px;
+  letter-spacing: 0.3px;
+}
+
+/* Узкий экран (до ~400px): плашка сжимается до «3/6» и стрелки, полное имя
+   этапа остаётся в раскрытом списке — иначе она наезжает на правую колонку. */
+@media (max-width: 600px) {
+  .phase-bar {
+    left: 12px;
+    top: calc(var(--bar-h) + 136px);
+    max-width: calc(100% - 24px);
+  }
+  .phase-bar-current {
+    padding: 4px 7px;
+    gap: 5px;
+  }
+  .phase-bar-name {
+    max-width: 92px;
+    font-size: 10px;
+  }
+  .phase-bar-list {
+    min-width: 152px;
+  }
+}
+@media (max-width: 400px) {
+  .phase-bar-name {
+    display: none;
+  }
+}
