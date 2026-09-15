@@ -41,6 +41,10 @@ import {
   Sun,
   ShieldCheck,
   UserRound,
+  ListChecks,
+  Dices,
+  Download,
+  RotateCcw,
 } from 'lucide-react';
 import {
   Dialog,
@@ -71,6 +75,7 @@ import { readAimModes, type WeaponAimModes } from '@/lib/aim-settings';
 import {
   ActionsPanel,
   AccessSection,
+  ArchiveSection,
   ControlsSection,
   ExportPanel,
   GraphicsSection,
@@ -83,7 +88,6 @@ import {
   ToolsPanel,
   VotePanel,
   MatchBar,
-  MenuPanel,
   ModePanel,
   WidgetsPanel,
   WorldPanel,
@@ -177,6 +181,19 @@ export default function RoomApp({ id }: { id: string }) {
   const [history, setHistory] = useState<
     { version: number; action: string; name: string; at: number }[]
   >([]);
+  // История не лежит в состоянии комнаты: её отдаёт отдельный запрос, и раздел
+  // пуст, пока её не спросишь. Раньше запрос висел на пункте меню, но меню
+  // больше нет, а заходов в раздел стало два — переключение слева и открытие
+  // настроек сразу на нём. Эффект покрывает оба и заодно освежает список: за
+  // время встречи он успевает устареть.
+  useEffect(() => {
+    if (panel !== 'menu' || settingsSection !== 'history') return;
+    void api<{ history: typeof history }>('/api/rooms/' + id, {
+      type: 'history',
+    })
+      .then((r) => setHistory(r.history))
+      .catch((e: Error) => setError(e.message));
+  }, [panel, settingsSection, id]);
   const pose = useRef<Pose>({
       x: 0,
       z: 14,
@@ -490,8 +507,16 @@ export default function RoomApp({ id }: { id: string }) {
     slots = slotsFor(gameMode),
     // Предмет другого режима в руках не остаётся: берём предмет по умолчанию.
     tool = hasSlot(gameMode, heldTool) ? heldTool : defaultSlot(gameMode);
+  // Сколько пунктов плана ещё не сделано — подпись раздела «План действий»
+  // отвечает на вопрос «надо ли туда заходить» до того, как его открыли.
+  const actionsLeft =
+    s?.notes.filter((n) => n.kind === 'action' && !n.done).length ?? 0;
   // Разделы настроек. Личное отделено от правил комнаты: раньше они лежали в
   // одном плоском списке, и было не видно, что можешь менять ты, а что ведущий.
+  // Сюда же переехали разовые действия из бывшего меню комнаты: своих входов
+  // (горячих клавиш, кнопок в шапке) у них нет, и без меню они стали бы
+  // недостижимы. У инвентаря и выбора стороны такие входы есть — Q / I и G, —
+  // поэтому их в настройках нет.
   const settingsGroups: SettingsGroup[] = [
     {
       id: 'mine',
@@ -514,6 +539,26 @@ export default function RoomApp({ id }: { id: string }) {
           title: 'Профиль',
           hint: 'Имя в комнате и звуки встречи',
           icon: UserRound,
+        },
+      ],
+    },
+    {
+      id: 'meeting',
+      title: 'Встреча',
+      sections: [
+        {
+          id: 'actions',
+          title: 'План действий',
+          hint: actionsLeft
+            ? `${actionsLeft} не сделано`
+            : 'Договорённости встречи и кто за них взялся',
+          icon: ListChecks,
+        },
+        {
+          id: 'widgets',
+          title: 'Для живой встречи',
+          hint: 'Таймер, спиннер, счётчик и реакции',
+          icon: Dices,
         },
       ],
     },
@@ -544,11 +589,44 @@ export default function RoomApp({ id }: { id: string }) {
         },
       ],
     },
+    {
+      id: 'results',
+      title: 'Результаты',
+      sections: [
+        {
+          id: 'export',
+          title: 'Импорт / экспорт',
+          hint: 'JSON, CSV, Markdown',
+          icon: Download,
+        },
+        {
+          id: 'history',
+          title: 'История изменений',
+          hint: 'Последние 40 действий',
+          icon: RotateCcw,
+        },
+        // Завершение встречи — последним пунктом и отдельной группой, а не
+        // строкой среди переключателей: оно необратимо для участников, и
+        // соседство с «Именем в комнате» его уравнивало с обычной настройкой.
+        // hostOnly — не только про замок: архивирует комнату только ведущий.
+        {
+          id: 'finish',
+          title: 'Завершение встречи',
+          hint: s?.archived
+            ? 'Комната сейчас только для чтения'
+            : 'Закрыть комнату для правок',
+          icon: Flag,
+          hostOnly: true,
+        },
+      ],
+    },
   ];
-  /** Открыть настройки сразу на нужном разделе — из шапки, HUD или меню. */
+  /** Открыть настройки сразу на нужном разделе — из HUD или из инвентаря. */
   const openSettings = (section: string) => {
     setSettingsSection(section);
-    setPanel('prefs');
+    // Кнопка-шестерёнка в шапке шлёт 'menu': меню комнаты и есть настройки,
+    // отдельного списка-прослойки между ними больше нет.
+    setPanel('menu');
   };
   const enter = async (overrideName?: string) => {
     const playerName = (overrideName || name).trim();
@@ -1890,7 +1968,7 @@ export default function RoomApp({ id }: { id: string }) {
         <DialogContent
           className={
             'app-dialog ' +
-            (panel === 'prefs'
+            (panel === 'menu'
               ? 'settings-dialog'
               : panel === 'team'
                 ? 'side-picker-dialog'
@@ -1900,19 +1978,14 @@ export default function RoomApp({ id }: { id: string }) {
           <DialogTitle>
             {(
               {
-                history: 'История изменений',
-                menu: 'Меню комнаты',
+                menu: 'Настройки',
                 team: 'Выбор стороны',
-                prefs: 'Настройки',
                 share: 'Пригласить команду',
                 join_requests: 'Запросы на вход',
                 timer: 'Время для главного',
                 vote: 'Голосование',
                 group: 'Объединить идеи в тему',
-                widgets: 'Для живой встречи',
                 tools: 'Инвентарь и инструменты',
-                actions: 'План действий',
-                export: 'Забрать результаты с собой',
               } as Record<string, string>
             )[panel] || 'Меню'}
           </DialogTitle>
@@ -1921,16 +1994,19 @@ export default function RoomApp({ id }: { id: string }) {
               ? 'Участники войдут по ссылке. Новая комната имеет отдельный адрес.'
               : panel === 'join_requests'
                 ? 'Управление пользователями, ожидающими входа в комнату'
-                : panel === 'prefs'
-                  ? 'Личные настройки и правила комнаты. Esc закрывает.'
+                : panel === 'menu'
+                  ? 'Личные настройки, встреча и правила комнаты. Esc закрывает.'
                   : panel === 'team'
                     ? 'Сторона, скин и цвет банданы вашего бойца'
-                    : panel === 'menu'
-                      ? 'Снаряжение, встреча и результаты'
-                      : gameMode === 'battle'
-                        ? 'Снаряжение бойца'
-                        : 'Инструменты вашей ретроспективы'}
+                    : gameMode === 'battle'
+                      ? 'Снаряжение бойца'
+                      : 'Инструменты вашей ретроспективы'}
           </DialogDescription>
+          {/* Инвентарь остался отдельным диалогом: у него своя клавиша Q / I,
+              и в настройки он не переехал. Его ссылки ведут в разделы: виджеты
+              стали разделом настроек, а панели 'help' не существовало вовсе —
+              кнопка открывала пустой диалог, хотя список клавиш лежит в
+              «Управлении». */}
           {panel === 'tools' && (
             <ToolsPanel
               slots={slots}
@@ -1939,21 +2015,8 @@ export default function RoomApp({ id }: { id: string }) {
                 setTool(i);
                 setPanel('');
               }}
-              onOpenWidgets={() => setPanel('widgets')}
-              onOpenHelp={() => setPanel('help')}
-            />
-          )}
-          {panel === 'history' && (
-            <HistoryPanel
-              history={history}
-              onUndo={() =>
-                void act({ type: 'undo' }).then((r) => {
-                  if (r) {
-                    flash('Последнее действие отменено');
-                    setPanel('');
-                  }
-                })
-              }
+              onOpenWidgets={() => openSettings('widgets')}
+              onOpenHelp={() => openSettings('controls')}
             />
           )}
           {panel === 'join_requests' && (
@@ -2004,30 +2067,6 @@ export default function RoomApp({ id }: { id: string }) {
             />
           )}
           {panel === 'menu' && (
-            <MenuPanel
-              battle={gameMode === 'battle'}
-              host={host}
-              archived={!!s.archived}
-              actionsLeft={
-                s.notes.filter((n) => n.kind === 'action' && !n.done).length
-              }
-              onToggleArchive={() =>
-                void act({ type: 'archive', value: !s.archived }).then(
-                  (r) => r && setPanel(''),
-                )
-              }
-              onOpen={(next) => {
-                setPanel(next);
-                if (next === 'history')
-                  void api<{ history: typeof history }>('/api/rooms/' + id, {
-                    type: 'history',
-                  })
-                    .then((r) => setHistory(r.history))
-                    .catch((e) => setError(e.message));
-              }}
-            />
-          )}
-          {panel === 'prefs' && (
             <SettingsShell
               groups={settingsGroups}
               section={settingsSection}
@@ -2146,6 +2185,128 @@ export default function RoomApp({ id }: { id: string }) {
                   }}
                 />
               )}
+              {settingsSection === 'actions' && (
+                <ActionsPanel
+                  s={s}
+                  onAddAction={() => {
+                    setPanel('');
+                    setDraft({
+                      kind: 'action',
+                      text: '',
+                      zone: 'start',
+                      color: '#b5d1c0',
+                      url: '',
+                      x: 25,
+                      y: 60,
+                      owner: '',
+                      due: '',
+                      group: '',
+                      tags: '',
+                      hidden: false,
+                      locked: false,
+                      done: false,
+                      width: 220,
+                      height: 180,
+                      rotation: 0,
+                    });
+                  }}
+                  onOpenNote={(n) => {
+                    setPanel('');
+                    editNote(n);
+                  }}
+                />
+              )}
+              {settingsSection === 'widgets' && (
+                <WidgetsPanel
+                  me={me}
+                  onMoodChange={(mood) =>
+                    void act({
+                      type: 'profile',
+                      mood,
+                    })
+                  }
+                  selectedSkin={selectedSkin}
+                  onSelectSkin={(skinId) => {
+                    setSelectedSkin(skinId);
+                    localStorage.setItem('jinaly-custom-skin', skinId);
+                    void act({
+                      type: 'profile',
+                      hat: skinId,
+                      color: selectedBandanaColor,
+                    });
+                  }}
+                  selectedBandanaColor={selectedBandanaColor}
+                  onBandanaColorChange={(color) => {
+                    setSelectedBandanaColor(color);
+                    localStorage.setItem('jinaly-bandana-color', color);
+                    void act({
+                      type: 'profile',
+                      hat: selectedSkin,
+                      color,
+                    });
+                  }}
+                  onConfetti={() =>
+                    void act({ type: 'event', kind: 'confetti', value: '🎉' })
+                  }
+                  onHat={() =>
+                    void act({ type: 'event', kind: 'hat', value: '🎩' })
+                  }
+                  onBuzzer={() => {
+                    setSound(true);
+                    void act({ type: 'event', kind: 'buzzer' });
+                  }}
+                  onPing={() => void act({ type: 'event', kind: 'ping' })}
+                  s={s}
+                  onDecrementCounter={() =>
+                    void act({ type: 'counter', down: true })
+                  }
+                  onIncrementCounter={() => void act({ type: 'counter' })}
+                  spinOptions={spinOptions}
+                  onSpinOptionsChange={setSpinOptions}
+                  online={online}
+                  onSpin={(value) =>
+                    void act({
+                      type: 'event',
+                      kind: 'spin',
+                      value,
+                    })
+                  }
+                  spinner={spinner}
+                  sound={sound}
+                  onSoundChange={setSound}
+                />
+              )}
+              {settingsSection === 'export' && (
+                <ExportPanel
+                  host={host}
+                  onExport={exportRoom}
+                  onImport={(file) => void importFile(file)}
+                />
+              )}
+              {settingsSection === 'history' && (
+                <HistoryPanel
+                  history={history}
+                  onUndo={() =>
+                    void act({ type: 'undo' }).then((r) => {
+                      if (r) {
+                        flash('Последнее действие отменено');
+                        setPanel('');
+                      }
+                    })
+                  }
+                />
+              )}
+              {settingsSection === 'finish' && (
+                <ArchiveSection
+                  archived={!!s.archived}
+                  host={host}
+                  onToggleArchive={() =>
+                    void act({ type: 'archive', value: !s.archived }).then(
+                      (r) => r && setPanel(''),
+                    )
+                  }
+                />
+              )}
             </SettingsShell>
           )}
           {panel === 'team' && (
@@ -2231,104 +2392,6 @@ export default function RoomApp({ id }: { id: string }) {
               onDeleteGroup={(id) =>
                 void act({ type: 'group.delete', id })
               }
-            />
-          )}
-          {panel === 'widgets' && (
-            <WidgetsPanel
-              me={me}
-              onMoodChange={(mood) =>
-                void act({
-                  type: 'profile',
-                  mood,
-                })
-              }
-              selectedSkin={selectedSkin}
-              onSelectSkin={(skinId) => {
-                setSelectedSkin(skinId);
-                localStorage.setItem('jinaly-custom-skin', skinId);
-                void act({
-                  type: 'profile',
-                  hat: skinId,
-                  color: selectedBandanaColor,
-                });
-              }}
-              selectedBandanaColor={selectedBandanaColor}
-              onBandanaColorChange={(color) => {
-                setSelectedBandanaColor(color);
-                localStorage.setItem('jinaly-bandana-color', color);
-                void act({
-                  type: 'profile',
-                  hat: selectedSkin,
-                  color,
-                });
-              }}
-              onConfetti={() =>
-                void act({ type: 'event', kind: 'confetti', value: '🎉' })
-              }
-              onHat={() =>
-                void act({ type: 'event', kind: 'hat', value: '🎩' })
-              }
-              onBuzzer={() => {
-                setSound(true);
-                void act({ type: 'event', kind: 'buzzer' });
-              }}
-              onPing={() => void act({ type: 'event', kind: 'ping' })}
-              s={s}
-              onDecrementCounter={() =>
-                void act({ type: 'counter', down: true })
-              }
-              onIncrementCounter={() => void act({ type: 'counter' })}
-              spinOptions={spinOptions}
-              onSpinOptionsChange={setSpinOptions}
-              online={online}
-              onSpin={(value) =>
-                void act({
-                  type: 'event',
-                  kind: 'spin',
-                  value,
-                })
-              }
-              spinner={spinner}
-              sound={sound}
-              onSoundChange={setSound}
-            />
-          )}
-          {panel === 'actions' && (
-            <ActionsPanel
-              s={s}
-              onAddAction={() => {
-                setPanel('');
-                setDraft({
-                  kind: 'action',
-                  text: '',
-                  zone: 'start',
-                  color: '#b5d1c0',
-                  url: '',
-                  x: 25,
-                  y: 60,
-                  owner: '',
-                  due: '',
-                  group: '',
-                  tags: '',
-                  hidden: false,
-                  locked: false,
-                  done: false,
-                  width: 220,
-                  height: 180,
-                  rotation: 0,
-                });
-              }}
-              onOpenNote={(n) => {
-                setPanel('');
-                editNote(n);
-              }}
-            />
-          )}
-          {panel === 'export' && (
-            <ExportPanel
-              host={host}
-              onExport={exportRoom}
-              onImport={(file) => void importFile(file)}
             />
           )}
         </DialogContent>

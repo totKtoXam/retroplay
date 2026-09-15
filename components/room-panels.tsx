@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  Backpack,
   Bell,
   Check,
   ChevronRight,
@@ -10,16 +9,13 @@ import {
   Download,
   Flag,
   Folder,
-  ListChecks,
   MousePointer2,
   PartyPopper,
   Pause,
   Play,
   Plus,
   RotateCcw,
-  Settings2,
   Smile,
-  Swords,
   Vote,
   X,
 } from 'lucide-react';
@@ -715,103 +711,41 @@ export function MatchBar({
 /* Выбор стороны и внешнего вида живёт в components/side-picker.tsx. */
 
 /**
- * Меню комнаты: только действия — то, что делают один раз, а не крутят.
+ * Завершение встречи — единственное, что осталось от прежнего меню комнаты.
  *
- * Настройки отсюда уехали в отдельный двухколоночный диалог: в одном плоском
- * списке из одиннадцати пунктов вперемешку лежали личные настройки, правила
- * комнаты для ведущего и разовые действия вроде экспорта, и найти нужное было
- * нельзя. Здесь остались только действия, настройки — первым пунктом.
+ * Меню было промежуточным экраном: список действий, у которого первым пунктом
+ * стояла кнопка «Настройки». Лишний шаг убрали, действия переехали разделами
+ * в сами настройки, а этот раздел — отдельным, последним: комната после него
+ * становится только для чтения, и до кнопки надо дойти осознанно, а не задеть
+ * её, пока щёлкаешь переключатели по соседству.
  */
-export function MenuPanel({
-  actionsLeft,
-  battle,
-  host,
+export function ArchiveSection({
   archived,
-  onOpen,
+  host,
   onToggleArchive,
 }: {
-  actionsLeft: number;
-  /** В бою добавляется выбор стороны и внешнего вида. */
-  battle: boolean;
-  host: boolean;
   archived: boolean;
-  onOpen: (panel: string) => void;
+  host: boolean;
   onToggleArchive: () => void;
 }) {
-  const groups: {
-    title: string;
-    items: readonly (readonly [string, typeof Settings2, string, string])[];
-  }[] = [
-    {
-      title: 'Снаряжение',
-      items: [
-        ...(battle
-          ? ([
-              ['team', Swords, 'Выбор стороны', 'Команда, скин, бандана · G'],
-            ] as const)
-          : []),
-        ['tools', Backpack, 'Инвентарь', 'Предметы этого режима · Q'],
-      ],
-    },
-    {
-      title: 'Встреча',
-      items: [
-        ['actions', ListChecks, 'План действий', `${actionsLeft} не сделано`],
-        ['widgets', Dices, 'Для живой встречи', 'Таймер, спиннер, счётчик'],
-      ],
-    },
-    {
-      title: 'Результаты',
-      items: [
-        ['export', Download, 'Импорт / экспорт', 'JSON, CSV, Markdown'],
-        ['history', RotateCcw, 'История изменений', 'Последние 40 действий'],
-      ],
-    },
-  ];
   return (
-    <div className="room-menu">
-      <button className="room-menu-primary" onClick={() => onOpen('prefs')}>
-        <Settings2 size={18} />
-        <div>
-          <strong>Настройки</strong>
-          <small>Графика, управление, правила комнаты</small>
-        </div>
-        <ChevronRight size={16} />
+    <div className="settings-danger">
+      <p>
+        {archived
+          ? 'Встреча завершена: карточки, голоса и план действий видны всем, но никто их не меняет. Ведущий может открыть комнату снова — например, чтобы дописать договорённости.'
+          : 'Комната станет только для чтения: карточки, голоса и план действий сохранятся, но менять их не сможет никто, включая вас. Вернуть всё обратно может только ведущий.'}
+      </p>
+      <button
+        type="button"
+        className="settings-danger-action"
+        disabled={!host}
+        onClick={onToggleArchive}
+      >
+        <Flag size={16} />
+        {archived ? 'Открыть встречу снова' : 'Завершить встречу'}
       </button>
-      {groups
-        .filter((g) => g.items.length > 0)
-        .map((group) => (
-          <div key={group.title} className="room-menu-group">
-            <span className="room-menu-title">{group.title}</span>
-            {group.items.map(([id, Icon, title, hint]) => (
-              <button key={id} onClick={() => onOpen(id)}>
-                <Icon size={18} />
-                <div>
-                  <strong>{title}</strong>
-                  <small>{hint}</small>
-                </div>
-                <ChevronRight size={16} />
-              </button>
-            ))}
-          </div>
-        ))}
-      {host && (
-        <div className="room-menu-group">
-          <span className="room-menu-title">Ведущий</span>
-          <button className="room-menu-danger" onClick={onToggleArchive}>
-            <Flag size={18} />
-            <div>
-              <strong>
-                {archived ? 'Открыть встречу снова' : 'Завершить встречу'}
-              </strong>
-              <small>
-                {archived
-                  ? 'Участники снова смогут менять карточки'
-                  : 'Комната станет только для чтения'}
-              </small>
-            </div>
-          </button>
-        </div>
+      {!host && (
+        <small>Завершает и открывает встречу только ведущий.</small>
       )}
     </div>
   );
