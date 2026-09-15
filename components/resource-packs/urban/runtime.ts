@@ -4,12 +4,13 @@ import type { RoomState } from '../../../lib/model.ts';
 import type { GraphicsSettings } from '../../../lib/graphics-settings.ts';
 export { prepareUrbanScans } from './materials.ts';
 import { createUrbanMaterials } from './materials.ts';
-import { createUrbanDistrict, createUrbanSuit, createUrbanTool } from './assets.ts';
+import { createUrbanDistrict, createUrbanSuit, createUrbanTool, createUrbanFacade } from './assets.ts';
 /** This pack owns its resources; it never mutates geometry, physics, room state or animation clocks. */
 export function createUrbanPresentation(scene:T.Scene,hands:T.Group,settings:GraphicsSettings,renderer:T.WebGLRenderer) {
   const m=createUrbanMaterials(settings), district=createUrbanDistrict(scene,m,settings.detail),tool=createUrbanTool(hands,m);
   const replacements=new Map<T.Mesh,{original:T.Material|T.Material[];next:T.Material|T.Material[]}>();
   const clones=new Map<T.Material,T.Material>();
+  const facades: {dispose():void}[] = [];
   const actors=new Map<T.Group,ReturnType<typeof createUrbanSuit>>();
   const lights=new Map<T.Light,{color:T.Color;intensity:number}>();
   const fog=scene.fog, background=scene.background, environment=scene.environment, environmentIntensity=scene.environmentIntensity;
@@ -52,7 +53,7 @@ export function createUrbanPresentation(scene:T.Scene,hands:T.Group,settings:Gra
       for(let p:T.Object3D|null=o;p;p=p.parent)if(p.userData.presentationOnly||p.name==='player-avatar'||p===hands||p.userData.presentationLabel)return;
       meshes.push(o);
     });
-    meshes.forEach(o=>{const original=o.material,next=Array.isArray(original)?original.map(material):material(original);replacements.set(o,{original,next});});
+    meshes.forEach(o=>{const original=o.material,next=Array.isArray(original)?original.map(material):material(original);replacements.set(o,{original,next});if(facades.length<32&&original!==next){const facade=createUrbanFacade(o,m,settings.detail);if(facade)facades.push(facade);}});
     replacements.forEach((r,o)=>{o.material=r.next;});
     avatars.forEach(a=>{if(!actors.has(a))actors.set(a,createUrbanSuit(a,m));});
     for(const [a,suit]of actors)if(!a.parent){suit.dispose();actors.delete(a);}else suit.sync();
@@ -67,5 +68,5 @@ export function createUrbanPresentation(scene:T.Scene,hands:T.Group,settings:Gra
   }
   return {sync,textureBytes:m.textureBytes,impact(_at:T.Vector3,_color:string){},
     update(_dt:number,camera:T.Camera,_state:RoomState){district.update(camera);return exposure;},
-    dispose(){actors.forEach(a=>a.dispose());tool.dispose();district.dispose();replacements.forEach((r,o)=>{o.material=r.original;});clones.forEach(c=>c.dispose());lights.forEach((v,l)=>{l.color.copy(v.color);l.intensity=v.intensity;});scene.fog=fog;scene.background=background;scene.environment=environment;scene.environmentIntensity=environmentIntensity;reflection.dispose();m.dispose();}};
+    dispose(){facades.forEach(f=>f.dispose());actors.forEach(a=>a.dispose());tool.dispose();district.dispose();replacements.forEach((r,o)=>{o.material=r.original;});clones.forEach(c=>c.dispose());lights.forEach((v,l)=>{l.color.copy(v.color);l.intensity=v.intensity;});scene.fog=fog;scene.background=background;scene.environment=environment;scene.environmentIntensity=environmentIntensity;reflection.dispose();m.dispose();}};
 }

@@ -66,6 +66,7 @@ export function ResourcePackPicker() {
           <button type="button" onClick={()=>{setGraphicsSettings(GRAPHICS_PRESETS[recommendation(check)]);chooseResourcePack('urban-realism');setPending(false);}}>Включить рекомендуемый профиль</button>
           <button type="button" onClick={()=>{chooseResourcePack('urban-realism');setPending(false);}}>Включить с текущими настройками</button>
         </>}
+        {error && !error.startsWith('UNSUPPORTED:') && <button type="button" onClick={()=>{chooseResourcePack('urban-realism');setPending(false);}}>Включить без оценки производительности</button>}
         {!checking && <button type="button" onClick={()=>void test()}>Повторить проверку</button>}
         <button type="button" onClick={()=>{controller.current?.abort();setChecking(false);setPending(false);}}>Остаться на текущем пакете</button>
       </section>}

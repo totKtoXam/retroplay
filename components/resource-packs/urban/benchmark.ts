@@ -27,7 +27,7 @@ export async function benchmarkUrban(settings:GraphicsSettings, signal:AbortSign
     sun.shadow.mapSize.setScalar(settings.shadows||512);sun.shadow.camera.left=-20;sun.shadow.camera.right=20;sun.shadow.camera.top=20;sun.shadow.camera.bottom=-20;scene.add(sun);
     const floor=new T.Mesh(new T.BoxGeometry(45,.2,45),materials.stone);floor.receiveShadow=true;scene.add(floor);
     for(let i=0;i<12;i++){const a=createAvatar('#799eb1');a.position.set((i%4)*3-5,0,Math.floor(i/4)*3-5);scene.add(a);actors.push(createUrbanSuit(a,materials));}
-    const samples:number[]=[];let start=0,last=0;
+    const samples:number[]=[];let start=0,last=0, pausedFrames=0;
     await new Promise<void>((resolve,reject)=>{
       let raf=0;
       const abort=()=>{cancelAnimationFrame(raf);reject(Error('Проверка отменена.'));};signal.addEventListener('abort',abort,{once:true});
@@ -37,7 +37,10 @@ export async function benchmarkUrban(settings:GraphicsSettings, signal:AbortSign
         if(document.hidden){end(Error('Проверка прервана: вкладка скрыта. Повторите её в активной вкладке.'));return;}
         if(!start)start=now;
         camera.position.set(Math.sin(now*.0002)*12,5,14);camera.lookAt(0,1,0);district.update(camera);
+        const renderStart=performance.now();
         try {renderer.render(scene,camera);gl.finish();}catch(e){end(e as Error);return;}
+        if(last && now-last>500 && performance.now()-renderStart<100) pausedFrames++;
+        if(pausedFrames>=3){end(Error('Большие паузы между кадрами: браузер может ограничивать фоновое окно. Сделайте окно игры активным и повторите тест.'));return;}
         if(last-start>700)samples.push(now-last);last=now;
         if(now-start>3500&&samples.length>4){end();return;}raf=requestAnimationFrame(frame);
       };raf=requestAnimationFrame(frame);

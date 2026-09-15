@@ -2423,8 +2423,8 @@ export default function World(props: Props) {
     <div
       className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''}`}
     >
-      <div ref={mount} className="world-canvas" data-visual-pack={packStatus === 'ready' ? 'realistic-bodycam' : 'default'} />
-      {packStatus === 'ready' && <div className="field-camera-mark" aria-hidden="true"><span>JNL / FIELD 01</span><span>● LIVE VIEW · {perspective === 'first' ? 'FPP' : 'TPP'}</span></div>}
+      <div ref={mount} className="world-canvas" data-visual-pack={packStatus === 'ready' ? resourcePack : 'default'} />
+      {packStatus === 'ready' && resourcePack === 'realistic-bodycam' && <div className="field-camera-mark" aria-hidden="true"><span>JNL / FIELD 01</span><span>● LIVE VIEW · {perspective === 'first' ? 'FPP' : 'TPP'}</span></div>}
       {packStatus === 'loading' && <output className="pack-status">Подготовка визуального пакета…</output>}
       {packStatus === 'error' && <div role="alert" className="pack-status">Пакет не загрузился. Игра продолжается с Default.</div>}
       {urbanSlow && slowUrban && <output className="pack-status">Urban Realism: частота кадров ниже 28 FPS. <button type="button" onClick={props.onGraphics}>Настроить графику</button></output>}

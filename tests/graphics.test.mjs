@@ -4,7 +4,7 @@ import * as T from 'three';
 import { GRAPHICS_PRESETS, normalizeGraphics, recommendation } from '../lib/graphics-settings.ts';
 import { parseResourcePack } from '../lib/resource-packs.ts';
 import { createUrbanMaterials } from '../components/resource-packs/urban/materials.ts';
-import { createUrbanSuit, createUrbanDistrict } from '../components/resource-packs/urban/assets.ts';
+import { createUrbanSuit, createUrbanDistrict, createUrbanFacade } from '../components/resource-packs/urban/assets.ts';
 import { createAvatar, setAvatarAnonymous } from '../components/world-avatar.ts';
 test('Graphics settings validate persistent input and presets stay within bounds',()=>{
   assert.equal(parseResourcePack('urban-realism'),'urban-realism');
@@ -30,4 +30,14 @@ test('Urban district has LOD, keeps scenery outside playable bounds and releases
   const m=createUrbanMaterials(GRAPHICS_PRESETS.low),scene=new T.Scene(),d=createUrbanDistrict(scene,m,1);
   let lods=0;d.root.traverse(o=>{if(o instanceof T.LOD){lods++;assert.ok(Math.hypot(o.position.x,o.position.z)>=100);}});
   assert.equal(lods,24);d.dispose();assert.equal(scene.children.length,0);m.dispose();
+});
+
+test('New facade changes presentation without changing wall ray hits',()=>{
+  const m=createUrbanMaterials(GRAPHICS_PRESETS.low);
+  const wall=new T.Mesh(new T.BoxGeometry(6,4,.3),m.stone);
+  const ray=new T.Raycaster(new T.Vector3(0,0,-5),new T.Vector3(0,0,1));wall.updateMatrixWorld(true);
+  const before=ray.intersectObject(wall,true).map(h=>[h.object.id,h.distance]);
+  const facade=createUrbanFacade(wall,m,3);assert.ok(facade);wall.updateMatrixWorld(true);
+  assert.deepEqual(ray.intersectObject(wall,true).map(h=>[h.object.id,h.distance]),before);
+  facade.dispose();assert.equal(wall.children.length,0);wall.geometry.dispose();m.dispose();
 });

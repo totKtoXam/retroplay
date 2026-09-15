@@ -77,3 +77,27 @@ export function createUrbanTool(hands:T.Group,m:UrbanMaterials) {
   b.finish().forEach(o=>{o.renderOrder=1001;o.castShadow=false;});
   return {dispose(){disposeGeometry(root);shell.dispose();metal.dispose();}};
 }
+
+/** Flush architectural cladding: same opaque wall footprint, no new cover or openings. */
+export function createUrbanFacade(mesh:T.Mesh,m:UrbanMaterials,detail:number) {
+  if(!(mesh.geometry instanceof T.BoxGeometry))return;
+  mesh.geometry.computeBoundingBox();const box=mesh.geometry.boundingBox!;
+  const size=box.getSize(new T.Vector3()), center=box.getCenter(new T.Vector3());
+  const rotate=size.x<size.z, width=rotate?size.z:size.x, depth=rotate?size.x:size.z, height=size.y;
+  if(width<3||height<2.4||depth>1.5||width>30||height>15)return;
+  const root=visualOnly(new T.Group());root.position.copy(center);if(rotate)root.rotation.y=Math.PI/2;
+  mesh.add(root);const b=geometryBatch(root);
+  for(const side of [-1,1]) {
+    const z=side*(depth/2+.004);
+    const panels=Math.min(8,Math.max(2,Math.floor(width/1.4))), step=width/panels;
+    for(let i=0;i<panels;i++) {
+      const x=-width/2+step*(i+.5);
+      b.box([step-.08,height*.52,.009],m.glass,[x,height*.06,z],.008);
+      b.box([.038,height*.8,.018],m.copper,[x-step/2+.02,0,z],.004);
+      if(detail>1) for(let k=0;k<3;k++)b.box([step-.09,.018,.025],m.metal,[x,height*.18-k*.14,z],.003);
+    }
+    b.box([width,.09,.025],m.ceramic,[0,height*.35,z],.008);
+    b.box([width,.09,.025],m.ceramic,[0,-height*.25,z],.008);
+  }
+  b.finish();return {dispose(){disposeGeometry(root);}};
+}
