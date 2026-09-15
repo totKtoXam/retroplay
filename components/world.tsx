@@ -1046,7 +1046,7 @@ export default function World(props: Props) {
         : new T.Vector3(0, 1, 0);
       const origin =
         perspectiveRef.current === 'first'
-          ? hands.group.localToWorld(new T.Vector3(0, 0.025, -0.69))
+          ? hands.muzzle(tool)
           : pos
             .clone()
             .add(
