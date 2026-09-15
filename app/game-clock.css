@@ -5,9 +5,36 @@
 
 /* Счёт матча и часы под ним — одной колонкой в центре шапки. */
 .match-stack {
+  position: relative;
   display: grid;
   justify-items: center;
-  gap: 3px;
+}
+
+/*
+ * Часы боя — ярлык, выезжающий из-под счёта, как часы дня и ночи в Dota.
+ *
+ * Отдельной строкой внутри шапки они делали её выше и отжимали вниз всю сцену
+ * ради фоновой информации. Вынесенные из потока, часы не занимают в шапке ни
+ * пикселя: они свисают ниже её нижней грани ровно под счётом, верхних углов и
+ * верхней границы у них нет — ярлык читается как продолжение шапки, а не как
+ * вторая панель.
+ *
+ * Кликов ярлык не ловит (`pointer-events: none`): он висит над сценой у самого
+ * прицела, и промах мимо мира в бою обходится дороже, чем всплывающая подсказка.
+ */
+.match-stack .game-clock {
+  position: absolute;
+  top: calc(100% + var(--bar-pad-y, 7px));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 10px 4px;
+  border-top: 0;
+  border-color: var(--hud-line);
+  border-radius: 0 0 9px 9px;
+  background: var(--hud-glass);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  pointer-events: none;
 }
 
 .game-clock {
