@@ -1,3 +1,4 @@
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   anchorFor,
@@ -12,12 +13,6 @@ import {
 } from '../lib/day-cycle.ts';
 import { initialState, applyOperation } from '../lib/model.ts';
 
-let passed = 0;
-function test(name, fn) {
-  fn();
-  passed++;
-  console.log('PASS', name);
-}
 const run = (s, op, user = 'host') => applyOperation(s, op, user, 'host');
 const running = (anchor) => ({ time: 'day', dayCycle: { running: true, anchor } });
 
@@ -190,5 +185,3 @@ test('недопустимое время суток отвергается', ()
     /Недопустимое значение/,
   );
 });
-
-console.log(`\n${passed} tests passed`);
