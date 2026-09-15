@@ -23,14 +23,21 @@ npm test
 echo "==> Building production bundle..."
 npm run build
 
+# Локальная D1 — это файл SQLite, который держит запущенный воркер: при работающем
+# сервисе шаги ниже падали с SQLITE_BUSY. Поэтому останавливаем его здесь, уже после
+# долгой сборки, — простой вырастает на секунды миграций, а не на минуту сборки.
+echo "==> Stopping retro3d.service for the database steps..."
+systemctl --user stop retro3d.service
+sleep 2
+
 echo "==> Applying D1 migrations to the local database..."
 npx wrangler d1 migrations apply site-creator-d1 --local --config wrangler.local.json
 
 echo "==> Reconciling legacy combat columns..."
 node scripts/ensure-combat-columns.mjs site-creator-d1 --local --config wrangler.local.json
 
-echo "==> Restarting retro3d.service..."
-systemctl --user restart retro3d.service
+echo "==> Starting retro3d.service..."
+systemctl --user start retro3d.service
 sleep 2
 systemctl --user is-active retro3d.service
 
