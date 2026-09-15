@@ -5,6 +5,12 @@ import type { Perspective } from '@/lib/game-camera';
 import { Eye, User, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { SNIPER_ZOOM_LEVELS, SNIPER_ZOOM_FOVS } from './world-constants';
+import {
+  AMMO_DISPLAY_EVENT,
+  DEFAULT_AMMO_DISPLAY,
+  readAmmoDisplay,
+  type AmmoDisplay,
+} from '@/lib/ammo-display';
 import type { KillMessage, PersonalAlert, HitEffect } from './world';
 
 type GameTool = (typeof GAME_TOOLS)[number];
@@ -164,9 +170,98 @@ function healthHue(hp: number) {
   return Math.round((Math.min(100, Math.max(0, hp)) / 100) * 130);
 }
 
+/**
+ * Настройка вида магазина. Меню настроек и бой живут в разных ветках дерева и
+ * общего состояния не имеют, поэтому подписываемся на событие модуля, а не
+ * тянем проп через `room-app`.
+ */
+function useAmmoDisplay(): AmmoDisplay {
+  const [display, setDisplay] = useState<AmmoDisplay>(DEFAULT_AMMO_DISPLAY);
+  useEffect(() => {
+    // Читаем только после монтирования: на сервере localStorage нет, и разметка
+    // первого кадра разошлась бы с гидрацией.
+    const sync = () => setDisplay(readAmmoDisplay());
+    sync();
+    window.addEventListener(AMMO_DISPLAY_EVENT, sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener(AMMO_DISPLAY_EVENT, sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+  return display;
+}
+
+/**
+ * Посегментный магазин читается взглядом, пока сегменты можно охватить разом, —
+ * это примерно два десятка. У краскомёта 24 патрона (`WEAPONS` в
+ * lib/weapon-definition.ts), и на ширине индикатора его сегменты вырождаются в
+ * рябь по 2–3 px: сосчитать нельзя, а «много/мало» хуже видно, чем на шкале.
+ * Выше порога рисуем сплошную шкалу — она не зависит от размера магазина.
+ */
+const AMMO_SEGMENT_LIMIT = 20;
+/** Доля магазина, ниже которой индикатор краснеет: пора перезаряжаться. */
+const AMMO_LOW_SHARE = 0.25;
+
+/**
+ * Патроны в правом нижнем углу. Без плашки и без подсказок: клавиши игрок
+ * выучивает за первый бой, а название оружия и так видно по слоту в панели
+ * предметов и по модели в руках.
+ */
+export function AmmoIndicator(props: {
+  rounds: number;
+  capacity: number;
+  reloading: boolean;
+}) {
+  const display = useAmmoDisplay();
+  const capacity = Math.max(1, props.capacity);
+  const left = Math.min(capacity, Math.max(0, props.rounds));
+  const low = !props.reloading && left <= Math.ceil(capacity * AMMO_LOW_SHARE);
+  return (
+    // `output` вместо div: в графическом виде на экране нет ни одной буквы,
+    // и без живой области с подписью скринридеру нечего сообщить.
+    <output
+      className={`hud-ammo ${display === 'graphic' ? 'is-graphic' : 'is-numbers'} ${props.reloading ? 'is-reloading' : ''} ${low ? 'is-low' : ''}`}
+      style={
+        { '--ammo-fill': `${(left / capacity) * 100}%` } as React.CSSProperties
+      }
+      aria-label={
+        props.reloading ? 'Перезарядка' : `Патроны: ${left} из ${capacity}`
+      }
+    >
+      {display === 'graphic' ? (
+        capacity > AMMO_SEGMENT_LIMIT ? (
+          <span className="hud-ammo-gauge" aria-hidden="true">
+            <i />
+          </span>
+        ) : (
+          <span className="hud-ammo-segments" aria-hidden="true">
+            {Array.from({ length: capacity }, (_, index) => (
+              <i key={index} className={index < left ? 'is-loaded' : ''} />
+            ))}
+          </span>
+        )
+      ) : (
+        <>
+          <strong>{left}</strong>
+          <small>/{capacity}</small>
+        </>
+      )}
+    </output>
+  );
+}
+
 export function WorldHud(props: WorldHudProps) {
   const loadout = useLoadoutAnchor();
   const hp = Math.min(100, Math.max(0, props.self?.hp ?? 100));
+  const kills = props.self?.kills ?? 0;
+  const deaths = props.self?.deaths ?? 0;
+  // При нуле смертей отношение не определено, и «∞» в углу экрана в начале
+  // каждого раунда только пугает. Берём принятое в шутерах соглашение: пока не
+  // умирал, коэффициент равен числу убийств — 3 убийства без смертей дают 3.00,
+  // и переход к первой смерти (3 / 1 = 3.00) выходит без скачка. Два знака:
+  // 1.50 и 1.53 различимы, третий в бою уже не читается.
+  const kdRatio = (deaths > 0 ? kills / deaths : kills).toFixed(2);
   // Стороны показываем только когда они реально розданы: в ретро и свободной
   // драке поле `team` пустое, и пустой блок только мешал бы смотреть на бой.
   const sides = (['red', 'blue'] as const).map((team) => ({
@@ -447,7 +542,7 @@ export function WorldHud(props: WorldHudProps) {
       {props.mode === 'battle' && (
       <div
         className="combat-stats-hud"
-        title="Убийства / Смерти / Помощи (K/D/A)"
+        title="Убийства / Смерти / Помощи / коэффициент K/D"
       >
         <div className="combat-stat-col stat-k">
           <small>K</small>
@@ -462,6 +557,11 @@ export function WorldHud(props: WorldHudProps) {
         <div className="combat-stat-col stat-a">
           <small>A</small>
           <strong>{props.self?.assists ?? 0}</strong>
+        </div>
+        <div className="combat-stat-divider" />
+        <div className="combat-stat-col stat-kd">
+          <small>K/D</small>
+          <strong>{kdRatio}</strong>
         </div>
       </div>
       )}
@@ -570,18 +670,22 @@ export function WorldHud(props: WorldHudProps) {
         style={
           {
             '--hp-fill': `${hp}%`,
-            '--hp-color': `hsl(${healthHue(hp)} 72% 45%)`,
+            // Насыщенность ниже прежних 72%: заливка во всю ширину панели
+            // предметов тянула взгляд сильнее, чем сам бой.
+            '--hp-color': `hsl(${healthHue(hp)} 62% 47%)`,
             ...(loadout && {
               '--hp-anchor-width': `${loadout.width}px`,
               '--hp-anchor-bottom': `${loadout.bottom}px`,
             }),
           } as React.CSSProperties
         }
+        title="Здоровье"
       >
         <i className="health-bar-fill" aria-hidden="true" />
-        {/* Значение читается с самого текста, поэтому отдельная ARIA-роль
-            полоске не нужна. */}
-        <span className="health-bar-value">{hp} HP</span>
+        {/* Только число: «HP» рядом с залитой полоской здоровья ничего не
+            добавляет, а по ширине это ещё треть подписи. Значение по-прежнему
+            остаётся обычным текстом, так что скринридер его читает. */}
+        <span className="health-bar-value">{hp}</span>
       </div>
       {props.dead && (
         <div className="respawn-overlay">

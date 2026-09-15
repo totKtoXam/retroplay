@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import {
   Bell,
   Check,
@@ -38,6 +39,11 @@ import { Choice, Toggle } from './controls';
 import { StylePicker } from './style-picker';
 import { ResourcePackPicker } from './resource-pack-picker';
 import { type WeaponAimModes } from '@/lib/aim-settings';
+import {
+  readAmmoDisplay,
+  writeAmmoDisplay,
+  type AmmoDisplay,
+} from '@/lib/ammo-display';
 import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from '@/lib/avatar-catalog';
 
 export function HelpPanel() {
@@ -938,6 +944,34 @@ export function ModePanel({
  */
 export const FPS_LIMITS = [20, 30, 60, 120];
 
+/**
+ * Вид индикатора патронов. Единственная настройка раздела, которая не проходит
+ * через `room-app`: она нужна только HUD, поэтому состояние держим здесь, а бой
+ * подхватывает её по событию из `lib/ammo-display` — без лишней пары пропсов
+ * через всё дерево комнаты.
+ */
+function AmmoDisplayChoice() {
+  // Читаем при первом рендере, как `readAimModes()` в room-app: раздел настроек
+  // открывается только по действию игрока, на сервере не рендерится, и
+  // расхождения с гидрацией тут быть не может.
+  const [display, setDisplay] = useState<AmmoDisplay>(() => readAmmoDisplay());
+  return (
+    <Choice
+      label="Индикатор патронов"
+      value={display}
+      onChange={(value) => {
+        const next: AmmoDisplay = value === 'graphic' ? 'graphic' : 'numbers';
+        setDisplay(next);
+        writeAmmoDisplay(next);
+      }}
+      options={[
+        { value: 'numbers', label: 'Цифры · остаток и размер магазина' },
+        { value: 'graphic', label: 'Графика · шкала магазина без чисел' },
+      ]}
+    />
+  );
+}
+
 /** Что и как рисуем на этом устройстве. Настройка личная, живёт в localStorage. */
 export function GraphicsSection({
   fps,
@@ -987,6 +1021,7 @@ export function GraphicsSection({
           },
         ]}
       />
+      <AmmoDisplayChoice />
       <ResourcePackPicker />
     </>
   );
