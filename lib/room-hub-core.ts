@@ -95,6 +95,10 @@ export type HubRoom = {
   respawnSeconds: number;
   /** Щит возрождения, секунд после первого шага со спавна; 0 — щита нет. */
   shieldSeconds: number;
+  /** Голосовой чат разрешён в комнате; выключенный ведущим глушит всех сразу. */
+  voiceEnabled: boolean;
+  /** Кого ведущий заглушил: их голос не идёт дальше сервера. */
+  voiceMuted: Set<string>;
   archived: boolean;
   /** Map id (lib/maps). */
   map: string;
@@ -161,6 +165,8 @@ export function roomFromState(host: string, state: Partial<RoomState>): HubRoom 
     anonymous: !!state.anonymousPlayers,
     respawnSeconds: state.respawnSeconds ?? 5,
     shieldSeconds: clamp(state.shieldSeconds ?? 5, 0, 30),
+    voiceEnabled: state.voiceEnabled !== false,
+    voiceMuted: new Set(Array.isArray(state.voiceMuted) ? state.voiceMuted : []),
     archived: !!state.archived,
     map: getMap(state.map).id,
     // Teams belong to the battle mode; a retrospective is free-for-all.
@@ -791,6 +797,30 @@ export function publicEffects(effects: HubEffect[], anonymous: boolean): WorldEf
     }
     return out;
   });
+}
+
+/**
+ * Кому уходит голос и отметка «говорит».
+ *
+ * Правило одно и для звука, и для отметки: если бы отметка о разговоре в
+ * команде уходила всем, противник читал бы по ней, что команда сейчас
+ * договаривается, — а это ровно та информация, ради которой командный канал и
+ * заводят. В свободной игре команд нет, и «своим» там значит «всем».
+ */
+export function voiceAudience(
+  state: HubState,
+  from: string,
+  channel: 'team' | 'all',
+): (id: string) => boolean {
+  const author = state.members.get(from);
+  if (channel === 'all' || !state.room.teams || !author?.team) return (id) => id !== from;
+  const team = author.team;
+  return (id) => id !== from && state.members.get(id)?.team === team;
+}
+
+/** Голос заглушён: чат выключен в комнате или ведущий заглушил именно этого. */
+export function voiceSilenced(state: HubState, id: string) {
+  return !state.room.voiceEnabled || state.room.voiceMuted.has(id);
 }
 
 /** Members as clients see them: newest first, at most 100, names hidden in anonymous rooms. */

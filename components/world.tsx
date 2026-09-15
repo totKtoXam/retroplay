@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import * as T from 'three';
 import {
   Dialog,
@@ -22,6 +22,9 @@ import {
 import { ItemWheel, type WheelGroup } from './item-wheel';
 import { WorldTablet } from './world-tablet';
 import { AmmoIndicator, WorldHud } from './world-hud';
+import { WorldMinimap, type MinimapBlip, type MinimapFrame } from './world-minimap';
+import { spotTargets, SPOT_MEMORY_MS, type Target, type Watcher } from '@/lib/spotting';
+import type { VoiceChannel, VoiceView } from './voice-chat';
 import { createMapScene, type WorldKit } from './world-map-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
@@ -135,6 +138,10 @@ type Props = {
   onCursor?: (x: number, y: number) => void;
   pendingJoinRequestsCount?: number;
   onOpenJoinRequests?: () => void;
+  /** Состояние голосового чата для HUD (components/use-voice-chat.ts). */
+  voice?: VoiceView;
+  /** Нажали или отпустили T (своей команде) или Y (всем). */
+  onTalk?: (channel: VoiceChannel, on: boolean) => void;
 };
 export type KillMessage = {
   id: string;
@@ -305,6 +312,8 @@ export default function World(props: Props) {
     openContext: () => void;
     keys: Set<string>;
     refreshTargets: () => void;
+    /** Живая поза игрока: серверное эхо в `room.members` отстаёт на пинг. */
+    player: ReturnType<typeof createWorldPlayer>;
   } | null>(null);
 
   const openTabletInWorld = useCallback(() => {
@@ -337,6 +346,93 @@ export default function World(props: Props) {
   }, [confettiStyle, grenadeStyle, fireworkStyle, tabletZone, paintSight]);
   /** Changing the room's map rebuilds the engine with that map's scene and collision. */
   const mapId = props.room.state.map ?? 'hub';
+  const minimapMap = useMemo(() => getMap(mapId), [mapId]);
+  const [mapExpanded, setMapExpanded] = useState(false);
+  // Отметки пересобираются только на новом снимке комнаты: кадр миникарты идёт
+  // 60 раз в секунду, а позиции приходят с сервера десять. Там же считается и
+  // засветка — лучи против всей геометрии карты каждый кадр не нужны.
+  const blipCache = useRef<{ from: Person[]; out: MinimapBlip[] } | null>(null);
+  /** Последнее известное место засвеченного врага и когда его видели. */
+  const spotted = useRef(new Map<string, { x: number; z: number; team?: string; at: number }>());
+  /**
+   * Кадр миникарты. Своя поза берётся у движка — серверная отстаёт на пинг.
+   *
+   * Свои видны всегда, враги — только те, кого кто-то из своих держит в секторе
+   * вокруг прицела и видит не через стену (lib/spotting.ts). Иначе план
+   * показывал бы то, чего игрок глазами не видит, и сам был бы читом.
+   */
+  const readMinimap = useCallback((): MinimapFrame | null => {
+    const player = engine.current?.player;
+    if (!player) return null;
+    const room = latest.current.room;
+    if (blipCache.current?.from !== room.members) {
+      const me = room.members.find((m) => m.id === room.self);
+      const alive = (m: Person) => (m.hp ?? 100) > 0;
+      const allies = room.members.filter(
+        (m) => m.id !== room.self && (!me?.team || m.team === me.team),
+      );
+      const now = Date.now();
+      if (me?.team) {
+        // Смотрят все свои живые. За себя берём живую позу движка: она точнее
+        // серверной ровно на пинг, а сектор засветки узкий.
+        const watchers: Watcher[] = [
+          {
+            x: player.pos.x,
+            y: player.pos.y,
+            z: player.pos.z,
+            yaw: player.cameraYaw,
+            pitch: player.pitch,
+            stance: player.stance,
+          },
+        ];
+        for (const m of allies)
+          if (alive(m))
+            watchers.push({
+              x: m.pose.x,
+              y: m.pose.y,
+              z: m.pose.z,
+              yaw: m.pose.yaw,
+              pitch: m.pose.pitch,
+              stance: m.pose.stance,
+            });
+        const enemies = room.members.filter((m) => m.team && m.team !== me.team && alive(m));
+        const targets: Target[] = enemies.map((m) => ({
+          id: m.id,
+          x: m.pose.x,
+          y: m.pose.y,
+          z: m.pose.z,
+          stance: m.pose.stance,
+        }));
+        for (const id of spotTargets(watchers, targets, minimapMap.colliders)) {
+          const m = enemies.find((e) => e.id === id);
+          if (m) spotted.current.set(id, { x: m.pose.x, z: m.pose.z, team: m.team, at: now });
+        }
+        const live = new Set(enemies.map((m) => m.id));
+        for (const [id, mark] of spotted.current)
+          if (now - mark.at > SPOT_MEMORY_MS || !live.has(id)) spotted.current.delete(id);
+      } else if (spotted.current.size) {
+        spotted.current.clear();
+      }
+      const out: MinimapBlip[] = [];
+      for (const m of allies)
+        out.push({ x: m.pose.x, z: m.pose.z, team: m.team, dead: !alive(m) });
+      for (const mark of spotted.current.values())
+        out.push({
+          x: mark.x,
+          z: mark.z,
+          team: mark.team,
+          enemy: true,
+          fresh: 1 - (now - mark.at) / SPOT_MEMORY_MS,
+        });
+      blipCache.current = { from: room.members, out };
+    }
+    return {
+      x: player.pos.x,
+      z: player.pos.z,
+      yaw: player.cameraYaw,
+      blips: blipCache.current.out,
+    };
+  }, [minimapMap]);
   const self = props.room.members.find((m) => m.id === props.room.self);
   const dead = self?.hp === 0;
   const [killfeed, setKillfeed] = useState<KillMessage[]>([]);
@@ -1256,6 +1352,7 @@ export default function World(props: Props) {
     engine.current = {
       visuals,
       capture,
+      player,
       closeInventory: (resume = true) => {
         middle = false;
         setRadial(false);
@@ -1450,6 +1547,9 @@ export default function World(props: Props) {
           'KeyV',
           'KeyR',
           'KeyZ',
+          'KeyM',
+          'KeyT',
+          'KeyY',
           'ArrowLeft',
           'ArrowRight',
           'ArrowUp',
@@ -1474,6 +1574,9 @@ export default function World(props: Props) {
         }
       }
       if (e.code === 'KeyR') beginReload();
+      // План по M разворачивается и сворачивается и живым, и убитым: смотреть
+      // карту в ожидании возрождения — обычное дело.
+      if (e.code === 'KeyM') setMapExpanded((v) => !v);
       if (e.code === 'KeyX') player.holdCrouch();
       if (isDead()) return;
       if (e.code === 'Space') player.jump();
@@ -1497,6 +1600,11 @@ export default function World(props: Props) {
         choosePerspective(
           perspectiveRef.current === 'first' ? 'third' : 'first',
         );
+      // Рация: пока клавиша зажата, голос идёт своим (T) или всем (Y).
+      // Разговор не зависит от того, жив ли игрок: мёртвому тем более есть что
+      // сказать команде, и молчать в ожидании возрождения незачем.
+      if (e.code === 'KeyT') latest.current.onTalk?.('team', true);
+      if (e.code === 'KeyY') latest.current.onTalk?.('all', true);
       if (e.code.startsWith('Digit')) {
         const slot = slotForDigit(modeOf(latest.current.room.state), e.code);
         if (slot !== undefined) {
@@ -1511,8 +1619,11 @@ export default function World(props: Props) {
       if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
         releaseScoreHold();
       // Отпускание обрабатываем и с модификаторами: иначе приседание залипло бы
-      // после X + случайно нажатого Ctrl.
+      // после X + случайно нажатого Ctrl. По той же причине — и рация: зажатая
+      // T плюс случайный Alt оставили бы микрофон открытым.
       if (e.code === 'KeyX') player.releaseCrouch();
+      if (e.code === 'KeyT') latest.current.onTalk?.('team', false);
+      if (e.code === 'KeyY') latest.current.onTalk?.('all', false);
 
     };
     const onMouse = (e: MouseEvent) => {
@@ -2302,6 +2413,7 @@ export default function World(props: Props) {
         killfeed={killfeed}
         personalAlert={personalAlert}
         respawnSeconds={respawnSeconds}
+        voice={props.voice}
         freezeSeconds={Math.max(
           0,
           Math.ceil(((props.room.match?.until ?? 0) - props.now) / 1000),
@@ -2344,7 +2456,8 @@ export default function World(props: Props) {
         </button>
       )}
       {/* Вид индикатора (цифры или графика) выбирается в настройках, поэтому
-          разметка и подписка на настройку живут в world-hud.tsx. */}
+          разметка и подписка на настройку живут в world-hud.tsx. Место —
+          слева от панели предметов: правый нижний угол занят миникартой. */}
       {['paint', 'confetti', 'sniper'].includes(current?.id) && (
         <AmmoIndicator
           rounds={rounds[current.id as Blaster]}
@@ -2352,6 +2465,7 @@ export default function World(props: Props) {
           reloading={reloading}
         />
       )}
+      <WorldMinimap map={minimapMap} read={readMinimap} expanded={mapExpanded} />
       <div className="equipped-card">
         <span className="weapon-number">{currentSlot?.key ?? '—'}</span>
         <div>

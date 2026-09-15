@@ -158,13 +158,13 @@
   position: absolute;
   /* Ширина и отступ приходят инлайном из замера панели предметов; значения
      ниже — запасные, на случай пока панель ещё не измерена. */
-  bottom: var(--hp-anchor-bottom, 74px);
+  bottom: var(--hud-dock-top, 74px);
   left: 50%;
   z-index: 8;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--hp-anchor-width, min(320px, calc(100vw - 28px)));
+  width: var(--hud-dock-width, min(320px, calc(100vw - 28px)));
   height: 13px;
   overflow: hidden;
   /*
@@ -335,17 +335,23 @@
   min-width: 34px;
 }
 
-/* --- Патроны: нижний правый угол, без плашки --- */
+/* --- Патроны: вплотную слева от панели предметов, без плашки --- */
 
 /* Прежняя `.ammo-panel` из globals.css больше не рендерится: подсказки клавиш
-   и название оружия ушли, а остаток магазина показывает этот блок. */
+   и название оружия ушли, а остаток магазина показывает этот блок.
+
+   Место — у левого края панели предметов, рядом с полоской HP: правый нижний
+   угол занят миникартой, а взгляд в бою и так держится на центре низа экрана.
+   Ширину панели меряет `useLoadoutAnchor` (world-hud.tsx) — набор слотов
+   зависит от режима, и константой этот край не удержать. */
 .world-container .hud-ammo {
   position: absolute;
-  right: 22px;
-  bottom: 24px;
+  right: calc(50% + var(--hud-dock-width, 320px) / 2 + 12px);
+  bottom: calc(var(--hud-dock-base, 18px) + 6px);
   z-index: 6;
   display: flex;
   align-items: flex-end;
+  justify-content: flex-end;
   gap: 2px;
   color: #f3f7ff;
   /* Тень под самими фигурами: сегменты и шкала — не текст, text-shadow их не
@@ -454,16 +460,16 @@
     bottom: 96px;
     left: 16px;
   }
-  .world-container .hud-ammo {
-    right: 16px;
-    bottom: 96px;
-  }
 }
+/* Ниже этого порога панель предметов занимает низ целиком: магазин уходит на
+   своё прежнее место над ней, а миникарта прячется — плану там уже не хватает
+   ни места, ни разборчивости. */
 @media (max-width: 680px) {
   .world-container .combat-stats-hud {
     bottom: 128px;
   }
   .world-container .hud-ammo {
+    right: 16px;
     bottom: 128px;
   }
   .world-container .hud-ammo strong {
@@ -486,4 +492,95 @@
   .world-container .hud-ammo .hud-ammo-segments i {
     width: 3px;
   }
+}
+
+/* --- Миникарта: правый нижний угол --- */
+
+/* План карты сверху, своя стрелка и точки своих. Рисует её canvas в
+   components/world-minimap.tsx; здесь только место и рамка.
+
+   Подложка намеренно тёмная и плотная, в отличие от прозрачных полоски HP и
+   магазина: по ней читают геометрию, а не одно число, и просвечивающая сцена
+   мешала бы отличить стену от неба. */
+.world-container .hud-minimap {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 6;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  line-height: 0;
+  pointer-events: none;
+  user-select: none;
+}
+@media (max-width: 900px) {
+  .world-container .hud-minimap {
+    right: 14px;
+    bottom: 14px;
+  }
+  .world-container .hud-minimap canvas {
+    width: 116px !important;
+    height: 116px !important;
+  }
+}
+@media (max-width: 680px) {
+  .world-container .hud-minimap {
+    display: none;
+  }
+  /* Развёрнутый план по M нужен и на узком экране — там он как раз и заменяет
+     угловую плашку, которой места не осталось. */
+  .world-container .hud-minimap.is-expanded {
+    display: block;
+  }
+}
+/* Прицеливание и оптика: план отвлекает ровно в тот момент, когда смотрят в
+   одну точку, — убираем его, пока игрок целится. Развёрнутый по M план не
+   гасим: его открыли, чтобы в него смотреть. */
+.world-container.is-aiming .hud-minimap:not(.is-expanded) {
+  opacity: 0.25;
+  transition: opacity 0.12s ease;
+}
+
+/* --- Развёрнутый план по M --- */
+
+/* Тот же холст, только крупнее и по центру экрана: отдельного режима у карты
+   нет, меняется лишь разрешение и место. Подложка плотнее угловой — читать
+   приходится дольше, и просвечивающий бой мешал бы. */
+.world-container .hud-minimap.is-expanded {
+  right: 50%;
+  bottom: 50%;
+  z-index: 11;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(8, 13, 25, 0.9);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  transform: translate(50%, 50%);
+}
+.world-container .hud-minimap.is-expanded canvas {
+  border-radius: 6px;
+}
+.hud-minimap-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px 2px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: rgba(226, 232, 240, 0.85);
+}
+.hud-minimap-caption kbd {
+  padding: 1px 5px;
+  font: inherit;
+  font-weight: 700;
+  color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+  background: rgba(15, 23, 42, 0.7);
 }
