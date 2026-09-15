@@ -1,7 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
-@import './hud.css';
 @custom-variant dark (&:is(.dark *));
 @theme inline {
   --color-background: var(--background);
@@ -5923,43 +5922,6 @@ h1 > span {
   color: var(--hud-accent);
   border-color: #ffffff26;
 }
-/* Этапы встречи — шаги задания в спокойной шапке ретро. */
-.phase-steps {
-  display: flex;
-  gap: 5px;
-  align-items: center;
-  overflow: hidden;
-}
-.phase-step {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid #ffffff2e;
-  border-radius: 999px;
-  padding: 2px 9px;
-  font-size: 12px;
-  color: var(--hud-dim);
-  background: none;
-  white-space: nowrap;
-}
-.phase-step > span {
-  display: grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: #ffffff1f;
-  font-size: 10px;
-}
-.phase-step.current {
-  background: #ffffff1a;
-  border-color: var(--hud-accent);
-  color: #fff;
-}
-.phase-step.complete > span {
-  background: #4fbf9a;
-  color: #0f1420;
-}
 /* Счёт матча. */
 .match-bar {
   display: flex;
@@ -6227,16 +6189,8 @@ h1 > span {
   text-shadow: 0 1px 8px #000a;
 }
 
-/* Узкий экран: в шапке остаются только номера этапов и главные кнопки. */
+/* Узкий экран: в шапке остаются только главные кнопки. */
 @media (max-width: 900px) {
-  .phase-step {
-    font-size: 0;
-    gap: 0;
-    padding: 2px 4px;
-  }
-  .phase-step > span {
-    font-size: 10px;
-  }
   .game-tag.map-tag,
   .game-bar h1 {
     max-width: 130px;
@@ -6331,8 +6285,7 @@ h1 > span {
     padding: 6px 8px;
   }
   .game-bar .map-tag,
-  .game-bar-center .game-tag span,
-  .phase-steps {
+  .game-bar-center .game-tag span {
     display: none;
   }
   .game-bar h1 {

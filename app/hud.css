@@ -233,3 +233,18 @@
     letter-spacing: 0.06em;
   }
 }
+
+/* Узкая ширина: в globals.css у `.world-location` стоит `max-width: 58%`
+   с крупным padding — правило родом от старой большой плашки. Компактной оно
+   выходит боком: ширину режет, текст переносится на три строки, и панель
+   становится не меньше, а ВЫШЕ (замерено на 390px: 83×85px). Возвращаем ей
+   право занимать столько ширины, сколько нужно одной-двум строкам. */
+@media (max-width: 600px) {
+  .world-container .world-hud-top-left .world-performance.world-location {
+    max-width: none;
+    padding: 3px 7px 4px;
+    border-radius: 7px;
+    left: auto;
+    top: auto;
+  }
+}
