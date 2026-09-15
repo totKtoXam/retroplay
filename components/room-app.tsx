@@ -15,6 +15,8 @@ import {
   Users,
   Link2,
   Repeat,
+  Mic,
+  MicOff,
   Settings2,
   Check,
   StickyNote,
@@ -98,6 +100,7 @@ import { GameClock } from './game-clock';
 import { SidePicker } from './side-picker';
 import { PhaseBar } from './phase-bar';
 import { useRoomSync } from './use-room-sync';
+import { useVoiceChat } from './use-voice-chat';
 import { MAP_CATALOG, modeOf } from '@/lib/maps/catalog';
 import { defaultSlot, hasSlot, slotsFor } from '@/lib/loadout';
 
@@ -257,6 +260,8 @@ export default function RoomApp({ id }: { id: string }) {
     act,
     fire,
     weapon,
+    sendVoice,
+    setVoiceSink,
     serverNow,
   } = useRoomSync({
     id,
@@ -501,6 +506,8 @@ export default function RoomApp({ id }: { id: string }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  const { voice, talk } = useVoiceChat({ room, sendVoice, setVoiceSink });
+  const voiceMuted = new Set(room?.state.voiceMuted ?? []);
   const me = room?.members.find((m) => m.id === room.self),
     host = room?.host === room?.self,
     s = room?.state,
@@ -1305,6 +1312,8 @@ export default function RoomApp({ id }: { id: string }) {
                 }
                 onFire={fire}
                 onWeapon={weapon}
+                voice={voice}
+                onTalk={talk}
                 paintColor={paintColor}
                 working={!!draft || !!selectedZone}
                 host={host}
@@ -1558,6 +1567,34 @@ export default function RoomApp({ id }: { id: string }) {
                           }}
                         >
                           <Repeat size={13} />
+                        </button>
+                      )}
+                      {/* Микрофон рядом с именем, а не в отдельном разделе
+                          настроек: заглушают конкретного человека и обычно
+                          прямо сейчас, глядя на список говорящих. */}
+                      {host && m.id !== room.host && (
+                        <button
+                          type="button"
+                          className={`voice-mute ${voiceMuted.has(m.id) ? 'is-muted' : ''}`}
+                          title={
+                            voiceMuted.has(m.id)
+                              ? 'Вернуть голос'
+                              : 'Заглушить: его перестанут слышать все'
+                          }
+                          aria-label={
+                            voiceMuted.has(m.id)
+                              ? `Вернуть голос игроку ${m.name}`
+                              : `Заглушить игрока ${m.name}`
+                          }
+                          onClick={() =>
+                            void act({
+                              type: 'voice.mute',
+                              session: m.id,
+                              muted: !voiceMuted.has(m.id),
+                            })
+                          }
+                        >
+                          {voiceMuted.has(m.id) ? <MicOff size={13} /> : <Mic size={13} />}
                         </button>
                       )}
                     </div>

@@ -12,6 +12,7 @@ import {
   type AmmoDisplay,
 } from '@/lib/ammo-display';
 import type { KillMessage, PersonalAlert, HitEffect } from './world';
+import type { VoiceView } from './voice-chat';
 
 type GameTool = (typeof GAME_TOOLS)[number];
 
@@ -41,7 +42,81 @@ type WorldHudProps = {
   respawnSeconds: number;
   /** Сколько секунд осталось до конца подготовки раунда. */
   freezeSeconds: number;
+  /** Голосовой чат: свой микрофон и кто говорит (components/voice-chat.ts). */
+  voice?: VoiceView;
 };
+
+/** Почему микрофон молчит. Пустая строка — всё в порядке, показывать нечего. */
+const MIC_TROUBLE: Record<string, string> = {
+  denied: 'Микрофон запрещён в настройках браузера',
+  absent: 'Микрофон не найден',
+  insecure: 'Микрофон недоступен: откройте игру по https://',
+};
+
+/**
+ * Голоса у правого края экрана.
+ *
+ * Правый край выбран не случайно: слева уже висят FPS и состав, в центре
+ * прицел, снизу оружие, а лента убийств живёт справа сверху — голоса встают
+ * под ней, в единственном спокойном месте, куда взгляд уходит между
+ * перестрелками.
+ *
+ * Строка показывает не только того, кого слышно. Заглушённый ведущим и тот, с
+ * кем ещё не собралось соединение, тоже попадают в список — перечёркнутым
+ * микрофоном. Иначе человек, которому выключили звук, жал бы кнопку в пустоту,
+ * а остальные не понимали бы, почему он молчит и машет руками.
+ */
+function VoicePanel({ voice, room }: { voice: VoiceView; room: Room }) {
+  const trouble = MIC_TROUBLE[voice.mic] ?? '';
+  const nameOf = (id: string) =>
+    room.state.anonymousPlayers
+      ? 'Участник'
+      : room.members.find((m) => m.id === id)?.name || 'Участник';
+  const teamOf = (id: string) => room.members.find((m) => m.id === id)?.team || '';
+  const rows = voice.speakers;
+  const mine = voice.talking;
+  const blocked = voice.roomOff || voice.mutedByHost;
+  if (!rows.length && !mine && !blocked && !trouble) return null;
+  return (
+    <div className="voice-panel" aria-live="polite">
+      {rows.map((s) => (
+        <div
+          key={s.id}
+          className={`voice-row team-${teamOf(s.id) || 'none'} ${s.audible ? 'heard' : 'silent'}`}
+          title={
+            s.audible
+              ? `${nameOf(s.id)} говорит ${s.channel === 'team' ? 'своей команде' : 'всем'}`
+              : `${nameOf(s.id)} пытается сказать, но его не слышно`
+          }
+        >
+          <span className="voice-mark" aria-hidden="true">
+            {s.audible ? '🎙' : '🔇'}
+          </span>
+          <span className="voice-name">{nameOf(s.id)}</span>
+          <span className="voice-scope">{s.channel === 'team' ? 'своим' : 'всем'}</span>
+        </div>
+      ))}
+      {mine && (
+        <div className={`voice-row is-me ${voice.mic === 'live' ? 'heard' : 'silent'}`}>
+          <span className="voice-mark" aria-hidden="true">
+            {voice.mic === 'live' ? '🎙' : voice.mic === 'asking' ? '⏳' : '🔇'}
+          </span>
+          <span className="voice-name">Вы</span>
+          <span className="voice-scope">{mine === 'team' ? 'своим' : 'всем'}</span>
+        </div>
+      )}
+      {(blocked || trouble) && (
+        <div className="voice-note">
+          {voice.roomOff
+            ? 'Ведущий выключил голосовой чат'
+            : voice.mutedByHost
+              ? 'Ведущий вас заглушил'
+              : trouble}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Прицел краскомёта в режиме ПКМ: точка попадания в центре и четыре лепестка,
@@ -539,6 +614,7 @@ export function WorldHud(props: WorldHudProps) {
           <strong>{props.shieldSeconds}с</strong>
         </div>
       )}
+      {props.voice && <VoicePanel voice={props.voice} room={props.room} />}
       {props.mode === 'battle' && (
       <div
         className="combat-stats-hud"

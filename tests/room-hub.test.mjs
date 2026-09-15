@@ -15,6 +15,8 @@ import {
   publicMembers,
   resolveCombat,
   sanitizePose,
+  voiceAudience,
+  voiceSilenced,
 } from '../lib/room-hub-core.ts';
 import { isBlocked3D } from '../lib/world-collision.ts';
 import { getMap } from '../lib/maps/index.ts';
@@ -53,6 +55,8 @@ const room = (over = {}) => ({
   anonymous: false,
   respawnSeconds: 5,
   shieldSeconds: 5,
+  voiceEnabled: true,
+  voiceMuted: new Set(),
   archived: false,
   map: 'hub',
   teams: false,
@@ -137,6 +141,36 @@ test('dead players cannot move or shoot; they respawn protected at the spawn poi
   applyPresence(v, { pose: stand(0, 0), life: 1 }, T + 1200);
   assert.equal(v.pose.z, 0);
   assert.equal(v.immuneUntil, T + 1200 + 5000, 'protection ends 5 s after the first move');
+});
+
+test('командный голос слышат только свои, общий — все', () => {
+  const h = hub(
+    member('a', { team: 'red' }),
+    member('b', { team: 'red' }),
+    member('c', { team: 'blue' }),
+  );
+  h.room = room({ teams: true });
+  const team = voiceAudience(h, 'a', 'team');
+  assert.equal(team('b'), true, 'свой слышит');
+  assert.equal(team('c'), false, 'противник командный канал не слышит');
+  assert.equal(team('a'), false, 'себя в наушники не возвращаем');
+  const all = voiceAudience(h, 'a', 'all');
+  assert.equal(all('c'), true, 'общий канал слышат и противники');
+});
+
+test('без команд «своим» значит «всем»: в ретро командного канала нет', () => {
+  const h = hub(member('a'), member('b'));
+  h.room = room({ teams: false });
+  assert.equal(voiceAudience(h, 'a', 'team')('b'), true);
+});
+
+test('голос молчит у заглушённого и у всех, когда чат выключен', () => {
+  const h = hub(member('a'), member('b'));
+  h.room = room({ voiceMuted: new Set(['b']) });
+  assert.equal(voiceSilenced(h, 'a'), false);
+  assert.equal(voiceSilenced(h, 'b'), true, 'заглушённый ведущим');
+  h.room = room({ voiceEnabled: false });
+  assert.equal(voiceSilenced(h, 'a'), true, 'выключенный чат глушит всех');
 });
 
 test('a disabled shield protects nobody, even a player who already had it', () => {

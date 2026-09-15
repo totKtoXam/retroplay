@@ -80,16 +80,17 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # 5. Final health check from local machine
-Write-Host "`n[6/6] Checking remote HTTP endpoint from local machine..." -ForegroundColor Yellow
+Write-Host "`n[6/6] Checking remote HTTPS endpoint from local machine..." -ForegroundColor Yellow
 $lastError = $null
 for ($attempt = 1; $attempt -le 3; $attempt++) {
     try {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $response = Invoke-WebRequest -Uri "http://${RemoteHost}:3001/" -UseBasicParsing -TimeoutSec 20
+        # Сертификат самоподписанный (start-lan.sh): проверяем доступность, а не доверие.
+        $response = Invoke-WebRequest -Uri "https://${RemoteHost}:3001/" -UseBasicParsing -TimeoutSec 20 -SkipCertificateCheck
         $sw.Stop()
         if ($response.StatusCode -eq 200) {
             Write-Host "`n✅ DEPLOYMENT SUCCESSFUL!" -ForegroundColor Green
-            Write-Host "   Target:  http://${RemoteHost}:3001/" -ForegroundColor Green
+            Write-Host "   Target:  https://${RemoteHost}:3001/" -ForegroundColor Green
             Write-Host "   Latency: $($sw.ElapsedMilliseconds) ms" -ForegroundColor Green
             $lastError = $null
             break
@@ -101,5 +102,5 @@ for ($attempt = 1; $attempt -le 3; $attempt++) {
     Start-Sleep -Seconds 3
 }
 if ($lastError) {
-    Write-Warning "Could not get HTTP 200 from http://${RemoteHost}:3001/ after 3 attempts: $lastError"
+    Write-Warning "Could not get HTTP 200 from https://${RemoteHost}:3001/ after 3 attempts: $lastError"
 }

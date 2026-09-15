@@ -281,6 +281,19 @@ export type RoomState = {
    * Отсчёт начинается с первого шага, до него щит держится. 0 — щита нет вовсе.
    */
   shieldSeconds?: number;
+  /**
+   * Голосовой чат в комнате. Выключенный ведущим — это «микрофоны молчат у
+   * всех», короткая мера на время объяснения или записи, а не настройка
+   * комнаты навсегда: поэтому отдельный выключатель, а не список из всех.
+   * Поля нет у комнат, созданных раньше голоса — там чат включён.
+   */
+  voiceEnabled?: boolean;
+  /**
+   * Кого ведущий заглушил поимённо: `members.session`. Список, а не флаг у
+   * участника, потому что состояние комнаты живёт в одной записи, а участники
+   * приходят и уходят — заглушённый останется заглушённым и после перезахода.
+   */
+  voiceMuted?: string[];
   title: string;
   theme: string;
   visualStyle?: 'classic' | 'anime';
@@ -687,6 +700,7 @@ export function applyOperation(
       } else s.map = map;
       s.mode = mode;
     }
+    if ('voiceEnabled' in p) s.voiceEnabled = !!p.voiceEnabled;
     if ('friendlyFire' in p) s.friendlyFire = !!p.friendlyFire;
     if ('friendlyFirePercent' in p) {
       s.friendlyFirePercent = finite(p.friendlyFirePercent, 1, 100);
@@ -715,6 +729,20 @@ export function applyOperation(
       'layoutLocked',
     ] as const)
       if (key in p) s[key] = !!p[key];
+  } else if (kind === 'voice.mute') {
+    // Заглушает и возвращает голос только ведущий: это модерация, а не
+    // настройка звука у себя — своя громкость живёт на клиенте.
+    hostOnly();
+    if (typeof op.session !== 'string' || !op.session)
+      throw Error('Не указан участник');
+    const muted = new Set(s.voiceMuted ?? []);
+    if (op.muted === false) muted.delete(op.session);
+    else {
+      if (op.session === host) throw Error('Ведущий не заглушает сам себя');
+      if (muted.size >= 100) throw Error('Слишком много заглушённых участников');
+      muted.add(op.session);
+    }
+    s.voiceMuted = [...muted];
   } else if (kind === 'phase') {
     hostOnly();
     s.phase = finite(op.phase, 0, 5);
