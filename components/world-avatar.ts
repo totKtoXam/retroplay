@@ -256,51 +256,72 @@ export function createAvatar(color: string) {
   box(chest, '#434765', 0, 0.16, 0.225, 0.33, 0.35, 0.17);
   box(chest, '#b2aad9', 0, 0.18, 0.326, 0.24, 0.15, 0.035);
   const gun = pivot(elbows[1], 'gun', 0, -0.29, -0.03);
+  /*
+   * Оружие в чужих руках. Силуэт здесь работает вместо подписи: по нему в бою
+   * понимают, чем в тебя целятся, — поэтому у маркера боковой бункер и точка
+   * коллиматора, у дробовика помпа с планкой, у снайперки труба оптики. Детали
+   * мельче этих в чужих руках всё равно не читаются, а кадры стоят.
+   */
   const gunPaint = pivot(gun, 'gun-paint', 0, 0, 0);
-  box(gunPaint, '#434d72', 0, 0.025, 0, 0.13, 0.24, 0.12);
+  box(gunPaint, '#434d72', 0, 0.03, 0, 0.13, 0.22, 0.26);
   add(
     gunPaint,
-    new T.CylinderGeometry(0.09, 0.12, 0.48, 10),
+    new T.CylinderGeometry(0.075, 0.075, 0.4, 10),
     '#b2bce1',
     0,
     0.18,
-    -0.06,
+    -0.1,
   ).rotation.x = Math.PI / 2;
   add(
     gunPaint,
-    new T.CylinderGeometry(0.13, 0.13, 0.08, 10),
+    new T.CylinderGeometry(0.095, 0.095, 0.16, 10),
+    '#434d72',
+    0,
+    0.18,
+    -0.2,
+  ).rotation.x = Math.PI / 2;
+  add(
+    gunPaint,
+    new T.CylinderGeometry(0.115, 0.115, 0.07, 10),
     '#b18afa',
     0,
     0.18,
-    -0.32,
+    -0.33,
   ).rotation.x = Math.PI / 2;
-  ball(gunPaint, '#df9dd1', 0, 0.27, 0.015, 0.125);
+  box(gunPaint, '#df9dd1', 0.12, 0.13, 0.02, 0.09, 0.09, 0.22);
+  box(gunPaint, '#2b3150', 0, 0.33, -0.02, 0.08, 0.1, 0.1);
+  ball(gunPaint, '#ff5566', 0, 0.34, -0.06, 0.022);
+  box(gunPaint, '#2b3150', 0, -0.1, -0.06, 0.09, 0.2, 0.1);
 
   const gunShotgun = pivot(gun, 'gun-shotgun', 0, 0, 0);
-  box(gunShotgun, '#32374e', 0, 0.025, 0, 0.15, 0.22, 0.15);
+  box(gunShotgun, '#32374e', 0, 0.06, 0, 0.15, 0.2, 0.28);
   add(
     gunShotgun,
-    new T.CylinderGeometry(0.075, 0.08, 0.52, 10),
+    new T.CylinderGeometry(0.075, 0.075, 0.5, 10),
     '#9ea8c8',
     0,
     0.17,
-    -0.12,
+    -0.14,
   ).rotation.x = Math.PI / 2;
   add(
     gunShotgun,
-    new T.CylinderGeometry(0.065, 0.07, 0.45, 10),
+    new T.CylinderGeometry(0.06, 0.06, 0.42, 10),
     '#25293d',
     0,
-    0.09,
-    -0.10,
+    0.06,
+    -0.12,
   ).rotation.x = Math.PI / 2;
-  box(gunShotgun, '#e5be6b', 0, 0.17, -0.38, 0.12, 0.12, 0.06);
+  box(gunShotgun, '#25293d', 0, 0.25, -0.14, 0.05, 0.03, 0.48);
+  ball(gunShotgun, '#e5be6b', 0, 0.28, -0.37, 0.025);
+  box(gunShotgun, '#1b1f2e', 0, 0.06, -0.24, 0.13, 0.12, 0.18);
+  box(gunShotgun, '#1b1f2e', 0, -0.02, 0.18, 0.1, 0.14, 0.2);
+  box(gunShotgun, '#e5be6b', 0, 0.06, 0.02, 0.16, 0.09, 0.12);
 
   const gunSniper = pivot(gun, 'gun-sniper', 0, 0, 0);
-  box(gunSniper, '#232838', 0, 0.02, 0, 0.11, 0.20, 0.18);
+  box(gunSniper, '#232838', 0, 0.05, -0.02, 0.11, 0.18, 0.3);
   add(
     gunSniper,
-    new T.CylinderGeometry(0.045, 0.05, 0.85, 10),
+    new T.CylinderGeometry(0.05, 0.05, 0.85, 10),
     '#828fae',
     0,
     0.17,
@@ -308,13 +329,33 @@ export function createAvatar(color: string) {
   ).rotation.x = Math.PI / 2;
   add(
     gunSniper,
+    new T.CylinderGeometry(0.07, 0.07, 0.1, 10),
+    '#828fae',
+    0,
+    0.17,
+    -0.7,
+  ).rotation.x = Math.PI / 2;
+  box(gunSniper, '#181b25', 0, 0, 0.16, 0.1, 0.16, 0.28);
+  add(
+    gunSniper,
     new T.CylinderGeometry(0.055, 0.055, 0.38, 10),
     '#181b25',
     0,
-    0.28,
-    -0.10,
+    0.3,
+    -0.1,
   ).rotation.x = Math.PI / 2;
-  box(gunSniper, '#64d4ef', 0, 0.28, -0.30, 0.06, 0.06, 0.02);
+  add(
+    gunSniper,
+    new T.CylinderGeometry(0.075, 0.075, 0.1, 10),
+    '#181b25',
+    0,
+    0.3,
+    -0.32,
+  ).rotation.x = Math.PI / 2;
+  box(gunSniper, '#e5be6b', 0, 0.25, -0.04, 0.09, 0.07, 0.04);
+  box(gunSniper, '#e5be6b', 0, 0.25, -0.2, 0.09, 0.07, 0.04);
+  box(gunSniper, '#232838', 0, -0.08, -0.1, 0.08, 0.16, 0.12);
+  box(gunSniper, '#64d4ef', 0, 0.3, -0.375, 0.09, 0.09, 0.02);
   const tablet = pivot(elbows[0], 'tablet', 0, -0.29, 0);
   box(tablet, '#39415b', 0, 0.04, -0.11, 0.36, 0.035, 0.47);
   box(tablet, '#a6ddeb', 0, 0.065, -0.11, 0.3, 0.012, 0.4);

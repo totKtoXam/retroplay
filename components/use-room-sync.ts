@@ -12,6 +12,13 @@ import {
 import type { Room, RoomState, Pose, WorldEffect } from '@/lib/model';
 import { api, ready } from '@/lib/client';
 import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
+import type { VoiceSignal } from './voice-chat';
+
+/** Чем комната кормит голосовой чат: сообщениями с сервера и фактом переподключения. */
+export type VoiceSink = {
+  signal: (msg: VoiceSignal) => void;
+  reconnected: () => void;
+};
 
 export type JoinRequest = {
   id: string;
@@ -51,6 +58,7 @@ type SocketMessage =
       match?: Room['match'];
     }
   | { t: 'refresh' }
+  | ({ t: 'voice' } & VoiceSignal)
   | { t: 'pong'; at: number }
   | ({ t: 'weapon' } & WeaponReply)
   | { t: 'error'; message: string };
@@ -140,6 +148,15 @@ export function useRoomSync({
   /** Latest server clock reading and when it arrived, to date what the player sees. */
   const clockRef = useRef<{ server: number; local: number } | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  /**
+   * Приёмник голосового чата. Регистрируется снаружи после создания чата: сам
+   * чат отправляет сообщения через `sendVoice` этого же хука, поэтому связать
+   * их на месте нельзя — получилось бы кольцо.
+   */
+  const voiceSink = useRef<VoiceSink | null>(null);
+  const setVoiceSink = useCallback((sink: VoiceSink | null) => {
+    voiceSink.current = sink;
+  }, []);
   const onReadyRef = useRef(onReady);
   useEffect(() => {
     onReadyRef.current = onReady;
@@ -290,6 +307,21 @@ export function useRoomSync({
   }, [id]);
   const weapon = useCallback((command: WeaponCommand) => sendWeapon({ ...command, type: 'weapon' }), [sendWeapon]);
   /**
+   * Служебное сообщение голосового чата. Только через сокет: договориться о
+   * соединении по HTTP-опросу нельзя — пока ответ дойдёт, предложение устареет.
+   * `false` означает «сокет закрыт», и чат попробует объявиться снова.
+   */
+  const sendVoice = useCallback((msg: Record<string, unknown>) => {
+    const ws = socketRef.current;
+    if (ws?.readyState !== WebSocket.OPEN) return false;
+    try {
+      ws.send(JSON.stringify(msg));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+  /**
    * Текущее время по серверным часам. Тик комнаты приносит `now` раз в 100 мс,
    * между тиками время идёт по `performance.now()` — монотонному счётчику,
    * который не дёргается от перевода системных часов. До первого тика остаётся
@@ -330,6 +362,9 @@ export function useRoomSync({
       current = ws;
       ws.onopen = () => {
         socketRef.current = ws;
+        // Собеседники за время обрыва забыли о нас, а мы — о них: объявляемся
+        // заново, иначе голос молчал бы до чьего-нибудь перезахода.
+        voiceSink.current?.reconnected();
         delay = 1000;
         lossHistory.current = [];
         setPacketLoss(0);
@@ -367,6 +402,8 @@ export function useRoomSync({
                 } as Room)
               : old,
           );
+        } else if (msg.t === 'voice') {
+          voiceSink.current?.signal(msg);
         } else if (msg.t === 'refresh') {
           refresh().catch((e) => setError((e as Error).message));
         } else if (msg.t === 'pong') {
@@ -527,6 +564,8 @@ export function useRoomSync({
     act,
     fire,
     weapon,
+    sendVoice,
+    setVoiceSink,
     serverNow,
   };
 }

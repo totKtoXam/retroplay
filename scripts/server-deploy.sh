@@ -34,10 +34,13 @@ systemctl --user restart retro3d.service
 sleep 2
 systemctl --user is-active retro3d.service
 
-echo "==> Checking HTTP response on port $PORT (waiting up to 45s for wrangler to start)..."
+# Сервер отдаёт HTTPS с самоподписанным сертификатом (start-lan.sh), поэтому
+# проверяем с -k: доверие к сертификату здесь не проверяется, важно только,
+# что приложение поднялось и отвечает.
+echo "==> Checking HTTPS response on port $PORT (waiting up to 45s for wrangler to start)..."
 HTTP_CODE="000"
 for i in $(seq 1 45); do
-  HTTP_CODE=$(curl -s -o /dev/null -m 20 -w "%{http_code}" "http://localhost:$PORT/" || true)
+  HTTP_CODE=$(curl -sk -o /dev/null -m 20 -w "%{http_code}" "https://localhost:$PORT/" || true)
   [ "$HTTP_CODE" = "200" ] && break
   sleep 1
 done

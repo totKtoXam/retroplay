@@ -12,6 +12,24 @@ function test(name, fn) {
   console.log('PASS', name);
 }
 const run = (s, op, user = 'host') => applyOperation(s, op, user, 'host');
+test('Голос глушит и возвращает только ведущий', () => {
+  let s = initialState('A');
+  assert.equal(s.voiceEnabled, undefined, 'у старых комнат поля нет — чат включён');
+  s = run(s, { type: 'voice.mute', session: 'guest' });
+  assert.deepEqual(s.voiceMuted, ['guest']);
+  s = run(s, { type: 'voice.mute', session: 'guest', muted: false });
+  assert.deepEqual(s.voiceMuted, []);
+  assert.throws(
+    () => run(s, { type: 'voice.mute', session: 'host' }),
+    /сам себя/,
+    'ведущий не глушит сам себя',
+  );
+  assert.throws(
+    () => run(s, { type: 'voice.mute', session: 'guest' }, 'guest'),
+    /только ведущему/,
+    'участник не глушит других',
+  );
+});
 test('Rooms have independent state', () => {
   const a = run(initialState('A'), { type: 'note.add', text: 'Idea' });
   const b = initialState('B');

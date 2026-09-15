@@ -23,6 +23,7 @@ import { ItemWheel } from './item-wheel';
 import { WorldTablet } from './world-tablet';
 import { AmmoIndicator, WorldHud } from './world-hud';
 import { WorldMinimap, type MinimapBlip, type MinimapFrame } from './world-minimap';
+import type { VoiceChannel, VoiceView } from './voice-chat';
 import { createMapScene, type WorldKit } from './world-map-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
@@ -129,6 +130,10 @@ type Props = {
   onCursor?: (x: number, y: number) => void;
   pendingJoinRequestsCount?: number;
   onOpenJoinRequests?: () => void;
+  /** Состояние голосового чата для HUD (components/use-voice-chat.ts). */
+  voice?: VoiceView;
+  /** Нажали или отпустили T (своей команде) или Y (всем). */
+  onTalk?: (channel: VoiceChannel, on: boolean) => void;
 };
 export type KillMessage = {
   id: string;
@@ -1077,7 +1082,7 @@ export default function World(props: Props) {
         : new T.Vector3(0, 1, 0);
       const origin =
         perspectiveRef.current === 'first'
-          ? hands.group.localToWorld(new T.Vector3(0, 0.025, -0.69))
+          ? hands.muzzle(tool)
           : pos
             .clone()
             .add(
@@ -1459,6 +1464,8 @@ export default function World(props: Props) {
           'KeyV',
           'KeyR',
           'KeyZ',
+          'KeyT',
+          'KeyY',
           'ArrowLeft',
           'ArrowRight',
           'ArrowUp',
@@ -1506,6 +1513,11 @@ export default function World(props: Props) {
         choosePerspective(
           perspectiveRef.current === 'first' ? 'third' : 'first',
         );
+      // Рация: пока клавиша зажата, голос идёт своим (T) или всем (Y).
+      // Разговор не зависит от того, жив ли игрок: мёртвому тем более есть что
+      // сказать команде, и молчать в ожидании возрождения незачем.
+      if (e.code === 'KeyT') latest.current.onTalk?.('team', true);
+      if (e.code === 'KeyY') latest.current.onTalk?.('all', true);
       if (e.code.startsWith('Digit')) {
         const slot = slotForDigit(modeOf(latest.current.room.state), e.code);
         if (slot !== undefined) {
@@ -1520,8 +1532,11 @@ export default function World(props: Props) {
       if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
         releaseScoreHold();
       // Отпускание обрабатываем и с модификаторами: иначе приседание залипло бы
-      // после X + случайно нажатого Ctrl.
+      // после X + случайно нажатого Ctrl. По той же причине — и рация: зажатая
+      // T плюс случайный Alt оставили бы микрофон открытым.
       if (e.code === 'KeyX') player.releaseCrouch();
+      if (e.code === 'KeyT') latest.current.onTalk?.('team', false);
+      if (e.code === 'KeyY') latest.current.onTalk?.('all', false);
 
     };
     const onMouse = (e: MouseEvent) => {
@@ -2239,6 +2254,7 @@ export default function World(props: Props) {
         killfeed={killfeed}
         personalAlert={personalAlert}
         respawnSeconds={respawnSeconds}
+        voice={props.voice}
         freezeSeconds={Math.max(
           0,
           Math.ceil(((props.room.match?.until ?? 0) - props.now) / 1000),
