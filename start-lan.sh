@@ -10,6 +10,10 @@ if [ ! -f dist/server/wrangler.json ]; then
   npm run build
 fi
 
+# Wrangler ищет .dev.vars рядом с файлом конфигурации, а не в рабочем каталоге,
+# поэтому секреты из корня проекта надо принести в dist/server (scripts/sync-dev-vars.mjs).
+node scripts/sync-dev-vars.mjs
+
 # --persist-to is required: by default wrangler keeps D1 next to
 # dist/server/wrangler.json, i.e. in an empty database instead of the one in
 # .wrangler/state that `npm run db:local` migrates.
