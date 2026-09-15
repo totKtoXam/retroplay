@@ -38,11 +38,23 @@ export function AvatarPreview({
     const host = mount.current!;
     let renderer: T.WebGLRenderer;
     try {
-      renderer = new T.WebGLRenderer({ antialias: true, alpha: true });
+      /*
+       * Превью — второй WebGL-контекст на странице: первый уже держит игровой
+       * мир с тенями и bloom. На слабой или занятой видеокарте лишний дорогой
+       * контекст роняет процесс отрисовки вместе со всей вкладкой, поэтому
+       * просим у драйвера самый дешёвый: панель размером с ладонь, сглаживание
+       * на ней не видно, а отдельный мощный GPU ради неё будить незачем.
+       */
+      renderer = new T.WebGLRenderer({
+        antialias: false,
+        alpha: true,
+        powerPreference: 'low-power',
+        failIfMajorPerformanceCaveat: false,
+      });
     } catch {
       return;
     }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setPixelRatio(1);
     renderer.outputColorSpace = T.SRGBColorSpace;
     renderer.toneMapping = T.ACESFilmicToneMapping;
     host.appendChild(renderer.domElement);
@@ -117,6 +129,19 @@ export function AvatarPreview({
      * страницы во время жеста. Стрелки рядом остаются: это доступ с клавиатуры.
      */
     const canvas = renderer.domElement;
+    /*
+     * Драйвер вправе отобрать контекст в любой момент (переключение видеокарты,
+     * нехватка памяти, сброс GPU). По умолчанию браузер после этого пытается
+     * что-то дорисовать и уводит вкладку в ошибку. Гасим событие: превью просто
+     * замирает последним кадром, а игра в соседнем контексте живёт дальше.
+     */
+    const onContextLost = (e: Event) => {
+      e.preventDefault();
+      turn.current = () => {};
+      applyLook.current = () => {};
+      console.warn('Превью персонажа потеряло WebGL-контекст');
+    };
+    canvas.addEventListener('webglcontextlost', onContextLost);
     canvas.style.touchAction = 'none';
     canvas.style.cursor = 'grab';
     let dragging = -1,
@@ -162,6 +187,7 @@ export function AvatarPreview({
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
+      canvas.removeEventListener('webglcontextlost', onContextLost);
       turn.current = () => {};
       applyLook.current = () => {};
       skins.dispose();
