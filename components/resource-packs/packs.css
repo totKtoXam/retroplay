@@ -212,7 +212,8 @@
     .equipped-card,
     .quick-loadout,
     .camera-toolbar,
-    .ammo-panel,
+    /* .ammo-panel убрана: индикатор патронов теперь .hud-ammo и намеренно
+       прозрачный — непрозрачная подложка пакета перечеркнула бы это. */
     .equipment-panel,
     .item-options-button,
     .interact-prompt,
