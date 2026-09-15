@@ -21,7 +21,7 @@ import {
 } from '@/lib/model';
 import { ItemWheel } from './item-wheel';
 import { WorldTablet } from './world-tablet';
-import { WorldHud } from './world-hud';
+import { AmmoIndicator, WorldHud } from './world-hud';
 import { createMapScene, type WorldKit } from './world-map-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
@@ -2184,20 +2184,14 @@ export default function World(props: Props) {
           <span>Работать с идеями</span>
         </button>
       )}
+      {/* Вид индикатора (цифры или графика) выбирается в настройках, поэтому
+          разметка и подписка на настройку живут в world-hud.tsx. */}
       {['paint', 'confetti', 'sniper'].includes(current?.id) && (
-        <div
-          className={`ammo-panel ${reloading ? 'is-reloading' : ''}`}
-          aria-live="polite"
-        >
-          <span>{reloading ? 'ПЕРЕЗАРЯДКА' : current.label}</span>
-          <strong>
-            {rounds[current.id as Blaster]}{' '}
-            <small>/ {CAPACITY[current.id as Blaster]}</small>
-          </strong>
-          <div>
-            <kbd>R</kbd> перезарядить <i /> <kbd>ПКМ</kbd> прицел
-          </div>
-        </div>
+        <AmmoIndicator
+          rounds={rounds[current.id as Blaster]}
+          capacity={CAPACITY[current.id as Blaster]}
+          reloading={reloading}
+        />
       )}
       <div className="equipped-card">
         <span className="weapon-number">{currentSlot?.key ?? '—'}</span>
