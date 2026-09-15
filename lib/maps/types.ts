@@ -54,7 +54,7 @@ export type MapLight = { x: number; y: number; z: number; color: string; intensi
 export type ArenaDef = {
   id: string;
   title: string;
-  /** Playable area; keep it inside |x|, |z| <= 36 (the server clamps poses there). */
+  /** Playable area; the client and the server clamp poses to exactly these bounds. */
   bounds: Bounds;
   groundColor: string;
   /** Terrain beyond the walls. */

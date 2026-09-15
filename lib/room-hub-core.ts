@@ -18,7 +18,7 @@ import { uid, type Person, type Pose, type RoomState, type WorldEffect } from '.
 import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
 import { getMap } from './maps/index.ts';
 import { modeOf } from './maps/catalog.ts';
-import { stanceHeight, type GameMap, type SpawnPoint, type Team } from './maps/types.ts';
+import { stanceHeight, type Bounds, type GameMap, type SpawnPoint, type Team } from './maps/types.ts';
 
 /** Effects older than this are neither resolved nor sent to clients. */
 export const EFFECT_TTL_MS = 15_000;
@@ -202,13 +202,16 @@ export function sanitizeCursor(cursor: unknown): Cursor | null {
   };
 }
 
-export function sanitizePose(pose: unknown): Pose | null {
+/** The hub's extent; used when a pose arrives without a map to measure it against. */
+const DEFAULT_BOUNDS: Bounds = { minX: -36, maxX: 36, minZ: -36, maxZ: 36 };
+
+export function sanitizePose(pose: unknown, bounds: Bounds = DEFAULT_BOUNDS): Pose | null {
   const p = pose as Record<string, unknown> | null;
   if (!p || typeof p !== 'object' || ![p.x, p.y, p.z, p.yaw].every(finite)) return null;
   return {
-    x: clamp(p.x as number, -36, 36),
+    x: clamp(p.x as number, bounds.minX, bounds.maxX),
     y: clamp(p.y as number, 0, 10),
-    z: clamp(p.z as number, -36, 36),
+    z: clamp(p.z as number, bounds.minZ, bounds.maxZ),
     yaw: p.yaw as number,
     stance: p.stance === 'sit' || p.stance === 'lie' ? p.stance : 'stand',
     moving: !!p.moving,
@@ -277,7 +280,7 @@ export function applyPresence(
   /** Подготовка раунда: поворот и стойка принимаются, шаги — нет. */
   frozen = false,
 ) {
-  const pose = sanitizePose(op.pose);
+  const pose = sanitizePose(op.pose, map.bounds);
   const cursor = sanitizeCursor(op.cursor);
   const life = Number.isInteger(op.life) ? (op.life as number) : 0;
   m.seen = now;
