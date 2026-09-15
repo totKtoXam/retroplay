@@ -91,6 +91,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       now,
       getMap(hub.room.map),
       isFrozen(hub, now),
+      hub.room.shieldSeconds * 1000,
     );
     const changed = resolveCombat(hub, now);
     this.markDirty(changed);
@@ -201,7 +202,14 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     if (!hub || !m) return;
     const now = Date.now();
     if (msg.t === 'presence') {
-      applyPresence(m, msg, now, getMap(hub.room.map), isFrozen(hub, now));
+      applyPresence(
+        m,
+        msg,
+        now,
+        getMap(hub.room.map),
+        isFrozen(hub, now),
+        hub.room.shieldSeconds * 1000,
+      );
       this.markDirty(false);
     } else if (msg.t === 'effect') {
       let reply;

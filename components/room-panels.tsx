@@ -934,6 +934,37 @@ export function ModePanel({
           }}
         />
       </label>
+      {/* Щит возрождения. Выключатель и длительность — одна настройка на двоих:
+          ноль секунд и есть «щита нет», поэтому поле прячется, когда щит снят,
+          и не заставляет гадать, что значит «0». */}
+      <Toggle
+        label="Щит возрождения"
+        description="Несколько секунд неуязвимости после появления на спавне: отсчёт идёт с первого шага"
+        value={(s.shieldSeconds ?? 5) > 0}
+        disabled={!host}
+        onChange={(on) => onSettings({ shieldSeconds: on ? 5 : 0 })}
+      />
+      {(s.shieldSeconds ?? 5) > 0 && (
+        <label className="field">
+          Щит возрождения, секунд
+          <input
+            type="number"
+            aria-label="Длительность щита возрождения"
+            key={s.shieldSeconds ?? 5}
+            defaultValue={s.shieldSeconds ?? 5}
+            min="1"
+            max="30"
+            step="1"
+            disabled={!host}
+            onBlur={(e) => {
+              const value = Number(e.target.value);
+              if (Number.isInteger(value) && value >= 1 && value <= 30)
+                onSettings({ shieldSeconds: value });
+              else e.target.value = String(s.shieldSeconds ?? 5);
+            }}
+          />
+        </label>
+      )}
     </>
   );
 }

@@ -226,6 +226,7 @@ export async function POST(request: Request, context: Context) {
       maxPlayers: 8,
     };
     const maxPlayers = access.maxPlayers || 8;
+    const shieldSeconds = Math.max(0, Math.min(30, roomState.shieldSeconds ?? 5));
 
     if (op.type === 'join_request.create' || op.type === 'join_request') {
       const name = cleanText(op.name, 40);
@@ -373,7 +374,9 @@ export async function POST(request: Request, context: Context) {
           }),
           '',
           '',
-          Date.now() + 5000,
+          // Щит новичка живёт столько же, сколько щит возрождения в комнате;
+          // выключенный щит (0 секунд) не даёт вошедшему ничего.
+          shieldSeconds > 0 ? Date.now() + shieldSeconds * 1000 : 0,
         )
         .run();
       await notifyMember(id, self);

@@ -52,6 +52,7 @@ const room = (over = {}) => ({
   host: 'a',
   anonymous: false,
   respawnSeconds: 5,
+  shieldSeconds: 5,
   archived: false,
   map: 'hub',
   teams: false,
@@ -136,6 +137,32 @@ test('dead players cannot move or shoot; they respawn protected at the spawn poi
   applyPresence(v, { pose: stand(0, 0), life: 1 }, T + 1200);
   assert.equal(v.pose.z, 0);
   assert.equal(v.immuneUntil, T + 1200 + 5000, 'protection ends 5 s after the first move');
+});
+
+test('a disabled shield protects nobody, even a player who already had it', () => {
+  const h = duel();
+  h.room = room({ shieldSeconds: 0 });
+  // Щит выдан до выключения и «до первого шага»: выключатель снимает и его.
+  h.members.get('v').immuneUntil = -1;
+  fire(h, 'a', T);
+  assert.equal(h.members.get('v').hp, 80, 'выключенный щит не держит урон');
+  assert.equal(publicMembers(h, T)[0].immuneRemaining, 0, 'и не показывается игрокам');
+  const v = h.members.get('v');
+  Object.assign(v, { hp: 0, respawnAt: T + 1000 });
+  resolveCombat(h, T + 1000);
+  assert.equal(v.immuneUntil, 0, 'возрождение без щита не выдаёт неуязвимость');
+});
+
+test('the host sets how long the shield lasts', () => {
+  const h = duel();
+  h.room = room({ shieldSeconds: 12 });
+  const v = h.members.get('v');
+  Object.assign(v, { hp: 0, respawnAt: T + 1000 });
+  resolveCombat(h, T + 1000);
+  assert.equal(v.immuneUntil, -1, 'до первого шага щит держится');
+  assert.equal(publicMembers(h, T + 1000).find((m) => m.id === 'v').immuneRemaining, 12_000);
+  applyPresence(v, { pose: stand(0, 0), life: 1 }, T + 1200, getMap('hub'), false, 12_000);
+  assert.equal(v.immuneUntil, T + 1200 + 12_000, 'шаг запускает отсчёт настроенной длины');
 });
 
 test('immune players neither take nor deal damage', () => {
