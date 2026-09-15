@@ -892,6 +892,7 @@ export default function World(props: Props) {
       splat: vfx.splat,
       smearPlayerWithPaint: vfx.smearPlayerWithPaint,
       checkSceneryHit,
+      colliders: map.colliders,
     });
     const { flights, spawn } = projectiles;
     let lastReportedRounds = { ...magazine.current.rounds };
