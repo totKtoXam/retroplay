@@ -89,7 +89,7 @@ export function createFirstPersonHands(camera: T.Camera) {
   const dotGlow = new T.MeshBasicMaterial({
     color: '#ff5566',
     transparent: true,
-    opacity: 0.05,
+    opacity: 0.0425,
     depthTest: false,
     depthWrite: false,
   });
@@ -266,8 +266,14 @@ export function createFirstPersonHands(camera: T.Camera) {
   for (const side of [-1, 1])
     box(0.009, 0.062, 0.014, polymer, side * 0.039, 0.131, -0.175, paintOptic);
   box(0.092, 0.01, 0.09, polymer, 0, 0.165, -0.175, paintOptic);
+  /*
+   * Точка мелкая намеренно. С прежним радиусом она перекрывала около восьми
+   * тысячных от расстояния до цели: на десяти метрах это восемь сантиметров —
+   * голова бойца целиком. Прицеливаться по кляксе, которая больше того, во что
+   * целишься, нельзя.
+   */
   const paintDot = part(
-    new T.SphereGeometry(0.0055, 8, 8),
+    new T.SphereGeometry(0.0032, 8, 8),
     dotGlow,
     0,
     paintSight.y,
