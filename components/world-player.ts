@@ -52,6 +52,7 @@ export function createWorldPlayer({
     lastC = -1000,
     crouchHeld = false,
     beforeCrouch: 'stand' | 'sit' | 'lie' = 'stand';
+  let accumulated = 0;
 
   // Body height follows the stance, so crouching or lying fits through low openings.
   const blocked = (x: number, z: number, y = pos.y, stance = currentStance) =>
@@ -104,6 +105,16 @@ export function createWorldPlayer({
     pos.set(x, y, z);
     vy = 0;
     currentStance = 'stand';
+    accumulated = 0;
+    onStance('stand');
+  };
+  /** Correct the body without stealing mouse look or the player's held input. */
+  const correctPosition = (pose: Pose) => {
+    pos.set(pose.x, pose.y, pose.z);
+    vy = 0;
+    accumulated = 0;
+    currentStance = pose.stance;
+    onStance(currentStance);
   };
 
   /**
@@ -235,6 +246,19 @@ export function createWorldPlayer({
     return { moving, speed, dx, dz, groundY };
   };
 
+  // Simulate at 60 Hz regardless of render FPS. Bound catch-up after a suspended tab.
+  let lastMotion = { moving: false, speed: 4.8, dx: 0, dz: 0, groundY: pos.y };
+  const advance = (elapsed: number, input: { control: boolean; aimHeld: boolean }) => {
+    const step = 1 / 60;
+    if (!Number.isFinite(elapsed) || elapsed <= 0) return lastMotion;
+    accumulated += Math.min(elapsed, 0.25);
+    while (accumulated + 1e-9 >= step) {
+      lastMotion = update(step, input);
+      accumulated = Math.max(0, accumulated - step);
+    }
+    return lastMotion;
+  };
+
   return {
     pos,
     get stance() {
@@ -270,6 +294,8 @@ export function createWorldPlayer({
     holdCrouch,
     releaseCrouch,
     teleport,
+    correctPosition,
     update,
+    advance,
   };
 }

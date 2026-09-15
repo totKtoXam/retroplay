@@ -33,8 +33,6 @@ const TRACK_MS = 1000;
 const MOVE_SPEED = 4.8 * 1.5;
 /** Movement allowance saved up while packets are delayed, m. */
 const MOVE_BUDGET = 5;
-/** A client whose moves have been refused this long is resynced to where it says it is. */
-const RESYNC_MS = 1500;
 /** Rounds mode: one round lasts this long, then the break before the next one. */
 const ROUND_MS = 120_000;
 const INTERMISSION_MS = 6_000;
@@ -72,6 +70,9 @@ export type HubMember = {
   /** Recent poses of the current life, oldest first, for lag compensation. */
   track: { at: number; pose: Pose }[];
   moveBudget: number;
+  riseBudget?: number;
+  /** Changes only when the server corrects a rejected position. */
+  positionRevision?: number;
   lastMoveAt: number;
   /** Start of the current run of refused moves (0: none). */
   refusedSince: number;
@@ -182,6 +183,8 @@ export function memberFromRow(row: Record<string, unknown>): HubMember {
     lastShot: num(row.last_shot),
     track: [],
     moveBudget: MOVE_BUDGET,
+    riseBudget: 1.5,
+    positionRevision: 0,
     lastMoveAt: 0,
     refusedSince: 0,
     spawn: { x: SPAWN_POSE.x, z: SPAWN_POSE.z },
@@ -262,7 +265,8 @@ export function poseAt(m: HubMember, t: number): Pose {
  * Presence packet: marks the member online and takes the pose unless they are dead or the
  * packet belongs to a previous life (sent before a respawn reached the client). Positions
  * that move faster than a run allows, end inside a wall or pass through one are refused
- * (the rest of the pose is kept); after RESYNC_MS of refusals a legal position is accepted.
+ * (look direction is kept). Repeated refusals never grant a teleport; clients reconcile
+ * using positionRevision from both HTTP and WebSocket snapshots.
  */
 export function applyPresence(
   m: HubMember,
@@ -281,6 +285,8 @@ export function applyPresence(
   if (!pose || m.hp <= 0 || m.life !== life) return;
   if (frozen) {
     const from = m.pose;
+    if (Math.hypot(pose.x - from.x, pose.y - from.y, pose.z - from.z) > 0.02)
+      m.positionRevision = (m.positionRevision ?? 0) + 1;
     m.pose = { ...pose, x: from.x, y: from.y, z: from.z, moving: false };
     m.lastMoveAt = now;
     recordPose(m, now);
@@ -291,14 +297,20 @@ export function applyPresence(
   m.moveBudget = Math.min(MOVE_BUDGET, m.moveBudget + MOVE_SPEED * dt);
   const from = m.pose;
   const step = Math.hypot(pose.x - from.x, pose.z - from.z);
-  if (step > 1e-3 && !moveAllowed(map, from, pose, step, m.moveBudget)) {
+  // Separate upward allowance: jumping cannot be used to bypass horizontal checks.
+  // At most one jump's height can be saved up, even after a long idle period.
+  m.riseBudget = Math.min(1.5, (m.riseBudget ?? 1.5) + 6.5 * dt);
+  const rise = pose.y - from.y;
+  const verticalAllowed = rise <= m.riseBudget && -rise <= 1.5 + 26 * Math.min(dt, 0.5);
+  if (!verticalAllowed || !moveAllowed(map, from, pose, step, m.moveBudget)) {
     if (!m.refusedSince) m.refusedSince = now;
-    if (now - m.refusedSince < RESYNC_MS || blockedAt(map, pose)) {
-      m.pose = { ...pose, x: from.x, y: from.y, z: from.z, moving: false };
-      recordPose(m, now);
-      return;
-    }
+    m.positionRevision = (m.positionRevision ?? 0) + 1;
+    const stance = blockedAt(map, { ...from, stance: pose.stance }) ? from.stance : pose.stance;
+    m.pose = { ...pose, x: from.x, y: from.y, z: from.z, stance, moving: false };
+    recordPose(m, now);
+    return;
   }
+  m.riseBudget = Math.max(0, m.riseBudget - Math.max(0, rise));
   m.refusedSince = 0;
   m.moveBudget = Math.max(0, m.moveBudget - step);
   m.pose = pose;
@@ -405,6 +417,7 @@ function placeAt(m: HubMember, spawn: SpawnPoint) {
   m.spawn = { x: spawn.x, z: spawn.z };
   m.track = [];
   m.moveBudget = MOVE_BUDGET;
+  m.riseBudget = 1.5;
   m.refusedSince = 0;
 }
 
@@ -743,6 +756,7 @@ export function publicMembers(state: HubState, now: number): Person[] {
       team: m.team,
       lastSeen: m.seen,
       pose: m.pose,
+      positionRevision: m.positionRevision ?? 0,
       ping: m.ping,
       mood: anonymous ? '' : m.mood,
       hat: anonymous ? '' : m.hat,

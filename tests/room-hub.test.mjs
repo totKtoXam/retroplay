@@ -254,7 +254,7 @@ test('lag compensation rewinds at most 250 ms and never for grenades', () => {
   assert.equal(g.effect.rewindTo, T + 2000);
 });
 
-test('teleports are refused; a client stuck on refusals is resynced after 1.5 s', () => {
+test('repeated teleports are refused and publish a correction instead of trusting the client', () => {
   assert.equal(isBlocked3D(20, 0, 0, 0.25), false);
   const h = duel();
   const v = h.members.get('v');
@@ -264,9 +264,10 @@ test('teleports are refused; a client stuck on refusals is resynced after 1.5 s'
   applyPresence(v, { pose: stand(20, 0), life: 0 }, T + 1000);
   assert.equal(v.pose.x, 0);
   applyPresence(v, { pose: stand(20, 0), life: 0 }, T + 1600);
-  assert.equal(v.pose.x, 20, 'resynced');
-  applyPresence(v, { pose: stand(20.3, 0), life: 0 }, T + 1650);
-  assert.equal(v.pose.x, 20.3, 'normal movement continues');
+  assert.equal(v.pose.x, 0, 'repeated requests cannot bypass the movement budget');
+  assert.equal(publicMembers(h, T + 1600).find((m) => m.id === 'v').positionRevision, 3);
+  applyPresence(v, { pose: stand(0.3, 0), life: 0 }, T + 1650);
+  assert.equal(v.pose.x, 0.3, 'normal movement continues from the accepted position');
 });
 
 // A battle map (teams on); the hub stays free-for-all.
@@ -432,4 +433,13 @@ test('a like never wounds, even straight in the head', () => {
   fire(h, 'a', T, 'like', { origin: [0, 2.07, 4], target: [0, 2.07, 0] });
   assert.equal(h.members.get('v').hp, 100, 'лайк безвреден');
   assert.equal(h.effects.some((e) => e.kind === 'kill'), false, 'и никого не убивает');
+});
+
+test('vertical teleports at unchanged XZ stay rejected after repeated attempts', () => {
+  const h = duel(), v = h.members.get('v');
+  applyPresence(v, { pose: { ...v.pose, y: 10 }, life: 0 }, T);
+  assert.equal(v.pose.y, 0);
+  assert.equal(v.positionRevision, 1);
+  for (let i = 1; i <= 50; i++) applyPresence(v, { pose: { ...v.pose, y: 10 }, life: 0 }, T + i * 100);
+  assert.equal(v.pose.y, 0, 'waiting longer does not grant a vertical teleport');
 });

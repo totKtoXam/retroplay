@@ -16,7 +16,7 @@
     "test": "node --experimental-strip-types --test tests/model.test.mjs tests/avatar.test.mjs tests/camera.test.mjs tests/magazine.test.mjs tests/loadout.test.mjs tests/hitbox.test.mjs tests/access.test.mjs tests/building.test.mjs tests/resource-packs.test.mjs tests/effects.test.mjs tests/room-hub.test.mjs tests/room-store.test.mjs tests/maps.test.mjs tests/map-mountain.test.mjs tests/map-bazaar.test.mjs tests/map-mansion.test.mjs tests/world-player.test.mjs tests/combat-schema.test.mjs tests/weapon-authority.test.mjs",
     "test:integration": "node tests/integration.mjs && node tests/combat.integration.mjs",
     "db:local": "wrangler d1 migrations apply site-creator-d1 --local --config wrangler.local.json && node scripts/ensure-combat-columns.mjs site-creator-d1 --local --config wrangler.local.json",
-    "test:socket": "node tests/match-socket.integration.mjs && node tests/weapon-socket.integration.mjs"
+    "test:socket": "node tests/match-socket.integration.mjs && node tests/weapon-socket.integration.mjs && node tests/movement-socket.integration.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
