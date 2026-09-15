@@ -33,11 +33,18 @@ if (mode === 'prepare') {
   assert.ok(reload.magazine.loading);
   const battle = await req('/api/rooms', { title: 'QA restart match', name: 'Restart QA', theme: 'nauryz', mode: 'battle', map: 'mansion' });
   const battlePath = '/api/rooms/' + battle.id;
+  const hostCookie = cookie;
+  const guestSession = await fetch(base + '/api/session', { method: 'POST' });
+  cookie = guestSession.headers.get('set-cookie').split(';')[0];
+  await guestSession.json();
+  await req(battlePath, { type: 'join', name: 'Restart opponent' });
+  cookie = hostCookie;
   await req(battlePath, { type: 'room.settings', patch: { matchMode: 'rounds', roundWins: 9 } });
   await req(battlePath);
   await new Promise(r => setTimeout(r, 5200));
   const before = await req(battlePath);
   assert.equal(before.match.phase, 'live');
+  assert.deepEqual(new Set(before.members.map(m => m.team)), new Set(['red', 'blue']));
   await mkdir('outputs', { recursive: true });
   await writeFile(file, JSON.stringify({ base, cookie, user: user.id, path, battlePath, before, reload }), { mode: 0o600 });
   console.log('PREPARED: spent paint, timed confetti reload, live round. Restart server now.');

@@ -28,4 +28,15 @@ D1 остаётся источником списка участников, пр
 
 ## Deployment
 
-Target: win-devbox-tailscale. Existing path: /home/user/projects/retro3d. Existing user service: retro3d.service. Flow: git fast-forward, scripts/server-deploy.sh, existing persistent storage, service restart. SQLite backup: /home/user/backups/retro3d/20260915T115726Z, 29 databases, integrity_check OK. Статус публикации и проверки развёрнутой версии будет дополнен после выполнения.
+Target: win-devbox-tailscale. Existing path: /home/user/projects/retro3d. Existing user service: retro3d.service. Flow: git fast-forward, scripts/server-deploy.sh, existing persistent storage, service restart. SQLite backup: /home/user/backups/retro3d/20260915T115726Z, 29 databases, integrity_check OK. Публикация выполнена: runtime bc89677, production build успешен, сервис active/running, NRestarts=0, главная страница HTTP 200. URL: http://100.74.94.97:3001.
+
+## Проверки развёрнутой версии
+
+- Настоящий restart существующего retro3d.service после подготовки тестовых комнат: PASS. После него совпадают live round, score, phase и deadline; боезапас и ревизии сохраняются, перезарядка завершается, жизнь не меняется; HTTP и WS согласованы.
+- Первый вариант сценария с одним игроком корректно завершил раунд победой единственной команды. Исправлен именно тест: добавлен соперник во вторую команду. Исправленный сценарий повторно прошёл локально и на сервере. Игровые правила не изменялись ради теста.
+- HTTP integration + 14 auth scenarios + combat integration: PASS на удалённой версии.
+- Все три WS suites: PASS на удалённой версии.
+- В логах остаётся известный Network connection lost при закрытии WS. Ошибка «Источник запроса не разрешён» ожидаема от негативного auth-теста. Новых ошибок checkpoint и аварийных перезапусков не обнаружено.
+- Тестовые комнаты архивированы; пользовательское хранилище и конфигурация сохранены.
+
+Изменённый сценарий restart и этот итоговый отчёт не входят в runtime bundle и публикуются отдельным завершающим коммитом без повторной сборки приложения.
