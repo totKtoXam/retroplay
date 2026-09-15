@@ -1,0 +1,235 @@
+/*
+ * Игровой HUD поверх 3D-сцены (components/world-hud.tsx): панель
+ * производительности, состав сторон и полоска здоровья.
+ *
+ * Цвета здесь собственные, а не `--jin-*`: за HUD не тема приложения, а
+ * произвольный кадр сцены, поэтому и в светлой, и в тёмной теме нужна одна и
+ * та же тёмная подложка с тенью текста.
+ *
+ * Селекторы намеренно длиннее базовых. Визуальные стили (`.style-classic`,
+ * `.style-anime`) красят `.world-location` тремя классами, и с коротким
+ * селектором компактный вид панели FPS снова разъезжался под ними.
+ */
+
+/* --- Панель FPS: мелкая и полупрозрачная, чтобы не спорить с боем --- */
+
+.world-container .world-hud-top-left .world-performance.world-location {
+  gap: 6px;
+  padding: 3px 8px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 2px solid rgba(255, 209, 102, 0.55);
+  border-radius: 7px;
+  background: rgba(10, 16, 28, 0.4);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  color: #e8eefb;
+  /* Лёгкое приглушение вместо сильной прозрачности: читаемость держит
+     подложка и тень текста, а не сам alpha. */
+  opacity: 0.82;
+  cursor: pointer;
+  transition:
+    opacity 0.16s ease,
+    background 0.16s ease;
+}
+.world-container .world-hud-top-left .world-performance.world-location:hover,
+.world-container
+  .world-hud-top-left
+  .world-performance.world-location:focus-visible {
+  opacity: 1;
+  background: rgba(10, 16, 28, 0.66);
+}
+.world-container .world-hud-top-left .world-performance.world-location .live-dot {
+  width: 5px;
+  height: 5px;
+}
+.world-container .world-hud-top-left .world-performance.world-location strong {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #eef3ff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+.world-container
+  .world-hud-top-left
+  .world-performance.world-location
+  strong
+  span {
+  display: inline;
+  margin: 0;
+  font-size: 9px;
+  font-weight: 500;
+  color: #9db1d1;
+}
+.world-container
+  .world-hud-top-left
+  .world-performance.world-location
+  div
+  > span {
+  margin-top: 1px;
+  font-size: 8.5px;
+  letter-spacing: 0.01em;
+  color: #a6b8d6;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* --- Состав сторон и подсказка клавиши (только командный бой) --- */
+
+.world-hud-top-left .hud-sides {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 200px;
+  padding: 4px 8px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  background: rgba(10, 16, 28, 0.4);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  color: #dde6f6;
+  font-size: 9.5px;
+  line-height: 1.3;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  user-select: none;
+}
+.world-hud-top-left .hud-side {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.world-hud-top-left .hud-side i {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.world-hud-top-left .hud-side-red i {
+  background: #ff5d52;
+  box-shadow: 0 0 6px rgba(255, 93, 82, 0.55);
+}
+.world-hud-top-left .hud-side-blue i {
+  background: #5aa9ff;
+  box-shadow: 0 0 6px rgba(90, 169, 255, 0.55);
+}
+.world-hud-top-left .hud-side b {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.world-hud-top-left .hud-side span {
+  min-width: 0;
+  overflow: hidden;
+  color: #a6b8d6;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Своя сторона подсвечена: в замесе некогда вспоминать, за кого играешь. */
+.world-hud-top-left .hud-side.is-mine b,
+.world-hud-top-left .hud-side.is-mine span {
+  color: #ffffff;
+}
+.world-hud-top-left .hud-side-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 0;
+  padding-top: 3px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: #93a6c4;
+  font-size: 9px;
+}
+.world-hud-top-left .hud-side-hint kbd {
+  padding: 0 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffd166;
+  font: inherit;
+  font-weight: 700;
+}
+
+/* --- Полоска HP, приклеенная к верхней кромке панели предметов --- */
+
+.health-bar-hud {
+  position: absolute;
+  /* Ширина и отступ приходят инлайном из замера панели предметов; значения
+     ниже — запасные, на случай пока панель ещё не измерена. */
+  bottom: var(--hp-anchor-bottom, 74px);
+  left: 50%;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hp-anchor-width, min(320px, calc(100vw - 28px)));
+  height: 13px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-bottom: 0;
+  /* Скругляем только верх и садимся на кромку панели: так полоска читается
+     как её продолжение, а не как отдельная плашка. */
+  border-radius: 7px 7px 0 0;
+  background: rgba(8, 13, 24, 0.62);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.35);
+  transform: translateX(-50%);
+  pointer-events: none;
+  user-select: none;
+}
+.health-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--hp-fill, 100%);
+  background-color: var(--hp-color, hsl(130 72% 45%));
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.28),
+    rgba(255, 255, 255, 0) 65%
+  );
+  transition:
+    width 0.18s ease-out,
+    background-color 0.18s linear;
+}
+.health-bar-value {
+  position: relative;
+  z-index: 1;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  font-variant-numeric: tabular-nums;
+  /* Цифры лежат на самой полоске, поэтому под ними то залитый цвет, то
+     тёмный фон: двойная тень держит контраст в обоих случаях. */
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 5px rgba(0, 0, 0, 0.7);
+}
+.health-bar-hud.is-depleted .health-bar-value {
+  color: #ffd2da;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .health-bar-fill {
+    transition: none;
+  }
+}
+
+/* Узкий экран: панель предметов сжимается, вместе с ней и полоска. */
+@media (max-width: 420px) {
+  .world-hud-top-left .hud-sides {
+    max-width: 150px;
+  }
+  .health-bar-hud {
+    height: 12px;
+  }
+  .health-bar-value {
+    font-size: 8.5px;
+    letter-spacing: 0.06em;
+  }
+}

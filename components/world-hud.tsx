@@ -3,7 +3,7 @@ import { GAME_TOOLS, type Room, type Person } from '@/lib/model';
 import type { GameMode } from '@/lib/maps/catalog';
 import type { Perspective } from '@/lib/game-camera';
 import { Eye, User, X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SNIPER_ZOOM_LEVELS, SNIPER_ZOOM_FOVS } from './world-constants';
 import type { KillMessage, PersonalAlert, HitEffect } from './world';
 
@@ -119,7 +119,62 @@ function PaintAimReticle() {
   );
 }
 
+/**
+ * Ширина панели предметов и её верхняя кромка — панель рендерит `world.tsx`,
+ * а полоска HP живёт здесь, поэтому размеры снимаем измерением: набор слотов
+ * зависит от режима, а размер кнопок — от ширины экрана, и никакая константа
+ * не удержала бы полоску ровно по краям панели.
+ */
+function useLoadoutAnchor() {
+  const [anchor, setAnchor] = useState<{ width: number; bottom: number } | null>(
+    null,
+  );
+  useEffect(() => {
+    const dock = document.querySelector<HTMLElement>('.quick-loadout');
+    const host = dock?.parentElement;
+    if (!dock || !host) return;
+    const measure = () => {
+      const dockBox = dock.getBoundingClientRect();
+      const hostBox = host.getBoundingClientRect();
+      const width = Math.round(dockBox.width);
+      const bottom = Math.round(hostBox.bottom - dockBox.top);
+      // Новый объект только при реальном изменении: HUD перерисовывается
+      // поверх каждого кадра сцены, и лишний ре-рендер тут стоит дорого.
+      setAnchor((prev) =>
+        prev && prev.width === width && prev.bottom === bottom
+          ? prev
+          : { width, bottom },
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(dock);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+  return anchor;
+}
+
+/**
+ * Цвет полоски здоровья: оттенок едет от зелёного (130°) к красному (0°)
+ * пропорционально hp. Считаем формулой, а не тремя порогами, — иначе на
+ * границах ступеней полоска дёргала цветом от каждого попадания.
+ */
+function healthHue(hp: number) {
+  return Math.round((Math.min(100, Math.max(0, hp)) / 100) * 130);
+}
+
 export function WorldHud(props: WorldHudProps) {
+  const loadout = useLoadoutAnchor();
+  const hp = Math.min(100, Math.max(0, props.self?.hp ?? 100));
+  // Стороны показываем только когда они реально розданы: в ретро и свободной
+  // драке поле `team` пустое, и пустой блок только мешал бы смотреть на бой.
+  const sides = (['red', 'blue'] as const).map((team) => ({
+    team,
+    members: props.room.members.filter((m) => m.team === team),
+  }));
+  const teamBattle =
+    props.mode === 'battle' && sides.some((side) => side.members.length > 0);
   const paintAiming =
     props.current?.id === 'paint' &&
     props.aiming &&
@@ -250,6 +305,27 @@ export function WorldHud(props: WorldHudProps) {
           </button>
           <kbd>V</kbd>
         </fieldset>
+        {teamBattle && (
+          <div className="hud-sides" aria-label="Состав команд">
+            {sides.map((side) => (
+              <div
+                key={side.team}
+                className={`hud-side hud-side-${side.team} ${
+                  props.self?.team === side.team ? 'is-mine' : ''
+                }`}
+              >
+                <i aria-hidden="true" />
+                <b>{side.members.length}</b>
+                <span>
+                  {side.members.map((m) => m.name).join(', ') || '—'}
+                </span>
+              </div>
+            ))}
+            <p className="hud-side-hint">
+              <kbd>G</kbd> — сменить сторону
+            </p>
+          </div>
+        )}
       </div>
       {props.mode === 'retro' && (
       <div className="world-hud-top-center">
@@ -486,16 +562,26 @@ export function WorldHud(props: WorldHudProps) {
           {props.personalAlert.sub && <small>{props.personalAlert.sub}</small>}
         </div>
       )}
-      {/* Здоровье есть и на ретроспективе: там тоже можно словить залп конфетти. */}
-      <div className={`health-hud ${props.dead ? 'depleted' : ''}`}>
-        <strong>{props.self?.hp ?? 100}</strong>
-        <span>HP</span>
-        <meter
-          min="0"
-          max="100"
-          value={props.self?.hp ?? 100}
-          aria-label="Здоровье"
-        />
+      {/* Здоровье есть и на ретроспективе: там тоже можно словить залп конфетти.
+          Полоска прижата к панели предметов: взгляд в бою и так держится на
+          центре низа экрана, а угловой блок с цифрами заставлял его метаться. */}
+      <div
+        className={`health-bar-hud ${props.dead ? 'is-depleted' : ''}`}
+        style={
+          {
+            '--hp-fill': `${hp}%`,
+            '--hp-color': `hsl(${healthHue(hp)} 72% 45%)`,
+            ...(loadout && {
+              '--hp-anchor-width': `${loadout.width}px`,
+              '--hp-anchor-bottom': `${loadout.bottom}px`,
+            }),
+          } as React.CSSProperties
+        }
+      >
+        <i className="health-bar-fill" aria-hidden="true" />
+        {/* Значение читается с самого текста, поэтому отдельная ARIA-роль
+            полоске не нужна. */}
+        <span className="health-bar-value">{hp} HP</span>
       </div>
       {props.dead && (
         <div className="respawn-overlay">
