@@ -189,3 +189,50 @@ test('Клиентская догадка о попадании по себе ш
   assert.equal(inHitRange('like', [5, 1.4, 0], [-5, 1.4, 0], pose), true);
   assert.equal(effectDamage('like'), 0);
 });
+
+/**
+ * Перекрытие проверяется по точке попадания, а не по центру тела. Пока сервер
+ * пускал луч в середину груди, попадания поверх укрытия и через окно
+ * отбрасывались: клиент рисовал отметку, а урон не проходил.
+ */
+test('Стена засчитывается только там, где реально прошёл выстрел', () => {
+  const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
+
+  // 1. Цель за ящиком 1.4 м, выстрел прошёл поверх ящика в голову.
+  const crate = { minX: -3, maxX: 3, minZ: 1.8, maxZ: 2.4, minY: 0, maxY: 1.4 };
+  const overCover = { origin: [0, 1.7, 6], target: [0, 2.07, 0] };
+  assert.equal(hitZone(overCover.origin, overCover.target, pose), 'head');
+  assert.equal(
+    inHitRange('paint', overCover.origin, overCover.target, pose, [crate]),
+    true,
+    'голова торчит над укрытием — попадание засчитывается',
+  );
+
+  // 2. Цель в здании, стрелок снаружи стреляет в голову через окно с подоконником 1.2 м.
+  const sill = { minX: -12, maxX: 12, minZ: 2, maxZ: 2.4, minY: 0, maxY: 1.2 };
+  const lintel = { minX: -12, maxX: 12, minZ: 2, maxZ: 2.4, minY: 2.3, maxY: 4 };
+  const window = { origin: [0, 1.0, 10], target: [0, 2.07, 0] };
+  assert.equal(
+    inHitRange('paint', window.origin, window.target, pose, [sill, lintel]),
+    true,
+    'выстрел прошёл в оконный проём — урон должен регистрироваться',
+  );
+
+  // 3. Тот же подоконник, но выстрел идёт в него: попадания нет.
+  const intoSill = { origin: [0, 0.9, 10], target: [0, 0.6, 0] };
+  assert.equal(
+    inHitRange('paint', intoSill.origin, intoSill.target, pose, [sill, lintel]),
+    false,
+    'пуля вошла в стену под окном — перекрытие остаётся в силе',
+  );
+
+  // 4. Сплошная стена по-прежнему держит дробовик.
+  const solid = { minX: -12, maxX: 12, minZ: 2, maxZ: 2.4, minY: 0, maxY: 4 };
+  const blast = { origin: [0, 1.15, 6], target: [0, 1.15, 0] };
+  assert.ok(calculatePelletsHit(blast.origin, blast.target, pose, 8, []).pelletsHit > 0);
+  assert.equal(
+    calculatePelletsHit(blast.origin, blast.target, pose, 8, [solid]).pelletsHit,
+    0,
+    'дробь не проходит сквозь сплошную стену',
+  );
+});
