@@ -16,6 +16,7 @@ import {
   NotebookPen,
   Swords,
   Users,
+  UserRound,
 } from 'lucide-react';
 import {
   Dialog,
@@ -28,6 +29,8 @@ import { THEMES, PHASES, type RoomAccessType } from '@/lib/model';
 import { api, ready } from '@/lib/client';
 import { defaultMapFor, mapsForMode, MODES, type GameMode } from '@/lib/maps/catalog';
 import { Choice } from './controls';
+import { AccountButton, AuthDialog } from './auth-panel';
+import { useAuth } from '../hooks/use-auth';
 import { StylePicker } from './style-picker';
 import { ResourcePackPicker } from './resource-pack-picker';
 import { ThemeToggle } from './theme-toggle';
@@ -87,8 +90,38 @@ const STATUS_LABELS: Record<PublicSummary['status'], string> = {
   in_progress: 'Идёт ретро',
   closed: 'Закрыта',
 };
+/**
+ * Читает и стирает из адреса сообщение о возврате: подтверждение почты
+ * (`?verified=`) и ошибку входа через Google (`?auth=`).
+ */
+function takeAuthNotice() {
+  const params = new URLSearchParams(location.search);
+  const verified = params.get('verified');
+  const message =
+    params.get('auth') ||
+    (verified === '1'
+      ? 'Почта подтверждена — теперь пароль можно восстановить по ней.'
+      : verified === 'expired'
+        ? 'Ссылка подтверждения устарела. Запросите новое письмо в аккаунте.'
+        : verified === 'error'
+          ? 'Не удалось подтвердить почту. Попробуйте ещё раз.'
+          : '');
+  if (!message) return '';
+  params.delete('verified');
+  params.delete('auth');
+  const query = params.toString();
+  history.replaceState(null, '', location.pathname + (query ? '?' + query : ''));
+  return message;
+}
+
 export default function Lobby() {
   const resourcePack = useResourcePack();
+  const auth = useAuth();
+  const [authOpen, setAuthOpen] = useState(false);
+  // Ключ меняется при каждом открытии: диалог пересоздаётся с чистой формой,
+  // но при закрытии остаётся смонтированным и успевает доиграть анимацию.
+  const [authKey, setAuthKey] = useState(0);
+  const [authNotice, setAuthNotice] = useState('');
   const [packsOpen, setPacksOpen] = useState(false);
   const [create, setCreate] = useState(false),
     [name, setName] = useState(''),
@@ -111,6 +144,11 @@ export default function Lobby() {
     [joinCode, setJoinCode] = useState(''),
     [help, setHelp] = useState(false);
 
+  const openAuth = () => {
+    setAuthKey((key) => key + 1);
+    setAuthOpen(true);
+  };
+
   const loadRooms = async () => {
     try {
       const [myRes, pubRes] = await Promise.all([
@@ -126,6 +164,15 @@ export default function Lobby() {
       setLoading(false);
     }
   };
+
+  /**
+   * Сообщения возвратов: подтверждение почты и ошибки входа через Google
+   * приходят параметром адреса. Параметр сразу убирается, чтобы перезагрузка
+   * страницы не показывала то же сообщение снова.
+   */
+  useEffect(() => {
+    void Promise.resolve().then(() => setAuthNotice(takeAuthNotice()));
+  }, []);
 
   useEffect(() => {
     void ready()
@@ -308,6 +355,19 @@ export default function Lobby() {
   );
   return (
     <main className="lobby" data-resource-pack={resourcePack}>
+      <AuthDialog
+        key={authKey}
+        open={authOpen}
+        onOpenChange={setAuthOpen}
+        defaultName={name}
+        user={auth.user}
+        google={auth.google}
+        mail={auth.mail}
+        onChanged={async () => {
+          await auth.refresh();
+          await loadRooms();
+        }}
+      />
       <Dialog open={packsOpen} onOpenChange={setPacksOpen}><DialogContent><DialogTitle>Визуальный пакет</DialogTitle><DialogDescription>Выберите оформление игры на этом устройстве.</DialogDescription><ResourcePackPicker /></DialogContent></Dialog>
       <header className="main-header">
         <a className="brand" href="/">
@@ -315,11 +375,16 @@ export default function Lobby() {
           <span className="brand-suffix">RETRO WORLD</span>
         </a>
         <div className="header-actions">
-          {name && (
+          {!auth.user && name && (
             <span className="header-player" title="Ваше имя">
               {name}
             </span>
           )}
+          <AccountButton
+            user={auth.user}
+            loading={auth.loading}
+            onClick={openAuth}
+          />
           <ThemeToggle />
         </div>
       </header>
@@ -336,6 +401,9 @@ export default function Lobby() {
           </button>
           <button type="button" onClick={() => setPacksOpen(true)}>
             <Settings2 size={18} /> Визуальный пакет
+          </button>
+          <button type="button" onClick={openAuth}>
+            <UserRound size={18} /> {auth.user ? 'Аккаунт' : 'Вход и регистрация'}
           </button>
           <div className="nav-bottom">
             <span className="version-tag">JINALY · EARLY ACCESS</span>
@@ -386,6 +454,15 @@ export default function Lobby() {
               <Link2 size={15} /> Войти по ссылке
             </button>
           </div>
+
+          {authNotice && (
+            <p className="auth-notice lobby-auth-notice">
+              {authNotice}{' '}
+              <button className="text-button" onClick={() => setAuthNotice('')}>
+                Скрыть
+              </button>
+            </p>
+          )}
 
           {error && (
             <p role="alert" className="error-banner">

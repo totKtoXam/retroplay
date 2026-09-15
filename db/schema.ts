@@ -1,8 +1,10 @@
+import { sql } from 'drizzle-orm';
 import {
   sqliteTable,
   text,
   integer,
   index,
+  uniqueIndex,
   primaryKey,
 } from 'drizzle-orm/sqlite-core';
 export const rooms = sqliteTable('rooms', {
@@ -106,4 +108,70 @@ export const joinRequests = sqliteTable(
     index('idx_join_requests_room').on(t.room),
     index('idx_join_requests_session').on(t.session),
   ],
+);
+
+/**
+ * Аккаунты: почта с паролем и вход через Google. `publicId` — та же строка, что
+ * лежит в `members.session`, поэтому комнаты и карточки не зависят от способа
+ * входа (db/auth.ts). Гостевые сессии остаются и работают без аккаунта.
+ */
+export const users = sqliteTable(
+  'users',
+  {
+    id: text('id').primaryKey(),
+    /** Публичная личность участника: `members.session`, `rooms.host`, автор карточек. */
+    publicId: text('public_id').notNull(),
+    email: text('email').notNull(),
+    emailVerified: integer('email_verified').notNull().default(0),
+    name: text('name').notNull().default(''),
+    /** `pbkdf2$sha256$...` или пустая строка у аккаунтов только с Google. */
+    passwordHash: text('password_hash').notNull().default(''),
+    /** Неизменяемый идентификатор аккаунта Google (`sub`), пусто без привязки. */
+    googleSub: text('google_sub').notNull().default(''),
+    avatar: text('avatar').notNull().default(''),
+    /** Подряд идущие неудачные входы и блокировка подбора пароля. */
+    failedLogins: integer('failed_logins').notNull().default(0),
+    lockedUntil: integer('locked_until').notNull().default(0),
+    created: integer('created').notNull(),
+    updated: integer('updated').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_users_email').on(t.email),
+    uniqueIndex('idx_users_public').on(t.publicId),
+    // Частичный индекс: пустая строка у аккаунтов без Google не должна конфликтовать.
+    uniqueIndex('idx_users_google')
+      .on(t.googleSub)
+      .where(sql`google_sub <> ''`),
+  ],
+);
+
+/** Сессии входа: в базе только SHA-256 от cookie-токена, сам токен есть лишь у браузера. */
+export const authSessions = sqliteTable(
+  'auth_sessions',
+  {
+    token: text('token').primaryKey(),
+    user: text('user')
+      .notNull()
+      .references(() => users.id),
+    created: integer('created').notNull(),
+    expires: integer('expires').notNull(),
+    seen: integer('seen').notNull().default(0),
+  },
+  (t) => [index('idx_auth_sessions_user').on(t.user)],
+);
+
+/** Одноразовые ссылки из писем: подтверждение почты (`verify`) и сброс пароля (`reset`). */
+export const authTokens = sqliteTable(
+  'auth_tokens',
+  {
+    token: text('token').primaryKey(),
+    user: text('user')
+      .notNull()
+      .references(() => users.id),
+    kind: text('kind').notNull(),
+    expires: integer('expires').notNull(),
+    used: integer('used').notNull().default(0),
+    created: integer('created').notNull(),
+  },
+  (t) => [index('idx_auth_tokens_user').on(t.user, t.kind)],
 );

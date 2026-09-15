@@ -6595,3 +6595,222 @@ body.item-wheel-open [data-slot='dialog-overlay'] {
   color: #b9c8dd;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
 }
+
+/* ==========================================================================
+   Вход и аккаунт (components/auth-panel.tsx, components/reset-form.tsx).
+   Цвета берутся из переменных --jin-* темы (app/theme.css), поэтому светлая и
+   тёмная тема покрываются одним блоком.
+   ========================================================================== */
+.account-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 7px;
+  border: 1px solid var(--jin-border);
+  border-radius: 999px;
+  background: var(--jin-surface);
+  color: var(--jin-text);
+  font-size: 13px;
+  font-weight: 550;
+  max-width: 210px;
+}
+.account-chip:hover {
+  border-color: var(--jin-accent);
+}
+.account-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auth-avatar {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--jin-accent);
+  color: #fff;
+  font-weight: 650;
+  font-size: 17px;
+  flex: none;
+}
+.auth-avatar-sm {
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+}
+.auth-dialog form {
+  margin: 0;
+}
+.auth-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 6px;
+  padding: 14px;
+  border: 1px solid var(--jin-border);
+  border-radius: 12px;
+  background: var(--jin-surface-2);
+}
+.auth-identity div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.auth-identity strong {
+  font-size: 15px;
+}
+.auth-identity small {
+  color: var(--jin-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.auth-badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--jin-danger-bg);
+  color: var(--jin-danger-text);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.auth-badge-ok {
+  background: var(--jin-accent-soft);
+  color: var(--jin-accent);
+}
+/* Кнопка Google: белая подложка и серая рамка по требованиям бренда. */
+.auth-google {
+  width: 100%;
+  margin: 18px 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border: 1px solid #dadce0;
+  border-radius: 9px;
+  background: #fff;
+  color: #3c4043;
+  font-size: 14px;
+  font-weight: 600;
+}
+.auth-google:hover {
+  background: #f7f8f8;
+}
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 4px;
+  color: var(--jin-text-faint);
+  font-size: 12px;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--jin-border);
+}
+.auth-wide {
+  width: 100%;
+  margin-top: 12px;
+}
+.auth-logout {
+  margin-top: 18px;
+  background: var(--jin-danger-bg);
+  color: var(--jin-danger-text);
+}
+.auth-switch {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+.auth-hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--jin-text-muted);
+  line-height: 1.5;
+}
+.auth-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 11px 13px;
+  border-radius: 10px;
+  background: var(--jin-accent-soft);
+  color: var(--jin-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.auth-notice svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--jin-accent);
+}
+.lobby-auth-notice {
+  margin: 0 0 16px;
+  justify-content: space-between;
+}
+.auth-dev-link {
+  word-break: break-all;
+}
+.auth-dev-link a {
+  color: var(--jin-accent);
+  text-decoration: underline;
+}
+.auth-message {
+  margin-top: 16px;
+}
+.auth-spin {
+  animation: auth-spin 900ms linear infinite;
+}
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Поле пароля с кнопкой «показать» (components/password-field.tsx). */
+.password-field {
+  position: relative;
+  display: flex;
+}
+.password-field input {
+  /* Место под кнопку: текст пароля не должен под неё заезжать. */
+  padding-right: 42px;
+}
+.password-eye {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0 8px 8px 0;
+  background: none;
+  color: var(--jin-text-faint);
+}
+.password-eye:hover {
+  color: var(--jin-accent);
+}
+.password-eye[aria-pressed='true'] {
+  color: var(--jin-accent);
+}
+.field-hint {
+  color: var(--jin-text-muted);
+  font-weight: 400;
+  font-size: 12px;
+}
+.auth-reset-top {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+}
