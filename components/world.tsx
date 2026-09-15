@@ -1315,6 +1315,12 @@ export default function World(props: Props) {
       clear();
     };
     const onKey = (e: KeyboardEvent) => {
+      // Сочетания с Ctrl / Alt / Cmd принадлежат браузеру и системе: Ctrl+W
+      // закрывает вкладку, Ctrl+T открывает новую, Ctrl+R перезагружает,
+      // Alt+F4 закрывает окно. Перехватить их со страницы нельзя, поэтому
+      // игра на них просто не реагирует — иначе служебная комбинация вдобавок
+      // дёргала бы игрока. Игровые клавиши работают только без модификаторов.
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
       if (
         (e.code === 'KeyQ' || e.code === 'KeyI') &&
         !e.repeat &&
@@ -1376,8 +1382,7 @@ export default function World(props: Props) {
           'KeyD',
           'Space',
           'KeyC',
-          'ControlLeft',
-          'ControlRight',
+          'KeyX',
           'ShiftLeft',
           'ShiftRight',
           'Tab',
@@ -1410,7 +1415,7 @@ export default function World(props: Props) {
         }
       }
       if (e.code === 'KeyR') beginReload();
-      if (e.code.startsWith('Control')) player.holdCrouch();
+      if (e.code === 'KeyX') player.holdCrouch();
       if (isDead()) return;
       if (e.code === 'Space') player.jump();
       if (e.code === 'KeyC') player.toggleStance(performance.now());
@@ -1438,12 +1443,9 @@ export default function World(props: Props) {
       keys.delete(e.code);
       if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
         releaseScoreHold();
-      if (
-        e.code.startsWith('Control') &&
-        !keys.has('ControlLeft') &&
-        !keys.has('ControlRight')
-      )
-        player.releaseCrouch();
+      // Отпускание обрабатываем и с модификаторами: иначе приседание залипло бы
+      // после X + случайно нажатого Ctrl.
+      if (e.code === 'KeyX') player.releaseCrouch();
 
     };
     const onMouse = (e: MouseEvent) => {

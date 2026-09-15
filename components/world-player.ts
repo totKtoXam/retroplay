@@ -85,7 +85,7 @@ export function createWorldPlayer({
     lastC = now;
     onStance(currentStance);
   };
-  /** Ctrl down: crouch for as long as it is held, remembering what to return to. */
+  /** KeyX down: crouch for as long as it is held, remembering what to return to. */
   const holdCrouch = () => {
     if (crouchHeld) return;
     beforeCrouch = currentStance;
@@ -93,7 +93,7 @@ export function createWorldPlayer({
     currentStance = 'sit';
     onStance('sit');
   };
-  /** Ctrl up, or focus lost while it was down: return to the remembered stance if it fits. */
+  /** KeyX up, or focus lost while it was down: return to the remembered stance if it fits. */
   const releaseCrouch = () => {
     if (!crouchHeld) return;
     if (canStand(beforeCrouch)) currentStance = beforeCrouch;
