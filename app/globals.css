@@ -5979,31 +5979,6 @@ h1 > span {
   padding: 40px;
   text-align: center;
 }
-/* Меню комнаты: всё, что не нужно каждую секунду. */
-.room-menu {
-  display: grid;
-  gap: 6px;
-}
-.room-menu button {
-  display: grid;
-  grid-template-columns: 20px 1fr 16px;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid #e2e8e3;
-  border-radius: 9px;
-  text-align: left;
-}
-.room-menu strong {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-}
-.room-menu small {
-  font-size: 11px;
-  opacity: 0.7;
-}
-
 /* Всё в мире опускается под единую шапку (её высота ~40px). */
 .room-app {
   --bar-h: 40px;
@@ -6873,49 +6848,6 @@ body.item-wheel-open [data-slot='dialog-overlay'] {
   .settings-nav-item small {
     display: none;
   }
-}
-
-/* --- Меню комнаты: только действия, настройки первым пунктом --- */
-.room-menu-group {
-  display: grid;
-  gap: 5px;
-}
-.room-menu-title {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--jin-text-faint);
-  padding: 7px 2px 1px;
-}
-.room-menu-primary {
-  display: grid;
-  grid-template-columns: 20px 1fr 16px;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 12px;
-  border: 1px solid var(--jin-accent);
-  border-radius: 9px;
-  text-align: left;
-  background: var(--jin-accent-soft);
-  color: var(--jin-accent-hover);
-}
-.room-menu-primary strong {
-  display: block;
-  font-size: 13px;
-  font-weight: 650;
-}
-.room-menu-primary small {
-  font-size: 11px;
-  opacity: 0.75;
-}
-/* «Завершить встречу» больше не соседствует с полем имени в списке
-   переключателей: необратимое действие стоит отдельно и подписано следствием. */
-.room-menu-danger {
-  grid-template-columns: 20px 1fr !important;
-  border-color: var(--jin-danger-bg) !important;
-  background: var(--jin-danger-bg);
-  color: var(--jin-danger-text);
 }
 
 /* --- Чип мира в шапке (components/world-quick-chip.tsx) --- */

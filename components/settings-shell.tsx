@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 /** Один раздел настроек: пункт слева и его содержимое справа. */
@@ -46,9 +47,21 @@ export function SettingsShell({
   const active =
     groups.flatMap((g) => g.sections).find((s) => s.id === section) ||
     groups[0]?.sections[0];
+  const navRef = useRef<HTMLElement>(null);
+  // На узком экране колонка разделов становится горизонтальной лентой, и
+  // активный пункт запросто оказывается за правым краем: открыв «Историю»,
+  // видишь начало списка и не понимаешь, где находишься. Подкручиваем ленту
+  // к активному пункту. На десктопе колонка вертикальная и влезает целиком,
+  // поэтому прокрутка там просто ничего не делает.
+  useEffect(() => {
+    const el = navRef.current?.querySelector<HTMLElement>(
+      '.settings-nav-item.active',
+    );
+    el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [section]);
   return (
     <div className="settings-shell">
-      <nav className="settings-nav" aria-label="Разделы настроек">
+      <nav ref={navRef} className="settings-nav" aria-label="Разделы настроек">
         {groups.map((group) => (
           <div key={group.id} className="settings-nav-group">
             <span className="settings-nav-title">{group.title}</span>
