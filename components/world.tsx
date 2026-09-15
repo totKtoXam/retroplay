@@ -25,7 +25,6 @@ import { AmmoIndicator, WorldHud } from './world-hud';
 import { createMapScene, type WorldKit } from './world-map-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
-import { opticNdcBox } from './world-optic-mark';
 import { createFieldOptics } from './resource-packs/realistic/post';
 import { visualBudget } from '../lib/resource-packs';
 import { createFirstPersonHands } from './world-hands';
@@ -733,32 +732,12 @@ export default function World(props: Props) {
     let appliedLocalSkinId = cachedLocalSkinId;
     let appliedLocalBandanaColor = cachedLocalBandanaColor;
     applyAvatarSkin(avatar, appliedLocalSkinId, appliedLocalBandanaColor, localBandanaMat);
-    const opticBox = new T.Box2();
     const remotePlayers = createWorldRemotePlayers({
       scene,
       kit,
       quality: props.quality,
       latest,
       map,
-      camera,
-      opticWindow: () => {
-        /*
-         * Рамка есть только тогда, когда в неё действительно смотрят: от
-         * бедра, из-за плеча, с механическим прицелом или мёртвым подсвечивать
-         * некому и незачем. `0.85` — почти доведённое прицеливание: пока рука
-         * идёт к глазу, рамка ещё не стоит на месте.
-         */
-        if (
-          perspectiveRef.current !== 'first' ||
-          GAME_TOOLS[latest.current.tool]?.id !== 'paint' ||
-          selection.current.paintSight !== 'dot' ||
-          aimBlend < 0.85 ||
-          isDead()
-        )
-          return null;
-        camera.updateMatrixWorld();
-        return opticNdcBox(hands.opticGlass, camera, opticBox);
-      },
     });
     const { remoteAvatars, deadTimers } = remotePlayers;
     const shadow = new T.Mesh(
