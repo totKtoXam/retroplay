@@ -2,13 +2,27 @@
 import { useEffect, useRef } from 'react';
 import type { GameMap } from '@/lib/maps/types';
 
-/** Что миникарта показывает про одного бойца. */
-export type MinimapBlip = { x: number; z: number; team?: string; self?: boolean; dead?: boolean };
+/**
+ * Что миникарта показывает про одного бойца. Свои — всегда; враги — только
+ * засвеченные (lib/spotting.ts), и `fresh` гаснет по мере того, как отметка
+ * стареет: на плане остаётся последнее известное место, а не текущее.
+ */
+export type MinimapBlip = {
+  x: number;
+  z: number;
+  team?: string;
+  dead?: boolean;
+  enemy?: boolean;
+  /** 1 — только что видели, 0 — отметка вот-вот погаснет. */
+  fresh?: number;
+};
 /** Снимок кадра: своя поза приходит из движка, чужие — из последнего состояния комнаты. */
 export type MinimapFrame = { x: number; z: number; yaw: number; blips: MinimapBlip[] };
 
 /** Сторона плашки в CSS-пикселях. */
 const SIZE = 168;
+/** Развёрнутый план по M: во весь свободный экран, но не больше этого. */
+const EXPANDED_MAX = 640;
 /** Поля внутри плашки, CSS-пиксели. */
 const PAD = 6;
 /** Высота, выше которой блок считается верхним ярусом и рисуется светлее. */
@@ -22,6 +36,7 @@ const COLORS = {
   ramp: 'rgba(250, 204, 121, 0.55)',
   water: 'rgba(80, 150, 200, 0.42)',
   self: '#ffffff',
+  spot: 'rgba(255, 255, 255, 0.92)',
   red: '#ff6b7a',
   blue: '#6ba8ff',
   ally: '#6ee7a8',
@@ -120,7 +135,12 @@ function drawStatic(map: GameMap, px: number, p: Projection): HTMLCanvasElement 
  * поза меняется 60 раз в секунду, и проводить её через состояние React значило
  * бы перерисовывать весь HUD поверх каждого кадра сцены.
  */
-export function WorldMinimap(props: { map: GameMap; read: () => MinimapFrame | null }) {
+export function WorldMinimap(props: {
+  map: GameMap;
+  read: () => MinimapFrame | null;
+  /** Развёрнутый план по M. */
+  expanded?: boolean;
+}) {
   const canvas = useRef<HTMLCanvasElement>(null);
   // Кадр берёт свежий `read` через ref, чтобы смена коллбэка не перезапускала
   // цикл отрисовки и не перерисовывала статический слой заново.
@@ -133,28 +153,55 @@ export function WorldMinimap(props: { map: GameMap; read: () => MinimapFrame | n
     const el = canvas.current;
     if (!el) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const px = Math.round(SIZE * dpr);
-    el.width = px;
-    el.height = px;
+    let px = 0;
+    let statics: HTMLCanvasElement | null = null;
+    let p: ReturnType<typeof projection> | null = null;
     const ctx = el.getContext('2d');
     if (!ctx) return;
-    const p = projection(props.map, px, dpr);
-    const statics = drawStatic(props.map, px, p);
+
+    // Развёрнутый план зависит от размера окна, поэтому холст пересобирается и
+    // при переключении, и при изменении окна: растянутая картинка мылит план, а
+    // по нему считывают геометрию.
+    const setup = () => {
+      const side = props.expanded
+        ? Math.max(260, Math.min(EXPANDED_MAX, Math.min(window.innerWidth, window.innerHeight) - 96))
+        : SIZE;
+      px = Math.round(side * dpr);
+      el.width = px;
+      el.height = px;
+      el.style.width = `${side}px`;
+      el.style.height = `${side}px`;
+      p = projection(props.map, px, dpr);
+      statics = drawStatic(props.map, px, p);
+    };
+    setup();
+    const onResize = () => setup();
+    window.addEventListener('resize', onResize);
 
     let raf = 0;
     const frame = () => {
       raf = requestAnimationFrame(frame);
+      if (!statics || !p) return;
       const data = read.current();
       ctx.clearRect(0, 0, px, px);
       ctx.drawImage(statics, 0, 0);
       if (!data) return;
+      const unit = px / (SIZE * dpr);
       for (const blip of data.blips) {
+        const r = (blip.enemy ? 3.6 : 3) * dpr * unit;
+        ctx.globalAlpha = blip.dead ? 0.3 : (blip.fresh ?? 1);
         ctx.beginPath();
-        ctx.arc(p.toX(blip.x), p.toZ(blip.z), 3 * dpr, 0, Math.PI * 2);
+        ctx.arc(p.toX(blip.x), p.toZ(blip.z), r, 0, Math.PI * 2);
         ctx.fillStyle =
           blip.team === 'red' ? COLORS.red : blip.team === 'blue' ? COLORS.blue : COLORS.ally;
-        ctx.globalAlpha = blip.dead ? 0.35 : 1;
         ctx.fill();
+        // Засвеченный враг обведён: цвет команды говорит, чей он, а кольцо — что
+        // это разведанная цель, а не свой, которого видно всегда.
+        if (blip.enemy) {
+          ctx.strokeStyle = COLORS.spot;
+          ctx.lineWidth = 1.4 * dpr * unit;
+          ctx.stroke();
+        }
         ctx.globalAlpha = 1;
       }
       // Своя стрелка рисуется последней и всегда поверх: на ней глаз и стоит.
@@ -165,25 +212,34 @@ export function WorldMinimap(props: { map: GameMap; read: () => MinimapFrame | n
       // (−sin yaw, −cos yaw) совпадает с поворотом холста на −yaw.
       ctx.rotate(-data.yaw);
       ctx.beginPath();
-      ctx.moveTo(0, -6 * dpr);
-      ctx.lineTo(4.5 * dpr, 5 * dpr);
-      ctx.lineTo(0, 2.5 * dpr);
-      ctx.lineTo(-4.5 * dpr, 5 * dpr);
+      ctx.moveTo(0, -6 * dpr * unit);
+      ctx.lineTo(4.5 * dpr * unit, 5 * dpr * unit);
+      ctx.lineTo(0, 2.5 * dpr * unit);
+      ctx.lineTo(-4.5 * dpr * unit, 5 * dpr * unit);
       ctx.closePath();
       ctx.fillStyle = COLORS.self;
       ctx.strokeStyle = 'rgba(15, 23, 42, 0.85)';
-      ctx.lineWidth = 1.2 * dpr;
+      ctx.lineWidth = 1.2 * dpr * unit;
       ctx.fill();
       ctx.stroke();
       ctx.restore();
     };
     frame();
-    return () => cancelAnimationFrame(raf);
-  }, [props.map]);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [props.map, props.expanded]);
 
   return (
-    <div className="hud-minimap" aria-hidden="true">
-      <canvas ref={canvas} style={{ width: SIZE, height: SIZE }} />
+    <div className={`hud-minimap ${props.expanded ? 'is-expanded' : ''}`} aria-hidden="true">
+      <canvas ref={canvas} />
+      {props.expanded && (
+        <figcaption className="hud-minimap-caption">
+          <span>{props.map.title}</span>
+          <kbd>M</kbd>
+        </figcaption>
+      )}
     </div>
   );
 }

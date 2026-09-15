@@ -532,10 +532,55 @@
   .world-container .hud-minimap {
     display: none;
   }
+  /* Развёрнутый план по M нужен и на узком экране — там он как раз и заменяет
+     угловую плашку, которой места не осталось. */
+  .world-container .hud-minimap.is-expanded {
+    display: block;
+  }
 }
 /* Прицеливание и оптика: план отвлекает ровно в тот момент, когда смотрят в
-   одну точку, — убираем его, пока игрок целится. */
-.world-container.is-aiming .hud-minimap {
+   одну точку, — убираем его, пока игрок целится. Развёрнутый по M план не
+   гасим: его открыли, чтобы в него смотреть. */
+.world-container.is-aiming .hud-minimap:not(.is-expanded) {
   opacity: 0.25;
   transition: opacity 0.12s ease;
+}
+
+/* --- Развёрнутый план по M --- */
+
+/* Тот же холст, только крупнее и по центру экрана: отдельного режима у карты
+   нет, меняется лишь разрешение и место. Подложка плотнее угловой — читать
+   приходится дольше, и просвечивающий бой мешал бы. */
+.world-container .hud-minimap.is-expanded {
+  right: 50%;
+  bottom: 50%;
+  z-index: 11;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(8, 13, 25, 0.9);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  transform: translate(50%, 50%);
+}
+.world-container .hud-minimap.is-expanded canvas {
+  border-radius: 6px;
+}
+.hud-minimap-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px 2px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: rgba(226, 232, 240, 0.85);
+}
+.hud-minimap-caption kbd {
+  padding: 1px 5px;
+  font: inherit;
+  font-weight: 700;
+  color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+  background: rgba(15, 23, 42, 0.7);
 }

@@ -23,6 +23,7 @@ import { ItemWheel } from './item-wheel';
 import { WorldTablet } from './world-tablet';
 import { AmmoIndicator, WorldHud } from './world-hud';
 import { WorldMinimap, type MinimapBlip, type MinimapFrame } from './world-minimap';
+import { spotTargets, SPOT_MEMORY_MS, type Target, type Watcher } from '@/lib/spotting';
 import type { VoiceChannel, VoiceView } from './voice-chat';
 import { createMapScene, type WorldKit } from './world-map-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
@@ -323,12 +324,19 @@ export default function World(props: Props) {
   /** Changing the room's map rebuilds the engine with that map's scene and collision. */
   const mapId = props.room.state.map ?? 'hub';
   const minimapMap = useMemo(() => getMap(mapId), [mapId]);
-  // Точки пересобираются только когда сменился сам список участников: кадр
-  // миникарты идёт 60 раз в секунду, а состав комнаты — раз в несколько секунд.
+  const [mapExpanded, setMapExpanded] = useState(false);
+  // Отметки пересобираются только на новом снимке комнаты: кадр миникарты идёт
+  // 60 раз в секунду, а позиции приходят с сервера десять. Там же считается и
+  // засветка — лучи против всей геометрии карты каждый кадр не нужны.
   const blipCache = useRef<{ from: Person[]; out: MinimapBlip[] } | null>(null);
+  /** Последнее известное место засвеченного врага и когда его видели. */
+  const spotted = useRef(new Map<string, { x: number; z: number; team?: string; at: number }>());
   /**
-   * Кадр миникарты. Своя поза берётся у движка (серверная отстаёт на пинг), а в
-   * бою на карте видны только свои: чужие позиции — то, что и добывается боем.
+   * Кадр миникарты. Своя поза берётся у движка — серверная отстаёт на пинг.
+   *
+   * Свои видны всегда, враги — только те, кого кто-то из своих держит в секторе
+   * вокруг прицела и видит не через стену (lib/spotting.ts). Иначе план
+   * показывал бы то, чего игрок глазами не видит, и сам был бы читом.
    */
   const readMinimap = useCallback((): MinimapFrame | null => {
     const player = engine.current?.player;
@@ -336,12 +344,64 @@ export default function World(props: Props) {
     const room = latest.current.room;
     if (blipCache.current?.from !== room.members) {
       const me = room.members.find((m) => m.id === room.self);
-      blipCache.current = {
-        from: room.members,
-        out: room.members
-          .filter((m) => m.id !== room.self && (!me?.team || m.team === me.team))
-          .map((m) => ({ x: m.pose.x, z: m.pose.z, team: m.team, dead: (m.hp ?? 100) <= 0 })),
-      };
+      const alive = (m: Person) => (m.hp ?? 100) > 0;
+      const allies = room.members.filter(
+        (m) => m.id !== room.self && (!me?.team || m.team === me.team),
+      );
+      const now = Date.now();
+      if (me?.team) {
+        // Смотрят все свои живые. За себя берём живую позу движка: она точнее
+        // серверной ровно на пинг, а сектор засветки узкий.
+        const watchers: Watcher[] = [
+          {
+            x: player.pos.x,
+            y: player.pos.y,
+            z: player.pos.z,
+            yaw: player.cameraYaw,
+            pitch: player.pitch,
+            stance: player.stance,
+          },
+        ];
+        for (const m of allies)
+          if (alive(m))
+            watchers.push({
+              x: m.pose.x,
+              y: m.pose.y,
+              z: m.pose.z,
+              yaw: m.pose.yaw,
+              pitch: m.pose.pitch,
+              stance: m.pose.stance,
+            });
+        const enemies = room.members.filter((m) => m.team && m.team !== me.team && alive(m));
+        const targets: Target[] = enemies.map((m) => ({
+          id: m.id,
+          x: m.pose.x,
+          y: m.pose.y,
+          z: m.pose.z,
+          stance: m.pose.stance,
+        }));
+        for (const id of spotTargets(watchers, targets, minimapMap.colliders)) {
+          const m = enemies.find((e) => e.id === id);
+          if (m) spotted.current.set(id, { x: m.pose.x, z: m.pose.z, team: m.team, at: now });
+        }
+        const live = new Set(enemies.map((m) => m.id));
+        for (const [id, mark] of spotted.current)
+          if (now - mark.at > SPOT_MEMORY_MS || !live.has(id)) spotted.current.delete(id);
+      } else if (spotted.current.size) {
+        spotted.current.clear();
+      }
+      const out: MinimapBlip[] = [];
+      for (const m of allies)
+        out.push({ x: m.pose.x, z: m.pose.z, team: m.team, dead: !alive(m) });
+      for (const mark of spotted.current.values())
+        out.push({
+          x: mark.x,
+          z: mark.z,
+          team: mark.team,
+          enemy: true,
+          fresh: 1 - (now - mark.at) / SPOT_MEMORY_MS,
+        });
+      blipCache.current = { from: room.members, out };
     }
     return {
       x: player.pos.x,
@@ -349,7 +409,7 @@ export default function World(props: Props) {
       yaw: player.cameraYaw,
       blips: blipCache.current.out,
     };
-  }, []);
+  }, [minimapMap]);
   const self = props.room.members.find((m) => m.id === props.room.self);
   const dead = self?.hp === 0;
   const [killfeed, setKillfeed] = useState<KillMessage[]>([]);
@@ -1464,6 +1524,7 @@ export default function World(props: Props) {
           'KeyV',
           'KeyR',
           'KeyZ',
+          'KeyM',
           'KeyT',
           'KeyY',
           'ArrowLeft',
@@ -1490,6 +1551,9 @@ export default function World(props: Props) {
         }
       }
       if (e.code === 'KeyR') beginReload();
+      // План по M разворачивается и сворачивается и живым, и убитым: смотреть
+      // карту в ожидании возрождения — обычное дело.
+      if (e.code === 'KeyM') setMapExpanded((v) => !v);
       if (e.code === 'KeyX') player.holdCrouch();
       if (isDead()) return;
       if (e.code === 'Space') player.jump();
@@ -2306,7 +2370,7 @@ export default function World(props: Props) {
           reloading={reloading}
         />
       )}
-      <WorldMinimap map={minimapMap} read={readMinimap} />
+      <WorldMinimap map={minimapMap} read={readMinimap} expanded={mapExpanded} />
       <div className="equipped-card">
         <span className="weapon-number">{currentSlot?.key ?? '—'}</span>
         <div>
