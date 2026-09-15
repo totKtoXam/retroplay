@@ -6,6 +6,7 @@ import type { WorldKit } from './world-map-scene';
 import { animateAvatar, setAvatarAnonymous } from './world-avatar';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { modeOf } from '@/lib/maps/catalog';
+import { createFlashlightBeam, type FlashlightBeam } from './world-flashlight';
 
 /** Цвета сторон: боец и его метка окрашены в цвет команды, а не личный. */
 const TEAM_COLORS: Record<string, string> = { red: '#ff5d52', blue: '#5aa9ff' };
@@ -31,6 +32,9 @@ export function createWorldRemotePlayers({
   const remoteAvatars = new Map<string, T.Group>(),
     remoteBandanaMats = new Map<string, T.MeshStandardMaterial>(),
     labels = new Map<string, T.Sprite>(),
+    // Луч фонарика живёт столько же, сколько аватар; у выключенного фонарика
+    // он просто невидим — пересоздавать его на каждое нажатие F незачем.
+    beams = new Map<string, FlashlightBeam>(),
     remoteMotion = new Map<
       string,
       {
@@ -89,6 +93,10 @@ export function createWorldRemotePlayers({
     remote.removeFromParent();
     retiredAvatars.push(remote);
     remoteAvatars.delete(id);
+    // Луч помечен как presentationOnly, поэтому общая чистка аватара его не
+    // трогает — освобождаем здесь.
+    beams.get(id)?.dispose();
+    beams.delete(id);
     labels.delete(id);
     remoteBandanaMats.delete(id);
     remoteMotion.delete(id);
@@ -138,6 +146,9 @@ export function createWorldRemotePlayers({
         const label = addLabel(member.name, colorOf(member), isAlly(member));
         labels.set(member.id, label);
         remote.add(label);
+        const beam = createFlashlightBeam();
+        beams.set(member.id, beam);
+        remote.add(beam.group);
         if (member.pose) {
           remote.position.set(
             member.pose.x,
@@ -193,6 +204,8 @@ export function createWorldRemotePlayers({
       if (label) label.visible = !shouldHideLabel && remote.visible;
 
       const p = member.pose;
+      // Погибший фонарём не светит — иначе труп продолжал бы выдавать позицию.
+      beams.get(member.id)?.set(!!p.light && !isRemoteDead, p.pitch || 0);
       let motion = remoteMotion.get(member.id);
       if (!motion) {
         motion = {

@@ -7,6 +7,12 @@ import {
   modeOfMap,
   type GameMode,
 } from './maps/catalog.ts';
+import {
+  anchorFor,
+  dayMoment,
+  TIMES_OF_DAY,
+  type DayCycle,
+} from './day-cycle.ts';
 
 export const ZONES = [
   {
@@ -185,6 +191,12 @@ export type Pose = {
   crouching?: boolean;
   aiming?: boolean;
   reload?: number;
+  /**
+   * Фонарик включён. Едет в позе, а не отдельным сообщением: поза и так
+   * уходит 8 раз в секунду, лишний бит в ней ничего не стоит, зато чужой
+   * фонарик появляется у всех без отдельного протокола.
+   */
+  light?: boolean;
   /** Client only: the life this pose belongs to (sent as the presence `life`). */
   life?: number;
 };
@@ -269,6 +281,13 @@ export type RoomState = {
   visualStyle?: 'classic' | 'anime';
   season: string;
   time: string;
+  /**
+   * Идущие сутки (lib/day-cycle.ts). Пока `running` — время суток считается из
+   * `anchor` по серверным часам, а `time` хранит последнее зафиксированное
+   * значение. Поля нет у комнат, созданных до этой возможности: они остаются на
+   * статичном `time`, пока ведущий не включит цикл.
+   */
+  dayCycle?: DayCycle;
   interior: boolean;
   phase: number;
   privateWriting: boolean;
@@ -395,6 +414,9 @@ export function initialState(
     map: 'hub',
     season: THEMES.find((t) => t.id === theme)?.season || 'spring',
     time: 'day',
+    // Новые комнаты живут по идущим суткам: якорь ставится так, чтобы встреча
+    // начиналась в полдень — в том же освещении, что и раньше.
+    dayCycle: { running: true, anchor: anchorFor({ time: 'day' }, Date.now()) },
     interior: false,
     phase: 0,
     privateWriting: false,
@@ -623,7 +645,25 @@ export function applyOperation(
     }
     if ('season' in p)
       s.season = oneOf(p.season, ['spring', 'summer', 'autumn', 'winter']);
-    if ('time' in p) s.time = oneOf(p.time, ['dawn', 'day', 'sunset', 'night']);
+    // Идущие сутки и ручной выбор времени — один переключатель на двоих.
+    // Включение цикла подхватывает ту фазу, что сейчас на экране, а остановка
+    // фиксирует её же: мир не должен прыгать в другое время суток от нажатия
+    // кнопки. Порядок важен — явно выбранное время всегда останавливает цикл,
+    // даже если в одном патче пришло и то и другое.
+    if ('dayCycle' in p) {
+      const now = Date.now();
+      if (p.dayCycle) s.dayCycle = { running: true, anchor: anchorFor(s, now) };
+      else {
+        s.time = dayMoment(s, now).time;
+        s.dayCycle = { running: false, anchor: 0 };
+      }
+    }
+    if ('time' in p) {
+      s.time = oneOf(p.time, [...TIMES_OF_DAY]);
+      // Без остановки выбранное время сползло бы через несколько секунд, и
+      // ручная настройка выглядела бы сломанной.
+      s.dayCycle = { running: false, anchor: 0 };
+    }
     // The mode comes first: a map only counts if it belongs to that mode. Switching the
     // mode moves the room to that mode's default map when the old one does not fit.
     if ('mode' in p || 'map' in p) {

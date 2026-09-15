@@ -32,6 +32,17 @@ import { PAINTS, CONFETTI, GRENADES, FIREWORKS, SHOTGUN_PELLET_OFFSETS, type Hit
 import { createWorldVfx } from './world-vfx';
 import { createWorldProjectiles } from './world-projectiles';
 import { createWorldRemotePlayers } from './world-remote-players';
+import {
+  createFlashlightBeam,
+  createPlayerFlashlight,
+} from './world-flashlight';
+import {
+  dayMix,
+  dayPosition,
+  sameMix,
+  TIMES_OF_DAY,
+  type DayMix,
+} from '@/lib/day-cycle';
 import { createWorldPlayer } from './world-player';
 import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
@@ -613,7 +624,16 @@ export default function World(props: Props) {
       'Игровой мир: клик — играть, движение мыши — камера, WASD — движение, Esc — курсор',
     );
     const camera = new T.PerspectiveCamera(64, 1, 0.06, 350);
-    kit.update(latest.current.room.state);
+    /** Фаза суток по серверным часам: `props.now` приходит с поправкой сервера. */
+    const currentMix = () =>
+      dayMix(latest.current.room.state, latest.current.now);
+    /** Та же фаза одним словом — для визуальных пакетов, которые живут на `time`. */
+    const currentPhase = () =>
+      TIMES_OF_DAY[
+        Math.floor(dayPosition(latest.current.room.state, latest.current.now)) %
+          TIMES_OF_DAY.length
+      ];
+    kit.update(latest.current.room.state, currentMix());
     kit.setNotes(latest.current.room.state);
     const cameraObstacles: T.Object3D[] = [];
     // Отладочный доступ к сцене: в dev и по ?debug=1 — чтобы разбирать визуальные баги с натуры.
@@ -628,6 +648,8 @@ export default function World(props: Props) {
     });
     scene.add(camera);
     const hands = createFirstPersonHands(camera);
+    // Свой фонарик висит на камере: светит туда, куда смотрит игрок.
+    const flashlight = createPlayerFlashlight(camera, props.quality);
     let composer: EffectComposer | undefined,
       bloom: UnrealBloomPass | undefined;
     if (isCinematic || isBalanced) {
@@ -653,7 +675,7 @@ export default function World(props: Props) {
     // through a reassignable hook instead of closing over `rebuildSceneryTargets` directly.
     let refreshSceneryTargets = () => {};
     const visuals = createVisualProvider({ scene, hands: hands.group, quality: props.quality, stations: kit.stations,
-      restore: () => { kit.update(latest.current.room.state); renderer.toneMappingExposure = defaultExposure; refreshSceneryTargets(); },
+      restore: () => { kit.update(latest.current.room.state, currentMix()); renderer.toneMappingExposure = defaultExposure; refreshSceneryTargets(); },
       status: setPackStatus,
     });
     // Resource packs dress the hub around its board stations; battle maps keep their own look.
@@ -666,6 +688,11 @@ export default function World(props: Props) {
       if (o instanceof T.Mesh) o.castShadow = props.quality !== 'low';
     });
     scene.add(avatar);
+    // Тот же луч, что видят остальные, висит и на своём аватаре: в третьем лице
+    // игрок видит собственный фонарик, а в первом луч пропадает вместе с
+    // аватаром (`avatar.visible` ниже) и не светит в камеру.
+    const localBeam = createFlashlightBeam();
+    avatar.add(localBeam.group);
     // Attach custom skins & bandana to local avatar
     const localSkinResult = attachCustomSkins(avatar);
     const localBandanaMat = localSkinResult.bandanaMat;
@@ -717,6 +744,7 @@ export default function World(props: Props) {
       nearZone = '',
       middle = false,
       left = false,
+      flashlightOn = false,
       aimHeld = false,
       aimBlend = 0,
       equippedTool = latest.current.tool,
@@ -809,7 +837,13 @@ export default function World(props: Props) {
       const list: T.Mesh[] = [];
       for (const remote of remoteAvatars.values())
         remote.traverse((o) => {
-          if (o instanceof T.Mesh && !o.userData.transientProjectile)
+          // `presentationOnly` — декор вроде луча фонарика: он виден, но не
+          // является ни мишенью, ни препятствием для дуги броска.
+          if (
+            o instanceof T.Mesh &&
+            !o.userData.transientProjectile &&
+            !o.userData.presentationOnly
+          )
             list.push(o);
         });
       return list;
@@ -1391,6 +1425,7 @@ export default function World(props: Props) {
           'KeyF',
           'KeyV',
           'KeyR',
+          'KeyZ',
           'ArrowLeft',
           'ArrowRight',
           'ArrowUp',
@@ -1425,7 +1460,15 @@ export default function World(props: Props) {
         latest.current.onUseTool(nearZone);
         clear();
       }
-      if (e.code === 'KeyF') engine.current?.reset();
+      // F занял фонарик — привычная по шутерам клавиша, и нажимают её в бою
+      // куда чаще, чем выравнивают камеру. Сброс угла обзора переехал на Z:
+      // соседняя с WASD свободная клавиша, до которой дотягивается та же рука.
+      // Проверка на Ctrl/Alt/Cmd выше по обработчику остаётся общей для обеих.
+      if (e.code === 'KeyZ') engine.current?.reset();
+      if (e.code === 'KeyF') {
+        flashlightOn = flashlight.toggle();
+        localBeam.set(flashlightOn && !isDead(), player.pitch);
+      }
       if (e.code === 'KeyV')
         choosePerspective(
           perspectiveRef.current === 'first' ? 'third' : 'first',
@@ -1976,6 +2019,9 @@ export default function World(props: Props) {
         nearZone = nearest;
         setNear(nearest);
       }
+      // Луч на своём аватаре идёт за взглядом: его видят остальные, значит и
+      // направление должно совпадать с тем, куда игрок смотрит.
+      localBeam.set(flashlightOn && !isDead(), player.pitch);
       remotePlayers.update(now, dt);
       projectiles.update(now, player.stance);
       vfx.update(now, dt);
@@ -2009,6 +2055,7 @@ export default function World(props: Props) {
           crouching: player.crouching,
           aiming: aimHeld,
           reload: magazine.current.progress(now),
+          light: flashlightOn,
         });
         poseAt = now;
       }
@@ -2016,7 +2063,7 @@ export default function World(props: Props) {
       kit.animate(now / 1000);
       // Keyed on live remote avatars so the pack re-syncs (and releases removed actors) on add/remove.
       const meteredExposure = visuals.update(dt, camera, latest.current.room.state,
-        remotePlayers.remoteKey);
+        remotePlayers.remoteKey, currentPhase());
       remotePlayers.disposeRetired();
       if (meteredExposure !== undefined)
         renderer.toneMappingExposure = T.MathUtils.damp(renderer.toneMappingExposure, meteredExposure, 1.6, dt);
@@ -2073,6 +2120,8 @@ export default function World(props: Props) {
         }
       });
       weaponDisposed = true;
+      flashlight.dispose();
+      localBeam.dispose();
       projectiles.dispose();
       vfx.dispose();
       trajectoryGeo.dispose();
@@ -2087,7 +2136,8 @@ export default function World(props: Props) {
     };
   }, [props.quality, openTabletInWorld, closeTabletInWorld, mapId]);
   useEffect(() => {
-    engine.current?.kit.update(latest.current.room.state);
+    const state = latest.current.room.state;
+    engine.current?.kit.update(state, dayMix(state, latest.current.now));
     engine.current?.visuals.invalidate();
     engine.current?.shadow();
     engine.current?.refreshTargets();
@@ -2097,7 +2147,20 @@ export default function World(props: Props) {
     props.room.state.time,
     props.room.state.season,
     props.room.state.interior,
+    props.room.state.dayCycle,
   ]);
+  // Ход суток: свет пересчитывается по серверным часам раз в секунду вместе с
+  // `props.now`. Полный `kit.update` для этого не нужен — он обходит сцену и
+  // перекрашивает стили, а по ходу суток меняются только свет, небо и туман.
+  // За 3-минутную фазу это 180 шагов, каждый настолько мал, что переход читается
+  // как непрерывный.
+  const appliedMix = useRef<DayMix | null>(null);
+  useEffect(() => {
+    const mix = dayMix(props.room.state, props.now);
+    if (appliedMix.current && sameMix(mix, appliedMix.current)) return;
+    appliedMix.current = mix;
+    engine.current?.kit.setDayMix(mix);
+  }, [props.now, props.room.state]);
   useEffect(() => {
     engine.current?.kit.setNotes(latest.current.room.state);
   }, [props.room.version]);

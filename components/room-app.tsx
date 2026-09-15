@@ -94,6 +94,7 @@ import {
 } from './room-panels';
 import { SettingsShell, type SettingsGroup } from './settings-shell';
 import { WorldQuickChip } from './world-quick-chip';
+import { GameClock } from './game-clock';
 import { SidePicker } from './side-picker';
 import { PhaseBar } from './phase-bar';
 import { useRoomSync } from './use-room-sync';
@@ -256,6 +257,7 @@ export default function RoomApp({ id }: { id: string }) {
     act,
     fire,
     weapon,
+    serverNow,
   } = useRoomSync({
     id,
     pose,
@@ -285,10 +287,12 @@ export default function RoomApp({ id }: { id: string }) {
       setFpsLimit(FPS_LIMITS.includes(savedFps) ? savedFps : 60);
     },
   });
+  // Часы комнаты идут по серверному времени: и матч, и внутриигровые сутки
+  // считаются от серверных отметок, а локальные часы у участников разные.
   useEffect(() => {
-    const clock = setInterval(() => setNow(Date.now()), 1000);
+    const clock = setInterval(() => setNow(serverNow()), 1000);
     return () => clearInterval(clock);
-  }, []);
+  }, [serverNow]);
   const roomRef = useRef(room);
   useEffect(() => {
     roomRef.current = room;
@@ -1112,7 +1116,12 @@ export default function RoomApp({ id }: { id: string }) {
         <span className="game-tag map-tag">{mapTitle}</span>
         <div className="game-bar-center">
           {gameMode === 'battle' ? (
-            <MatchBar match={room.match} rounds={s.roundWins ?? 5} now={now} />
+            // Часы стоят под счётом матча: время суток — фон боя, а не его
+            // счёт, и перебивать собой очки команд не должно.
+            <div className="match-stack">
+              <MatchBar match={room.match} rounds={s.roundWins ?? 5} now={now} />
+              <GameClock state={s} now={now} />
+            </div>
           ) : (
             <>
               {/* Этапы уехали из шапки в PhaseBar над сценой: шесть кнопок
@@ -1149,6 +1158,10 @@ export default function RoomApp({ id }: { id: string }) {
                 <EyeOff size={14} />
                 {s.privateWriting ? 'Приватно' : 'Открыто'}
               </button>
+              {/* В ретро MatchBar не рендерится, поэтому часы встают в тот же
+                  ряд — сразу за таймером встречи, чтобы «сколько осталось» в
+                  реальном и в игровом времени читалось рядом. */}
+              <GameClock state={s} now={now} />
             </>
           )}
         </div>
@@ -1183,7 +1196,12 @@ export default function RoomApp({ id }: { id: string }) {
         <WorldQuickChip
           time={s.time}
           season={s.season}
+          now={now}
+          dayCycle={s.dayCycle}
           host={host}
+          onDayCycleChange={(dayCycle) =>
+            void act({ type: 'room.settings', patch: { dayCycle } })
+          }
           onTimeChange={(time) =>
             void act({ type: 'room.settings', patch: { time } })
           }

@@ -78,6 +78,7 @@ function compressPose(p: Pose): Pose {
     crouching: !!p.crouching,
     aiming: !!p.aiming,
     reload: p.reload != null ? Math.round(p.reload * 100) / 100 : undefined,
+    light: !!p.light,
   };
 }
 
@@ -288,6 +289,17 @@ export function useRoomSync({
     return request;
   }, [id]);
   const weapon = useCallback((command: WeaponCommand) => sendWeapon({ ...command, type: 'weapon' }), [sendWeapon]);
+  /**
+   * Текущее время по серверным часам. Тик комнаты приносит `now` раз в 100 мс,
+   * между тиками время идёт по `performance.now()` — монотонному счётчику,
+   * который не дёргается от перевода системных часов. До первого тика остаётся
+   * локальное время. Нужно всему, что обязано совпадать у всех участников:
+   * внутриигровым суткам (lib/day-cycle.ts) и часам матча.
+   */
+  const serverNow = useCallback(() => {
+    const clock = clockRef.current;
+    return clock ? clock.server + performance.now() - clock.local : Date.now();
+  }, []);
   /** A shot returns an authoritative acknowledgement, including rejected shots. */
   const fire = useCallback(
     (effect: object) => {
@@ -507,5 +519,6 @@ export function useRoomSync({
     act,
     fire,
     weapon,
+    serverNow,
   };
 }

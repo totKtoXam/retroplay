@@ -3,6 +3,38 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { RoomState } from '@/lib/model';
+import { mixValue, type DayMix, type TimeOfDay } from '@/lib/day-cycle';
+
+/**
+ * Настройки неба и экспозиции по фазам суток. Ключевая палитра стоит в середине
+ * фазы, между серединами всё перетекает (lib/day-cycle.ts), поэтому вместо
+ * прежних цепочек `night ? … : sunset ? …` — таблицы, из которых берётся смесь.
+ */
+const SUN_HEIGHT: Record<TimeOfDay, number> = { dawn: 0.22, day: 0.7, sunset: 0.14, night: 0.16 };
+const NIGHT_MIX: Record<TimeOfDay, number> = { dawn: 0, day: 0, sunset: 0, night: 1 };
+const RAYLEIGH: Record<TimeOfDay, number> = { dawn: 1.5, day: 1.5, sunset: 2.9, night: 4 };
+const ENVIRONMENT: Record<TimeOfDay, number> = { dawn: 0.48, day: 0.48, sunset: 0.48, night: 0.12 };
+const EXPOSURE: Record<TimeOfDay, number> = { dawn: 0.94, day: 0.94, sunset: 0.86, night: 0.48 };
+
+/** Сезонный тон гор: вершинные цвета скал и снега домножаются на него. */
+const TERRAIN_SEASON: Record<string, string> = {
+  spring: '#dae6d6',
+  summer: '#f2efe2',
+  autumn: '#e3cdae',
+  winter: '#eef4fb',
+};
+const LEAF_SEASON: Record<string, string> = {
+  spring: '#6d8552',
+  summer: '#53634c',
+  autumn: '#77765d',
+  winter: '#c4c9c1',
+};
+const GRASS_SEASON: Record<string, string> = {
+  spring: '#7e9455',
+  summer: '#777451',
+  autumn: '#8c7f4f',
+  winter: '#d8dcd7',
+};
 
 function noise(x: number, z: number) {
   return (
@@ -148,10 +180,11 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
   }
   terrain.computeVertexNormals();
   terrain.setAttribute('color', new T.BufferAttribute(colors, 3));
-  const mountains = new T.Mesh(
-    terrain,
-    new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.96 }),
-  );
+  const mountainMaterial = new T.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.96,
+  });
+  const mountains = new T.Mesh(terrain, mountainMaterial);
   mountains.userData.noCameraCollision = true;
   mountains.receiveShadow = true;
   group.add(mountains);
@@ -226,6 +259,11 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
   }
   leaves.castShadow = trunks.castShadow = true;
   leaves.receiveShadow = true;
+  // Хвоя нарисована плоскостями с alpha-test: по лучу она сплошная, и без
+  // явного отказа пули вязли бы в прозрачных местах, а камера в третьем лице
+  // упиралась бы в воздух. Стволы при этом остаются нормальным укрытием.
+  leaves.userData.projectileCollision = 'ignore';
+  leaves.userData.noCameraCollision = true;
   group.add(leaves, trunks);
   const grass = new T.InstancedMesh(
     new T.PlaneGeometry(0.12, 0.38),
@@ -245,6 +283,9 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
     dummy.updateMatrix();
     grass.setMatrixAt(i, dummy.matrix);
   }
+  // Трава по пояс не должна ни ловить выстрелы, ни толкать камеру.
+  grass.userData.projectileCollision = 'ignore';
+  grass.userData.noCameraCollision = true;
   group.add(grass);
   // Светящиеся дорожки и архитектурные светильники вместо ярких цветных платформ.
   const lights = new T.Group();
@@ -553,56 +594,60 @@ export function createCinematicLandscape(scene: T.Scene, stations: number[][]) {
       light.position.set(x, 0.235, -13 + i * 2);
       lights.add(light);
     }
-  let currentTime = '';
+  let environmentKey = '';
   let environment: T.WebGLRenderTarget | undefined;
   let pmrem: T.PMREMGenerator | undefined;
+  const direction = new T.Vector3();
+  let cinematic = true;
+  let interior = false;
+  /** Небо, окружение и экспозиция: всё, что меняется по ходу суток каждый кадр. */
+  const setDayMix = (m: DayMix, renderer?: T.WebGLRenderer) => {
+    direction.set(-0.65, mixValue(SUN_HEIGHT, m), -0.5).normalize();
+    sky.material.uniforms.sunPosition.value.copy(direction);
+    sky.material.uniforms.nightMix.value = mixValue(NIGHT_MIX, m);
+    sky.material.uniforms.rayleigh.value = mixValue(RAYLEIGH, m);
+    // PMREM-съёмка неба — единственная дорогая операция в суточном цикле, и
+    // делать её каждый кадр нельзя. Смесь квантуется до 1/16 фазы: за
+    // 12-минутные сутки это 64 съёмки, примерно одна в 11 секунд. Ступеньку не
+    // видно: яркость окружения (`environmentIntensity`) при этом меняется
+    // непрерывно и сглаживает переход между снимками.
+    const key = `${m.from}/${m.to}/${Math.round(m.blend * 16)}`;
+    if (renderer && cinematic && environmentKey !== key) {
+      environmentKey = key;
+      pmrem ??= new T.PMREMGenerator(renderer);
+      const capture = new T.Scene();
+      const envSky = sky.clone();
+      capture.add(envSky);
+      environment?.dispose();
+      environment = pmrem.fromScene(capture, 0.06, 0.1, 500, { size: 128 });
+    }
+    scene.environment = cinematic ? environment?.texture || null : null;
+    const ambient = mixValue(ENVIRONMENT, m);
+    scene.environmentIntensity = interior ? Math.min(ambient, 0.35) : ambient;
+    if (renderer)
+      renderer.toneMappingExposure = cinematic ? mixValue(EXPOSURE, m) : 0.94;
+  };
   return {
     group,
-    update(s: RoomState, renderer?: T.WebGLRenderer) {
-      const cinematic = s.visualStyle !== 'anime';
+    setDayMix,
+    update(s: RoomState, m: DayMix, renderer?: T.WebGLRenderer) {
+      cinematic = s.visualStyle !== 'anime';
+      interior = s.interior;
       group.visible = cinematic;
-      const night = s.time === 'night',
-        sunset = s.time === 'sunset',
-        dawn = s.time === 'dawn';
-      const direction = new T.Vector3(
-        -0.65,
-        night ? 0.16 : sunset ? 0.14 : dawn ? 0.22 : 0.7,
-        -0.5,
-      ).normalize();
-      sky.material.uniforms.sunPosition.value.copy(direction);
-      sky.material.uniforms.nightMix.value = night ? 1 : 0;
-      sky.material.uniforms.rayleigh.value = night ? 4 : sunset ? 2.9 : 1.5;
-      leaves.visible = trunks.visible = grass.visible = false;
+      // Лес, подлесок и трава — единственное в кинематографичном облике, что
+      // вообще зависит от времени года. При смене арт-дирекции их погасили
+      // целиком (`= false`), и с тех пор смена сезона перекрашивала невидимые
+      // материалы: значение доходило до всех, а мир не менялся. Возвращаем
+      // прежнее правило — прячем только в интерьере.
+      leaves.visible = trunks.visible = grass.visible = !s.interior;
       lights.visible = !s.interior;
-      leafMaterial.color.set(
-        s.season === 'winter'
-          ? '#c4c9c1'
-          : s.season === 'autumn'
-            ? '#77765d'
-            : '#53634c',
-      );
+      leafMaterial.color.set(LEAF_SEASON[s.season] ?? LEAF_SEASON.summer);
       (grass.material as T.MeshStandardMaterial).color.set(
-        s.season === 'winter' ? '#d8dcd7' : '#777451',
+        GRASS_SEASON[s.season] ?? GRASS_SEASON.summer,
       );
-      if (renderer && cinematic && currentTime !== s.time) {
-        currentTime = s.time;
-        pmrem ??= new T.PMREMGenerator(renderer);
-        const capture = new T.Scene();
-        const envSky = sky.clone();
-        capture.add(envSky);
-        environment?.dispose();
-        environment = pmrem.fromScene(capture, 0.06, 0.1, 500, { size: 128 });
-      }
-      scene.environment = cinematic ? environment?.texture || null : null;
-      scene.environmentIntensity = night ? 0.12 : s.interior ? 0.35 : 0.48;
-      if (renderer)
-        renderer.toneMappingExposure = cinematic
-          ? night
-            ? 0.48
-            : sunset
-              ? 0.86
-              : 0.94
-          : 0.94;
+      // Горы занимают полгоризонта, поэтому сезон обязан читаться и на них.
+      mountainMaterial.color.set(TERRAIN_SEASON[s.season] ?? TERRAIN_SEASON.summer);
+      setDayMix(m, renderer);
     },
     dispose() {
       labels.forEach((t) => t.dispose());

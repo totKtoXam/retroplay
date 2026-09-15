@@ -222,6 +222,7 @@ export function sanitizePose(pose: unknown): Pose | null {
     crouching: !!p.crouching,
     aiming: !!p.aiming,
     reload: finite(p.reload) ? clamp(p.reload, 0, 1) : 0,
+    light: !!p.light,
   };
 }
 
