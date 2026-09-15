@@ -5679,7 +5679,10 @@ h1 > span {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 12px;
+  /* Отступ вынесен в переменную: по нему часы боя находят нижний край шапки,
+     из-под которого выезжают (app/game-clock.css). */
+  --bar-pad-y: 7px;
+  padding: var(--bar-pad-y) 12px;
   background: var(--hud-glass);
   border-bottom: 1px solid var(--hud-line);
   color: var(--hud-text);
@@ -5715,6 +5718,11 @@ h1 > span {
   gap: 10px;
   min-width: 0;
   overflow: hidden;
+}
+/* В бою середина шапки — это только счёт, обрезать в ней нечего, зато часам
+   нужно вывесить свой ярлык ниже шапки. */
+.game-bar-center.with-match {
+  overflow: visible;
 }
 .game-tag {
   display: flex;

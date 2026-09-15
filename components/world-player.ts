@@ -166,8 +166,8 @@ export function createWorldPlayer({
       dz /= len;
       const vx = dx * Math.cos(cameraYaw) + dz * Math.sin(cameraYaw),
         vz = -dx * Math.sin(cameraYaw) + dz * Math.cos(cameraYaw);
-      const nx = T.MathUtils.clamp(pos.x + vx * speed * dt, -36, 36),
-        nz = T.MathUtils.clamp(pos.z + vz * speed * dt, -36, 36);
+      const nx = T.MathUtils.clamp(pos.x + vx * speed * dt, map.bounds.minX, map.bounds.maxX),
+        nz = T.MathUtils.clamp(pos.z + vz * speed * dt, map.bounds.minZ, map.bounds.maxZ);
 
       // Try X movement with step-up assist:
       const nextGroundX = map.groundHeight(nx, pos.z, pos.y);

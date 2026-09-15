@@ -540,7 +540,7 @@ export function WorldHud(props: WorldHudProps) {
       {props.mode === 'battle' && props.shieldSeconds > 0 && !props.dead && (
         <div
           className="spawn-immunity-hud"
-          title="Бессмертие после возрождения (5 секунд)"
+          title="Бессмертие после возрождения: длительность задаёт ведущий в настройках комнаты"
         >
           <span className="immunity-icon">🛡️</span>
           <span>ЩИТ ВОЗРОЖДЕНИЯ</span>

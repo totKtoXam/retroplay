@@ -1114,10 +1114,13 @@ export default function RoomApp({ id }: { id: string }) {
           </h1>
         )}
         <span className="game-tag map-tag">{mapTitle}</span>
-        <div className="game-bar-center">
+        <div
+          className={`game-bar-center${gameMode === 'battle' ? ' with-match' : ''}`}
+        >
           {gameMode === 'battle' ? (
-            // Часы стоят под счётом матча: время суток — фон боя, а не его
-            // счёт, и перебивать собой очки команд не должно.
+            // Часы — ярлык, выезжающий из-под счёта (app/game-clock.css): время
+            // суток это фон боя, а не его счёт, и ни строки в шапке, ни высоты
+            // сцены занимать не должно.
             <div className="match-stack">
               <MatchBar match={room.match} rounds={s.roundWins ?? 5} now={now} />
               <GameClock state={s} now={now} />

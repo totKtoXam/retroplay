@@ -276,6 +276,11 @@ export type RoomState = {
   anonymousPlayers?: boolean;
   hidePlayerStatus?: boolean;
   respawnSeconds?: number;
+  /**
+   * Щит возрождения: сколько секунд боец неуязвим после появления на спавне.
+   * Отсчёт начинается с первого шага, до него щит держится. 0 — щита нет вовсе.
+   */
+  shieldSeconds?: number;
   title: string;
   theme: string;
   visualStyle?: 'classic' | 'anime';
@@ -642,6 +647,13 @@ export function applyOperation(
       s.respawnSeconds = finite(p.respawnSeconds, 1, 30);
       if (!Number.isInteger(s.respawnSeconds))
         throw Error('Интервал должен быть целым числом');
+    }
+    // Ноль — осознанное значение, а не «не задано»: так ведущий выключает щит
+    // совсем, и бойца можно убить прямо на спавне.
+    if ('shieldSeconds' in p) {
+      s.shieldSeconds = finite(p.shieldSeconds, 0, 30);
+      if (!Number.isInteger(s.shieldSeconds))
+        throw Error('Длительность щита задаётся целыми секундами');
     }
     if ('season' in p)
       s.season = oneOf(p.season, ['spring', 'summer', 'autumn', 'winter']);
