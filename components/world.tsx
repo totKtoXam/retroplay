@@ -100,6 +100,8 @@ type Props = {
   aimModes?: WeaponAimModes;
   onPose: (p: Pose) => void;
   onMonitor: (v: boolean | ((prev: boolean) => boolean)) => void;
+  /** Табло счёта открыто: нужно, чтобы снять залипание при закрытии извне. */
+  monitor?: boolean;
   onFps: (v: number) => void;
   onAction: (kind: string) => void;
   onFire: (effect: WorldEffect) => Promise<WeaponReply>;
@@ -501,6 +503,18 @@ export default function World(props: Props) {
     [active, setActive] = useState(false),
     [shots, setShots] = useState(0),
     [captureError, setCaptureError] = useState('');
+  // Табло счёта: «ё» держим — табло видно; ЛКМ при зажатой «ё» «залипает» —
+  // табло остаётся с курсором мыши, выход только по Esc.
+  const [scorePinned, setScorePinned] = useState(false);
+  const scoreHeldRef = useRef(false);
+  const scorePinnedRef = useRef(false);
+  useEffect(() => {
+    // Табло закрыли извне (крестик, переход к выбору стороны) — залипание снято.
+    if (props.monitor === false && scorePinnedRef.current) {
+      scorePinnedRef.current = false;
+      setScorePinned(false);
+    }
+  }, [props.monitor]);
   const perspective = useSyncExternalStore(
     subscribePerspective,
     readPerspective,
@@ -1239,6 +1253,36 @@ export default function World(props: Props) {
       setAiming(false);
       player.releaseCrouch();
     };
+    // Табло счёта: удержание «ё» — показать, ЛКМ при зажатой «ё» — залипание.
+    const releaseScoreHold = () => {
+      if (!scoreHeldRef.current) return;
+      scoreHeldRef.current = false;
+      if (!scorePinnedRef.current) latest.current.onMonitor(false);
+    };
+    const pinScore = () => {
+      scoreHeldRef.current = false;
+      scorePinnedRef.current = true;
+      setScorePinned(true);
+      latest.current.onMonitor(true);
+      // Единственное место, кроме Esc, где курсор освобождается намеренно:
+      // по табло надо кликать (например сменить сторону).
+      if (document.pointerLockElement) document.exitPointerLock();
+      softLook = false;
+      activeControl = false;
+      setActive(false);
+      clear();
+    };
+    const closeScore = () => {
+      scoreHeldRef.current = false;
+      scorePinnedRef.current = false;
+      setScorePinned(false);
+      latest.current.onMonitor(false);
+    };
+    const onBlur = () => {
+      // Окно потеряло фокус — keyup по «ё» не придёт, табло зависло бы открытым.
+      releaseScoreHold();
+      clear();
+    };
     const onKey = (e: KeyboardEvent) => {
       if (
         (e.code === 'KeyQ' || e.code === 'KeyI') &&
@@ -1260,6 +1304,17 @@ export default function World(props: Props) {
         return;
       }
       if (e.code === 'Escape') {
+        if (scorePinnedRef.current || scoreHeldRef.current) {
+          const wasPinned = scorePinnedRef.current;
+          closeScore();
+          // Залипшее табло Esc снимает и возвращает игрока к управлению;
+          // остальное (пауза, освобождение курсора) — как обычно.
+          if (wasPinned) {
+            e.preventDefault();
+            capture();
+            return;
+          }
+        }
         if (tabletInWorldRef.current) {
           e.preventDefault();
           closeTabletInWorld();
@@ -1310,10 +1365,19 @@ export default function World(props: Props) {
         e.preventDefault();
       keys.add(e.code);
       if (e.repeat) return;
-      // Переключатель, а не удержание: в табло есть кнопки, по которым надо
-      // успеть нажать.
-      if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
-        latest.current.onMonitor((v) => !v);
+      // Удержание: табло видно, пока «ё» зажата. Нужны кнопки в табло —
+      // ЛКМ при зажатой «ё» залипает (см. onDown), снимается по Esc.
+      if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё') {
+        if (
+          !scorePinnedRef.current &&
+          !(document.activeElement as HTMLElement | null)?.closest(
+            'input,textarea,select,[contenteditable=true]',
+          )
+        ) {
+          scoreHeldRef.current = true;
+          latest.current.onMonitor(true);
+        }
+      }
       if (e.code === 'KeyR') beginReload();
       if (e.code.startsWith('Control')) player.holdCrouch();
       if (isDead()) return;
@@ -1341,6 +1405,8 @@ export default function World(props: Props) {
     };
     const onUp = (e: KeyboardEvent) => {
       keys.delete(e.code);
+      if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
+        releaseScoreHold();
       if (
         e.code.startsWith('Control') &&
         !keys.has('ControlLeft') &&
@@ -1418,6 +1484,18 @@ export default function World(props: Props) {
     };
     const onDown = (e: MouseEvent) => {
       if (latest.current.blocked || middle) return;
+      // Залипшее табло: мимо него по миру не стреляем и захват не возвращаем —
+      // выход только по Esc.
+      if (scorePinnedRef.current) {
+        e.preventDefault();
+        return;
+      }
+      // «Ё» зажата и щёлкнули ЛКМ — табло остаётся на экране вместе с курсором.
+      if (e.button === 0 && scoreHeldRef.current) {
+        e.preventDefault();
+        pinScore();
+        return;
+      }
       canvas.focus();
       // Пока кнопка зажата, события мыши приходят даже за пределами окна —
       // курсор больше не «выскакивает» с экрана посреди прицеливания.
@@ -1545,7 +1623,7 @@ export default function World(props: Props) {
     window.addEventListener('keyup', onUp);
     window.addEventListener('mousemove', onMouse);
     window.addEventListener('mouseup', onMouseUp);
-    window.addEventListener('blur', clear);
+    window.addEventListener('blur', onBlur);
     document.addEventListener('pointerlockchange', changed);
     canvas.addEventListener('wheel', wheel, { passive: false });
     canvas.addEventListener('mousedown', onDown);
@@ -1937,7 +2015,7 @@ export default function World(props: Props) {
       window.removeEventListener('keyup', onUp);
       window.removeEventListener('mousemove', onMouse);
       window.removeEventListener('mouseup', onMouseUp);
-      window.removeEventListener('blur', clear);
+      window.removeEventListener('blur', onBlur);
       document.removeEventListener('pointerlockchange', changed);
       canvas.removeEventListener('wheel', wheel);
       canvas.removeEventListener('mousedown', onDown);
@@ -2050,7 +2128,7 @@ export default function World(props: Props) {
           closeTabletInWorld={closeTabletInWorld}
         />
       )}
-      {!active && !radial && !contextWheel && !dead && !props.blocked && (
+      {!active && !radial && !contextWheel && !dead && !props.blocked && !scorePinned && (
         <div className="camera-onboarding">
           <MousePointer2 size={24} />
           <div>
