@@ -1523,8 +1523,9 @@ kbd {
   overflow-wrap: anywhere;
 }
 .settings-dialog {
-  max-width: 570px !important;
-  width: min(570px, calc(100vw - 32px)) !important;
+  /* Две колонки: слева разделы, справа содержимое — прежних 570px не хватает. */
+  max-width: 820px !important;
+  width: min(820px, calc(100vw - 32px)) !important;
 }
 .button-row {
   display: flex;
@@ -5921,43 +5922,6 @@ h1 > span {
   color: var(--hud-accent);
   border-color: #ffffff26;
 }
-/* Этапы встречи — шаги задания в спокойной шапке ретро. */
-.phase-steps {
-  display: flex;
-  gap: 5px;
-  align-items: center;
-  overflow: hidden;
-}
-.phase-step {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid #ffffff2e;
-  border-radius: 999px;
-  padding: 2px 9px;
-  font-size: 12px;
-  color: var(--hud-dim);
-  background: none;
-  white-space: nowrap;
-}
-.phase-step > span {
-  display: grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: #ffffff1f;
-  font-size: 10px;
-}
-.phase-step.current {
-  background: #ffffff1a;
-  border-color: var(--hud-accent);
-  color: #fff;
-}
-.phase-step.complete > span {
-  background: #4fbf9a;
-  color: #0f1420;
-}
 /* Счёт матча. */
 .match-bar {
   display: flex;
@@ -6015,31 +5979,6 @@ h1 > span {
   padding: 40px;
   text-align: center;
 }
-/* Меню комнаты: всё, что не нужно каждую секунду. */
-.room-menu {
-  display: grid;
-  gap: 6px;
-}
-.room-menu button {
-  display: grid;
-  grid-template-columns: 20px 1fr 16px;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid #e2e8e3;
-  border-radius: 9px;
-  text-align: left;
-}
-.room-menu strong {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-}
-.room-menu small {
-  font-size: 11px;
-  opacity: 0.7;
-}
-
 /* Всё в мире опускается под единую шапку (её высота ~40px). */
 .room-app {
   --bar-h: 40px;
@@ -6225,16 +6164,8 @@ h1 > span {
   text-shadow: 0 1px 8px #000a;
 }
 
-/* Узкий экран: в шапке остаются только номера этапов и главные кнопки. */
+/* Узкий экран: в шапке остаются только главные кнопки. */
 @media (max-width: 900px) {
-  .phase-step {
-    font-size: 0;
-    gap: 0;
-    padding: 2px 4px;
-  }
-  .phase-step > span {
-    font-size: 10px;
-  }
   .game-tag.map-tag,
   .game-bar h1 {
     max-width: 130px;
@@ -6329,8 +6260,7 @@ h1 > span {
     padding: 6px 8px;
   }
   .game-bar .map-tag,
-  .game-bar-center .game-tag span,
-  .phase-steps {
+  .game-bar-center .game-tag span {
     display: none;
   }
   .game-bar h1 {
@@ -6750,4 +6680,226 @@ body.item-wheel-open [data-slot='dialog-overlay'] {
   position: absolute;
   top: 20px;
   right: 20px;
+}
+
+/* ==========================================================================
+   Меню настроек: две колонки (components/settings-shell.tsx).
+   Раньше настройки были деревом «список → раздел», и выход из раздела закрывал
+   диалог целиком: возврата к списку не существовало. Когда разделы видны
+   всегда, кнопка «назад» не нужна — уходить некуда.
+   ========================================================================== */
+.settings-shell {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  max-height: min(64vh, 520px);
+}
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 10px;
+  border-right: 1px solid var(--jin-border);
+}
+.settings-nav-group {
+  display: grid;
+  gap: 3px;
+}
+.settings-nav-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jin-text-faint);
+  padding: 0 8px 2px;
+}
+.settings-nav-item {
+  display: grid;
+  grid-template-columns: 17px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-align: left;
+  background: transparent;
+  color: var(--jin-text);
+  transition: background var(--jin-theme-ease), border-color var(--jin-theme-ease);
+}
+.settings-nav-item:hover {
+  background: var(--jin-surface-3);
+}
+.settings-nav-item.active {
+  background: var(--jin-accent-soft);
+  border-color: var(--jin-accent);
+  color: var(--jin-accent-hover);
+}
+.settings-nav-item strong {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.settings-nav-item small {
+  display: block;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--jin-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Заблокированный раздел видно снаружи: раньше про «меняет ведущий» узнавали,
+   только зайдя внутрь и упёршись в серые переключатели. */
+.settings-nav-item.locked small {
+  color: var(--jin-text-faint);
+  font-style: italic;
+}
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.settings-body-head {
+  padding-bottom: 9px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--jin-border);
+}
+.settings-body-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--jin-text);
+}
+.settings-body-head p {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--jin-text-muted);
+}
+.settings-body-scroll {
+  display: grid;
+  /* minmax(0, 1fr) и min-width у детей: элементы грида по умолчанию не
+     сжимаются ниже min-content, и строки-переключатели вылезали вбок. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 11px;
+  align-content: start;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  /* Бегунок переключателя вылезает на ~10px за свою рамку: у правого края ему
+     нужен запас, иначе overflow-x его срезает. */
+  padding-right: 14px;
+}
+.settings-body-scroll > * {
+  min-width: 0;
+}
+.settings-keys summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--jin-accent-hover);
+  padding: 7px 0;
+}
+.settings-moved-hint {
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--jin-surface-3);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--jin-text-muted);
+}
+
+/* Узкий экран: колонки не помещаются, список становится лентой вкладок сверху,
+   так что разделы всё равно остаются на виду и «назад» по-прежнему не нужно. */
+@media (max-width: 640px) {
+  .settings-shell {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: none;
+  }
+  .settings-nav {
+    flex-direction: row;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 0 0 8px;
+    border-right: none;
+    border-bottom: 1px solid var(--jin-border);
+  }
+  .settings-nav-group {
+    display: flex;
+    gap: 5px;
+    flex: 0 0 auto;
+  }
+  .settings-nav-title {
+    display: flex;
+    align-items: center;
+    padding: 0 2px 0 0;
+  }
+  .settings-nav-item {
+    width: auto;
+    flex: 0 0 auto;
+    grid-template-columns: 16px auto;
+    white-space: nowrap;
+  }
+  .settings-nav-item small {
+    display: none;
+  }
+}
+
+/* --- Чип мира в шапке (components/world-quick-chip.tsx) --- */
+.world-chip-now {
+  font-size: 12px;
+  letter-spacing: -1px;
+}
+.world-chip-pop {
+  display: grid;
+  gap: 6px;
+  width: 232px;
+  padding: 11px;
+}
+.world-chip-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jin-text-faint);
+}
+.world-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+.world-chip-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid var(--jin-border);
+  border-radius: 8px;
+  font-size: 12px;
+  text-align: left;
+  background: var(--jin-surface);
+  color: var(--jin-text);
+}
+.world-chip-option:hover {
+  background: var(--jin-surface-3);
+}
+.world-chip-option.active {
+  border-color: var(--jin-accent);
+  background: var(--jin-accent-soft);
+  color: var(--jin-accent-hover);
+  font-weight: 600;
+}
+.world-chip-locked {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 2px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--jin-text-muted);
 }
