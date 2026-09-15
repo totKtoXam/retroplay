@@ -1,3 +1,4 @@
+import { checkpointRoom, encodeCheckpoint, restoreCheckpoint } from '@/lib/room-checkpoint';
 import { DurableObject } from 'cloudflare:workers';
 import { ensureCombatColumns } from '@/db/combat';
 import { controlWeapon, weaponReply } from '@/lib/weapon-authority';
@@ -56,6 +57,28 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
   private dirty = false;
   private flushScheduled = false;
 
+  constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
+    super(ctx, env);
+    ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS room_checkpoint (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL)');
+  }
+
+  private checkpoint() {
+    if (this.hub) this.ctx.storage.sql.exec(
+      'INSERT INTO room_checkpoint (id,data) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
+      encodeCheckpoint(this.roomId, this.hub),
+    );
+  }
+
+  private savedCheckpoint() {
+    return this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM room_checkpoint WHERE id=1').toArray()[0]?.data;
+  }
+
+  /** Persist the revision too, before acknowledging either transport. */
+  private acknowledge<T>(reply: T): T {
+    this.markDirty();
+    return reply;
+  }
+
   // ---- RPC for app/api/rooms/[id] ----
 
   /** Presence over HTTP (fallback when the socket is down): applies it and returns the live view. */
@@ -69,8 +92,8 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       getMap(hub.room.map),
       isFrozen(hub, now),
     );
-    resolveCombat(hub, now);
-    this.markDirty();
+    const changed = resolveCombat(hub, now);
+    this.markDirty(changed);
     return this.view(hub, now, since);
   }
 
@@ -80,16 +103,15 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const now = Date.now();
     let result;
     try { result = fireEffect(hub, self, op, now); }
-    catch (error) { return weaponReply(member, typeof op.id === 'string' ? op.id : '', now, false, (error as Error).message); }
+    catch (error) { return this.acknowledge(weaponReply(member, typeof op.id === 'string' ? op.id : '', now, false, (error as Error).message)); }
     resolveCombat(hub, now);
-    this.markDirty();
-    return weaponReply(member, typeof op.id === 'string' ? op.id : '', now, result.ok, result.reason);
+    return this.acknowledge(weaponReply(member, typeof op.id === 'string' ? op.id : '', now, result.ok, result.reason));
   }
 
   async weapon(room: string, self: string, op: Record<string, unknown>) {
     const hub = await this.state(room);
     const member = await this.member(hub, self);
-    return controlWeapon(member, op, Date.now());
+    return this.acknowledge(controlWeapon(member, op, Date.now()));
   }
 
   async live(room: string, since: number | null) {
@@ -176,20 +198,19 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const now = Date.now();
     if (msg.t === 'presence') {
       applyPresence(m, msg, now, getMap(hub.room.map), isFrozen(hub, now));
-      this.markDirty();
+      this.markDirty(false);
     } else if (msg.t === 'effect') {
+      let reply;
       try {
         const result = fireEffect(hub, self, msg, now);
-        if (result.ok) {
-          resolveCombat(hub, now);
-          this.markDirty();
-        }
-        ws.send(JSON.stringify({ t: 'weapon', ...weaponReply(m, typeof msg.id === 'string' ? msg.id : '', now, result.ok, result.reason) }));
+        if (result.ok) resolveCombat(hub, now);
+        reply = weaponReply(m, typeof msg.id === 'string' ? msg.id : '', now, result.ok, result.reason);
       } catch (e) {
-        ws.send(JSON.stringify({ t: 'weapon', ...weaponReply(m, typeof msg.id === 'string' ? msg.id : '', now, false, (e as Error).message) }));
+        reply = weaponReply(m, typeof msg.id === 'string' ? msg.id : '', now, false, (e as Error).message);
       }
+      ws.send(JSON.stringify({ t: 'weapon', ...this.acknowledge(reply) }));
     } else if (msg.t === 'weapon') {
-      ws.send(JSON.stringify({ t: 'weapon', ...controlWeapon(m, msg, now) }));
+      ws.send(JSON.stringify({ t: 'weapon', ...this.acknowledge(controlWeapon(m, msg, now)) }));
     } else if (msg.t === 'ping') {
       ws.send(JSON.stringify({ t: 'pong', at: msg.at }));
     }
@@ -279,18 +300,20 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       const m = memberFromRow(r);
       hub.members.set(m.id, m);
     }
+    const saved = this.savedCheckpoint();
+    const restored = saved !== undefined && restoreCheckpoint(room, hub, saved);
     this.hub = hub;
     const now = Date.now();
     for (const m of hub.members.values()) {
       if (balanceTeam(hub, m, now)) this.markDirty();
       if (placeIfInvalid(hub, m, now)) this.markDirty();
     }
-    // A cold start on a battle map is a fresh match: line everyone up on their team's side,
-    // wherever the previous map (or the hub) left them standing.
-    if (hub.room.teams) {
+    // Legacy rooms initialize once; a restored match keeps its lives, score and deadlines.
+    if (hub.room.teams && !restored) {
       respawnAll(hub, now);
       this.markDirty();
     }
+    this.checkpoint();
     return hub;
   }
 
@@ -324,7 +347,8 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     return known;
   }
 
-  private markDirty() {
+  private markDirty(persist = true) {
+    if (persist) this.checkpoint();
     this.dirty = true;
     if (this.flushScheduled) return;
     this.flushScheduled = true;
@@ -333,8 +357,15 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
 
   async alarm() {
     this.flushScheduled = false;
+    if (!this.hub) {
+      const saved = this.savedCheckpoint();
+      if (saved === undefined) return;
+      await this.state(checkpointRoom(saved));
+      this.dirty = true;
+    }
     const hub = this.hub;
     if (!hub || !this.dirty) return;
+    this.checkpoint();
     this.dirty = false;
     const db = this.env.DB;
     const update = db.prepare(
