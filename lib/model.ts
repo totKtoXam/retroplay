@@ -205,6 +205,8 @@ export type Person = {
   deaths?: number;
   assists?: number;
   pose: Pose;
+  /** Server correction counter; absent on older servers. */
+  positionRevision?: number;
   ping: number;
   mood: string;
   hat: string;

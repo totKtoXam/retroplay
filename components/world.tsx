@@ -1555,6 +1555,7 @@ export default function World(props: Props) {
     let life =
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.life || 0;
+    let positionRevision = latest.current.room.members.find((m) => m.id === latest.current.room.self)?.positionRevision ?? 0;
     let nextFrame = 0;
     const animate = (now: number) => {
       raf = requestAnimationFrame(animate);
@@ -1562,7 +1563,8 @@ export default function World(props: Props) {
       if (now + 0.8 < nextFrame) return;
       nextFrame += frameInterval;
       if (nextFrame < now - frameInterval) nextFrame = now + frameInterval;
-      const dt = Math.min(0.06, (now - last) / 1000 || 0.033);
+      const elapsed = Math.max(0, (now - last) / 1000);
+      const dt = Math.min(0.06, elapsed);
       last = now;
       if (document.hidden) return;
       frames++;
@@ -1585,6 +1587,10 @@ export default function World(props: Props) {
         sendWeaponControl('sync');
         player.teleport(own?.pose.x ?? 0, own?.pose.y ?? 0, own?.pose.z ?? 4);
         clear();
+      }
+      if (own && (own.positionRevision ?? 0) !== positionRevision) {
+        positionRevision = own.positionRevision ?? 0;
+        player.correctPosition(own.pose);
       }
       if (isDead()) clear();
       // Cheap safety net: content packs can resync scenery outside the
@@ -1679,7 +1685,7 @@ export default function World(props: Props) {
       const frozen = latest.current.room.match?.phase === 'freeze';
       const control =
         enabled() && !latest.current.blocked && !middle && !isDead() && !frozen;
-      const { moving, speed, dx, dz, groundY } = player.update(dt, {
+      const { moving, speed, dx, dz, groundY } = player.advance(elapsed, {
         control,
         aimHeld,
       });
