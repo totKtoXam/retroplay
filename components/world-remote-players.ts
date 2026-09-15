@@ -7,6 +7,7 @@ import { animateAvatar, setAvatarAnonymous } from './world-avatar';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { modeOf } from '@/lib/maps/catalog';
 import { createFlashlightBeam, type FlashlightBeam } from './world-flashlight';
+import { createShieldBubble, type ShieldBubble } from './world-shield';
 
 /** Цвета сторон: боец и его метка окрашены в цвет команды, а не личный. */
 const TEAM_COLORS: Record<string, string> = { red: '#ff5d52', blue: '#5aa9ff' };
@@ -35,6 +36,9 @@ export function createWorldRemotePlayers({
     // Луч фонарика живёт столько же, сколько аватар; у выключенного фонарика
     // он просто невидим — пересоздавать его на каждое нажатие F незачем.
     beams = new Map<string, FlashlightBeam>(),
+    // Пузырь щита живёт вместе с аватаром: без щита он просто невидим, и
+    // создавать его заново на каждое возрождение незачем.
+    shields = new Map<string, ShieldBubble>(),
     remoteMotion = new Map<
       string,
       {
@@ -97,6 +101,8 @@ export function createWorldRemotePlayers({
     // трогает — освобождаем здесь.
     beams.get(id)?.dispose();
     beams.delete(id);
+    shields.get(id)?.dispose();
+    shields.delete(id);
     labels.delete(id);
     remoteBandanaMats.delete(id);
     remoteMotion.delete(id);
@@ -149,6 +155,9 @@ export function createWorldRemotePlayers({
         const beam = createFlashlightBeam();
         beams.set(member.id, beam);
         remote.add(beam.group);
+        const shield = createShieldBubble();
+        shields.set(member.id, shield);
+        remote.add(shield.group);
         if (member.pose) {
           remote.position.set(
             member.pose.x,
@@ -178,6 +187,15 @@ export function createWorldRemotePlayers({
         !!latest.current.room.state.anonymousPlayers,
       );
       const isRemoteShielded = (member.immuneRemaining || 0) > 0;
+      // Щит видно самим силуэтом бойца, а не только значком в подписи: подпись
+      // закрывают стены и прячет настройка «скрывать статус игроков».
+      shields
+        .get(member.id)
+        ?.set(
+          isRemoteShielded && !isRemoteDead && remote.visible,
+          member.immuneRemaining || 0,
+          now / 1000,
+        );
       // Update remote skin if changed
       applyAvatarSkin(remote, member.hat || member.skin || 'agent', colorOf(member), remoteBandanaMats.get(member.id));
       const ally = isAlly(member);
