@@ -127,14 +127,15 @@ function PaintAimReticle() {
 
 /**
  * Ширина панели предметов и её верхняя кромка — панель рендерит `world.tsx`,
- * а полоска HP живёт здесь, поэтому размеры снимаем измерением: набор слотов
- * зависит от режима, а размер кнопок — от ширины экрана, и никакая константа
- * не удержала бы полоску ровно по краям панели.
+ * а полоска HP и остаток магазина живут здесь, поэтому размеры снимаем
+ * измерением: набор слотов зависит от режима, а размер кнопок — от ширины
+ * экрана, и никакая константа не удержала бы их ровно по краям панели.
+ *
+ * Замер не идёт через состояние React, а пишется переменными CSS прямо на
+ * контейнер: HUD перерисовывается поверх каждого кадра сцены, и лишний
+ * ре-рендер здесь стоит дороже, чем запись трёх свойств.
  */
 function useLoadoutAnchor() {
-  const [anchor, setAnchor] = useState<{ width: number; bottom: number } | null>(
-    null,
-  );
   useEffect(() => {
     const dock = document.querySelector<HTMLElement>('.quick-loadout');
     const host = dock?.parentElement;
@@ -142,23 +143,20 @@ function useLoadoutAnchor() {
     const measure = () => {
       const dockBox = dock.getBoundingClientRect();
       const hostBox = host.getBoundingClientRect();
-      const width = Math.round(dockBox.width);
-      const bottom = Math.round(hostBox.bottom - dockBox.top);
-      // Новый объект только при реальном изменении: HUD перерисовывается
-      // поверх каждого кадра сцены, и лишний ре-рендер тут стоит дорого.
-      setAnchor((prev) =>
-        prev && prev.width === width && prev.bottom === bottom
-          ? prev
-          : { width, bottom },
-      );
+      host.style.setProperty('--hud-dock-width', `${Math.round(dockBox.width)}px`);
+      host.style.setProperty('--hud-dock-top', `${Math.round(hostBox.bottom - dockBox.top)}px`);
+      host.style.setProperty('--hud-dock-base', `${Math.round(hostBox.bottom - dockBox.bottom)}px`);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(dock);
     observer.observe(host);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      for (const name of ['--hud-dock-width', '--hud-dock-top', '--hud-dock-base'])
+        host.style.removeProperty(name);
+    };
   }, []);
-  return anchor;
 }
 
 /**
@@ -252,7 +250,7 @@ export function AmmoIndicator(props: {
 }
 
 export function WorldHud(props: WorldHudProps) {
-  const loadout = useLoadoutAnchor();
+  useLoadoutAnchor();
   const hp = Math.min(100, Math.max(0, props.self?.hp ?? 100));
   const kills = props.self?.kills ?? 0;
   const deaths = props.self?.deaths ?? 0;
@@ -673,10 +671,6 @@ export function WorldHud(props: WorldHudProps) {
             // Насыщенность ниже прежних 72%: заливка во всю ширину панели
             // предметов тянула взгляд сильнее, чем сам бой.
             '--hp-color': `hsl(${healthHue(hp)} 62% 47%)`,
-            ...(loadout && {
-              '--hp-anchor-width': `${loadout.width}px`,
-              '--hp-anchor-bottom': `${loadout.bottom}px`,
-            }),
           } as React.CSSProperties
         }
         title="Здоровье"

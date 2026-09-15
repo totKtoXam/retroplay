@@ -158,13 +158,13 @@
   position: absolute;
   /* Ширина и отступ приходят инлайном из замера панели предметов; значения
      ниже — запасные, на случай пока панель ещё не измерена. */
-  bottom: var(--hp-anchor-bottom, 74px);
+  bottom: var(--hud-dock-top, 74px);
   left: 50%;
   z-index: 8;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--hp-anchor-width, min(320px, calc(100vw - 28px)));
+  width: var(--hud-dock-width, min(320px, calc(100vw - 28px)));
   height: 13px;
   overflow: hidden;
   /*
@@ -335,17 +335,23 @@
   min-width: 34px;
 }
 
-/* --- Патроны: нижний правый угол, без плашки --- */
+/* --- Патроны: вплотную слева от панели предметов, без плашки --- */
 
 /* Прежняя `.ammo-panel` из globals.css больше не рендерится: подсказки клавиш
-   и название оружия ушли, а остаток магазина показывает этот блок. */
+   и название оружия ушли, а остаток магазина показывает этот блок.
+
+   Место — у левого края панели предметов, рядом с полоской HP: правый нижний
+   угол занят миникартой, а взгляд в бою и так держится на центре низа экрана.
+   Ширину панели меряет `useLoadoutAnchor` (world-hud.tsx) — набор слотов
+   зависит от режима, и константой этот край не удержать. */
 .world-container .hud-ammo {
   position: absolute;
-  right: 22px;
-  bottom: 24px;
+  right: calc(50% + var(--hud-dock-width, 320px) / 2 + 12px);
+  bottom: calc(var(--hud-dock-base, 18px) + 6px);
   z-index: 6;
   display: flex;
   align-items: flex-end;
+  justify-content: flex-end;
   gap: 2px;
   color: #f3f7ff;
   /* Тень под самими фигурами: сегменты и шкала — не текст, text-shadow их не
@@ -454,16 +460,16 @@
     bottom: 96px;
     left: 16px;
   }
-  .world-container .hud-ammo {
-    right: 16px;
-    bottom: 96px;
-  }
 }
+/* Ниже этого порога панель предметов занимает низ целиком: магазин уходит на
+   своё прежнее место над ней, а миникарта прячется — плану там уже не хватает
+   ни места, ни разборчивости. */
 @media (max-width: 680px) {
   .world-container .combat-stats-hud {
     bottom: 128px;
   }
   .world-container .hud-ammo {
+    right: 16px;
     bottom: 128px;
   }
   .world-container .hud-ammo strong {
@@ -486,4 +492,50 @@
   .world-container .hud-ammo .hud-ammo-segments i {
     width: 3px;
   }
+}
+
+/* --- Миникарта: правый нижний угол --- */
+
+/* План карты сверху, своя стрелка и точки своих. Рисует её canvas в
+   components/world-minimap.tsx; здесь только место и рамка.
+
+   Подложка намеренно тёмная и плотная, в отличие от прозрачных полоски HP и
+   магазина: по ней читают геометрию, а не одно число, и просвечивающая сцена
+   мешала бы отличить стену от неба. */
+.world-container .hud-minimap {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 6;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  line-height: 0;
+  pointer-events: none;
+  user-select: none;
+}
+@media (max-width: 900px) {
+  .world-container .hud-minimap {
+    right: 14px;
+    bottom: 14px;
+  }
+  .world-container .hud-minimap canvas {
+    width: 116px !important;
+    height: 116px !important;
+  }
+}
+@media (max-width: 680px) {
+  .world-container .hud-minimap {
+    display: none;
+  }
+}
+/* Прицеливание и оптика: план отвлекает ровно в тот момент, когда смотрят в
+   одну точку, — убираем его, пока игрок целится. */
+.world-container.is-aiming .hud-minimap {
+  opacity: 0.25;
+  transition: opacity 0.12s ease;
 }

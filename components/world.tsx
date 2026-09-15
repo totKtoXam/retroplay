@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import * as T from 'three';
 import {
   Dialog,
@@ -22,6 +22,7 @@ import {
 import { ItemWheel } from './item-wheel';
 import { WorldTablet } from './world-tablet';
 import { AmmoIndicator, WorldHud } from './world-hud';
+import { WorldMinimap, type MinimapBlip, type MinimapFrame } from './world-minimap';
 import { createMapScene, type WorldKit } from './world-map-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
@@ -284,6 +285,8 @@ export default function World(props: Props) {
     openContext: () => void;
     keys: Set<string>;
     refreshTargets: () => void;
+    /** Живая поза игрока: серверное эхо в `room.members` отстаёт на пинг. */
+    player: ReturnType<typeof createWorldPlayer>;
   } | null>(null);
 
   const openTabletInWorld = useCallback(() => {
@@ -314,6 +317,34 @@ export default function World(props: Props) {
   }, [confettiStyle, grenadeStyle, fireworkStyle, tabletZone]);
   /** Changing the room's map rebuilds the engine with that map's scene and collision. */
   const mapId = props.room.state.map ?? 'hub';
+  const minimapMap = useMemo(() => getMap(mapId), [mapId]);
+  // Точки пересобираются только когда сменился сам список участников: кадр
+  // миникарты идёт 60 раз в секунду, а состав комнаты — раз в несколько секунд.
+  const blipCache = useRef<{ from: Person[]; out: MinimapBlip[] } | null>(null);
+  /**
+   * Кадр миникарты. Своя поза берётся у движка (серверная отстаёт на пинг), а в
+   * бою на карте видны только свои: чужие позиции — то, что и добывается боем.
+   */
+  const readMinimap = useCallback((): MinimapFrame | null => {
+    const player = engine.current?.player;
+    if (!player) return null;
+    const room = latest.current.room;
+    if (blipCache.current?.from !== room.members) {
+      const me = room.members.find((m) => m.id === room.self);
+      blipCache.current = {
+        from: room.members,
+        out: room.members
+          .filter((m) => m.id !== room.self && (!me?.team || m.team === me.team))
+          .map((m) => ({ x: m.pose.x, z: m.pose.z, team: m.team, dead: (m.hp ?? 100) <= 0 })),
+      };
+    }
+    return {
+      x: player.pos.x,
+      z: player.pos.z,
+      yaw: player.cameraYaw,
+      blips: blipCache.current.out,
+    };
+  }, []);
   const self = props.room.members.find((m) => m.id === props.room.self);
   const dead = self?.hp === 0;
   const [killfeed, setKillfeed] = useState<KillMessage[]>([]);
@@ -1233,6 +1264,7 @@ export default function World(props: Props) {
     engine.current = {
       visuals,
       capture,
+      player,
       closeInventory: (resume = true) => {
         middle = false;
         setRadial(false);
@@ -2249,7 +2281,8 @@ export default function World(props: Props) {
         </button>
       )}
       {/* Вид индикатора (цифры или графика) выбирается в настройках, поэтому
-          разметка и подписка на настройку живут в world-hud.tsx. */}
+          разметка и подписка на настройку живут в world-hud.tsx. Место —
+          слева от панели предметов: правый нижний угол занят миникартой. */}
       {['paint', 'confetti', 'sniper'].includes(current?.id) && (
         <AmmoIndicator
           rounds={rounds[current.id as Blaster]}
@@ -2257,6 +2290,7 @@ export default function World(props: Props) {
           reloading={reloading}
         />
       )}
+      <WorldMinimap map={minimapMap} read={readMinimap} />
       <div className="equipped-card">
         <span className="weapon-number">{currentSlot?.key ?? '—'}</span>
         <div>
