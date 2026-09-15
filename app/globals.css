@@ -3200,74 +3200,6 @@ h1 > span {
   background: linear-gradient(130deg, #203442 0%, #243d47 64%, #d96873 160%);
   color: #f0eddf;
 }
-.ammo-panel {
-  position: absolute;
-  right: 20px;
-  bottom: 84px;
-  z-index: 6;
-  min-width: 96px;
-  padding: 6px 12px;
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-right: 3px solid #ed626e;
-  border-radius: 8px;
-  color: #f1f5f9;
-  pointer-events: none;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-}
-.ammo-panel > span {
-  font-size: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #94a3b8;
-  display: block;
-}
-.ammo-panel strong {
-  display: block;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-  color: #f8fafc;
-}
-.ammo-panel small {
-  font-size: 12px;
-  font-weight: 400;
-  color: #94a3b8;
-}
-.ammo-panel > div {
-  font-size: 9px;
-  color: #94a3b8;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 2px;
-}
-.ammo-panel kbd {
-  font: inherit;
-  font-size: 9px;
-  color: #e2e8f0;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
-  padding: 0 3px;
-}
-.ammo-panel i {
-  width: 7px;
-}
-.ammo-panel.is-reloading {
-  border-right-color: #64d4ef;
-}
-.ammo-panel.is-reloading > span {
-  color: #64d4ef;
-  animation: reload-pulse 0.65s ease-in-out infinite alternate;
-}
-@keyframes reload-pulse {
-  to {
-    opacity: 0.4;
-  }
-}
 .modern-crosshair {
   transition:
     transform 0.12s,
@@ -3276,47 +3208,6 @@ h1 > span {
 .is-aiming .modern-crosshair {
   transform: translate(-50%, -50%) scale(0.55);
   opacity: 0.8;
-}
-@media (max-width: 900px) {
-  .ammo-panel {
-    right: 16px;
-    bottom: 130px;
-    min-width: 140px;
-    padding: 9px 12px;
-  }
-  .ammo-panel strong {
-    font-size: 29px;
-  }
-  .ammo-panel > div {
-    font-size: 8px;
-  }
-}
-@media (max-width: 680px) {
-  .ammo-panel {
-    bottom: 134px;
-    min-width: 120px;
-  }
-  .ammo-panel strong {
-    font-size: 25px;
-  }
-  .ammo-panel > span {
-    font-size: 8px;
-  }
-  .ammo-panel > div i,
-  .ammo-panel > div kbd:last-child {
-    display: none;
-  }
-}
-
-.mode-3d:has(.ammo-panel) .equipped-card {
-  display: none;
-}
-
-.mode-3d .ammo-panel {
-  bottom: 28px;
-  right: 24px;
-  min-width: 142px;
-  background: #152d38ec;
 }
 .mode-3d .quick-loadout {
   position: absolute;
@@ -3561,10 +3452,6 @@ h1 > span {
   .quick-loadout .open-kit {
     width: 38px;
   }
-  .mode-3d .ammo-panel {
-    bottom: 96px;
-    padding: 6px 10px;
-  }
 }
 @media (max-width: 600px) {
   .equipment-panel {
@@ -3807,44 +3694,6 @@ h1 > span {
   color: #94a3b8 !important;
   font-variant-numeric: tabular-nums;
   margin-top: 1px;
-}
-.health-hud {
-  position: absolute;
-  bottom: 32px;
-  left: 26px;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: baseline;
-  gap: 3px 8px;
-  color: white;
-  z-index: 12;
-  text-shadow: 0 1px 4px #0009;
-  min-width: 110px;
-}
-.health-hud strong {
-  font-size: 32px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-.health-hud span {
-  font-size: 11px;
-  letter-spacing: 0.15em;
-}
-.health-hud meter {
-  grid-column: 1/-1;
-  width: 100%;
-  height: 7px;
-  border: 0;
-}
-.health-hud meter::-webkit-meter-bar {
-  background: #273b51;
-  border: 0;
-}
-.health-hud meter::-webkit-meter-optimum-value {
-  background: #9ce2d8;
-}
-.health-hud.depleted {
-  color: #ff8b9d;
 }
 .spawn-immunity-hud {
   position: absolute;
@@ -4232,14 +4081,6 @@ h1 > span {
   }
 }
 @media (max-width: 800px) {
-  .health-hud {
-    left: 12px;
-    bottom: 118px;
-    min-width: 65px;
-  }
-  .health-hud strong {
-    font-size: 24px;
-  }
   .world-container .item-options-button {
     bottom: 94px;
   }
