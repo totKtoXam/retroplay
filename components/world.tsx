@@ -26,6 +26,10 @@ import { createMapScene, type WorldKit } from './world-map-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
 import { createFieldOptics } from './resource-packs/realistic/post';
+import { useGraphicsSettings } from '../hooks/use-graphics-settings';
+import { GRAPHICS_PRESETS } from '../lib/graphics-settings';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { visualBudget } from '../lib/resource-packs';
 import { createFirstPersonHands } from './world-hands';
 import { PAINTS, CONFETTI, GRENADES, FIREWORKS, SHOTGUN_PELLET_OFFSETS, type HitZone } from '@/lib/game-items';
@@ -234,11 +238,20 @@ function animateRef(
 
 export default function World(props: Props) {
   const resourcePack = useResourcePack();
+  const graphics = useGraphicsSettings();
+  const graphicsRef = useRef(graphics);
+  useEffect(() => { graphicsRef.current = graphics; }, [graphics]);
   const packRef = useRef(resourcePack);
   useEffect(() => {
     packRef.current = resourcePack;
   }, [resourcePack]);
   const [packStatus, setPackStatus] = useState<'default' | 'loading' | 'ready' | 'error'>('default');
+  const [urbanSlow, setUrbanSlow] = useState(false);
+  const slowUrban = resourcePack === 'urban-realism' && !props.blocked && props.fps > 0 && props.fps < 28;
+  useEffect(() => {
+    const timer = setTimeout(() => setUrbanSlow(slowUrban), slowUrban ? 12000 : 0);
+    return () => clearTimeout(timer);
+  }, [slowUrban]);
   const mount = useRef<HTMLDivElement>(null),
     latest = useRef(props);
   useEffect(() => {
@@ -645,6 +658,9 @@ export default function World(props: Props) {
       composer.addPass(bloom);
       composer.addPass(new OutputPass());
     }
+    const fxaa = new ShaderPass(FXAAShader);
+    fxaa.enabled = false;
+    composer?.addPass(fxaa);
     const optics = createFieldOptics();
     composer?.addPass(optics);
     const defaultExposure = renderer.toneMappingExposure;
@@ -652,12 +668,12 @@ export default function World(props: Props) {
     // (before the shot-target cache further below is defined), so route
     // through a reassignable hook instead of closing over `rebuildSceneryTargets` directly.
     let refreshSceneryTargets = () => {};
-    const visuals = createVisualProvider({ scene, hands: hands.group, quality: props.quality, stations: kit.stations,
+    const visuals = createVisualProvider({ scene, hands: hands.group, quality: props.quality, stations: kit.stations, renderer, graphics: () => graphicsRef.current,
       restore: () => { kit.update(latest.current.room.state); renderer.toneMappingExposure = defaultExposure; refreshSceneryTargets(); },
       status: setPackStatus,
     });
     // Resource packs dress the hub around its board stations; battle maps keep their own look.
-    void visuals.select(map.arena ? 'default' : packRef.current, latest.current.room.state).then(() => refreshSceneryTargets());
+    void visuals.select(map.arena && packRef.current !== 'urban-realism' ? 'default' : packRef.current, latest.current.room.state).then(() => refreshSceneryTargets());
     const avatar = kit.avatarFactory(
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.color || '#718cdd',
@@ -1261,6 +1277,7 @@ export default function World(props: Props) {
       camera.aspect = width / Math.max(height, 1);
       camera.updateProjectionMatrix();
       composer?.setSize(width, Math.max(height, 1));
+      fxaa.uniforms.resolution.value.set(1 / (width * renderer.getPixelRatio()), 1 / (Math.max(height, 1) * renderer.getPixelRatio()));
     };
     const ro = new ResizeObserver(resize);
     ro.observe(host);
@@ -1668,6 +1685,7 @@ export default function World(props: Props) {
         ?.life || 0;
     let positionRevision = latest.current.room.members.find((m) => m.id === latest.current.room.self)?.positionRevision ?? 0;
     let nextFrame = 0;
+    let appliedGraphics = '';
     const animate = (now: number) => {
       raf = requestAnimationFrame(animate);
       const frameInterval = 1000 / latest.current.fpsLimit;
@@ -2015,26 +2033,44 @@ export default function World(props: Props) {
       kit.clouds.position.x = Math.sin(now * 0.000015) * 2;
       kit.animate(now / 1000);
       // Keyed on live remote avatars so the pack re-syncs (and releases removed actors) on add/remove.
-      const meteredExposure = visuals.update(dt, camera, latest.current.room.state,
-        remotePlayers.remoteKey);
-      remotePlayers.disposeRetired();
-      if (meteredExposure !== undefined)
-        renderer.toneMappingExposure = T.MathUtils.damp(renderer.toneMappingExposure, meteredExposure, 1.6, dt);
-      optics.enabled = visuals.active;
-      optics.uniforms.time.value = now / 1000;
-      if (visuals.active && !composer) {
-        composer = new EffectComposer(renderer);
-        composer.addPass(new RenderPass(scene, camera));
-        composer.addPass(new OutputPass());
-        composer.addPass(optics);
-        const size = renderer.getSize(new T.Vector2()); composer.setSize(size.x, size.y);
+      const custom = graphicsRef.current ?? (visuals.id === 'urban-realism' ? GRAPHICS_PRESETS.high : null);
+      const graphicsKey = JSON.stringify([custom, visuals.id]);
+      if (graphicsKey !== appliedGraphics) {
+        appliedGraphics = graphicsKey;
+        renderer.setPixelRatio(custom?.scale ?? pixelRatio);
+        renderer.shadowMap.enabled = custom ? custom.shadows > 0 : props.quality !== 'low';
+        renderer.shadowMap.autoUpdate = renderer.shadowMap.enabled;
+        const shadowSize = custom?.shadows || (isCinematic ? 2048 : isBalanced ? 1024 : 512);
+        if (kit.sunlight.shadow.mapSize.x !== shadowSize) {
+          kit.sunlight.shadow.mapSize.setScalar(shadowSize);
+          kit.sunlight.shadow.map?.dispose(); kit.sunlight.shadow.map = null;
+          renderer.shadowMap.needsUpdate = true;
+        }
+        if (!composer && (custom || visuals.active)) {
+          composer = new EffectComposer(renderer);
+          composer.addPass(new RenderPass(scene, camera));
+          composer.addPass(new OutputPass()); composer.addPass(fxaa); composer.addPass(optics);
+        }
+        if (composer && custom?.bloom && !bloom) {
+          bloom = new UnrealBloomPass(new T.Vector2(1,1), .15, .4, .85);
+          composer.insertPass(bloom, 1);
+        }
+        composer?.setPixelRatio(renderer.getPixelRatio());
+        resize();
       }
-      if (composer && (isCinematic || isBalanced || visuals.active)) {
-        if (bloom)
-          bloom.strength =
-            visuals.active ? visualBudget(props.quality).bloom : latest.current.room.state.visualStyle === 'anime' ? 0.1 : 0.22;
-        composer.render(dt);
-      } else renderer.render(scene, camera);
+      const meteredExposure = visuals.update(dt, camera, latest.current.room.state, remotePlayers.remoteKey);
+      remotePlayers.disposeRetired();
+      const desiredExposure = (meteredExposure ?? defaultExposure) * (custom?.exposure ?? 1);
+      renderer.toneMappingExposure = T.MathUtils.damp(renderer.toneMappingExposure, desiredExposure, 1.6, dt);
+      optics.enabled = visuals.id === 'realistic-bodycam';
+      optics.uniforms.time.value = now / 1000;
+      fxaa.enabled = custom?.antialias ?? false;
+      if (bloom) {
+        bloom.enabled = custom ? custom.bloom : isCinematic || isBalanced;
+        bloom.strength = visuals.id === 'urban-realism' ? .15 : visuals.active ? visualBudget(props.quality).bloom : latest.current.room.state.visualStyle === 'anime' ? .1 : .22;
+      }
+      if (composer && (isCinematic || isBalanced || visuals.active || custom)) composer.render(dt);
+      else renderer.render(scene, camera);
     };
     camera.position.set(pos.x, 6, pos.z + 8);
     raf = requestAnimationFrame(animate);
@@ -2106,9 +2142,9 @@ export default function World(props: Props) {
   }, [props.room.effects]);
   useEffect(() => {
     void engine.current?.visuals
-      .select(getMap(latest.current.room.state.map).arena ? 'default' : resourcePack, latest.current.room.state)
+      .select(getMap(latest.current.room.state.map).arena && resourcePack !== 'urban-realism' ? 'default' : resourcePack, latest.current.room.state)
       .then(() => engine.current?.refreshTargets());
-  }, [resourcePack]);
+  }, [resourcePack, graphics]);
   const current = GAME_TOOLS[props.tool];
   const gameMode = modeOf(props.room.state);
   const slots = slotsFor(gameMode);
@@ -2121,6 +2157,7 @@ export default function World(props: Props) {
       {packStatus === 'ready' && <div className="field-camera-mark" aria-hidden="true"><span>JNL / FIELD 01</span><span>● LIVE VIEW · {perspective === 'first' ? 'FPP' : 'TPP'}</span></div>}
       {packStatus === 'loading' && <output className="pack-status">Подготовка визуального пакета…</output>}
       {packStatus === 'error' && <div role="alert" className="pack-status">Пакет не загрузился. Игра продолжается с Default.</div>}
+      {urbanSlow && slowUrban && <output className="pack-status">Urban Realism: частота кадров ниже 28 FPS. <button type="button" onClick={props.onGraphics}>Настроить графику</button></output>}
       <WorldHud
         mode={gameMode}
         room={props.room}

@@ -258,3 +258,24 @@
     left: 12px;
   }
 }
+
+/* Urban and graphics controls are scoped; legacy pack presentation stays intact. */
+.pack-card-urban .pack-preview { background: linear-gradient(145deg,#273e50,#bdac8c 65%,#e3d7bf); }
+.pack-card-urban .pack-preview i { background:#d8d1c0; border-right:5px solid #526d7a; }
+.pack-card-urban .pack-preview b { color:#fff3d5; }
+.graphics-panel { border:1px solid #8999ad44; border-radius:14px; padding:16px; margin:16px 0; }
+.graphics-panel summary { cursor:pointer; font-weight:650; }
+.graphics-panel p,.graphics-check p { font-size:13px; line-height:1.55; }
+.graphics-panel small,.graphics-check small { display:block; opacity:.72; font-size:12px; margin:8px 0; }
+.graphics-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.graphics-panel label { display:block; margin:12px 0; }
+.graphics-panel select { width:100%; }
+.graphics-presets { display:flex; gap:6px; flex-wrap:wrap; }
+.graphics-presets button,.graphics-panel>button,.graphics-check button { border:1px solid #8597b455; border-radius:8px; padding:9px 12px; margin:4px; background:#8998ae12; color:inherit; cursor:pointer; }
+.graphics-presets button[aria-pressed=true] { border-color:#cba86b; background:#cba86b22; }
+.graphics-check { padding:16px; border:1px solid #ba9f7155; border-radius:12px; margin-top:16px; }
+@media(max-width:500px){.graphics-grid{grid-template-columns:1fr}}
+
+[data-resource-pack='urban-realism'] { --accent:#c3a572; --primary:#c3a572; --ring:#c3a572; }
+[data-resource-pack='urban-realism'] .room-header { background:#15212ef2; color:#e8edf0; border-bottom:1px solid #c3a57244; }
+[data-resource-pack='urban-realism'] .pack-status { background:#182b3fee; color:#f5e6cb; border:1px solid #c3a57266; padding:10px 16px; border-radius:8px; }

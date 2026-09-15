@@ -1,13 +1,16 @@
 import type * as T from 'three';
+import { GRAPHICS_PRESETS, type GraphicsSettings } from '../../lib/graphics-settings';
 import type { ResourcePackId } from '../../lib/resource-packs';
 import type { RoomState } from '../../lib/model';
-import type { createRealisticPresentation } from './realistic/runtime';
+type Presentation = { sync(state: RoomState): void; update(dt: number, camera: T.Camera, state: RoomState): number | undefined; impact(at: T.Vector3, color: string): void; readonly textureBytes: number; dispose(): void };
 
 /** Default is the existing live scene. Pack changes never reconstruct the game engine. */
 export function createVisualProvider(options: {
   scene: T.Scene;
+  renderer: T.WebGLRenderer;
   hands: T.Group;
   quality: string;
+  graphics?: () => GraphicsSettings | null;
   stations: number[][];
   restore: () => void;
   status: (state: 'default' | 'loading' | 'ready' | 'error') => void;
@@ -15,9 +18,12 @@ export function createVisualProvider(options: {
   let selected: ResourcePackId = 'default',
     generation = 0,
     disposed = false;
-  let presentation: ReturnType<typeof createRealisticPresentation> | undefined;
+  let presentation: Presentation | undefined;
   let syncKey = '';
+  let graphicsKey = '';
+  let activeId: ResourcePackId = 'default';
   return {
+    get id() { return activeId; },
     get active() {
       return !!presentation;
     },
@@ -25,7 +31,11 @@ export function createVisualProvider(options: {
       return presentation?.textureBytes ?? 0;
     },
     async select(id: ResourcePackId, state: RoomState) {
-      if (id === selected || disposed) return;
+      const settings = options.graphics?.() ?? GRAPHICS_PRESETS.high;
+      const key = id === 'urban-realism' ? JSON.stringify([settings.textures, settings.anisotropy, settings.detail]) : '';
+      if ((id === selected && key === graphicsKey) || disposed) return;
+      graphicsKey = key;
+      activeId = 'default';
       selected = id;
       const request = ++generation;
       presentation?.dispose();
@@ -38,20 +48,19 @@ export function createVisualProvider(options: {
       }
       options.status('loading');
       try {
-        const { createRealisticPresentation } =
-          await import('./realistic/runtime');
+        const factory = id === 'urban-realism'
+          ? await import('./urban/runtime').then(async module => { await module.prepareUrbanScans(); return () => module.createUrbanPresentation(options.scene, options.hands, settings, options.renderer); })
+          : await import('./realistic/runtime').then(module => () => module.createRealisticPresentation(options.scene, options.hands, options.quality, options.stations));
         if (disposed || request !== generation) return;
-        presentation = createRealisticPresentation(
-          options.scene,
-          options.hands,
-          options.quality,
-          options.stations,
-        );
+        presentation = factory();
+        activeId = id;
         presentation.sync(state);
         options.status('ready');
       } catch (error) {
         console.error('Visual resource pack failed to load', error);
-        selected = 'default';
+        if (disposed || request !== generation) return;
+        presentation?.dispose(); presentation = undefined;
+        activeId = 'default'; selected = 'default';
         options.restore();
         options.status('error');
       }

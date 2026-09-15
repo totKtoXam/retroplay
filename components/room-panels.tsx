@@ -1,4 +1,5 @@
 'use client';
+import { GraphicsPanel } from './graphics-panel';
 
 import {
   Backpack,
@@ -1002,6 +1003,7 @@ export function FpsPanel({
   return (
     <>
       <ResourcePackPicker />
+      <GraphicsPanel />
       <p className="performance-summary">
         {fps} FPS · {me?.ping || 0} мс
       </p>
