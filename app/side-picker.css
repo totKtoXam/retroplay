@@ -224,6 +224,10 @@ html[data-theme='dark']
 .sp-look-preview .agent-preview-canvas {
   height: 230px;
 }
+/* Модель крутится перетаскиванием: курсор обещает это заранее (см. avatar-preview-scene). */
+.sp-look-preview .agent-preview-canvas canvas {
+  touch-action: none;
+}
 .sp-look-preview .agent-preview-controls {
   color: var(--sp-muted);
   gap: 16px;
@@ -350,9 +354,29 @@ html[data-theme='dark']
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   padding-top: 12px;
   border-top: 1px solid var(--sp-line);
+}
+.sp-apply {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
+}
+/* Цена перехода: предупреждение должно быть заметно до нажатия, а не после. */
+.sp-cost {
+  padding: 4px 9px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: #ffc4b4;
+  background: #ff5d5224;
+  border: 1px solid #ff5d5259;
 }
 .sp-esc {
   font-size: 11px;
@@ -384,6 +408,16 @@ html[data-theme='dark']
   background: #274a68;
   color: #fff;
 }
+/* Есть что применить — кнопка перестаёт быть просто «закрыть». */
+.sp-done.is-dirty {
+  background: #2f6494;
+  border-color: #8ecbff;
+  color: #fff;
+  box-shadow: 0 0 18px #8ecbff3d;
+}
+.sp-done.is-dirty:hover {
+  background: #3b7ab4;
+}
 
 @media (max-width: 720px) {
   .sp-sides {
@@ -397,5 +431,28 @@ html[data-theme='dark']
   }
   .sp-look-preview .agent-preview-canvas {
     height: 190px;
+  }
+}
+
+/* До 390px (узкий телефон) подвал встаёт в столбик: кнопка не жмёт подсказку. */
+@media (max-width: 460px) {
+  .sp-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .sp-apply {
+    margin-left: 0;
+    justify-content: stretch;
+  }
+  .sp-cost {
+    text-align: center;
+    flex: 1 1 100%;
+  }
+  .sp-done {
+    flex: 1 1 100%;
+    padding: 11px 16px;
+  }
+  .sp-colors {
+    justify-content: space-between;
   }
 }

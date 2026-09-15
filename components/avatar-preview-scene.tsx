@@ -8,20 +8,32 @@ import {
   setAvatarStyle,
   setAvatarAnonymous,
 } from './world-avatar';
+import { applyAvatarSkin, attachCustomSkins } from './world-skins';
 
 /** Статический просмотр: кадр рисуется только при повороте или изменении размера. */
 export function AvatarPreview({
   color,
   anime,
   anonymous = false,
+  skin = 'agent',
+  bandanaColor = '#3b82f6',
 }: {
   color: string;
   anime: boolean;
   anonymous?: boolean;
+  skin?: string;
+  bandanaColor?: string;
 }) {
   const resourcePack = useResourcePack();
   const mount = useRef<HTMLDivElement>(null),
     turn = useRef<(angle: number) => void>(() => {});
+  /**
+   * Скин и бандана меняются чаще всего, а пересборка сцены гасит поворот модели и
+   * заново создаёт WebGL-контекст. Поэтому они не в зависимостях эффекта сборки:
+   * текущие значения лежат в `look`, а `applyLook` докрашивает уже собранный аватар.
+   */
+  const look = useRef({ skin, bandanaColor }),
+    applyLook = useRef<(skin: string, bandanaColor: string) => void>(() => {});
   useEffect(() => {
     const host = mount.current!;
     let renderer: T.WebGLRenderer;
@@ -53,6 +65,8 @@ export function AvatarPreview({
     scene.add(avatar);
     setAvatarStyle(avatar, anime);
     setAvatarAnonymous(avatar, anonymous);
+    // Те же накладки, что и в игре: без них превью не знало ни о скинах, ни о бандане.
+    const skins = attachCustomSkins(avatar);
     for (let i = 0; i < 45; i++)
       animateAvatar(
         avatar,
@@ -76,6 +90,11 @@ export function AvatarPreview({
     disk.position.y = -0.04;
     scene.add(disk);
     const render = () => renderer.render(scene, camera);
+    applyLook.current = (nextSkin, nextColor) => {
+      applyAvatarSkin(avatar, nextSkin, nextColor, skins.bandanaMat);
+      render();
+    };
+    applyLook.current(look.current.skin, look.current.bandanaColor);
     let disposed = false;
     let releasePack: (() => void) | undefined;
     if (resourcePack === 'realistic-bodycam') {
@@ -91,6 +110,39 @@ export function AvatarPreview({
       avatar.rotation.y += angle;
       render();
     };
+    /*
+     * Вращение перетаскиванием. Pointer Events покрывают мышь, перо и палец одним кодом,
+     * а setPointerCapture доводит до нас и движение, и отпускание кнопки за пределами
+     * канваса — иначе модель «залипала» бы в повороте. touch-action убирает прокрутку
+     * страницы во время жеста. Стрелки рядом остаются: это доступ с клавиатуры.
+     */
+    const canvas = renderer.domElement;
+    canvas.style.touchAction = 'none';
+    canvas.style.cursor = 'grab';
+    let dragging = -1,
+      lastX = 0;
+    const onDown = (e: PointerEvent) => {
+      dragging = e.pointerId;
+      lastX = e.clientX;
+      canvas.setPointerCapture(e.pointerId);
+      canvas.style.cursor = 'grabbing';
+    };
+    const onMove = (e: PointerEvent) => {
+      if (dragging !== e.pointerId) return;
+      // Ширина превью — полный оборот: жест ощущается как вращение предмета в руках.
+      turn.current(((e.clientX - lastX) / Math.max(1, canvas.clientWidth)) * Math.PI * 2);
+      lastX = e.clientX;
+    };
+    const onUp = (e: PointerEvent) => {
+      if (dragging !== e.pointerId) return;
+      dragging = -1;
+      canvas.releasePointerCapture(e.pointerId);
+      canvas.style.cursor = 'grab';
+    };
+    canvas.addEventListener('pointerdown', onDown);
+    canvas.addEventListener('pointermove', onMove);
+    canvas.addEventListener('pointerup', onUp);
+    canvas.addEventListener('pointercancel', onUp);
     const resize = () => {
       const w = host.clientWidth,
         h = host.clientHeight;
@@ -106,7 +158,13 @@ export function AvatarPreview({
     return () => {
       disposed = true; releasePack?.();
       observer.disconnect();
+      canvas.removeEventListener('pointerdown', onDown);
+      canvas.removeEventListener('pointermove', onMove);
+      canvas.removeEventListener('pointerup', onUp);
+      canvas.removeEventListener('pointercancel', onUp);
       turn.current = () => {};
+      applyLook.current = () => {};
+      skins.dispose();
       const geometries = new Set<T.BufferGeometry>(),
         materials = new Set<T.Material>();
       scene.traverse((o) => {
@@ -123,6 +181,10 @@ export function AvatarPreview({
       renderer.domElement.remove();
     };
   }, [color, anime, anonymous, resourcePack]);
+  useEffect(() => {
+    look.current = { skin, bandanaColor };
+    applyLook.current(skin, bandanaColor);
+  }, [skin, bandanaColor]);
   return (
     <div className="agent-preview">
       <div ref={mount} className="agent-preview-canvas" />

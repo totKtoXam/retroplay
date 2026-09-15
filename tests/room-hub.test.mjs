@@ -375,21 +375,73 @@ test('teammates never respawn on the same point while another is free', () => {
   const h = battle(member('a', { team: 'red' }), member('b', { team: 'red' }));
   const spawns = getMap('mansion').spawns.red;
   assert.ok(spawns.length > 1, 'the map has room to spread out');
+  // Смена стороны убивает, точку выбирает уже возрождение — поэтому ждём респауна.
   setTeam(h, 'a', 'blue', T);
-  setTeam(h, 'a', 'red', T);
-  const first = h.members.get('a').pose;
   setTeam(h, 'b', 'blue', T);
+  setTeam(h, 'a', 'red', T);
   setTeam(h, 'b', 'red', T);
+  for (const m of h.members.values()) m.seen = T + 6000;
+  resolveCombat(h, T + 6000);
+  const first = h.members.get('a').pose;
   const second = h.members.get('b').pose;
   assert.ok(Math.hypot(first.x - second.x, first.z - second.z) >= 2, 'different spawn points');
 });
 
-test('the host moves a player to the other side and they respawn there', () => {
-  const h = battle(member('a', { team: 'red' }));
+test('смена стороны в бою убивает и снимает очко убийства, а возрождает на новом спавне', () => {
+  const h = battle(member('a', { team: 'red', kills: 3 }));
   assert.equal(setTeam(h, 'a', 'blue', T), true);
   const m = h.members.get('a');
+  assert.deepEqual([m.team, m.hp, m.kills, m.respawnAt], ['blue', 0, 2, T + 5000]);
+  m.seen = T + 6000;
+  resolveCombat(h, T + 6000);
   assert.ok(getMap('mansion').spawns.blue.some((s) => s.x === m.pose.x && s.z === m.pose.z));
-  assert.deepEqual([m.team, m.life], ['blue', 1]);
+  assert.deepEqual([m.hp, m.life], [100, 1]);
+});
+
+test('штраф за сторону уводит убийства в минус и не срабатывает на той же стороне', () => {
+  const h = battle(member('a', { team: 'red' }));
+  const m = h.members.get('a');
+  assert.equal(setTeam(h, 'a', 'blue', T), true);
+  assert.equal(m.kills, -1, 'ноль не защищает: счёт уходит в минус');
+  assert.equal(setTeam(h, 'a', 'blue', T), false, 'своя же сторона — не переход');
+  assert.equal(m.kills, -1, 'повторный выбор той же стороны ничего не стоит');
+});
+
+test('уже мёртвого переход не убивает второй раз, но очко всё равно снимает', () => {
+  const h = battle(member('a', { team: 'red', kills: 2, hp: 0, respawnAt: T + 5000 }));
+  setTeam(h, 'a', 'blue', T + 3000);
+  const m = h.members.get('a');
+  assert.deepEqual(
+    [m.kills, m.respawnAt],
+    [1, T + 5000],
+    'таймер возрождения не продлевается — его и так отсиживают',
+  );
+});
+
+test('внешность без смены стороны ничего не стоит', () => {
+  const h = battle(member('a', { team: 'red', kills: 4 }));
+  const m = h.members.get('a');
+  // Скин и цвет банданы живут в профиле (hat/color) и хаба вообще не касаются.
+  m.hat = 'ninja';
+  m.color = '#10b981';
+  assert.deepEqual([m.kills, m.hp], [4, 100]);
+  assert.equal(setTeam(h, 'a', 'red', T), false, 'сторона не изменилась — штрафа нет');
+  assert.equal(m.kills, 4);
+});
+
+test('первый выбор стороны бесплатен: уходить пока не от кого', () => {
+  const h = battle(member('a', { kills: 2 }));
+  assert.equal(setTeam(h, 'a', 'blue', T), true);
+  const m = h.members.get('a');
+  assert.deepEqual([m.kills, m.hp, m.respawnAt], [2, 100, 0]);
+  assert.ok(getMap('mansion').spawns.blue.some((s) => s.x === m.pose.x && s.z === m.pose.z));
+});
+
+test('вне боя смена стороны бесплатна: в ретро-комнате нет ни счёта, ни смерти', () => {
+  const h = hub(member('a', { kills: 2 }));
+  assert.equal(setTeam(h, 'a', 'blue', T), true);
+  const m = h.members.get('a');
+  assert.deepEqual([m.kills, m.hp, m.respawnAt], [2, 100, 0]);
 });
 
 test('the hub has no match: free-for-all', () => {

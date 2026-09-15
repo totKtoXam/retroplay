@@ -2318,24 +2318,21 @@ export default function RoomApp({ id }: { id: string }) {
               anime={s.visualStyle === 'anime'}
               anonymous={!!s.anonymousPlayers}
               onClose={() => setPanel('')}
-              onTeam={(team) =>
-                void act({ type: 'team.set', session: room.self, team })
-              }
               selectedSkin={selectedSkin}
-              onSelectSkin={(skinId) => {
-                setSelectedSkin(skinId);
-                localStorage.setItem('jinaly-custom-skin', skinId);
-                void act({
-                  type: 'profile',
-                  hat: skinId,
-                  color: selectedBandanaColor,
-                });
-              }}
               selectedBandanaColor={selectedBandanaColor}
-              onBandanaColorChange={(color) => {
-                setSelectedBandanaColor(color);
-                localStorage.setItem('jinaly-bandana-color', color);
-                void act({ type: 'profile', hat: selectedSkin, color });
+              /* Окно копит выбор у себя; сюда приходит только то, что реально
+                 изменилось, — и уже отсюда уходит на сервер. */
+              onApply={({ team, skin, bandanaColor }) => {
+                if (skin !== undefined && bandanaColor !== undefined) {
+                  setSelectedSkin(skin);
+                  setSelectedBandanaColor(bandanaColor);
+                  localStorage.setItem('jinaly-custom-skin', skin);
+                  localStorage.setItem('jinaly-bandana-color', bandanaColor);
+                  void act({ type: 'profile', hat: skin, color: bandanaColor });
+                }
+                // Смерть и штраф за переход считает сервер, клиент шлёт только сторону.
+                if (team)
+                  void act({ type: 'team.set', session: room.self, team });
               }}
             />
           )}
