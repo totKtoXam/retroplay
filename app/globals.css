@@ -6262,18 +6262,6 @@ body.item-wheel-open [data-slot='dialog-overlay'] {
     transform: none;
   }
 }
-.world-container .paint-aim-reticle .paint-aim-dot {
-  position: absolute;
-  left: -1.5px;
-  top: -1.5px;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow:
-    0 0 0 1px rgba(6, 10, 20, 0.85),
-    0 0 4px rgba(255, 255, 255, 0.45);
-}
 .world-container .paint-aim-reticle .paint-aim-petal {
   position: absolute;
   display: block;

@@ -7,6 +7,7 @@ export const MAP_CATALOG = [
   { id: 'mansion', title: 'Особняк', mode: 'battle' },
   { id: 'bazaar', title: 'Базар', mode: 'battle' },
   { id: 'mountain', title: 'Горный лагерь', mode: 'battle' },
+  { id: 'valley', title: 'Ледниковая долина', mode: 'battle' },
 ] as const satisfies readonly { id: string; title: string; mode: GameMode }[];
 
 export type MapId = (typeof MAP_CATALOG)[number]['id'];

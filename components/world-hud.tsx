@@ -119,10 +119,11 @@ function VoicePanel({ voice, room }: { voice: VoiceView; room: Room }) {
 }
 
 /**
- * Прицел краскомёта в режиме ПКМ: точка попадания в центре и четыре лепестка,
- * которые расходятся от движения и от непрерывной стрельбы. Данные о движении и
- * отдаче берутся из тех же событий ввода, что и у движка (WASD/стрелки + ЛКМ),
- * поэтому дополнительные пропсы `WorldHud` не нужны.
+ * Разброс краскомёта в режиме ПКМ: четыре лепестка, которые расходятся от
+ * движения и от непрерывной стрельбы. Точку попадания рисовать здесь больше не
+ * нужно — при прицеливании её показывает светящаяся точка коллиматора на самой
+ * модели. Данные о движении и отдаче берутся из тех же событий ввода, что и у
+ * движка (WASD/стрелки + ЛКМ), поэтому дополнительные пропсы `WorldHud` не нужны.
  */
 function PaintAimReticle() {
   const ref = useRef<HTMLDivElement>(null);
@@ -191,7 +192,6 @@ function PaintAimReticle() {
   }, []);
   return (
     <div ref={ref} className="paint-aim-reticle" aria-hidden="true">
-      <span className="paint-aim-dot" />
       <i className="paint-aim-petal paint-aim-up" />
       <i className="paint-aim-petal paint-aim-down" />
       <i className="paint-aim-petal paint-aim-left" />
@@ -345,11 +345,19 @@ export function WorldHud(props: WorldHudProps) {
   }));
   const teamBattle =
     props.mode === 'battle' && sides.some((side) => side.members.length > 0);
-  const paintAiming =
-    props.current?.id === 'paint' &&
+  /*
+   * Прицеливание сквозь оружие. У краскомёта, дробовика и лайкомёта появились
+   * настоящие целик с мушкой, и рука при ПКМ выводит их на ось камеры — рисовать
+   * поверх ещё и перекрестие значит спорить с прицелом, по которому целятся.
+   * У снайперки перекрестие прячется всегда: без оптики она бьёт от бедра.
+   */
+  const throughSights =
+    !!props.current &&
+    ['paint', 'confetti', 'like'].includes(props.current.id) &&
     props.aiming &&
     props.perspective === 'first' &&
     !props.dead;
+  const paintAiming = throughSights && props.current?.id === 'paint';
   return (
     <>
       {props.hitEffect && (
@@ -365,7 +373,7 @@ export function WorldHud(props: WorldHudProps) {
         />
       )}
       <div
-        className={`crosshair modern-crosshair ${props.current?.id === 'sniper' || paintAiming ? 'is-hidden' : ''
+        className={`crosshair modern-crosshair ${props.current?.id === 'sniper' || throughSights ? 'is-hidden' : ''
           }`}
       >
         <i />

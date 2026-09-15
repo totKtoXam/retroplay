@@ -55,14 +55,17 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
   sunlight.target.position.set(cx, 0, cz);
   scene.add(sunlight.target);
   sunlight.castShadow = true;
-  sunlight.shadow.mapSize.set(1024, 1024);
+  // Один и тот же бюджет тени растянут на вдвое большую карту размывает её, поэтому
+  // на больших аренах берём вчетверо больше текселей.
+  const shadowRes = span > 80 ? 2048 : 1024;
+  sunlight.shadow.mapSize.set(shadowRes, shadowRes);
   const half = span / 2 + 6;
   sunlight.shadow.camera.left = -half;
   sunlight.shadow.camera.right = half;
   sunlight.shadow.camera.top = half;
   sunlight.shadow.camera.bottom = -half;
   sunlight.shadow.camera.near = 1;
-  sunlight.shadow.camera.far = 140;
+  sunlight.shadow.camera.far = half * 2 + 40;
   sunlight.shadow.bias = -0.0005;
   sunlight.shadow.normalBias = 0.035;
   scene.add(sunlight);
@@ -75,7 +78,7 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     side: T.BackSide,
     depthWrite: false,
   });
-  scene.add(new T.Mesh(new T.SphereGeometry(180, 24, 16), skyMaterial));
+  scene.add(new T.Mesh(new T.SphereGeometry(Math.max(180, span * 2), 24, 16), skyMaterial));
 
   // Ground inside the walls and a wider backdrop outside them.
   add(new T.BoxGeometry(maxX - minX, 0.2, maxZ - minZ), def.groundColor, cx, -0.1, cz);
@@ -141,7 +144,9 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
   // Боевая карта живёт по тем же суткам, что и хаб: свет строится смесью двух
   // соседних фаз, чтобы ночь наступала плавно, а не рывком (lib/day-cycle.ts).
   const scratch = new T.Color();
-  const fog = new T.Fog('#9fb6c2', 45, 170);
+  // Прежние 45 и 170 — это 0,8 и 3 пролёта «Горного лагеря»; так дальний край любой
+  // карты тонет в дымке одинаково, а не пропадает целиком на большой.
+  const fog = new T.Fog('#9fb6c2', span * 0.8, Math.min(span * 3, 330));
   const mixInto = (
     target: T.Color,
     table: Record<TimeOfDay, string>,
