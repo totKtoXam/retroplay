@@ -35,6 +35,12 @@ import {
   Monitor,
   Send,
   Lock,
+  Gauge,
+  MousePointer2,
+  Swords,
+  Sun,
+  ShieldCheck,
+  UserRound,
 } from 'lucide-react';
 import {
   Dialog,
@@ -64,13 +70,14 @@ import { useResourcePack } from '../hooks/use-resource-pack';
 import { readAimModes, type WeaponAimModes } from '@/lib/aim-settings';
 import {
   ActionsPanel,
+  AccessSection,
+  ControlsSection,
   ExportPanel,
-  FpsPanel,
+  GraphicsSection,
   GroupPanel,
-  HelpPanel,
   HistoryPanel,
   JoinRequestsPanel,
-  SettingsPanel,
+  ProfileSection,
   SharePanel,
   TimerPanel,
   ToolsPanel,
@@ -82,6 +89,8 @@ import {
   WorldPanel,
   FPS_LIMITS,
 } from './room-panels';
+import { SettingsShell, type SettingsGroup } from './settings-shell';
+import { WorldQuickChip } from './world-quick-chip';
 import { SidePicker } from './side-picker';
 import { useRoomSync } from './use-room-sync';
 import { MAP_CATALOG, modeOf } from '@/lib/maps/catalog';
@@ -140,6 +149,9 @@ export default function RoomApp({ id }: { id: string }) {
     [webglFailed, setWebglFailed] = useState(false),
     [heldTool, setTool] = useState(0),
     [panel, setPanel] = useState(''),
+    // Какой раздел открыт в двухколоночных настройках. Отдельно от panel:
+    // настройки — один экран, разделы внутри него переключаются без выхода.
+    [settingsSection, setSettingsSection] = useState('graphics'),
     [selectedZone, setSelectedZone] = useState(''),
     [draft, setDraft] = useState<Draft | null>(null),
     [comment, setComment] = useState(''),
@@ -478,6 +490,66 @@ export default function RoomApp({ id }: { id: string }) {
     slots = slotsFor(gameMode),
     // Предмет другого режима в руках не остаётся: берём предмет по умолчанию.
     tool = hasSlot(gameMode, heldTool) ? heldTool : defaultSlot(gameMode);
+  // Разделы настроек. Личное отделено от правил комнаты: раньше они лежали в
+  // одном плоском списке, и было не видно, что можешь менять ты, а что ведущий.
+  const settingsGroups: SettingsGroup[] = [
+    {
+      id: 'mine',
+      title: 'Моё',
+      sections: [
+        {
+          id: 'graphics',
+          title: 'Графика',
+          hint: 'Качество картинки и лимит FPS на этом устройстве',
+          icon: Gauge,
+        },
+        {
+          id: 'controls',
+          title: 'Управление',
+          hint: 'Мышь, камера, прицеливание и список клавиш',
+          icon: MousePointer2,
+        },
+        {
+          id: 'profile',
+          title: 'Профиль',
+          hint: 'Имя в комнате и звуки встречи',
+          icon: UserRound,
+        },
+      ],
+    },
+    {
+      id: 'room',
+      title: 'Комната',
+      sections: [
+        {
+          id: 'mode',
+          title: 'Режим и карта',
+          hint: 'Во что играем: режим, карта и правила матча',
+          icon: Swords,
+          hostOnly: true,
+        },
+        {
+          id: 'world',
+          title: 'Облик мира',
+          hint: 'Стиль и тема оформления',
+          icon: Sun,
+          hostOnly: true,
+        },
+        {
+          id: 'access',
+          title: 'Доступ и приватность',
+          hint: 'Кто входит и что видно участникам',
+          icon: ShieldCheck,
+          hostOnly: true,
+        },
+      ],
+    },
+  ];
+  /** Открыть настройки сразу на нужном разделе — из шапки, HUD или меню. */
+  const openSettings = (section: string) => {
+    setSettingsSection(section);
+    setPanel('prefs');
+  };
   const enter = async (overrideName?: string) => {
     const playerName = (overrideName || name).trim();
     if (!playerName) return;
@@ -1040,6 +1112,18 @@ export default function RoomApp({ id }: { id: string }) {
             {joinRequests.length}
           </button>
         )}
+        <WorldQuickChip
+          time={s.time}
+          season={s.season}
+          host={host}
+          onTimeChange={(time) =>
+            void act({ type: 'room.settings', patch: { time } })
+          }
+          onSeasonChange={(season) =>
+            void act({ type: 'room.settings', patch: { season } })
+          }
+          onLocked={() => flash('Облик мира меняет ведущий встречи')}
+        />
         <button className="game-tag" onClick={() => setPanel('share')}>
           <Link2 size={14} />
           Пригласить
@@ -1087,7 +1171,7 @@ export default function RoomApp({ id }: { id: string }) {
                 fpsLimit={fpsLimit}
                 packetLoss={packetLoss}
                 now={now}
-                onGraphics={() => setPanel('fps')}
+                onGraphics={() => openSettings('graphics')}
                 onPaintColor={setPaintColor}
                 tool={tool}
                 onTool={setTool}
@@ -1806,7 +1890,7 @@ export default function RoomApp({ id }: { id: string }) {
         <DialogContent
           className={
             'app-dialog ' +
-            (panel === 'settings'
+            (panel === 'prefs'
               ? 'settings-dialog'
               : panel === 'team'
                 ? 'side-picker-dialog'
@@ -1819,10 +1903,7 @@ export default function RoomApp({ id }: { id: string }) {
                 history: 'История изменений',
                 menu: 'Меню комнаты',
                 team: 'Выбор стороны',
-                settings: 'Настройки встречи',
-                world: 'Облик мира',
-                mode: 'Режим игры',
-                fps: 'Графика и управление',
+                prefs: 'Настройки',
                 share: 'Пригласить команду',
                 join_requests: 'Запросы на вход',
                 timer: 'Время для главного',
@@ -1832,7 +1913,6 @@ export default function RoomApp({ id }: { id: string }) {
                 tools: 'Инвентарь и инструменты',
                 actions: 'План действий',
                 export: 'Забрать результаты с собой',
-                help: 'Управление и инструменты',
               } as Record<string, string>
             )[panel] || 'Меню'}
           </DialogTitle>
@@ -1841,21 +1921,15 @@ export default function RoomApp({ id }: { id: string }) {
               ? 'Участники войдут по ссылке. Новая комната имеет отдельный адрес.'
               : panel === 'join_requests'
                 ? 'Управление пользователями, ожидающими входа в комнату'
-                : panel === 'settings'
-                  ? 'Приватность и правила совместной работы'
+                : panel === 'prefs'
+                  ? 'Личные настройки и правила комнаты. Esc закрывает.'
                   : panel === 'team'
                     ? 'Сторона, скин и цвет банданы вашего бойца'
                     : panel === 'menu'
-                    ? 'Настройки, история и всё, что не нужно каждую секунду'
-                    : panel === 'world'
-                    ? 'Стиль, тема и время суток — как выглядит мир'
-                    : panel === 'mode'
-                      ? 'Во что играем: режим, карта и правила'
-                      : panel === 'fps'
-                        ? 'Настройки графики и поведения управления для вашего устройства'
-                        : gameMode === 'battle'
-                          ? 'Снаряжение бойца'
-                          : 'Инструменты вашей ретроспективы'}
+                      ? 'Снаряжение, встреча и результаты'
+                      : gameMode === 'battle'
+                        ? 'Снаряжение бойца'
+                        : 'Инструменты вашей ретроспективы'}
           </DialogDescription>
           {panel === 'tools' && (
             <ToolsPanel
@@ -1929,35 +2003,18 @@ export default function RoomApp({ id }: { id: string }) {
               }}
             />
           )}
-          {panel === 'world' && (
-            <WorldPanel
-              s={s}
-              host={host}
-              onStyleChange={(visualStyle) =>
-                void act({ type: 'room.settings', patch: { visualStyle } })
-              }
-              onThemeChange={(theme, season) =>
-                void act({
-                  type: 'room.settings',
-                  patch: { theme, season },
-                })
-              }
-              onTimeChange={(time) =>
-                void act({ type: 'room.settings', patch: { time } })
-              }
-              onSeasonChange={(season) =>
-                void act({ type: 'room.settings', patch: { season } })
-              }
-              onInteriorChange={(interior) =>
-                void act({ type: 'room.settings', patch: { interior } })
-              }
-            />
-          )}
           {panel === 'menu' && (
             <MenuPanel
               battle={gameMode === 'battle'}
+              host={host}
+              archived={!!s.archived}
               actionsLeft={
                 s.notes.filter((n) => n.kind === 'action' && !n.done).length
+              }
+              onToggleArchive={() =>
+                void act({ type: 'archive', value: !s.archived }).then(
+                  (r) => r && setPanel(''),
+                )
               }
               onOpen={(next) => {
                 setPanel(next);
@@ -1969,6 +2026,127 @@ export default function RoomApp({ id }: { id: string }) {
                     .catch((e) => setError(e.message));
               }}
             />
+          )}
+          {panel === 'prefs' && (
+            <SettingsShell
+              groups={settingsGroups}
+              section={settingsSection}
+              onSection={setSettingsSection}
+              host={host}
+            >
+              {settingsSection === 'graphics' && (
+                <GraphicsSection
+                  fps={fps}
+                  me={me}
+                  fpsLimit={fpsLimit}
+                  onFpsLimitChange={(v) => {
+                    setFpsLimit(Number(v));
+                    localStorage.setItem('jinaly-fps-limit', v);
+                  }}
+                  quality={quality}
+                  onQualityChange={(q) => {
+                    setQuality(q);
+                    localStorage.setItem('jinaly-quality', q);
+                  }}
+                />
+              )}
+              {settingsSection === 'controls' && (
+                <ControlsSection
+                  sensitivity={sensitivity}
+                  onSensitivityChange={(v) => {
+                    setSensitivity(v);
+                    localStorage.setItem('jinaly-sensitivity', String(v));
+                  }}
+                  invertCamera={invertCamera}
+                  onInvertCameraChange={(v) => {
+                    setInvertCamera(v);
+                    localStorage.setItem('jinaly-invert-camera', String(v));
+                  }}
+                  aimModes={aimModes}
+                  onAimModesChange={(next) => {
+                    setAimModes(next);
+                    localStorage.setItem(
+                      'jinaly-aim-modes',
+                      JSON.stringify(next),
+                    );
+                  }}
+                />
+              )}
+              {settingsSection === 'profile' && (
+                <ProfileSection
+                  me={me}
+                  sound={sound}
+                  onSoundChange={setSound}
+                  onUpdateName={(name) => {
+                    void act({ type: 'profile', name });
+                    localStorage.setItem('jinaly-name', name);
+                  }}
+                />
+              )}
+              {settingsSection === 'mode' && (
+                <ModePanel
+                  s={s}
+                  host={host}
+                  onSettings={(patch) =>
+                    void act({ type: 'room.settings', patch })
+                  }
+                />
+              )}
+              {settingsSection === 'world' && (
+                <WorldPanel
+                  s={s}
+                  host={host}
+                  onStyleChange={(visualStyle) =>
+                    void act({ type: 'room.settings', patch: { visualStyle } })
+                  }
+                  onThemeChange={(theme, season) =>
+                    void act({
+                      type: 'room.settings',
+                      patch: { theme, season },
+                    })
+                  }
+                  onInteriorChange={(interior) =>
+                    void act({ type: 'room.settings', patch: { interior } })
+                  }
+                />
+              )}
+              {settingsSection === 'access' && (
+                <AccessSection
+                  s={s}
+                  host={host}
+                  onAnonymousPlayersChange={(anonymousPlayers) =>
+                    void act({
+                      type: 'room.settings',
+                      patch: { anonymousPlayers },
+                    })
+                  }
+                  onHidePlayerStatusChange={(hidePlayerStatus) =>
+                    void act({
+                      type: 'room.settings',
+                      patch: { hidePlayerStatus },
+                    })
+                  }
+                  onPrivateWritingChange={(privateWriting) =>
+                    void act({
+                      type: 'room.settings',
+                      patch: { privateWriting },
+                    })
+                  }
+                  onAnonymousChange={(anonymous) =>
+                    void act({ type: 'room.settings', patch: { anonymous } })
+                  }
+                  onLayoutLockedChange={(layoutLocked) =>
+                    void act({ type: 'room.settings', patch: { layoutLocked } })
+                  }
+                  onAccessTypeChange={(accessType) =>
+                    void act({ type: 'access.set', accessType })
+                  }
+                  onMaxPlayersChange={(maxPlayers) => {
+                    void act({ type: 'access.max_players', maxPlayers });
+                  }}
+                />
+              )}
+            </SettingsShell>
           )}
           {panel === 'team' && (
             <SidePicker
@@ -1996,98 +2174,6 @@ export default function RoomApp({ id }: { id: string }) {
                 localStorage.setItem('jinaly-bandana-color', color);
                 void act({ type: 'profile', hat: selectedSkin, color });
               }}
-            />
-          )}
-          {panel === 'mode' && (
-            <ModePanel
-              s={s}
-              host={host}
-              onSettings={(patch) => void act({ type: 'room.settings', patch })}
-            />
-          )}
-          {panel === 'fps' && (
-            <FpsPanel
-              fps={fps}
-              me={me}
-              fpsLimit={fpsLimit}
-              onFpsLimitChange={(v) => {
-                setFpsLimit(Number(v));
-                localStorage.setItem('jinaly-fps-limit', v);
-              }}
-              quality={quality}
-              onQualityChange={(q) => {
-                setQuality(q);
-                localStorage.setItem('jinaly-quality', q);
-              }}
-              sensitivity={sensitivity}
-              onSensitivityChange={(v) => {
-                setSensitivity(v);
-                localStorage.setItem('jinaly-sensitivity', String(v));
-              }}
-              invertCamera={invertCamera}
-              onInvertCameraChange={(v) => {
-                setInvertCamera(v);
-                localStorage.setItem('jinaly-invert-camera', String(v));
-              }}
-              aimModes={aimModes}
-              onAimModesChange={(next) => {
-                setAimModes(next);
-                localStorage.setItem('jinaly-aim-modes', JSON.stringify(next));
-              }}
-            />
-          )}
-          {panel === 'settings' && (
-            <SettingsPanel
-              s={s}
-              host={host}
-              sound={sound}
-              onSoundChange={setSound}
-              me={me}
-              onAnonymousPlayersChange={(anonymousPlayers) =>
-                void act({
-                  type: 'room.settings',
-                  patch: { anonymousPlayers },
-                })
-              }
-              onHidePlayerStatusChange={(hidePlayerStatus) =>
-                void act({
-                  type: 'room.settings',
-                  patch: { hidePlayerStatus },
-                })
-              }
-              onPrivateWritingChange={(privateWriting) =>
-                void act({ type: 'room.settings', patch: { privateWriting } })
-              }
-              onAnonymousChange={(anonymous) =>
-                void act({ type: 'room.settings', patch: { anonymous } })
-              }
-              onLayoutLockedChange={(layoutLocked) =>
-                void act({ type: 'room.settings', patch: { layoutLocked } })
-              }
-              onAccessTypeChange={(accessType) =>
-                void act({
-                  type: 'access.set',
-                  accessType,
-                })
-              }
-              onMaxPlayersChange={(maxPlayers) => {
-                void act({
-                  type: 'access.max_players',
-                  maxPlayers,
-                });
-              }}
-              onUpdateName={(name) => {
-                void act({
-                  type: 'profile',
-                  name,
-                });
-                localStorage.setItem('jinaly-name', name);
-              }}
-              onToggleArchive={() =>
-                void act({ type: 'archive', value: !s.archived }).then(
-                  (r) => r && setPanel(''),
-                )
-              }
             />
           )}
           {panel === 'timer' && (
@@ -2245,7 +2331,6 @@ export default function RoomApp({ id }: { id: string }) {
               onImport={(file) => void importFile(file)}
             />
           )}
-          {panel === 'help' && <HelpPanel />}
         </DialogContent>
       </Dialog>
     </main>

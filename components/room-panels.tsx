@@ -10,8 +10,6 @@ import {
   Download,
   Flag,
   Folder,
-  Gauge,
-  HelpCircle,
   ListChecks,
   MousePointer2,
   PartyPopper,
@@ -21,7 +19,6 @@ import {
   RotateCcw,
   Settings2,
   Smile,
-  Sun,
   Swords,
   Vote,
   X,
@@ -717,45 +714,105 @@ export function MatchBar({
 
 /* Выбор стороны и внешнего вида живёт в components/side-picker.tsx. */
 
-/** Всё, что не нужно в бою каждую секунду: настройки, история, экспорт. */
+/**
+ * Меню комнаты: только действия — то, что делают один раз, а не крутят.
+ *
+ * Настройки отсюда уехали в отдельный двухколоночный диалог: в одном плоском
+ * списке из одиннадцати пунктов вперемешку лежали личные настройки, правила
+ * комнаты для ведущего и разовые действия вроде экспорта, и найти нужное было
+ * нельзя. Здесь остались только действия, настройки — первым пунктом.
+ */
 export function MenuPanel({
   actionsLeft,
   battle,
+  host,
+  archived,
   onOpen,
+  onToggleArchive,
 }: {
   actionsLeft: number;
   /** В бою добавляется выбор стороны и внешнего вида. */
   battle: boolean;
+  host: boolean;
+  archived: boolean;
   onOpen: (panel: string) => void;
+  onToggleArchive: () => void;
 }) {
+  const groups: {
+    title: string;
+    items: readonly (readonly [string, typeof Settings2, string, string])[];
+  }[] = [
+    {
+      title: 'Снаряжение',
+      items: [
+        ...(battle
+          ? ([
+              ['team', Swords, 'Выбор стороны', 'Команда, скин, бандана · G'],
+            ] as const)
+          : []),
+        ['tools', Backpack, 'Инвентарь', 'Предметы этого режима · Q'],
+      ],
+    },
+    {
+      title: 'Встреча',
+      items: [
+        ['actions', ListChecks, 'План действий', `${actionsLeft} не сделано`],
+        ['widgets', Dices, 'Для живой встречи', 'Таймер, спиннер, счётчик'],
+      ],
+    },
+    {
+      title: 'Результаты',
+      items: [
+        ['export', Download, 'Импорт / экспорт', 'JSON, CSV, Markdown'],
+        ['history', RotateCcw, 'История изменений', 'Последние 40 действий'],
+      ],
+    },
+  ];
   return (
     <div className="room-menu">
-      {(
-        [
-          ...(battle
-            ? ([['team', Swords, 'Выбор стороны', 'Команда, скин, бандана']] as const)
-            : []),
-          ['tools', Backpack, 'Инвентарь', 'Предметы этого режима'],
-          ['mode', Swords, 'Режим игры', 'Режим, карта и правила'],
-          ['world', Sun, 'Облик мира', 'Стиль, тема, время суток'],
-          ['settings', Settings2, 'Настройки встречи', 'Приватность и доступ'],
-          ['actions', ListChecks, 'План действий', `${actionsLeft} не сделано`],
-          ['widgets', Dices, 'Для живой встречи', 'Таймер, спиннер, счётчик'],
-          ['export', Download, 'Импорт / экспорт', 'JSON, CSV, Markdown'],
-          ['history', RotateCcw, 'История изменений', 'Последние 40 действий'],
-          ['fps', Gauge, 'Графика и управление', 'FPS, чувствительность мыши'],
-          ['help', HelpCircle, 'Управление', 'Клавиши и подсказки'],
-        ] as const
-      ).map(([id, Icon, title, hint]) => (
-        <button key={id} onClick={() => onOpen(id)}>
-          <Icon size={18} />
-          <div>
-            <strong>{title}</strong>
-            <small>{hint}</small>
+      <button className="room-menu-primary" onClick={() => onOpen('prefs')}>
+        <Settings2 size={18} />
+        <div>
+          <strong>Настройки</strong>
+          <small>Графика, управление, правила комнаты</small>
+        </div>
+        <ChevronRight size={16} />
+      </button>
+      {groups
+        .filter((g) => g.items.length > 0)
+        .map((group) => (
+          <div key={group.title} className="room-menu-group">
+            <span className="room-menu-title">{group.title}</span>
+            {group.items.map(([id, Icon, title, hint]) => (
+              <button key={id} onClick={() => onOpen(id)}>
+                <Icon size={18} />
+                <div>
+                  <strong>{title}</strong>
+                  <small>{hint}</small>
+                </div>
+                <ChevronRight size={16} />
+              </button>
+            ))}
           </div>
-          <ChevronRight size={16} />
-        </button>
-      ))}
+        ))}
+      {host && (
+        <div className="room-menu-group">
+          <span className="room-menu-title">Ведущий</span>
+          <button className="room-menu-danger" onClick={onToggleArchive}>
+            <Flag size={18} />
+            <div>
+              <strong>
+                {archived ? 'Открыть встречу снова' : 'Завершить встречу'}
+              </strong>
+              <small>
+                {archived
+                  ? 'Участники снова смогут менять карточки'
+                  : 'Комната станет только для чтения'}
+              </small>
+            </div>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -765,16 +822,12 @@ export function WorldPanel({
   host,
   onStyleChange,
   onThemeChange,
-  onTimeChange,
-  onSeasonChange,
   onInteriorChange,
 }: {
   s: RoomState;
   host: boolean;
   onStyleChange: (visualStyle: string) => void;
   onThemeChange: (theme: string, season: string) => void;
-  onTimeChange: (time: string) => void;
-  onSeasonChange: (season: string) => void;
   onInteriorChange: (interior: boolean) => void;
 }) {
   return (
@@ -798,32 +851,11 @@ export function WorldPanel({
           </button>
         ))}
       </div>
-      <div className="two-fields">
-        <Choice
-          label="Время суток"
-          value={s.time}
-          disabled={!host}
-          onChange={onTimeChange}
-          options={[
-            ['dawn', 'Рассвет'],
-            ['day', 'День'],
-            ['sunset', 'Закат'],
-            ['night', 'Ночь'],
-          ].map(([value, label]) => ({ value, label }))}
-        />
-        <Choice
-          label="Время года"
-          value={s.season}
-          disabled={!host}
-          onChange={onSeasonChange}
-          options={[
-            ['spring', 'Весна'],
-            ['summer', 'Лето'],
-            ['autumn', 'Осень'],
-            ['winter', 'Зима'],
-          ].map(([value, label]) => ({ value, label }))}
-        />
-      </div>
+      {/* Время суток и время года переехали в шапку: их меняют посреди встречи
+          чаще всего, и ради этого не стоит открывать настройки. */}
+      <p className="settings-moved-hint">
+        Время суток и время года — в шапке комнаты, рядом с названием.
+      </p>
       {/* The interior is a room of the hub; battle maps have their own buildings. */}
       {modeOf(s) === 'retro' && (
         <Toggle
@@ -972,19 +1004,14 @@ export function ModePanel({
  */
 export const FPS_LIMITS = [20, 30, 60, 120];
 
-export function FpsPanel({
+/** Что и как рисуем на этом устройстве. Настройка личная, живёт в localStorage. */
+export function GraphicsSection({
   fps,
   me,
   fpsLimit,
   onFpsLimitChange,
   quality,
   onQualityChange,
-  sensitivity,
-  onSensitivityChange,
-  invertCamera,
-  onInvertCameraChange,
-  aimModes,
-  onAimModesChange,
 }: {
   fps: number;
   me: Person | undefined;
@@ -992,16 +1019,9 @@ export function FpsPanel({
   onFpsLimitChange: (value: string) => void;
   quality: string;
   onQualityChange: (quality: string) => void;
-  sensitivity: number;
-  onSensitivityChange: (sensitivity: number) => void;
-  invertCamera: boolean;
-  onInvertCameraChange: (invertCamera: boolean) => void;
-  aimModes: WeaponAimModes;
-  onAimModesChange: (modes: WeaponAimModes) => void;
 }) {
   return (
     <>
-      <ResourcePackPicker />
       <p className="performance-summary">
         {fps} FPS · {me?.ping || 0} мс
       </p>
@@ -1033,6 +1053,33 @@ export function FpsPanel({
           },
         ]}
       />
+      <ResourcePackPicker />
+    </>
+  );
+}
+
+/**
+ * Мышь, камера и клавиши. Раньше это жило в двух разных пунктах меню —
+ * «Графика и управление» и «Управление», — поэтому искать чувствительность
+ * приходилось наугад. Теперь настройки и список клавиш в одном разделе.
+ */
+export function ControlsSection({
+  sensitivity,
+  onSensitivityChange,
+  invertCamera,
+  onInvertCameraChange,
+  aimModes,
+  onAimModesChange,
+}: {
+  sensitivity: number;
+  onSensitivityChange: (sensitivity: number) => void;
+  invertCamera: boolean;
+  onInvertCameraChange: (invertCamera: boolean) => void;
+  aimModes: WeaponAimModes;
+  onAimModesChange: (modes: WeaponAimModes) => void;
+}) {
+  return (
+    <>
       <label className="field">
         Чувствительность камеры: {sensitivity.toFixed(1)}×
         <input
@@ -1089,16 +1136,22 @@ export function FpsPanel({
           ))}
         </div>
       </div>
+      <details className="settings-keys">
+        <summary>Все клавиши и подсказки</summary>
+        <HelpPanel />
+      </details>
     </>
   );
 }
 
-export function SettingsPanel({
+/**
+ * Правила комнаты и доступ — всё, что меняет только ведущий.
+ * Личное («Ваше имя») отсюда уехало в ProfileSection, а «Завершить встречу» —
+ * в меню действий: необратимой кнопке не место между переключателями.
+ */
+export function AccessSection({
   s,
   host,
-  sound,
-  onSoundChange,
-  me,
   onAnonymousPlayersChange,
   onHidePlayerStatusChange,
   onPrivateWritingChange,
@@ -1106,14 +1159,9 @@ export function SettingsPanel({
   onLayoutLockedChange,
   onAccessTypeChange,
   onMaxPlayersChange,
-  onUpdateName,
-  onToggleArchive,
 }: {
   s: RoomState;
   host: boolean;
-  sound: boolean;
-  onSoundChange: (sound: boolean) => void;
-  me: Person | undefined;
   onAnonymousPlayersChange: (anonymousPlayers: boolean) => void;
   onHidePlayerStatusChange: (hidePlayerStatus: boolean) => void;
   onPrivateWritingChange: (privateWriting: boolean) => void;
@@ -1121,8 +1169,6 @@ export function SettingsPanel({
   onLayoutLockedChange: (layoutLocked: boolean) => void;
   onAccessTypeChange: (accessType: RoomAccessType) => void;
   onMaxPlayersChange: (maxPlayers: number) => void;
-  onUpdateName: (name: string) => void;
-  onToggleArchive: () => void;
 }) {
   return (
     <>
@@ -1159,7 +1205,6 @@ export function SettingsPanel({
         disabled={!host}
         onChange={onLayoutLockedChange}
       />
-      <Toggle label="Звуки встречи" value={sound} onChange={onSoundChange} />
       {host && (
         <div className="settings-access-box">
           <span className="settings-subheading">Доступ к комнате</span>
@@ -1199,6 +1244,24 @@ export function SettingsPanel({
           </label>
         </div>
       )}
+    </>
+  );
+}
+
+/** Личное: как меня зовут и звучит ли встреча. Доступно всем, не только ведущему. */
+export function ProfileSection({
+  me,
+  sound,
+  onSoundChange,
+  onUpdateName,
+}: {
+  me: Person | undefined;
+  sound: boolean;
+  onSoundChange: (sound: boolean) => void;
+  onUpdateName: (name: string) => void;
+}) {
+  return (
+    <>
       <label className="field">
         Ваше имя
         <input
@@ -1211,15 +1274,7 @@ export function SettingsPanel({
           }}
         />
       </label>
-      {host && (
-        <button
-          className="secondary"
-          onClick={() => onToggleArchive()}
-        >
-          <Check size={16} />
-          {s.archived ? 'Открыть встречу снова' : 'Завершить встречу'}
-        </button>
-      )}
+      <Toggle label="Звуки встречи" value={sound} onChange={onSoundChange} />
     </>
   );
 }
