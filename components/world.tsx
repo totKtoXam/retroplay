@@ -649,7 +649,7 @@ export default function World(props: Props) {
     scene.add(camera);
     const hands = createFirstPersonHands(camera);
     // Свой фонарик висит на камере: светит туда, куда смотрит игрок.
-    const flashlight = createPlayerFlashlight(camera, props.quality);
+    const flashlight = createPlayerFlashlight(camera);
     let composer: EffectComposer | undefined,
       bloom: UnrealBloomPass | undefined;
     if (isCinematic || isBalanced) {

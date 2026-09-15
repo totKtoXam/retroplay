@@ -10,8 +10,7 @@ import * as T from 'three';
  * Поэтому:
  *
  * - настоящий `SpotLight` есть только у своего игрока и висит на камере, то есть
- *   ровно один на сцену независимо от числа участников (и ни одного на качестве
- *   `low`, где отключены даже тени);
+ *   ровно один на сцену независимо от числа участников — на любом качестве;
  * - всем остальным фонарик виден как луч: аддитивный конус с затуханием и
  *   светящаяся линза на плече. Это два меша без освещения и без теней, они
  *   стоят почти ничего, но в ночном бою чужой фонарик видно за десятки метров —
@@ -116,26 +115,22 @@ export type PlayerFlashlight = {
  * Свой фонарик: единственный динамический источник света в сцене. Висит на
  * камере — светит туда, куда смотрит игрок, и в первом, и в третьем лице.
  */
-export function createPlayerFlashlight(
-  camera: T.Camera,
-  quality: string,
-): PlayerFlashlight {
-  // На слабых настройках динамического света нет вообще: там уже отключены
-  // тени и постобработка, и лишний SpotLight бьёт по кадрам заметнее всего.
-  // Фонарик при этом «работает»: луч на аватаре и у других игроков остаётся.
-  const light =
-    quality === 'low'
-      ? undefined
-      // Затухание 1 вместо физического 2: с квадратом пятно гаснет уже через
-      // пару метров и фонарик бесполезен, а линейное даёт ровный «луч» на всю
-      // дальность 30 м.
-      : new T.SpotLight('#fff3d2', 0, 30, Math.PI / 7, 0.6, 1);
-  if (light) {
-    light.castShadow = false;
-    light.position.set(0.12, -0.1, 0);
-    light.target.position.set(0, 0, -1);
-    camera.add(light, light.target);
-  }
+export function createPlayerFlashlight(camera: T.Camera): PlayerFlashlight {
+  // Свет создаётся на любом качестве, включая `low`. Раньше на слабых
+  // настройках SpotLight не создавался вовсе, а от первого лица свой луч скрыт
+  // вместе с аватаром — и фонарик там не делал ровно ничего: нажатие F
+  // выглядело как сломанная клавиша. Экономия того не стоила: источник ровно
+  // один независимо от числа игроков, теней он не отбрасывает, а создаётся один
+  // раз при сборке сцены — включение и выключение шейдеры не пересобирает.
+  //
+  // Затухание 1 вместо физического 2: с квадратом пятно гаснет уже через пару
+  // метров и фонарик бесполезен, а линейное даёт ровный «луч» на всю дальность
+  // 30 м.
+  const light = new T.SpotLight('#fff3d2', 0, 30, Math.PI / 7, 0.6, 1);
+  light.castShadow = false;
+  light.position.set(0.12, -0.1, 0);
+  light.target.position.set(0, 0, -1);
+  camera.add(light, light.target);
   let on = false;
   return {
     get on() {
@@ -143,15 +138,13 @@ export function createPlayerFlashlight(
     },
     toggle() {
       on = !on;
-      if (light) light.intensity = on ? 28 : 0;
+      light.intensity = on ? 28 : 0;
       return on;
     },
     dispose() {
-      if (light) {
-        light.removeFromParent();
-        light.target.removeFromParent();
-        light.dispose();
-      }
+      light.removeFromParent();
+      light.target.removeFromParent();
+      light.dispose();
     },
   };
 }
