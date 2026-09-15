@@ -7,6 +7,12 @@ import {
   modeOfMap,
   type GameMode,
 } from './maps/catalog.ts';
+import {
+  anchorFor,
+  dayMoment,
+  TIMES_OF_DAY,
+  type DayCycle,
+} from './day-cycle.ts';
 
 export const ZONES = [
   {
@@ -185,6 +191,12 @@ export type Pose = {
   crouching?: boolean;
   aiming?: boolean;
   reload?: number;
+  /**
+   * Фонарик включён. Едет в позе, а не отдельным сообщением: поза и так
+   * уходит 8 раз в секунду, лишний бит в ней ничего не стоит, зато чужой
+   * фонарик появляется у всех без отдельного протокола.
+   */
+  light?: boolean;
   /** Client only: the life this pose belongs to (sent as the presence `life`). */
   life?: number;
 };
@@ -264,11 +276,36 @@ export type RoomState = {
   anonymousPlayers?: boolean;
   hidePlayerStatus?: boolean;
   respawnSeconds?: number;
+  /**
+   * Щит возрождения: сколько секунд боец неуязвим после появления на спавне.
+   * Отсчёт начинается с первого шага, до него щит держится. 0 — щита нет вовсе.
+   */
+  shieldSeconds?: number;
+  /**
+   * Голосовой чат в комнате. Выключенный ведущим — это «микрофоны молчат у
+   * всех», короткая мера на время объяснения или записи, а не настройка
+   * комнаты навсегда: поэтому отдельный выключатель, а не список из всех.
+   * Поля нет у комнат, созданных раньше голоса — там чат включён.
+   */
+  voiceEnabled?: boolean;
+  /**
+   * Кого ведущий заглушил поимённо: `members.session`. Список, а не флаг у
+   * участника, потому что состояние комнаты живёт в одной записи, а участники
+   * приходят и уходят — заглушённый останется заглушённым и после перезахода.
+   */
+  voiceMuted?: string[];
   title: string;
   theme: string;
   visualStyle?: 'classic' | 'anime';
   season: string;
   time: string;
+  /**
+   * Идущие сутки (lib/day-cycle.ts). Пока `running` — время суток считается из
+   * `anchor` по серверным часам, а `time` хранит последнее зафиксированное
+   * значение. Поля нет у комнат, созданных до этой возможности: они остаются на
+   * статичном `time`, пока ведущий не включит цикл.
+   */
+  dayCycle?: DayCycle;
   interior: boolean;
   phase: number;
   privateWriting: boolean;
@@ -395,6 +432,9 @@ export function initialState(
     map: 'hub',
     season: THEMES.find((t) => t.id === theme)?.season || 'spring',
     time: 'day',
+    // Новые комнаты живут по идущим суткам: якорь ставится так, чтобы встреча
+    // начиналась в полдень — в том же освещении, что и раньше.
+    dayCycle: { running: true, anchor: anchorFor({ time: 'day' }, Date.now()) },
     interior: false,
     phase: 0,
     privateWriting: false,
@@ -621,9 +661,34 @@ export function applyOperation(
       if (!Number.isInteger(s.respawnSeconds))
         throw Error('Интервал должен быть целым числом');
     }
+    // Ноль — осознанное значение, а не «не задано»: так ведущий выключает щит
+    // совсем, и бойца можно убить прямо на спавне.
+    if ('shieldSeconds' in p) {
+      s.shieldSeconds = finite(p.shieldSeconds, 0, 30);
+      if (!Number.isInteger(s.shieldSeconds))
+        throw Error('Длительность щита задаётся целыми секундами');
+    }
     if ('season' in p)
       s.season = oneOf(p.season, ['spring', 'summer', 'autumn', 'winter']);
-    if ('time' in p) s.time = oneOf(p.time, ['dawn', 'day', 'sunset', 'night']);
+    // Идущие сутки и ручной выбор времени — один переключатель на двоих.
+    // Включение цикла подхватывает ту фазу, что сейчас на экране, а остановка
+    // фиксирует её же: мир не должен прыгать в другое время суток от нажатия
+    // кнопки. Порядок важен — явно выбранное время всегда останавливает цикл,
+    // даже если в одном патче пришло и то и другое.
+    if ('dayCycle' in p) {
+      const now = Date.now();
+      if (p.dayCycle) s.dayCycle = { running: true, anchor: anchorFor(s, now) };
+      else {
+        s.time = dayMoment(s, now).time;
+        s.dayCycle = { running: false, anchor: 0 };
+      }
+    }
+    if ('time' in p) {
+      s.time = oneOf(p.time, [...TIMES_OF_DAY]);
+      // Без остановки выбранное время сползло бы через несколько секунд, и
+      // ручная настройка выглядела бы сломанной.
+      s.dayCycle = { running: false, anchor: 0 };
+    }
     // The mode comes first: a map only counts if it belongs to that mode. Switching the
     // mode moves the room to that mode's default map when the old one does not fit.
     if ('mode' in p || 'map' in p) {
@@ -635,6 +700,7 @@ export function applyOperation(
       } else s.map = map;
       s.mode = mode;
     }
+    if ('voiceEnabled' in p) s.voiceEnabled = !!p.voiceEnabled;
     if ('friendlyFire' in p) s.friendlyFire = !!p.friendlyFire;
     if ('friendlyFirePercent' in p) {
       s.friendlyFirePercent = finite(p.friendlyFirePercent, 1, 100);
@@ -663,6 +729,20 @@ export function applyOperation(
       'layoutLocked',
     ] as const)
       if (key in p) s[key] = !!p[key];
+  } else if (kind === 'voice.mute') {
+    // Заглушает и возвращает голос только ведущий: это модерация, а не
+    // настройка звука у себя — своя громкость живёт на клиенте.
+    hostOnly();
+    if (typeof op.session !== 'string' || !op.session)
+      throw Error('Не указан участник');
+    const muted = new Set(s.voiceMuted ?? []);
+    if (op.muted === false) muted.delete(op.session);
+    else {
+      if (op.session === host) throw Error('Ведущий не заглушает сам себя');
+      if (muted.size >= 100) throw Error('Слишком много заглушённых участников');
+      muted.add(op.session);
+    }
+    s.voiceMuted = [...muted];
   } else if (kind === 'phase') {
     hostOnly();
     s.phase = finite(op.phase, 0, 5);

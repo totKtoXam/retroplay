@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as T from 'three';
 import {
   createAvatar,
   animateAvatar,
@@ -8,6 +9,7 @@ import {
   setAvatarAnonymous,
   followCameraHeading,
 } from '../components/world-avatar.ts';
+import { attachCustomSkins, applyAvatarSkin } from '../components/world-skins.ts';
 
 const idle = {
   speed: 0,
@@ -119,4 +121,88 @@ test('Anonymous bag conceals the head across both styles and can be removed', ()
   setAvatarAnonymous(a, false);
   assert.equal(a.getObjectByName('unmasked-head').visible, true);
   assert.equal(a.getObjectByName('anonymous-bag').visible, false);
+});
+
+/*
+ * Бандана и накладки скинов (components/world-skins.ts). Проверяем не «применилось ли
+ * значение», а видно ли деталь с камеры превью: прежняя лента 0.48 × 0.44 была меньше
+ * головы и целиком тонула внутри неё, хотя цвет исправно менялся.
+ */
+const onScreen = (o) => {
+  for (let n = o; n; n = n.parent) if (!n.visible) return false;
+  return true;
+};
+/**
+ * Сколько лучей из камеры превью (avatar-preview-scene) дошло до материала.
+ * Сетку держим узкой — по ширине головы на высоте ленты: полный «скриншот»
+ * трассировкой стоит десятки секунд и в юнит-тестах не окупается.
+ */
+function headRays(avatar, material) {
+  avatar.updateMatrixWorld(true);
+  const eye = new T.Vector3(0.2, 1.25, -3.7);
+  const ray = new T.Raycaster();
+  let hits = 0;
+  for (let i = -10; i <= 10; i++)
+    for (const y of [1.75, 1.78, 1.81]) {
+      const to = new T.Vector3(i * 0.025, y, 0);
+      ray.set(eye, to.clone().sub(eye).normalize());
+      // Raycaster не смотрит на visible, поэтому скрытые наборы отсеиваем сами.
+      const first = ray
+        .intersectObject(avatar, true)
+        .filter((h) => onScreen(h.object))[0];
+      if (first && first.object.material === material) hits++;
+    }
+  return hits;
+}
+const dressed = (skinId, anime = false) => {
+  const avatar = createAvatar('#5aa9ff');
+  setAvatarStyle(avatar, anime);
+  const skins = attachCustomSkins(avatar);
+  applyAvatarSkin(avatar, skinId, '#ff00ff', skins.bandanaMat);
+  return { avatar, skins };
+};
+
+test('Бандану видно на голове, а её цвет уходит в материал', () => {
+  // Скины с визором на лоб (рыцарь, киберпанк, химзащита) закрывают ленту спереди
+  // законно, поэтому спрашиваем только тех, у кого лоб открыт.
+  for (const anime of [false, true])
+    for (const skinId of ['agent', 'classic', 'ninja']) {
+      const { avatar, skins } = dressed(skinId, anime);
+      assert.equal(skins.bandanaMat.color.getHexString(), 'ff00ff');
+      assert.ok(
+        headRays(avatar, skins.bandanaMat) > 20,
+        `бандана тонет внутри головы: ${skinId}, anime=${anime}`,
+      );
+    }
+});
+
+test('Под куполом скафандра бандана спрятана, а не протыкает шлем', () => {
+  const { avatar, skins } = dressed('cosmo');
+  assert.equal(avatar.getObjectByName('avatar-bandana').visible, false);
+  assert.equal(headRays(avatar, skins.bandanaMat), 0);
+});
+
+test('Накладки скинов смотрят вперёд: лицо рига в −Z, узел банданы на затылке', () => {
+  const { avatar } = dressed('ninja');
+  avatar.updateMatrixWorld(true);
+  const at = (o) => o.getWorldPosition(new T.Vector3());
+  assert.ok(at(avatar.getObjectByName('skin-ninja-head').children[0]).z < 0, 'маска на лице');
+  assert.ok(at(avatar.getObjectByName('avatar-bandana').children[1]).z > 0, 'узел на затылке');
+});
+
+test('Любой скин оставляет ровно одно видимое тело, а не одни аксессуары', () => {
+  for (const anime of [false, true])
+    for (const skinId of ['agent', 'classic', 'ninja', 'cyber', 'knight', 'hazmat', 'cosmo']) {
+      const { avatar } = dressed(skinId, anime);
+      const bodies = new Set();
+      avatar.traverse((o) => {
+        if ((o.name === 'legacy-skin' || o.name === 'agent-skin') && onScreen(o))
+          bodies.add(o.name);
+      });
+      assert.equal(
+        bodies.size,
+        1,
+        `тело должно быть ровно одно: ${skinId}, anime=${anime}, сейчас ${[...bodies].join()}`,
+      );
+    }
 });

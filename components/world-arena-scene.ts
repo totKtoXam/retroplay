@@ -5,6 +5,17 @@ import type { ArenaDef, GameMap } from '@/lib/maps/types';
 import { createAvatar, setAvatarStyle } from './world-avatar';
 import { createSurfaceLibrary } from './world-cinematic';
 import type { WorldKit } from './world-map-scene';
+import { mixValue, type DayMix, type TimeOfDay } from '@/lib/day-cycle';
+
+/** Те же значения, что стояли в прежних условиях по `s.time`, но по фазам. */
+const ARENA_SKY_TOP: Record<TimeOfDay, string> = { dawn: '#999dcc', day: '#79b8ed', sunset: '#707cc0', night: '#111832' };
+const ARENA_SKY_BOTTOM: Record<TimeOfDay, string> = { dawn: '#efcbd4', day: '#d2dfef', sunset: '#edb6a9', night: '#3a3b69' };
+const ARENA_FOG: Record<TimeOfDay, string> = { dawn: '#9fb6c2', day: '#9fb6c2', sunset: '#b5a18c', night: '#18242d' };
+const ARENA_HEMI: Record<TimeOfDay, number> = { dawn: 0.7, day: 0.7, sunset: 0.7, night: 0.35 };
+const ARENA_HEMI_COLOR: Record<TimeOfDay, string> = { dawn: '#e6edff', day: '#e6edff', sunset: '#e6edff', night: '#98b6ff' };
+const ARENA_SUNLIGHT: Record<TimeOfDay, number> = { dawn: 2.8, day: 2.8, sunset: 2.2, night: 0.5 };
+const ARENA_SUNLIGHT_COLOR: Record<TimeOfDay, string> = { dawn: '#ffedce', day: '#ffedce', sunset: '#ffb687', night: '#98acff' };
+const ARENA_SUN_HEIGHT: Record<TimeOfDay, number> = { dawn: 36, day: 36, sunset: 10, night: 20 };
 
 /**
  * Scene for a team-battle map described by an ArenaDef (lib/maps). Everything static is
@@ -44,14 +55,17 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
   sunlight.target.position.set(cx, 0, cz);
   scene.add(sunlight.target);
   sunlight.castShadow = true;
-  sunlight.shadow.mapSize.set(1024, 1024);
+  // Один и тот же бюджет тени растянут на вдвое большую карту размывает её, поэтому
+  // на больших аренах берём вчетверо больше текселей.
+  const shadowRes = span > 80 ? 2048 : 1024;
+  sunlight.shadow.mapSize.set(shadowRes, shadowRes);
   const half = span / 2 + 6;
   sunlight.shadow.camera.left = -half;
   sunlight.shadow.camera.right = half;
   sunlight.shadow.camera.top = half;
   sunlight.shadow.camera.bottom = -half;
   sunlight.shadow.camera.near = 1;
-  sunlight.shadow.camera.far = 140;
+  sunlight.shadow.camera.far = half * 2 + 40;
   sunlight.shadow.bias = -0.0005;
   sunlight.shadow.normalBias = 0.035;
   scene.add(sunlight);
@@ -64,7 +78,7 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     side: T.BackSide,
     depthWrite: false,
   });
-  scene.add(new T.Mesh(new T.SphereGeometry(180, 24, 16), skyMaterial));
+  scene.add(new T.Mesh(new T.SphereGeometry(Math.max(180, span * 2), 24, 16), skyMaterial));
 
   // Ground inside the walls and a wider backdrop outside them.
   add(new T.BoxGeometry(maxX - minX, 0.2, maxZ - minZ), def.groundColor, cx, -0.1, cz);
@@ -127,22 +141,30 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     statics.add(mesh);
   }
 
-  const update = (s: RoomState) => {
-    const night = s.time === 'night',
-      sunset = s.time === 'sunset',
-      dawn = s.time === 'dawn';
-    const top = night ? '#111832' : sunset ? '#707cc0' : dawn ? '#999dcc' : '#79b8ed';
-    const bottom = night ? '#3a3b69' : sunset ? '#edb6a9' : dawn ? '#efcbd4' : '#d2dfef';
-    skyMaterial.uniforms.top.value.set(top);
-    skyMaterial.uniforms.bottom.value.set(bottom);
-    scene.fog = new T.Fog(night ? '#18242d' : sunset ? '#b5a18c' : '#9fb6c2', 45, 170);
-    hemi.intensity = night ? 0.35 : 0.7;
-    hemi.color.set(night ? '#98b6ff' : '#e6edff');
-    sunlight.intensity = night ? 0.5 : sunset ? 2.2 : 2.8;
-    sunlight.color.set(sunset ? '#ffb687' : night ? '#98acff' : '#ffedce');
-    sunlight.position.set(cx - 30, sunset ? 10 : night ? 20 : 36, cz - 24);
+  // Боевая карта живёт по тем же суткам, что и хаб: свет строится смесью двух
+  // соседних фаз, чтобы ночь наступала плавно, а не рывком (lib/day-cycle.ts).
+  const scratch = new T.Color();
+  // Прежние 45 и 170 — это 0,8 и 3 пролёта «Горного лагеря»; так дальний край любой
+  // карты тонет в дымке одинаково, а не пропадает целиком на большой.
+  const fog = new T.Fog('#9fb6c2', span * 0.8, Math.min(span * 3, 330));
+  const mixInto = (
+    target: T.Color,
+    table: Record<TimeOfDay, string>,
+    m: DayMix,
+  ) => target.set(table[m.from]).lerp(scratch.set(table[m.to]), m.blend);
+  const setDayMix = (m: DayMix) => {
+    mixInto(skyMaterial.uniforms.top.value as T.Color, ARENA_SKY_TOP, m);
+    mixInto(skyMaterial.uniforms.bottom.value as T.Color, ARENA_SKY_BOTTOM, m);
+    mixInto(fog.color, ARENA_FOG, m);
+    scene.fog = fog;
+    hemi.intensity = mixValue(ARENA_HEMI, m);
+    mixInto(hemi.color, ARENA_HEMI_COLOR, m);
+    sunlight.intensity = mixValue(ARENA_SUNLIGHT, m);
+    mixInto(sunlight.color, ARENA_SUNLIGHT_COLOR, m);
+    sunlight.position.set(cx - 30, mixValue(ARENA_SUN_HEIGHT, m), cz - 24);
     sunlight.shadow.needsUpdate = true;
   };
+  const update = (_s: RoomState, m: DayMix) => setDayMix(m);
   const avatarFactory = (color: string) => {
     const avatar = createAvatar(color);
     avatar.name = 'player-avatar';
@@ -156,6 +178,7 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     stations: [],
     avatarFactory,
     update,
+    setDayMix,
     setNotes: () => {},
     clouds: new T.Group(),
     sunlight,

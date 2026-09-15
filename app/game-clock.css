@@ -1,0 +1,142 @@
+/* Внутриигровые сутки: часы в шапке (components/game-clock.tsx) и переключатель
+   хода суток в чипе «Мир» (components/world-quick-chip.tsx).
+   Подключается в app/layout.tsx рядом с hud.css — в globals.css через @import
+   стили комнаты не заводим, это конвенция проекта. */
+
+/* Счёт матча и часы под ним — одной колонкой в центре шапки. */
+.match-stack {
+  position: relative;
+  display: grid;
+  justify-items: center;
+}
+
+/*
+ * Часы боя — ярлык, выезжающий из-под счёта, как часы дня и ночи в Dota.
+ *
+ * Отдельной строкой внутри шапки они делали её выше и отжимали вниз всю сцену
+ * ради фоновой информации. Вынесенные из потока, часы не занимают в шапке ни
+ * пикселя: они свисают ниже её нижней грани ровно под счётом, верхних углов и
+ * верхней границы у них нет — ярлык читается как продолжение шапки, а не как
+ * вторая панель.
+ *
+ * Кликов ярлык не ловит (`pointer-events: none`): он висит над сценой у самого
+ * прицела, и промах мимо мира в бою обходится дороже, чем всплывающая подсказка.
+ */
+.match-stack .game-clock {
+  position: absolute;
+  top: calc(100% + var(--bar-pad-y, 7px));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 10px 4px;
+  border-top: 0;
+  border-color: var(--hud-line);
+  border-radius: 0 0 9px 9px;
+  background: var(--hud-glass);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+
+.game-clock {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-items: baseline;
+  gap: 6px;
+  /* Полоска прогресса лежит отдельной строкой во всю ширину. */
+  grid-template-rows: auto 2px;
+  padding: 2px 8px 3px;
+  border: 1px solid #ffffff26;
+  border-radius: 6px;
+  color: var(--hud-dim);
+  white-space: nowrap;
+}
+
+.game-clock-phase {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.game-clock-time {
+  font: 600 14px/1.1 ui-monospace, monospace;
+  letter-spacing: 0.5px;
+  color: #dbe7ff;
+}
+
+.game-clock-next {
+  font: 400 10px/1.4 system-ui, sans-serif;
+  letter-spacing: 0.3px;
+}
+
+.game-clock-track {
+  grid-column: 1 / -1;
+  height: 2px;
+  border-radius: 2px;
+  background: #ffffff1f;
+}
+
+.game-clock-track::before {
+  content: '';
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  /* Доля пройденной фазы приходит из компонента как --phase-progress (0..1). */
+  width: calc(var(--phase-progress, 0) * 100%);
+  background: var(--clock-accent, var(--hud-accent));
+}
+
+/* Цвет фазы: закат и ночь должны читаться боковым зрением, не вчитываясь. */
+.game-clock.time-dawn {
+  --clock-accent: #f0b9a2;
+}
+.game-clock.time-day {
+  --clock-accent: #8ec8f5;
+}
+.game-clock.time-sunset {
+  --clock-accent: #f09b6a;
+}
+.game-clock.time-night {
+  --clock-accent: #8f9bf0;
+}
+
+/* Переключатель хода суток в чипе «Мир»: он главнее четырёх кнопок фаз под ним,
+   поэтому шире их и с собственной подсветкой. */
+.world-chip-cycle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--jin-border);
+  border-radius: 8px;
+  font-size: 12px;
+  text-align: left;
+  background: var(--jin-surface);
+  color: var(--jin-text);
+}
+
+.world-chip-cycle:hover {
+  background: var(--jin-surface-3);
+}
+
+.world-chip-cycle.active {
+  border-color: var(--jin-accent);
+  background: var(--jin-accent-soft);
+  color: var(--jin-accent-hover);
+  font-weight: 600;
+}
+
+.game-clock.paused {
+  opacity: 0.72;
+}
+.game-clock.paused .game-clock-track::before {
+  background: #ffffff3d;
+}
+
+/* В ретро-режиме часы стоят в ряду чипов шапки, а не под счётом матча:
+   MatchBar там не рендерится. Вторая строка с подсказкой на узком экране
+   съедает место, нужное фазам и таймеру. */
+@media (width <= 900px) {
+  .game-clock-next {
+    display: none;
+  }
+}

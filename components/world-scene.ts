@@ -7,10 +7,39 @@ import {
 } from './world-cinematic';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ZONES, type RoomState } from '@/lib/model';
+import { mixValue, type DayMix, type TimeOfDay } from '@/lib/day-cycle';
 import {
   ALL_3D_COLLIDERS,
   BoxCollider3D,
 } from '@/lib/world-collision';
+
+/**
+ * Палитры и силы света по фазам суток.
+ *
+ * Раньше это были цепочки `night ? … : sunset ? …` прямо в `update`, и время
+ * суток менялось рывком. Таблицы нужны, чтобы между двумя соседними фазами
+ * можно было взять смесь (lib/day-cycle.ts): значения в них — ровно те же, что
+ * стояли в прежних условиях, так что ручной выбор фазы выглядит как и раньше.
+ */
+const SKY_TOP: Record<TimeOfDay, string> = { dawn: '#999dcc', day: '#79b8ed', sunset: '#707cc0', night: '#111832' };
+const SKY_BOTTOM: Record<TimeOfDay, string> = { dawn: '#efcbd4', day: '#d2dfef', sunset: '#edb6a9', night: '#3a3b69' };
+const ANIME_SKY_TOP: Record<TimeOfDay, string> = { ...SKY_TOP, day: '#88b5f2' };
+const ANIME_SKY_BOTTOM: Record<TimeOfDay, string> = { ...SKY_BOTTOM, day: '#f5dcec' };
+const FOG: Record<TimeOfDay, string> = { dawn: '#9fb6c2', day: '#9fb6c2', sunset: '#b5a18c', night: '#18242d' };
+/** Насколько «ночная» текущая смесь: звёзды, фонари и размер солнца берутся отсюда. */
+const NIGHT_FACTOR: Record<TimeOfDay, number> = { dawn: 0, day: 0, sunset: 0, night: 1 };
+const HEMI: Record<TimeOfDay, number> = { dawn: 0.65, day: 0.65, sunset: 0.65, night: 0.45 };
+const ANIME_HEMI: Record<TimeOfDay, number> = { dawn: 0.8, day: 0.8, sunset: 0.8, night: 0.45 };
+const HEMI_COLOR: Record<TimeOfDay, string> = { dawn: '#e6edff', day: '#e6edff', sunset: '#e6edff', night: '#98b6ff' };
+const SUNLIGHT: Record<TimeOfDay, number> = { dawn: 2.8, day: 2.8, sunset: 2.4, night: 0.7 };
+const ANIME_SUNLIGHT: Record<TimeOfDay, number> = { dawn: 1.7, day: 1.7, sunset: 1.7, night: 0.7 };
+const SUNLIGHT_COLOR: Record<TimeOfDay, string> = { dawn: '#ffedce', day: '#ffedce', sunset: '#ffb687', night: '#98acff' };
+const SUN_HEIGHT: Record<TimeOfDay, number> = { dawn: 36, day: 36, sunset: 9, night: 20 };
+const RIM: Record<TimeOfDay, number> = { dawn: 0.25, day: 0.25, sunset: 0.25, night: 0.3 };
+/** Рисованное солнце аниме-облика: своя высота и цвет. */
+const ANIME_SUN_HEIGHT: Record<TimeOfDay, number> = { dawn: 13, day: 38, sunset: 9, night: 45 };
+const ANIME_SUN_COLOR: Record<TimeOfDay, string> = { dawn: '#ffe1ae', day: '#ffe1ae', sunset: '#ffe1ae', night: '#dbe6ff' };
+
 export const STATIONS = [
   [-9, -6],
   [9, -6],
@@ -116,18 +145,19 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
     starPositions[i * 3 + 1] = h;
     starPositions[i * 3 + 2] = Math.sin(a) * r;
   }
+  const starMaterial = new T.PointsMaterial({
+    color: '#dceaff',
+    size: 0.32,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.9,
+  });
   const stars = new T.Points(
     new T.BufferGeometry().setAttribute(
       'position',
       new T.BufferAttribute(starPositions, 3),
     ),
-    new T.PointsMaterial({
-      color: '#dceaff',
-      size: 0.32,
-      sizeAttenuation: true,
-      transparent: true,
-      opacity: 0.9,
-    }),
+    starMaterial,
   );
   scene.add(stars);
   const groundMaterial = material('#749879'),
@@ -644,61 +674,56 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
     };
   }
   let animeStyle = false;
-  const update = (s: RoomState) => {
+  const scratch = new T.Color();
+  const fog = new T.Fog('#9fb6c2', 65, 205);
+  /** Цвет фазы из таблицы, смешанный с соседней (lib/day-cycle.ts). */
+  const mixInto = (
+    target: T.Color,
+    table: Record<TimeOfDay, string>,
+    m: DayMix,
+  ) => target.set(table[m.from]).lerp(scratch.set(table[m.to]), m.blend);
+  /**
+   * Свет, небо и туман по ходу суток. Вынесено из `update`, потому что
+   * вызывается каждую секунду на идущих сутках, а тяжёлую часть `update`
+   * (обход сцены, стили, сезон) при этом трогать незачем.
+   */
+  const setDayMix = (m: DayMix) => {
+    const skyTop = animeStyle ? ANIME_SKY_TOP : SKY_TOP;
+    const skyBottom = animeStyle ? ANIME_SKY_BOTTOM : SKY_BOTTOM;
+    mixInto(skyMaterial.uniforms.top.value as T.Color, skyTop, m);
+    mixInto(skyMaterial.uniforms.bottom.value as T.Color, skyBottom, m);
+    // Туман пересоздавался на каждый вызов; на идущих сутках это был бы мусор
+    // раз в секунду, поэтому один объект переиспользуется.
+    if (animeStyle) mixInto(fog.color, skyBottom, m);
+    else mixInto(fog.color, FOG, m);
+    fog.near = animeStyle ? 52 : 65;
+    fog.far = animeStyle ? 140 : 205;
+    scene.fog = fog;
+    const night = mixValue(NIGHT_FACTOR, m);
+    hemi.intensity = mixValue(animeStyle ? ANIME_HEMI : HEMI, m);
+    mixInto(hemi.color, HEMI_COLOR, m);
+    sunlight.intensity = mixValue(animeStyle ? ANIME_SUNLIGHT : SUNLIGHT, m);
+    sunlight.position.set(-30, mixValue(SUN_HEIGHT, m), -24);
+    sunlight.shadow.needsUpdate = true;
+    mixInto(sunlight.color, SUNLIGHT_COLOR, m);
+    rim.intensity = animeStyle ? 1 : mixValue(RIM, m);
+    sun.position.y = mixValue(ANIME_SUN_HEIGHT, m);
+    mixInto((sun.material as T.MeshBasicMaterial).color, ANIME_SUN_COLOR, m);
+    sun.scale.setScalar(1 - night * 0.45);
+    // Звёзды не «включаются», а проявляются к ночи: иначе переход в ночь
+    // оставался бы рывком, ради устранения которого сутки и вводились.
+    starMaterial.opacity = 0.9 * night;
+    stars.visible = night > 0.02;
+    clouds.visible = animeStyle && night < 0.5;
+    lanternMaterials.forEach((m2) => (m2.emissiveIntensity = 1 + night));
+  };
+  const update = (s: RoomState, m: DayMix) => {
     animeStyle = s.visualStyle === 'anime';
     animeSky.visible = oldMountains.visible = oldForest.visible = animeStyle;
     sun.visible = animeStyle;
-    cinematic.update(s, renderer);
-    const night = s.time === 'night',
-      sunset = s.time === 'sunset',
-      dawn = s.time === 'dawn',
-      winter = s.season === 'winter',
-      autumn = s.season === 'autumn';
-    const top = night
-        ? '#111832'
-        : sunset
-          ? '#707cc0'
-          : dawn
-            ? '#999dcc'
-            : animeStyle
-              ? '#88b5f2'
-              : '#79b8ed',
-      bottom = night
-        ? '#3a3b69'
-        : sunset
-          ? '#edb6a9'
-          : dawn
-            ? '#efcbd4'
-            : animeStyle
-              ? '#f5dcec'
-              : '#d2dfef';
-    skyMaterial.uniforms.top.value.set(top);
-    skyMaterial.uniforms.bottom.value.set(bottom);
-    scene.fog = new T.Fog(
-      animeStyle
-        ? bottom
-        : s.time === 'night'
-          ? '#18242d'
-          : s.time === 'sunset'
-            ? '#b5a18c'
-            : '#9fb6c2',
-      animeStyle ? 52 : 65,
-      animeStyle ? 140 : 205,
-    );
-    hemi.intensity = night ? 0.45 : animeStyle ? 0.8 : 0.65;
-    hemi.color.set(night ? '#98b6ff' : '#e6edff');
-    sunlight.intensity = night ? 0.7 : animeStyle ? 1.7 : sunset ? 2.4 : 2.8;
-    sunlight.position.set(-30, sunset ? 9 : night ? 20 : 36, -24);
-    sunlight.shadow.needsUpdate = true;
-    sunlight.color.set(sunset ? '#ffb687' : night ? '#98acff' : '#ffedce');
-    rim.intensity = animeStyle ? 1 : night ? 0.3 : 0.25;
-    sun.position.y = night ? 45 : sunset ? 9 : dawn ? 13 : 38;
-    (sun.material as T.MeshBasicMaterial).color.set(
-      night ? '#dbe6ff' : '#ffe1ae',
-    );
-    sun.scale.setScalar(night ? 0.55 : 1);
-    stars.visible = night;
-    clouds.visible = animeStyle && !night;
+    const winter = s.season === 'winter',
+      autumn = s.season === 'autumn',
+      spring = s.season === 'spring';
     groundMaterial.color.set(
       animeStyle
         ? winter
@@ -710,8 +735,8 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
           ? '#d6e1ec'
           : autumn
             ? '#c6b6a1'
-            : s.theme === 'steppe'
-              ? '#a6b4af'
+            : spring
+              ? '#9dbba4'
               : '#a6b4af',
     );
     const colors = animeStyle
@@ -720,10 +745,10 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
         ? ['#b8ccdc', '#9bb7cc', '#c6d6df']
         : autumn
           ? ['#bb7b69', '#d4a17a', '#a8788e']
-          : s.season === 'spring'
+          : spring
             ? ['#548f88', '#7097a2', '#6faaa1']
             : ['#427b80', '#58868f', '#679b97'];
-    leafMaterials.forEach((m, i) => m.color.set(colors[i]));
+    leafMaterials.forEach((mat, i) => mat.color.set(colors[i]));
     snowCaps.forEach((o) => (o.visible = winter && animeStyle));
     flowers.visible = !winter && animeStyle;
     oldLamps.visible = animeStyle;
@@ -732,7 +757,6 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
     winterDecor.visible = s.theme === 'newyear';
     interior.visible = s.interior;
     yurt.visible = !s.interior && animeStyle;
-    lanternMaterials.forEach((m) => (m.emissiveIntensity = night ? 2 : 1));
     scene.traverse((o) => {
       if (o instanceof T.Group && o.name === 'player-avatar')
         setAvatarStyle(o, animeStyle);
@@ -748,7 +772,8 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
     for (const color of accents)
       mats.get(color)?.color.set(animeStyle ? color : '#766f60');
     art.update(s);
-    cinematic.update(s, renderer);
+    cinematic.update(s, m, renderer);
+    setDayMix(m);
   };
   const avatarFactory = (color: string) => {
     const avatar = createAvatar(color);
@@ -849,6 +874,10 @@ export function createWorldScene(renderer?: T.WebGLRenderer) {
     colliders,
     avatarFactory,
     update,
+    setDayMix: (m: DayMix) => {
+      setDayMix(m);
+      cinematic.setDayMix(m, renderer);
+    },
     setNotes,
     clouds,
     sunlight,

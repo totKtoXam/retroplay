@@ -1,0 +1,586 @@
+/*
+ * Игровой HUD поверх 3D-сцены (components/world-hud.tsx): панель
+ * производительности, состав сторон, полоска здоровья, счёт K/D/A и патроны.
+ *
+ * Цвета здесь собственные, а не `--jin-*`: за HUD не тема приложения, а
+ * произвольный кадр сцены, поэтому и в светлой, и в тёмной теме нужна одна и
+ * та же тёмная подложка с тенью текста.
+ *
+ * Селекторы намеренно длиннее базовых. Визуальные стили (`.style-classic`,
+ * `.style-anime`) красят `.world-location` тремя классами, и с коротким
+ * селектором компактный вид панели FPS снова разъезжался под ними.
+ */
+
+/* --- Панель FPS: мелкая и полупрозрачная, чтобы не спорить с боем --- */
+
+.world-container .world-hud-top-left .world-performance.world-location {
+  gap: 6px;
+  padding: 3px 8px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 2px solid rgba(255, 209, 102, 0.55);
+  border-radius: 7px;
+  background: rgba(10, 16, 28, 0.4);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  color: #e8eefb;
+  /* Лёгкое приглушение вместо сильной прозрачности: читаемость держит
+     подложка и тень текста, а не сам alpha. */
+  opacity: 0.82;
+  cursor: pointer;
+  transition:
+    opacity 0.16s ease,
+    background 0.16s ease;
+}
+.world-container .world-hud-top-left .world-performance.world-location:hover,
+.world-container
+  .world-hud-top-left
+  .world-performance.world-location:focus-visible {
+  opacity: 1;
+  background: rgba(10, 16, 28, 0.66);
+}
+.world-container .world-hud-top-left .world-performance.world-location .live-dot {
+  width: 5px;
+  height: 5px;
+}
+.world-container .world-hud-top-left .world-performance.world-location strong {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #eef3ff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+.world-container
+  .world-hud-top-left
+  .world-performance.world-location
+  strong
+  span {
+  display: inline;
+  margin: 0;
+  font-size: 9px;
+  font-weight: 500;
+  color: #9db1d1;
+}
+.world-container
+  .world-hud-top-left
+  .world-performance.world-location
+  div
+  > span {
+  margin-top: 1px;
+  font-size: 8.5px;
+  letter-spacing: 0.01em;
+  color: #a6b8d6;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* --- Состав сторон и подсказка клавиши (только командный бой) --- */
+
+.world-hud-top-left .hud-sides {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 200px;
+  padding: 4px 8px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  background: rgba(10, 16, 28, 0.4);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  color: #dde6f6;
+  font-size: 9.5px;
+  line-height: 1.3;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  user-select: none;
+}
+.world-hud-top-left .hud-side {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.world-hud-top-left .hud-side i {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.world-hud-top-left .hud-side-red i {
+  background: #ff5d52;
+  box-shadow: 0 0 6px rgba(255, 93, 82, 0.55);
+}
+.world-hud-top-left .hud-side-blue i {
+  background: #5aa9ff;
+  box-shadow: 0 0 6px rgba(90, 169, 255, 0.55);
+}
+.world-hud-top-left .hud-side b {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.world-hud-top-left .hud-side span {
+  min-width: 0;
+  overflow: hidden;
+  color: #a6b8d6;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Своя сторона подсвечена: в замесе некогда вспоминать, за кого играешь. */
+.world-hud-top-left .hud-side.is-mine b,
+.world-hud-top-left .hud-side.is-mine span {
+  color: #ffffff;
+}
+.world-hud-top-left .hud-side-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 0;
+  padding-top: 3px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: #93a6c4;
+  font-size: 9px;
+}
+.world-hud-top-left .hud-side-hint kbd {
+  padding: 0 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffd166;
+  font: inherit;
+  font-weight: 700;
+}
+
+/* --- Полоска HP, приклеенная к верхней кромке панели предметов --- */
+
+.health-bar-hud {
+  position: absolute;
+  /* Ширина и отступ приходят инлайном из замера панели предметов; значения
+     ниже — запасные, на случай пока панель ещё не измерена. */
+  bottom: var(--hud-dock-top, 74px);
+  left: 50%;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hud-dock-width, min(320px, calc(100vw - 28px)));
+  height: 13px;
+  overflow: hidden;
+  /*
+   * Стекло — это прозрачность, а не объём. Поэтому у полоски нет ни подложки,
+   * ни градиентов: пустая часть шкалы почти невидима, сквозь неё видно сцену.
+   * Остаётся только тонкая светлая грань по краю — по ней глаз и достраивает
+   * стеклянную пластину; лёгкое размытие за спиной читается как толщина.
+   */
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-bottom: 0;
+  /* Скругляем только верх и садимся на кромку панели: так полоска читается
+     как её продолжение, а не как отдельная плашка. */
+  border-radius: 7px 7px 0 0;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  transform: translateX(-50%);
+  pointer-events: none;
+  user-select: none;
+}
+.health-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--hp-fill, 100%);
+  /*
+   * Заливка намеренно полупрозрачная: сквозь неё видно мир, а собственное
+   * размытие искажает то, что за ней, — так ведёт себя цветное стекло, и
+   * именно этим оно отличается от крашеной пластмассы с бликом.
+   * Цвет берётся из --hp-color: при низком здоровье стекло уходит в красный,
+   * и терять этот сигнал ради оттенка нельзя.
+   */
+  background-color: color-mix(
+    in srgb,
+    var(--hp-color, hsl(140 70% 45%)) 48%,
+    transparent
+  );
+  /*
+   * Глянец поверх прозрачности: узкий резкий блик по верхней кромке, мягкое
+   * его затухание вниз и слабый отсвет у дна. Все слои — полупрозрачный белый,
+   * а не заливка, поэтому сцена сквозь стекло видна по-прежнему; будь блики
+   * непрозрачными, полоска снова стала бы крашеной пластмассой.
+   */
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.62) 0,
+    rgba(255, 255, 255, 0.28) 1.5px,
+    rgba(255, 255, 255, 0.1) 35%,
+    rgba(255, 255, 255, 0) 62%,
+    rgba(255, 255, 255, 0.09) 100%
+  );
+  backdrop-filter: blur(4px) saturate(1.5);
+  -webkit-backdrop-filter: blur(4px) saturate(1.5);
+  /* Единственная непрозрачная деталь — светящийся срез на границе залитого и
+     пустого: у настоящего стекла торец всегда ярче самой пластины. */
+  border-right: 1px solid
+    color-mix(in srgb, var(--hp-color, #2ec54a) 75%, white);
+  transition:
+    width 0.18s ease-out,
+    background-color 0.18s linear;
+}
+.health-bar-value {
+  position: relative;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  /* Цифры лежат на самой полоске, поэтому под ними то залитый цвет, то
+     тёмный фон: двойная тень держит контраст в обоих случаях. */
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 5px rgba(0, 0, 0, 0.7);
+}
+.health-bar-hud.is-depleted .health-bar-value {
+  color: #ffd2da;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .health-bar-fill {
+    transition: none;
+  }
+}
+
+/* Узкий экран: панель предметов сжимается, вместе с ней и полоска. */
+@media (max-width: 420px) {
+  .world-hud-top-left .hud-sides {
+    max-width: 150px;
+  }
+  .health-bar-hud {
+    /* 11px, а не 9: ниже блик и внутренняя тень стекла сливаются и полоска
+       снова выглядит плоской краской. */
+    height: 11px;
+  }
+  .health-bar-value {
+    font-size: 7.5px;
+    letter-spacing: 0.02em;
+  }
+}
+
+/* Узкая ширина: в globals.css у `.world-location` стоит `max-width: 58%`
+   с крупным padding — правило родом от старой большой плашки. Компактной оно
+   выходит боком: ширину режет, текст переносится на три строки, и панель
+   становится не меньше, а ВЫШЕ (замерено на 390px: 83×85px). Возвращаем ей
+   право занимать столько ширины, сколько нужно одной-двум строкам. */
+@media (max-width: 600px) {
+  .world-container .world-hud-top-left .world-performance.world-location {
+    max-width: none;
+    padding: 3px 7px 4px;
+    border-radius: 7px;
+    left: auto;
+    top: auto;
+  }
+}
+
+/* --- Счёт K/D/A: нижний левый угол, без плашки --- */
+
+/* В globals.css блок стоит на 84px от низа с непрозрачной подложкой — он был
+   задуман как карточка. Опускаем его к самому низу, к одной линии с патронами
+   справа, и снимаем подложку: счёт смотрят в паузе между схватками, и держать
+   ради него тёмный прямоугольник поверх сцены незачем. */
+.world-container .combat-stats-hud {
+  bottom: 24px;
+  left: 24px;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  /* Тень текста вместо подложки: цифры остаются читаемыми и на светлом небе,
+     и на тёмном интерьере — тем же приёмом держится панель FPS. */
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 6px rgba(0, 0, 0, 0.55);
+  opacity: 0.78;
+  pointer-events: none;
+}
+.world-container .combat-stats-hud .combat-stat-col {
+  padding: 0 7px;
+  min-width: 26px;
+}
+.world-container .combat-stats-hud .combat-stat-col small {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+}
+.world-container .combat-stats-hud .combat-stat-col strong {
+  font-size: 13px;
+}
+.world-container .combat-stats-hud .combat-stat-divider {
+  height: 14px;
+  background: rgba(255, 255, 255, 0.18);
+}
+/* Коэффициент — производная величина, а не ещё один счётчик, поэтому он
+   нейтрально-белый: три цветные колонки слева остаются главными. */
+.world-container .combat-stats-hud .stat-kd small,
+.world-container .combat-stats-hud .stat-kd strong {
+  color: #dbe4f5;
+}
+.world-container .combat-stats-hud .stat-kd {
+  min-width: 34px;
+}
+
+/* --- Патроны: вплотную слева от панели предметов, без плашки --- */
+
+/* Прежняя `.ammo-panel` из globals.css больше не рендерится: подсказки клавиш
+   и название оружия ушли, а остаток магазина показывает этот блок.
+
+   Место — у левого края панели предметов, рядом с полоской HP: правый нижний
+   угол занят миникартой, а взгляд в бою и так держится на центре низа экрана.
+   Ширину панели меряет `useLoadoutAnchor` (world-hud.tsx) — набор слотов
+   зависит от режима, и константой этот край не удержать. */
+.world-container .hud-ammo {
+  position: absolute;
+  right: calc(50% + var(--hud-dock-width, 320px) / 2 + 12px);
+  bottom: calc(var(--hud-dock-base, 18px) + 6px);
+  z-index: 6;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 2px;
+  color: #f3f7ff;
+  /* Тень под самими фигурами: сегменты и шкала — не текст, text-shadow их не
+     держит, а на светлом небе белое по белому исчезает. */
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+  pointer-events: none;
+  user-select: none;
+}
+.world-container .hud-ammo strong {
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 6px rgba(0, 0, 0, 0.55);
+}
+.world-container .hud-ammo small {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: rgba(228, 238, 255, 0.6);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+/* Сегменты: по одному патрону, пока их не больше AMMO_SEGMENT_LIMIT. */
+.world-container .hud-ammo .hud-ammo-segments {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+}
+.world-container .hud-ammo .hud-ammo-segments i {
+  width: 4px;
+  height: 13px;
+  border-radius: 1px;
+  /* Отстрелянные патроны не убираем совсем: по пустым местам видно, сколько
+     магазина уже потрачено, а не только сколько осталось. */
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  transition: background-color 0.12s linear;
+}
+.world-container .hud-ammo .hud-ammo-segments i.is-loaded {
+  background: #eef3ff;
+}
+/* Сплошная шкала: для магазинов крупнее порога сегментов. */
+.world-container .hud-ammo .hud-ammo-gauge {
+  position: relative;
+  width: 74px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+.world-container .hud-ammo .hud-ammo-gauge i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--ammo-fill, 100%);
+  background: #eef3ff;
+  transition: width 0.12s linear;
+}
+/* Мало патронов — единственное состояние, ради которого индикатор повышает
+   голос: цвет тот же, что у счётчика смертей, чтобы «красное = плохо» читалось
+   одинаково по всему HUD. */
+.world-container .hud-ammo.is-low {
+  color: #ff8b9d;
+}
+.world-container .hud-ammo.is-low .hud-ammo-segments i.is-loaded,
+.world-container .hud-ammo.is-low .hud-ammo-gauge i {
+  background: #ff8b9d;
+}
+/* Перезарядка: пульсация вместо слова «ПЕРЕЗАРЯДКА». Момент и так слышно и
+   видно по рукам, индикатору достаточно показать, что цифры сейчас не о чём. */
+.world-container .hud-ammo.is-reloading {
+  animation: hud-ammo-reload 0.6s ease-in-out infinite alternate;
+}
+@keyframes hud-ammo-reload {
+  to {
+    opacity: 0.32;
+  }
+}
+
+/* Старая `.ammo-panel` прятала карточку предмета, пока в руках ствол; правило
+   в globals.css смотрит на исчезнувший класс, поэтому повторяем его здесь. */
+.mode-3d:has(.hud-ammo) .equipped-card {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .world-container .hud-ammo.is-reloading {
+    animation: none;
+    opacity: 0.45;
+  }
+  .world-container .hud-ammo .hud-ammo-segments i,
+  .world-container .hud-ammo .hud-ammo-gauge i {
+    transition: none;
+  }
+}
+
+/* Узкий экран: панель предметов внизу по центру становится шире и выше, и
+   нижние углы уходят под неё — поднимаем оба блока над доком. */
+@media (max-width: 900px) {
+  .world-container .combat-stats-hud {
+    bottom: 96px;
+    left: 16px;
+  }
+}
+/* Ниже этого порога панель предметов занимает низ целиком: магазин уходит на
+   своё прежнее место над ней, а миникарта прячется — плану там уже не хватает
+   ни места, ни разборчивости. */
+@media (max-width: 680px) {
+  .world-container .combat-stats-hud {
+    bottom: 128px;
+  }
+  .world-container .hud-ammo {
+    right: 16px;
+    bottom: 128px;
+  }
+  .world-container .hud-ammo strong {
+    font-size: 17px;
+  }
+  .world-container .hud-ammo .hud-ammo-gauge {
+    width: 62px;
+  }
+}
+/* 390px: на счёт K/D/A и остаток магазина в одну строку места уже впритык —
+   сжимаем колонки, чтобы блоки не съехали друг на друга. */
+@media (max-width: 420px) {
+  .world-container .combat-stats-hud .combat-stat-col {
+    padding: 0 5px;
+    min-width: 22px;
+  }
+  .world-container .combat-stats-hud .stat-kd {
+    min-width: 30px;
+  }
+  .world-container .hud-ammo .hud-ammo-segments i {
+    width: 3px;
+  }
+}
+
+/* --- Миникарта: правый нижний угол --- */
+
+/* План карты сверху, своя стрелка и точки своих. Рисует её canvas в
+   components/world-minimap.tsx; здесь только место и рамка.
+
+   Подложка намеренно тёмная и плотная, в отличие от прозрачных полоски HP и
+   магазина: по ней читают геометрию, а не одно число, и просвечивающая сцена
+   мешала бы отличить стену от неба. */
+.world-container .hud-minimap {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 6;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  line-height: 0;
+  pointer-events: none;
+  user-select: none;
+}
+@media (max-width: 900px) {
+  .world-container .hud-minimap {
+    right: 14px;
+    bottom: 14px;
+  }
+  .world-container .hud-minimap canvas {
+    width: 116px !important;
+    height: 116px !important;
+  }
+}
+@media (max-width: 680px) {
+  .world-container .hud-minimap {
+    display: none;
+  }
+  /* Развёрнутый план по M нужен и на узком экране — там он как раз и заменяет
+     угловую плашку, которой места не осталось. */
+  .world-container .hud-minimap.is-expanded {
+    display: block;
+  }
+}
+/* Прицеливание и оптика: план отвлекает ровно в тот момент, когда смотрят в
+   одну точку, — убираем его, пока игрок целится. Развёрнутый по M план не
+   гасим: его открыли, чтобы в него смотреть. */
+.world-container.is-aiming .hud-minimap:not(.is-expanded) {
+  opacity: 0.25;
+  transition: opacity 0.12s ease;
+}
+
+/* --- Развёрнутый план по M --- */
+
+/* Тот же холст, только крупнее и по центру экрана: отдельного режима у карты
+   нет, меняется лишь разрешение и место. Подложка плотнее угловой — читать
+   приходится дольше, и просвечивающий бой мешал бы. */
+.world-container .hud-minimap.is-expanded {
+  right: 50%;
+  bottom: 50%;
+  z-index: 11;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(8, 13, 25, 0.9);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  transform: translate(50%, 50%);
+}
+.world-container .hud-minimap.is-expanded canvas {
+  border-radius: 6px;
+}
+.hud-minimap-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px 2px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: rgba(226, 232, 240, 0.85);
+}
+.hud-minimap-caption kbd {
+  padding: 1px 5px;
+  font: inherit;
+  font-weight: 700;
+  color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+  background: rgba(15, 23, 42, 0.7);
+}

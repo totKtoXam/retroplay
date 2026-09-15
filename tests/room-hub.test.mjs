@@ -15,6 +15,8 @@ import {
   publicMembers,
   resolveCombat,
   sanitizePose,
+  voiceAudience,
+  voiceSilenced,
 } from '../lib/room-hub-core.ts';
 import { isBlocked3D } from '../lib/world-collision.ts';
 import { getMap } from '../lib/maps/index.ts';
@@ -52,6 +54,9 @@ const room = (over = {}) => ({
   host: 'a',
   anonymous: false,
   respawnSeconds: 5,
+  shieldSeconds: 5,
+  voiceEnabled: true,
+  voiceMuted: new Set(),
   archived: false,
   map: 'hub',
   teams: false,
@@ -136,6 +141,62 @@ test('dead players cannot move or shoot; they respawn protected at the spawn poi
   applyPresence(v, { pose: stand(0, 0), life: 1 }, T + 1200);
   assert.equal(v.pose.z, 0);
   assert.equal(v.immuneUntil, T + 1200 + 5000, 'protection ends 5 s after the first move');
+});
+
+test('командный голос слышат только свои, общий — все', () => {
+  const h = hub(
+    member('a', { team: 'red' }),
+    member('b', { team: 'red' }),
+    member('c', { team: 'blue' }),
+  );
+  h.room = room({ teams: true });
+  const team = voiceAudience(h, 'a', 'team');
+  assert.equal(team('b'), true, 'свой слышит');
+  assert.equal(team('c'), false, 'противник командный канал не слышит');
+  assert.equal(team('a'), false, 'себя в наушники не возвращаем');
+  const all = voiceAudience(h, 'a', 'all');
+  assert.equal(all('c'), true, 'общий канал слышат и противники');
+});
+
+test('без команд «своим» значит «всем»: в ретро командного канала нет', () => {
+  const h = hub(member('a'), member('b'));
+  h.room = room({ teams: false });
+  assert.equal(voiceAudience(h, 'a', 'team')('b'), true);
+});
+
+test('голос молчит у заглушённого и у всех, когда чат выключен', () => {
+  const h = hub(member('a'), member('b'));
+  h.room = room({ voiceMuted: new Set(['b']) });
+  assert.equal(voiceSilenced(h, 'a'), false);
+  assert.equal(voiceSilenced(h, 'b'), true, 'заглушённый ведущим');
+  h.room = room({ voiceEnabled: false });
+  assert.equal(voiceSilenced(h, 'a'), true, 'выключенный чат глушит всех');
+});
+
+test('a disabled shield protects nobody, even a player who already had it', () => {
+  const h = duel();
+  h.room = room({ shieldSeconds: 0 });
+  // Щит выдан до выключения и «до первого шага»: выключатель снимает и его.
+  h.members.get('v').immuneUntil = -1;
+  fire(h, 'a', T);
+  assert.equal(h.members.get('v').hp, 80, 'выключенный щит не держит урон');
+  assert.equal(publicMembers(h, T)[0].immuneRemaining, 0, 'и не показывается игрокам');
+  const v = h.members.get('v');
+  Object.assign(v, { hp: 0, respawnAt: T + 1000 });
+  resolveCombat(h, T + 1000);
+  assert.equal(v.immuneUntil, 0, 'возрождение без щита не выдаёт неуязвимость');
+});
+
+test('the host sets how long the shield lasts', () => {
+  const h = duel();
+  h.room = room({ shieldSeconds: 12 });
+  const v = h.members.get('v');
+  Object.assign(v, { hp: 0, respawnAt: T + 1000 });
+  resolveCombat(h, T + 1000);
+  assert.equal(v.immuneUntil, -1, 'до первого шага щит держится');
+  assert.equal(publicMembers(h, T + 1000).find((m) => m.id === 'v').immuneRemaining, 12_000);
+  applyPresence(v, { pose: stand(0, 0), life: 1 }, T + 1200, getMap('hub'), false, 12_000);
+  assert.equal(v.immuneUntil, T + 1200 + 12_000, 'шаг запускает отсчёт настроенной длины');
 });
 
 test('immune players neither take nor deal damage', () => {
@@ -375,21 +436,73 @@ test('teammates never respawn on the same point while another is free', () => {
   const h = battle(member('a', { team: 'red' }), member('b', { team: 'red' }));
   const spawns = getMap('mansion').spawns.red;
   assert.ok(spawns.length > 1, 'the map has room to spread out');
+  // Смена стороны убивает, точку выбирает уже возрождение — поэтому ждём респауна.
   setTeam(h, 'a', 'blue', T);
-  setTeam(h, 'a', 'red', T);
-  const first = h.members.get('a').pose;
   setTeam(h, 'b', 'blue', T);
+  setTeam(h, 'a', 'red', T);
   setTeam(h, 'b', 'red', T);
+  for (const m of h.members.values()) m.seen = T + 6000;
+  resolveCombat(h, T + 6000);
+  const first = h.members.get('a').pose;
   const second = h.members.get('b').pose;
   assert.ok(Math.hypot(first.x - second.x, first.z - second.z) >= 2, 'different spawn points');
 });
 
-test('the host moves a player to the other side and they respawn there', () => {
-  const h = battle(member('a', { team: 'red' }));
+test('смена стороны в бою убивает и снимает очко убийства, а возрождает на новом спавне', () => {
+  const h = battle(member('a', { team: 'red', kills: 3 }));
   assert.equal(setTeam(h, 'a', 'blue', T), true);
   const m = h.members.get('a');
+  assert.deepEqual([m.team, m.hp, m.kills, m.respawnAt], ['blue', 0, 2, T + 5000]);
+  m.seen = T + 6000;
+  resolveCombat(h, T + 6000);
   assert.ok(getMap('mansion').spawns.blue.some((s) => s.x === m.pose.x && s.z === m.pose.z));
-  assert.deepEqual([m.team, m.life], ['blue', 1]);
+  assert.deepEqual([m.hp, m.life], [100, 1]);
+});
+
+test('штраф за сторону уводит убийства в минус и не срабатывает на той же стороне', () => {
+  const h = battle(member('a', { team: 'red' }));
+  const m = h.members.get('a');
+  assert.equal(setTeam(h, 'a', 'blue', T), true);
+  assert.equal(m.kills, -1, 'ноль не защищает: счёт уходит в минус');
+  assert.equal(setTeam(h, 'a', 'blue', T), false, 'своя же сторона — не переход');
+  assert.equal(m.kills, -1, 'повторный выбор той же стороны ничего не стоит');
+});
+
+test('уже мёртвого переход не убивает второй раз, но очко всё равно снимает', () => {
+  const h = battle(member('a', { team: 'red', kills: 2, hp: 0, respawnAt: T + 5000 }));
+  setTeam(h, 'a', 'blue', T + 3000);
+  const m = h.members.get('a');
+  assert.deepEqual(
+    [m.kills, m.respawnAt],
+    [1, T + 5000],
+    'таймер возрождения не продлевается — его и так отсиживают',
+  );
+});
+
+test('внешность без смены стороны ничего не стоит', () => {
+  const h = battle(member('a', { team: 'red', kills: 4 }));
+  const m = h.members.get('a');
+  // Скин и цвет банданы живут в профиле (hat/color) и хаба вообще не касаются.
+  m.hat = 'ninja';
+  m.color = '#10b981';
+  assert.deepEqual([m.kills, m.hp], [4, 100]);
+  assert.equal(setTeam(h, 'a', 'red', T), false, 'сторона не изменилась — штрафа нет');
+  assert.equal(m.kills, 4);
+});
+
+test('первый выбор стороны бесплатен: уходить пока не от кого', () => {
+  const h = battle(member('a', { kills: 2 }));
+  assert.equal(setTeam(h, 'a', 'blue', T), true);
+  const m = h.members.get('a');
+  assert.deepEqual([m.kills, m.hp, m.respawnAt], [2, 100, 0]);
+  assert.ok(getMap('mansion').spawns.blue.some((s) => s.x === m.pose.x && s.z === m.pose.z));
+});
+
+test('вне боя смена стороны бесплатна: в ретро-комнате нет ни счёта, ни смерти', () => {
+  const h = hub(member('a', { kills: 2 }));
+  assert.equal(setTeam(h, 'a', 'blue', T), true);
+  const m = h.members.get('a');
+  assert.deepEqual([m.kills, m.hp, m.respawnAt], [2, 100, 0]);
 });
 
 test('the hub has no match: free-for-all', () => {

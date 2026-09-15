@@ -23,6 +23,8 @@ import {
   type HubMatch,
   type HubMember,
   type HubState,
+  voiceAudience,
+  voiceSilenced,
 } from '@/lib/room-hub-core';
 
 /** Broadcast rate for connected sockets. */
@@ -91,6 +93,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       now,
       getMap(hub.room.map),
       isFrozen(hub, now),
+      hub.room.shieldSeconds * 1000,
     );
     const changed = resolveCombat(hub, now);
     this.markDirty(changed);
@@ -121,7 +124,11 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     return this.view(hub, now, since);
   }
 
-  /** The host moved a player to a team: they respawn on that side. */
+  /**
+   * Игрок (или ведущий за него) сменил сторону: в бою это стоит жизни и очка убийства,
+   * возрождение поставит бойца на спавн новой команды. Счёт считает сервер — клиент
+   * присылает только желаемую сторону.
+   */
   async team(room: string, self: string, value: 'red' | 'blue') {
     const hub = await this.state(room);
     await this.member(hub, self);
@@ -197,7 +204,14 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     if (!hub || !m) return;
     const now = Date.now();
     if (msg.t === 'presence') {
-      applyPresence(m, msg, now, getMap(hub.room.map), isFrozen(hub, now));
+      applyPresence(
+        m,
+        msg,
+        now,
+        getMap(hub.room.map),
+        isFrozen(hub, now),
+        hub.room.shieldSeconds * 1000,
+      );
       this.markDirty(false);
     } else if (msg.t === 'effect') {
       let reply;
@@ -213,6 +227,65 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       ws.send(JSON.stringify({ t: 'weapon', ...this.acknowledge(controlWeapon(m, msg, now)) }));
     } else if (msg.t === 'ping') {
       ws.send(JSON.stringify({ t: 'pong', at: msg.at }));
+    } else if (msg.t === 'voice') {
+      this.relayVoice(hub, self, msg);
+    }
+  }
+
+  /**
+   * Пересылка голосового чата. Сам звук идёт мимо сервера — напрямую между
+   * браузерами (WebRTC), и здесь проходит только служебное: договориться о
+   * соединении (`offer`/`answer`/`ice`), сказать «я готов говорить» (`ready`) и
+   * «я сейчас говорю» (`talk`). Так на воркер не ложится ни один килобайт
+   * звука, а комната всё равно решает, кто кого слышит.
+   *
+   * Заглушённому сервер не даёт договориться о соединении: без `offer` и `ice`
+   * его голосу просто некуда идти, даже если клиент подправили. А вот отметку
+   * «говорю» от него пересылаем — с пометкой `silenced`. Иначе человек жал бы
+   * кнопку в пустоту, и ни собеседники, ни ведущий не узнали бы, что его
+   * пытаются о чём-то попросить.
+   */
+  private relayVoice(hub: HubState, self: string, msg: Record<string, unknown>) {
+    const kind = msg.kind;
+    if (kind !== 'offer' && kind !== 'answer' && kind !== 'ice' && kind !== 'ready' && kind !== 'talk')
+      return;
+    const silenced = voiceSilenced(hub, self);
+    const out: Record<string, unknown> = { t: 'voice', kind, from: self };
+    if (kind === 'talk') {
+      const channel = msg.channel === 'team' ? 'team' : 'all';
+      out.channel = channel;
+      out.on = !!msg.on;
+      if (silenced) out.silenced = true;
+      const hears = voiceAudience(hub, self, channel);
+      this.sendToMembers(hears, JSON.stringify(out));
+      return;
+    }
+    if (silenced) return;
+    if (kind === 'ready') {
+      out.on = !!msg.on;
+      // Новичку отвечают лично: иначе он узнал бы о собеседниках только со
+      // следующей общей рассылки, а её никто не обязан делать.
+      const to = typeof msg.to === 'string' ? msg.to : '';
+      if (to) this.sendToMembers((id) => id === to && !voiceSilenced(hub, id), JSON.stringify(out));
+      else this.sendToMembers((id) => id !== self && !voiceSilenced(hub, id), JSON.stringify(out));
+      return;
+    }
+    // Договорённость о соединении всегда адресная: она бессмысленна для всех,
+    // кроме одного собеседника, и пересылать её шире — лишний трафик.
+    const to = msg.to;
+    if (typeof to !== 'string' || !hub.members.has(to) || voiceSilenced(hub, to)) return;
+    out.payload = msg.payload;
+    this.sendToMembers((id) => id === to, JSON.stringify(out));
+  }
+
+  private sendToMembers(match: (id: string) => boolean, message: string) {
+    for (const [ws, id] of this.sockets) {
+      if (!match(id)) continue;
+      try {
+        ws.send(message);
+      } catch {
+        this.sockets.delete(ws);
+      }
     }
   }
 

@@ -43,6 +43,7 @@ export function createUrbanPresentation(scene:T.Scene,hands:T.Group,settings:Gra
     next.customProgramCacheKey=()=> 'urban-world-pbr-v1';
     clones.set(source,next);return next;
   }
+  let exposure = .88;
   function sync(state:RoomState) {
     const meshes:T.Mesh[]=[],avatars:T.Group[]=[];
     scene.traverse(o=>{
@@ -56,6 +57,7 @@ export function createUrbanPresentation(scene:T.Scene,hands:T.Group,settings:Gra
     avatars.forEach(a=>{if(!actors.has(a))actors.set(a,createUrbanSuit(a,m));});
     for(const [a,suit]of actors)if(!a.parent){suit.dispose();actors.delete(a);}else suit.sync();
     const night=state.time==='night',warm=state.time==='sunset'||state.time==='dawn';
+    exposure=night?1.05:.88;
     const sky=night?'#111e35':warm?'#d9b29c':'#a5bcc8';
     scene.background=new T.Color(sky);scene.fog=new T.Fog(sky,95,260);
     lights.forEach((_,light)=>{
@@ -64,6 +66,6 @@ export function createUrbanPresentation(scene:T.Scene,hands:T.Group,settings:Gra
     });
   }
   return {sync,textureBytes:m.textureBytes,impact(_at:T.Vector3,_color:string){},
-    update(_dt:number,camera:T.Camera,state:RoomState){district.update(camera);return state.time==='night'?1.05:.88;},
+    update(_dt:number,camera:T.Camera,_state:RoomState){district.update(camera);return exposure;},
     dispose(){actors.forEach(a=>a.dispose());tool.dispose();district.dispose();replacements.forEach((r,o)=>{o.material=r.original;});clones.forEach(c=>c.dispose());lights.forEach((v,l)=>{l.color.copy(v.color);l.intensity=v.intensity;});scene.fog=fog;scene.background=background;scene.environment=environment;scene.environmentIntensity=environmentIntensity;reflection.dispose();m.dispose();}};
 }

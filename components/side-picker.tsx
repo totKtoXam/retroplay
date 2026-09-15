@@ -1,10 +1,18 @@
 'use client';
 
+import { useState } from 'react';
 import type { Person } from '@/lib/model';
 import { AvatarPreview } from './avatar-preview';
 import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from '@/lib/avatar-catalog';
 
 type Side = 'red' | 'blue';
+
+/** Что отправить на сервер по кнопке «В БОЙ»; несменившееся не присылаем. */
+export type SidePick = {
+  team?: Side;
+  skin?: string;
+  bandanaColor?: string;
+};
 
 /** Стороны в порядке слева направо, как на экране выбора в CS. */
 const SIDES: {
@@ -40,57 +48,89 @@ function players(n: number) {
  * Экран выбора стороны и внешнего вида в духе CS: две крупные карточки команд
  * с составами и сетка скинов рядом с превью бойца. Ничего не делает с захватом
  * курсора: его отпускает мир, когда диалог открыт, и возвращает Esc.
+ *
+ * Выбор копится в компоненте и уходит на сервер одним махом по «В БОЙ»: клик по
+ * карточке — это ещё не переход, иначе игрок платил бы за каждое случайное
+ * нажатие (смена стороны в бою стоит жизни и очка убийства). Закрытие окна без
+ * кнопки просто выбрасывает черновик — окно размонтируется вместе с ним.
  */
 export function SidePicker({
   self,
   members,
-  onTeam,
   selectedSkin,
-  onSelectSkin,
   selectedBandanaColor,
-  onBandanaColorChange,
   anime,
   anonymous,
+  onApply,
   onClose,
 }: {
   self: Person | undefined;
   members: Person[];
-  onTeam: (team: Side) => void;
   selectedSkin: string;
-  onSelectSkin: (skinId: string) => void;
   selectedBandanaColor: string;
-  onBandanaColorChange: (color: string) => void;
   anime: boolean;
   anonymous: boolean;
+  onApply: (pick: SidePick) => void;
   onClose: () => void;
 }) {
-  const roster = (team: Side) => members.filter((m) => m.team === team);
-  const size = (team: Side) => roster(team).length;
+  /*
+   * Пустая строка — «игрок ничего не трогал»: тогда показываем то, что стоит на
+   * сервере, и оно продолжает обновляться само. Отдельного эффекта синхронизации
+   * не нужно, и черновик не спорит с ответом сервера.
+   */
+  const [pickedTeam, setPickedTeam] = useState<Side | ''>('');
+  const [pickedSkin, setPickedSkin] = useState('');
+  const [pickedColor, setPickedColor] = useState('');
+  const serverTeam: Side | '' =
+    self?.team === 'red' || self?.team === 'blue' ? self.team : '';
+  const team = pickedTeam || serverTeam;
+  const skinId = pickedSkin || selectedSkin;
+  const bandana = pickedColor || selectedBandanaColor;
+  const teamChanged = team !== serverTeam;
+  // Первый выбор стороны сервер не штрафует: уходить пока не от кого.
+  const costly = teamChanged && !!serverTeam;
+  const lookChanged =
+    skinId !== selectedSkin || bandana !== selectedBandanaColor;
+  const dirty = teamChanged || lookChanged;
+
+  const roster = (side: Side) => members.filter((m) => m.team === side);
+  const size = (side: Side) => roster(side).length;
   /**
    * Почему в сторону нельзя перейти. Сервер (balanceTeam) распределяет только
    * новичков без команды и переход не проверяет, поэтому перекос держим здесь:
    * запрещаем всё, после чего команда станет больше соперника более чем на
-   * одного игрока.
+   * одного игрока. Считаем по составам с сервера: черновик туда ещё не попал.
    */
-  const blockedBy = (team: Side): '' | 'full' | 'skew' => {
-    if (self?.team === team) return '';
-    const other: Side = team === 'red' ? 'blue' : 'red';
-    const after = size(team) + 1;
-    const rest = size(other) - (self?.team === other ? 1 : 0);
+  const blockedBy = (side: Side): '' | 'full' | 'skew' => {
+    if (serverTeam === side) return '';
+    const other: Side = side === 'red' ? 'blue' : 'red';
+    const after = size(side) + 1;
+    const rest = size(other) - (serverTeam === other ? 1 : 0);
     if (after - rest <= 1) return '';
-    return size(team) > size(other) ? 'full' : 'skew';
+    return size(side) > size(other) ? 'full' : 'skew';
   };
-  const mySide = SIDES.find((s) => s.team === self?.team);
-  const skin = AVATAR_SKINS.find((s) => s.id === selectedSkin);
+  const mySide = SIDES.find((s) => s.team === team);
+  const skin = AVATAR_SKINS.find((s) => s.id === skinId);
+
+  const apply = () => {
+    if (dirty)
+      onApply({
+        ...(teamChanged && team ? { team } : {}),
+        ...(lookChanged ? { skin: skinId, bandanaColor: bandana } : {}),
+      });
+    onClose();
+  };
 
   return (
     <div className="side-picker">
       <section className="sp-sides" aria-label="Сторона">
         {SIDES.map((side) => {
-          const mine = self?.team === side.team;
+          const chosen = team === side.team;
           const block = blockedBy(side.team);
-          const state = mine
-            ? 'ВЫ ЗДЕСЬ'
+          const state = chosen
+            ? serverTeam === side.team
+              ? 'ВЫ ЗДЕСЬ'
+              : 'ВЫБРАНО'
             : block === 'full'
               ? 'ПЕРЕПОЛНЕНА'
               : block === 'skew'
@@ -101,14 +141,14 @@ export function SidePicker({
             <button
               key={side.team}
               type="button"
-              className={`sp-side ${side.team} ${mine ? 'is-mine' : ''} ${block ? 'is-full' : ''}`}
+              className={`sp-side ${side.team} ${chosen ? 'is-mine' : ''} ${block ? 'is-full' : ''}`}
               style={{ '--sp-team': side.color } as React.CSSProperties}
-              aria-pressed={mine}
+              aria-pressed={chosen}
               /* Не disabled: карточка остаётся в фокусе, чтобы с клавиатуры
                  можно было прочитать, почему сторона недоступна. */
               aria-disabled={!!block}
               aria-label={`${side.title}, ${players(size(side.team))}. ${state}`}
-              onClick={() => !mine && !block && onTeam(side.team)}
+              onClick={() => !chosen && !block && setPickedTeam(side.team)}
             >
               <span className="sp-side-head">
                 <span className="sp-side-mark" aria-hidden="true">
@@ -138,9 +178,11 @@ export function SidePicker({
         })}
       </section>
       <p className="sp-hint">
-        {mySide
-          ? `Смена стороны возрождает вас на спавне новой команды. Сейчас: ${mySide.title.toLowerCase()}.`
-          : 'Сторона ещё не выбрана — сервер поставит вас в меньшую команду.'}
+        {costly
+          ? 'Переход посреди боя стоит жизни и одного очка убийства — иначе можно было бы бесплатно перебегать к тем, кто выигрывает.'
+          : serverTeam
+            ? `Ничего не уходит на сервер, пока вы не нажмёте «В БОЙ». Сейчас: ${SIDES.find((s) => s.team === serverTeam)!.title.toLowerCase()}.`
+            : 'Сторона ещё не выбрана — сервер поставит вас в меньшую команду.'}
       </p>
       <section className="sp-look" aria-label="Внешний вид">
         <div className="sp-look-preview">
@@ -148,6 +190,8 @@ export function SidePicker({
             color={mySide ? mySide.color : self?.color || '#718cdd'}
             anime={anime}
             anonymous={anonymous}
+            skin={skinId}
+            bandanaColor={bandana}
           />
           <p className="sp-look-caption">
             <strong>{skin?.name || 'Скин'}</strong>
@@ -162,11 +206,11 @@ export function SidePicker({
                 <button
                   key={sk.id}
                   type="button"
-                  className={`sp-skin ${selectedSkin === sk.id ? 'is-on' : ''}`}
+                  className={`sp-skin ${skinId === sk.id ? 'is-on' : ''}`}
                   title={sk.description}
                   aria-label={`${sk.name}. ${sk.description}`}
-                  aria-pressed={selectedSkin === sk.id}
-                  onClick={() => onSelectSkin(sk.id)}
+                  aria-pressed={skinId === sk.id}
+                  onClick={() => setPickedSkin(sk.id)}
                 >
                   <span className="sp-skin-icon" aria-hidden="true">
                     {sk.icon}
@@ -183,12 +227,12 @@ export function SidePicker({
                 <button
                   key={c}
                   type="button"
-                  className={`sp-color ${selectedBandanaColor === c ? 'is-on' : ''}`}
+                  className={`sp-color ${bandana === c ? 'is-on' : ''}`}
                   style={{ background: c }}
                   title={c}
                   aria-label={'Цвет банданы ' + c}
-                  aria-pressed={selectedBandanaColor === c}
-                  onClick={() => onBandanaColorChange(c)}
+                  aria-pressed={bandana === c}
+                  onClick={() => setPickedColor(c)}
                 />
               ))}
             </div>
@@ -197,11 +241,25 @@ export function SidePicker({
       </section>
       <footer className="sp-footer">
         <span className="sp-esc">
-          <kbd>Esc</kbd> закрыть · <kbd>Ё</kbd> табло
+          <kbd>Esc</kbd> отменить · <kbd>Ё</kbd> табло
         </span>
-        <button type="button" className="sp-done" onClick={onClose}>
-          В БОЙ
-        </button>
+        <span className="sp-apply">
+          {costly && (
+            <span className="sp-cost">Цена перехода: смерть и −1 убийство</span>
+          )}
+          <button
+            type="button"
+            className={`sp-done ${dirty ? 'is-dirty' : ''}`}
+            title={
+              dirty
+                ? 'Отправить выбор на сервер и вернуться в бой'
+                : 'Ничего не изменилось — просто закрыть'
+            }
+            onClick={apply}
+          >
+            {dirty ? 'ПРИМЕНИТЬ И В БОЙ' : 'В БОЙ'}
+          </button>
+        </span>
       </footer>
     </div>
   );

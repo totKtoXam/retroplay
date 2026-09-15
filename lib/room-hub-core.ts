@@ -18,7 +18,7 @@ import { uid, type Person, type Pose, type RoomState, type WorldEffect } from '.
 import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
 import { getMap } from './maps/index.ts';
 import { modeOf } from './maps/catalog.ts';
-import { stanceHeight, type GameMap, type SpawnPoint, type Team } from './maps/types.ts';
+import { stanceHeight, type Bounds, type GameMap, type SpawnPoint, type Team } from './maps/types.ts';
 
 /** Effects older than this are neither resolved nor sent to clients. */
 export const EFFECT_TTL_MS = 15_000;
@@ -93,6 +93,12 @@ export type HubRoom = {
   host: string;
   anonymous: boolean;
   respawnSeconds: number;
+  /** Щит возрождения, секунд после первого шага со спавна; 0 — щита нет. */
+  shieldSeconds: number;
+  /** Голосовой чат разрешён в комнате; выключенный ведущим глушит всех сразу. */
+  voiceEnabled: boolean;
+  /** Кого ведущий заглушил: их голос не идёт дальше сервера. */
+  voiceMuted: Set<string>;
   archived: boolean;
   /** Map id (lib/maps). */
   map: string;
@@ -128,7 +134,21 @@ const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFi
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 const isVec3 = (p: unknown): p is number[] =>
   Array.isArray(p) && p.length === 3 && p.every((n) => finite(n) && Math.abs(n) < 200);
-const isImmune = (m: HubMember, now: number) => m.immuneUntil === -1 || m.immuneUntil > now;
+/**
+ * Щит держит урон. Выключенный в настройках щит снимается сразу со всех, даже с
+ * тех, кто получил его до выключения и с тех пор не двигался: иначе после
+ * «выключить щит» по комнате ещё бегали бы неуязвимые.
+ */
+const isImmune = (state: HubState, m: HubMember, now: number) =>
+  state.room.shieldSeconds > 0 && (m.immuneUntil === -1 || m.immuneUntil > now);
+/**
+ * Выдать щит на новую жизнь. `-1` — «держится до первого шага», и только шаг
+ * переводит его в обратный отсчёт (см. applyPresence). При выключенном щите
+ * (0 секунд) новая жизнь начинается без неуязвимости вообще.
+ */
+const armShield = (state: HubState, m: HubMember) => {
+  m.immuneUntil = state.room.shieldSeconds > 0 ? -1 : 0;
+};
 
 function parseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== 'string') return fallback;
@@ -144,6 +164,9 @@ export function roomFromState(host: string, state: Partial<RoomState>): HubRoom 
     host,
     anonymous: !!state.anonymousPlayers,
     respawnSeconds: state.respawnSeconds ?? 5,
+    shieldSeconds: clamp(state.shieldSeconds ?? 5, 0, 30),
+    voiceEnabled: state.voiceEnabled !== false,
+    voiceMuted: new Set(Array.isArray(state.voiceMuted) ? state.voiceMuted : []),
     archived: !!state.archived,
     map: getMap(state.map).id,
     // Teams belong to the battle mode; a retrospective is free-for-all.
@@ -202,13 +225,16 @@ export function sanitizeCursor(cursor: unknown): Cursor | null {
   };
 }
 
-export function sanitizePose(pose: unknown): Pose | null {
+/** The hub's extent; used when a pose arrives without a map to measure it against. */
+const DEFAULT_BOUNDS: Bounds = { minX: -36, maxX: 36, minZ: -36, maxZ: 36 };
+
+export function sanitizePose(pose: unknown, bounds: Bounds = DEFAULT_BOUNDS): Pose | null {
   const p = pose as Record<string, unknown> | null;
   if (!p || typeof p !== 'object' || ![p.x, p.y, p.z, p.yaw].every(finite)) return null;
   return {
-    x: clamp(p.x as number, -36, 36),
+    x: clamp(p.x as number, bounds.minX, bounds.maxX),
     y: clamp(p.y as number, 0, 10),
-    z: clamp(p.z as number, -36, 36),
+    z: clamp(p.z as number, bounds.minZ, bounds.maxZ),
     yaw: p.yaw as number,
     stance: p.stance === 'sit' || p.stance === 'lie' ? p.stance : 'stand',
     moving: !!p.moving,
@@ -222,6 +248,7 @@ export function sanitizePose(pose: unknown): Pose | null {
     crouching: !!p.crouching,
     aiming: !!p.aiming,
     reload: finite(p.reload) ? clamp(p.reload, 0, 1) : 0,
+    light: !!p.light,
   };
 }
 
@@ -275,8 +302,10 @@ export function applyPresence(
   map: GameMap = getMap('hub'),
   /** Подготовка раунда: поворот и стойка принимаются, шаги — нет. */
   frozen = false,
+  /** Длительность щита возрождения, мс; 0 — щит выключен в настройках комнаты. */
+  shieldMs = 5000,
 ) {
-  const pose = sanitizePose(op.pose);
+  const pose = sanitizePose(op.pose, map.bounds);
   const cursor = sanitizeCursor(op.cursor);
   const life = Number.isInteger(op.life) ? (op.life as number) : 0;
   m.seen = now;
@@ -315,9 +344,9 @@ export function applyPresence(
   m.moveBudget = Math.max(0, m.moveBudget - step);
   m.pose = pose;
   recordPose(m, now);
-  // Spawn protection lasts until the first move, then 5 more seconds.
+  // Spawn protection lasts until the first move, then the room's few seconds more.
   if (m.immuneUntil === -1 && (pose.moving || Math.hypot(pose.x - m.spawn.x, pose.z - m.spawn.z) > 0.45))
-    m.immuneUntil = now + 5000;
+    m.immuneUntil = shieldMs > 0 ? now + shieldMs : 0;
 }
 
 export type FireResult = {
@@ -344,7 +373,7 @@ export function fireEffect(
   const shooter = state.members.get(self);
   if (!shooter || shooter.hp <= 0) return { ok: false, reason: 'respawning' };
   if (op.life !== undefined && op.life !== shooter.life) return { ok: false, reason: 'stale-life' };
-  if (isImmune(shooter, now)) return { ok: false, reason: 'immune' };
+  if (isImmune(state, shooter, now)) return { ok: false, reason: 'immune' };
   if (
     Math.hypot(origin[0] - shooter.pose.x, origin[1] - shooter.pose.y, origin[2] - shooter.pose.z) > 9 ||
     Math.hypot(target[0] - origin[0], target[1] - origin[1], target[2] - origin[2]) > 75
@@ -449,17 +478,44 @@ export function balanceTeam(state: HubState, m: HubMember, now: number) {
   return true;
 }
 
-/** The host moves a player between teams; they respawn on their new side. */
+/**
+ * Переход в другую команду. В бою он платный: иначе выгодно перебегать к тем, кто
+ * выигрывает, — поэтому боец гибнет и отдаёт одно очко убийства. Очко уходит в минус
+ * осознанно: при нуле штраф иначе ничего не стоил бы и переход был бы бесплатным.
+ *
+ * Крайние случаи:
+ *  - та же сторона — не изменение, выходим до штрафа;
+ *  - уже мёртв — второй раз не убиваем и таймер возрождения не продлеваем (он и так
+ *    его отсиживает), но очко снимаем: иначе достаточно дождаться смерти и перейти даром;
+ *  - стороны ещё не было — это первое назначение, а не побег из команды: бесплатно;
+ *  - вне боя (ретро-комната, `teams` выключен) команд и счёта нет — просто переставляем.
+ *
+ * Платит тот, кого переводят, — и когда сторону меняет он сам, и когда его двигает
+ * ведущий: иначе «попроси ведущего перевести» было бы бесплатным обходом правила.
+ *
+ * На спавн новой стороны бойца поставит обычное возрождение (`revive`/`respawnAll`),
+ * которое уже читает `m.team`; так смена стороны идёт по существующим правилам режима —
+ * в раундах мёртвый ждёт конца раунда, в бою с возрождением — свои секунды.
+ */
 export function setTeam(state: HubState, self: string, team: Team, now: number) {
   const m = state.members.get(self);
   if (!m || m.team === team) return false;
+  const previous = m.team;
   m.team = team;
-  m.life += 1;
-  m.hp = 100;
-  m.respawnAt = 0;
-  m.immuneUntil = -1;
   m.recentDamage = {};
-  placeAt(m, chooseSpawn(state, getMap(state.room.map), m.id, now, team));
+  if (!state.room.teams || !previous) {
+    m.life += 1;
+    m.hp = 100;
+    m.respawnAt = 0;
+    armShield(state, m);
+    placeAt(m, chooseSpawn(state, getMap(state.room.map), m.id, now, team));
+    return true;
+  }
+  m.kills -= 1;
+  if (m.hp > 0) {
+    m.hp = 0;
+    m.respawnAt = now + state.room.respawnSeconds * 1000;
+  }
   return true;
 }
 
@@ -498,7 +554,7 @@ export function respawnAll(state: HubState, now: number) {
     m.life += 1;
     m.hp = 100;
     m.respawnAt = 0;
-    m.immuneUntil = -1;
+    armShield(state, m);
     m.recentDamage = {};
     placeAt(m, chooseSpawn(state, map, m.id, now, m.team));
   }
@@ -592,7 +648,7 @@ function revive(state: HubState, now: number) {
     m.hp = 100;
     m.respawnAt = 0;
     m.life += 1;
-    m.immuneUntil = -1;
+    armShield(state, m);
     m.recentDamage = {};
     placeAt(m, chooseSpawn(state, getMap(state.room.map), m.id, now, m.team));
     changed = true;
@@ -605,7 +661,7 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
   const origin = e.origin || [0, 0, 0];
   const target = e.target || [0, 0, 0];
   const author = state.members.get(e.author);
-  const authorImmune = !!author && isImmune(author, now);
+  const authorImmune = !!author && isImmune(state, author, now);
   for (const p of state.members.values()) {
     if (p.id === e.author || p.hp <= 0 || p.seen <= now - ONLINE_MS) continue;
     const pose = poseAt(p, e.rewindTo);
@@ -614,7 +670,7 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
         ? calculatePelletsHit(origin, target, pose, 8, colliders).pelletsHit > 0
         : inHitRange(e.kind, origin, target, pose, colliders);
     // After a respawn a player can neither take nor deal damage.
-    if (!hit || authorImmune || isImmune(p, now)) continue;
+    if (!hit || authorImmune || isImmune(state, p, now)) continue;
     // Безвредное (лайк) не ранит и не убивает даже попаданием в голову.
     if (e.kind !== 'confetti' && effectDamage(e.kind) <= 0) continue;
     // Взрыв гранаты накрывает целиком, у остального оружия урон зависит от зоны попадания:
@@ -743,6 +799,30 @@ export function publicEffects(effects: HubEffect[], anonymous: boolean): WorldEf
   });
 }
 
+/**
+ * Кому уходит голос и отметка «говорит».
+ *
+ * Правило одно и для звука, и для отметки: если бы отметка о разговоре в
+ * команде уходила всем, противник читал бы по ней, что команда сейчас
+ * договаривается, — а это ровно та информация, ради которой командный канал и
+ * заводят. В свободной игре команд нет, и «своим» там значит «всем».
+ */
+export function voiceAudience(
+  state: HubState,
+  from: string,
+  channel: 'team' | 'all',
+): (id: string) => boolean {
+  const author = state.members.get(from);
+  if (channel === 'all' || !state.room.teams || !author?.team) return (id) => id !== from;
+  const team = author.team;
+  return (id) => id !== from && state.members.get(id)?.team === team;
+}
+
+/** Голос заглушён: чат выключен в комнате или ведущий заглушил именно этого. */
+export function voiceSilenced(state: HubState, id: string) {
+  return !state.room.voiceEnabled || state.room.voiceMuted.has(id);
+}
+
 /** Members as clients see them: newest first, at most 100, names hidden in anonymous rooms. */
 export function publicMembers(state: HubState, now: number): Person[] {
   const anonymous = state.room.anonymous;
@@ -768,7 +848,11 @@ export function publicMembers(state: HubState, now: number): Person[] {
       kills: m.kills,
       deaths: m.deaths,
       assists: m.assists,
-      immuneRemaining: m.immuneUntil === -1 ? 5000 : Math.max(0, m.immuneUntil - now),
+      immuneRemaining: !state.room.shieldSeconds
+        ? 0
+        : m.immuneUntil === -1
+          ? state.room.shieldSeconds * 1000
+          : Math.max(0, m.immuneUntil - now),
       respawnRemaining: Math.max(0, m.respawnAt - now),
     }));
 }

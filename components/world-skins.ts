@@ -37,22 +37,39 @@ export function attachCustomSkins(avatar: T.Group): {
     }),
   );
 
+  /**
+   * Лицо рига смотрит в −Z: в createAvatar глаза и рот стоят на z ≈ −0.21. Весь этот
+   * файл собран «лицом к +Z», поэтому каждый набор разворачиваем целиком — детали
+   * симметричны по X, так что разворот ничего не искажает, а маски, визоры и узел
+   * банданы оказываются там, где задумывались, а не на затылке.
+   */
+  const dressed = (name: string) => {
+    const g = new T.Group();
+    g.name = name;
+    g.rotation.y = Math.PI;
+    return g;
+  };
+
   // ===================== BANDANA (All skins can wear) =====================
-  const bandanaGroup = new T.Group();
-  bandanaGroup.name = 'avatar-bandana';
-  // Headband strip around forehead (head dimensions are approx 0.44 x 0.46 x 0.42)
-  const band = new T.Mesh(new RoundedBoxGeometry(0.48, 0.08, 0.44, 2, 0.015), bandanaMat);
-  band.position.set(0, 0.1, 0.01);
+  const bandanaGroup = dressed('avatar-bandana');
+  /*
+   * Лента обязана быть ШИРЕ головы. Голова — это шар лица (радиусы ≈ 0.225 × 0.267 × 0.223)
+   * и «шапка» причёски радиусом 0.255 поверх него; прежний брусок 0.48 × 0.44 был меньше их
+   * обоих и целиком тонул внутри черепа — цвет менялся, а видно ничего не было. Кольцо
+   * радиусом 0.268–0.278 садится поверх причёски, поэтому читается с любой стороны.
+   */
+  const band = new T.Mesh(new T.CylinderGeometry(0.268, 0.278, 0.1, 14), bandanaMat);
+  band.position.set(0, 0.105, -0.02);
   bandanaGroup.add(band);
 
   // Knot and two trailing tails on back of head
-  const knot = new T.Mesh(new T.SphereGeometry(0.04, 8, 6), bandanaMat);
-  knot.position.set(0, 0.1, -0.22);
+  const knot = new T.Mesh(new T.SphereGeometry(0.055, 8, 6), bandanaMat);
+  knot.position.set(0, 0.105, -0.29);
   bandanaGroup.add(knot);
 
   for (const side of [-1, 1]) {
-    const tail = new T.Mesh(new RoundedBoxGeometry(0.045, 0.18, 0.015, 2, 0.005), bandanaMat);
-    tail.position.set(side * 0.04, 0.01, -0.23);
+    const tail = new T.Mesh(new RoundedBoxGeometry(0.05, 0.22, 0.018, 2, 0.006), bandanaMat);
+    tail.position.set(side * 0.05, 0, -0.3);
     tail.rotation.z = side * 0.25;
     tail.rotation.x = -0.15;
     bandanaGroup.add(tail);
@@ -60,8 +77,7 @@ export function attachCustomSkins(avatar: T.Group): {
   head.add(bandanaGroup);
 
   // ===================== 1. NINJA / SHINOBI =====================
-  const ninjaHead = new T.Group();
-  ninjaHead.name = 'skin-ninja-head';
+  const ninjaHead = dressed('skin-ninja-head');
   // Cloth mouth/nose mask
   const ninjaMask = new T.Mesh(
     new RoundedBoxGeometry(0.46, 0.22, 0.22, 2, 0.02),
@@ -80,8 +96,7 @@ export function attachCustomSkins(avatar: T.Group): {
   }
   head.add(ninjaHead);
 
-  const ninjaChest = new T.Group();
-  ninjaChest.name = 'skin-ninja-chest';
+  const ninjaChest = dressed('skin-ninja-chest');
   // Twin crossed katanas on back
   for (const side of [-1, 1]) {
     const scabbard = new T.Mesh(
@@ -106,8 +121,7 @@ export function attachCustomSkins(avatar: T.Group): {
   chest.add(ninjaChest);
 
   // ===================== 2. CYBERPUNK RUNNER =====================
-  const cyberHead = new T.Group();
-  cyberHead.name = 'skin-cyber-head';
+  const cyberHead = dressed('skin-cyber-head');
   // Wide glowing neon visor
   const visor = new T.Mesh(
     new RoundedBoxGeometry(0.44, 0.11, 0.08, 2, 0.015),
@@ -122,8 +136,7 @@ export function attachCustomSkins(avatar: T.Group): {
   cyberHead.add(comms);
   head.add(cyberHead);
 
-  const cyberChest = new T.Group();
-  cyberChest.name = 'skin-cyber-chest';
+  const cyberChest = dressed('skin-cyber-chest');
   // Futuristic tech core in center of chest
   const reactor = new T.Mesh(
     new T.CylinderGeometry(0.065, 0.065, 0.03, 12),
@@ -144,8 +157,7 @@ export function attachCustomSkins(avatar: T.Group): {
   chest.add(cyberChest);
 
   // ===================== 3. KNIGHT / PALADIN =====================
-  const knightHead = new T.Group();
-  knightHead.name = 'skin-knight-head';
+  const knightHead = dressed('skin-knight-head');
   // Steel greathelm visor
   const helmVisor = new T.Mesh(
     new RoundedBoxGeometry(0.46, 0.24, 0.2, 2, 0.02),
@@ -166,8 +178,7 @@ export function attachCustomSkins(avatar: T.Group): {
   knightHead.add(crest);
   head.add(knightHead);
 
-  const knightChest = new T.Group();
-  knightChest.name = 'skin-knight-chest';
+  const knightChest = dressed('skin-knight-chest');
   // Heavy shoulder pauldrons
   for (const side of [-1, 1]) {
     const pauldron = new T.Mesh(
@@ -181,8 +192,7 @@ export function attachCustomSkins(avatar: T.Group): {
   chest.add(knightChest);
 
   // ===================== 4. HAZMAT OPERATIVE =====================
-  const hazmatHead = new T.Group();
-  hazmatHead.name = 'skin-hazmat-head';
+  const hazmatHead = dressed('skin-hazmat-head');
   // Curved protective face shield
   const shield = new T.Mesh(
     new RoundedBoxGeometry(0.42, 0.28, 0.12, 2, 0.03),
@@ -202,8 +212,7 @@ export function attachCustomSkins(avatar: T.Group): {
   }
   head.add(hazmatHead);
 
-  const hazmatChest = new T.Group();
-  hazmatChest.name = 'skin-hazmat-chest';
+  const hazmatChest = dressed('skin-hazmat-chest');
   // Twin vertical air/oxygen tanks on back
   for (const side of [-1, 1]) {
     const tank = new T.Mesh(
@@ -221,8 +230,7 @@ export function attachCustomSkins(avatar: T.Group): {
   chest.add(hazmatChest);
 
   // ===================== 5. RETRO COSMONAUT =====================
-  const cosmoHead = new T.Group();
-  cosmoHead.name = 'skin-cosmo-head';
+  const cosmoHead = dressed('skin-cosmo-head');
   // Spherical bubble astronaut helmet
   const bubble = new T.Mesh(
     new T.SphereGeometry(0.28, 16, 12),
@@ -239,8 +247,7 @@ export function attachCustomSkins(avatar: T.Group): {
   cosmoHead.add(goldVisor);
   head.add(cosmoHead);
 
-  const cosmoChest = new T.Group();
-  cosmoChest.name = 'skin-cosmo-chest';
+  const cosmoChest = dressed('skin-cosmo-chest');
   // EVA life support backpack with dual thrusters
   const lifePack = new T.Mesh(
     new RoundedBoxGeometry(0.34, 0.42, 0.16, 2, 0.02),
@@ -291,7 +298,16 @@ export function applyAvatarSkin(
   const isKnight = skinId === 'knight';
   const isHazmat = skinId === 'hazmat';
   const isCosmo = skinId === 'cosmo';
-  const isAgent = skinId === 'agent' || (!isNinja && !isCyber && !isKnight && !isHazmat && !isCosmo && skinId !== 'classic');
+
+  /*
+   * Тело у аватара ровно одно из двух: блочное legacy-skin («Классика» и аниме-стиль)
+   * или костюм AERO agent-skin. Ниндзя, рыцарь и прочие — это накладки ПОВЕРХ него.
+   * Раньше здесь для них гасились оба тела сразу, и от бойца оставались висящие в
+   * воздухе аксессуары; текущий стиль читаем по группе 'anime-detail', которую
+   * переключает setAvatarStyle, чтобы не спорить с ней.
+   */
+  const anime = !!avatar.getObjectByName('anime-detail')?.visible;
+  const legacyBody = anime || skinId === 'classic';
 
   avatar.traverse((o) => {
     if (o.name === 'skin-ninja-head' || o.name === 'skin-ninja-chest') o.visible = isNinja;
@@ -299,6 +315,9 @@ export function applyAvatarSkin(
     if (o.name === 'skin-knight-head' || o.name === 'skin-knight-chest') o.visible = isKnight;
     if (o.name === 'skin-hazmat-head' || o.name === 'skin-hazmat-chest') o.visible = isHazmat;
     if (o.name === 'skin-cosmo-head' || o.name === 'skin-cosmo-chest') o.visible = isCosmo;
-    if (o.name === 'agent-skin') o.visible = isAgent;
+    if (o.name === 'legacy-skin') o.visible = legacyBody;
+    if (o.name === 'agent-skin') o.visible = !legacyBody;
+    // Под глухим куполом скафандра ленты не видно — иначе она протыкает шлем.
+    if (o.name === 'avatar-bandana') o.visible = !isCosmo;
   });
 }

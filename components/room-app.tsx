@@ -15,6 +15,8 @@ import {
   Users,
   Link2,
   Repeat,
+  Mic,
+  MicOff,
   Settings2,
   Check,
   StickyNote,
@@ -35,6 +37,16 @@ import {
   Monitor,
   Send,
   Lock,
+  Gauge,
+  MousePointer2,
+  Swords,
+  Sun,
+  ShieldCheck,
+  UserRound,
+  ListChecks,
+  Dices,
+  Download,
+  RotateCcw,
 } from 'lucide-react';
 import {
   Dialog,
@@ -50,7 +62,6 @@ import {
 } from '@/components/ui/sheet';
 import {
   ZONES,
-  PHASES,
   GAME_TOOLS,
   kdaRatio,
   voteCount,
@@ -64,26 +75,32 @@ import { useResourcePack } from '../hooks/use-resource-pack';
 import { readAimModes, type WeaponAimModes } from '@/lib/aim-settings';
 import {
   ActionsPanel,
+  AccessSection,
+  ArchiveSection,
+  ControlsSection,
   ExportPanel,
-  FpsPanel,
+  GraphicsSection,
   GroupPanel,
-  HelpPanel,
   HistoryPanel,
   JoinRequestsPanel,
-  SettingsPanel,
+  ProfileSection,
   SharePanel,
   TimerPanel,
   ToolsPanel,
   VotePanel,
   MatchBar,
-  MenuPanel,
   ModePanel,
   WidgetsPanel,
   WorldPanel,
   FPS_LIMITS,
 } from './room-panels';
+import { SettingsShell, type SettingsGroup } from './settings-shell';
+import { WorldQuickChip } from './world-quick-chip';
+import { GameClock } from './game-clock';
 import { SidePicker } from './side-picker';
+import { PhaseBar } from './phase-bar';
 import { useRoomSync } from './use-room-sync';
+import { useVoiceChat } from './use-voice-chat';
 import { MAP_CATALOG, modeOf } from '@/lib/maps/catalog';
 import { defaultSlot, hasSlot, slotsFor } from '@/lib/loadout';
 
@@ -140,6 +157,9 @@ export default function RoomApp({ id }: { id: string }) {
     [webglFailed, setWebglFailed] = useState(false),
     [heldTool, setTool] = useState(0),
     [panel, setPanel] = useState(''),
+    // Какой раздел открыт в двухколоночных настройках. Отдельно от panel:
+    // настройки — один экран, разделы внутри него переключаются без выхода.
+    [settingsSection, setSettingsSection] = useState('graphics'),
     [selectedZone, setSelectedZone] = useState(''),
     [draft, setDraft] = useState<Draft | null>(null),
     [comment, setComment] = useState(''),
@@ -165,6 +185,19 @@ export default function RoomApp({ id }: { id: string }) {
   const [history, setHistory] = useState<
     { version: number; action: string; name: string; at: number }[]
   >([]);
+  // История не лежит в состоянии комнаты: её отдаёт отдельный запрос, и раздел
+  // пуст, пока её не спросишь. Раньше запрос висел на пункте меню, но меню
+  // больше нет, а заходов в раздел стало два — переключение слева и открытие
+  // настроек сразу на нём. Эффект покрывает оба и заодно освежает список: за
+  // время встречи он успевает устареть.
+  useEffect(() => {
+    if (panel !== 'menu' || settingsSection !== 'history') return;
+    void api<{ history: typeof history }>('/api/rooms/' + id, {
+      type: 'history',
+    })
+      .then((r) => setHistory(r.history))
+      .catch((e: Error) => setError(e.message));
+  }, [panel, settingsSection, id]);
   const pose = useRef<Pose>({
       x: 0,
       z: 14,
@@ -227,6 +260,9 @@ export default function RoomApp({ id }: { id: string }) {
     act,
     fire,
     weapon,
+    sendVoice,
+    setVoiceSink,
+    serverNow,
   } = useRoomSync({
     id,
     pose,
@@ -256,10 +292,12 @@ export default function RoomApp({ id }: { id: string }) {
       setFpsLimit(FPS_LIMITS.includes(savedFps) ? savedFps : 60);
     },
   });
+  // Часы комнаты идут по серверному времени: и матч, и внутриигровые сутки
+  // считаются от серверных отметок, а локальные часы у участников разные.
   useEffect(() => {
-    const clock = setInterval(() => setNow(Date.now()), 1000);
+    const clock = setInterval(() => setNow(serverNow()), 1000);
     return () => clearInterval(clock);
-  }, []);
+  }, [serverNow]);
   const roomRef = useRef(room);
   useEffect(() => {
     roomRef.current = room;
@@ -468,6 +506,8 @@ export default function RoomApp({ id }: { id: string }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  const { voice, talk } = useVoiceChat({ room, sendVoice, setVoiceSink });
+  const voiceMuted = new Set(room?.state.voiceMuted ?? []);
   const me = room?.members.find((m) => m.id === room.self),
     host = room?.host === room?.self,
     s = room?.state,
@@ -478,6 +518,127 @@ export default function RoomApp({ id }: { id: string }) {
     slots = slotsFor(gameMode),
     // Предмет другого режима в руках не остаётся: берём предмет по умолчанию.
     tool = hasSlot(gameMode, heldTool) ? heldTool : defaultSlot(gameMode);
+  // Сколько пунктов плана ещё не сделано — подпись раздела «План действий»
+  // отвечает на вопрос «надо ли туда заходить» до того, как его открыли.
+  const actionsLeft =
+    s?.notes.filter((n) => n.kind === 'action' && !n.done).length ?? 0;
+  // Разделы настроек. Личное отделено от правил комнаты: раньше они лежали в
+  // одном плоском списке, и было не видно, что можешь менять ты, а что ведущий.
+  // Сюда же переехали разовые действия из бывшего меню комнаты: своих входов
+  // (горячих клавиш, кнопок в шапке) у них нет, и без меню они стали бы
+  // недостижимы. У инвентаря и выбора стороны такие входы есть — Q / I и G, —
+  // поэтому их в настройках нет.
+  const settingsGroups: SettingsGroup[] = [
+    {
+      id: 'mine',
+      title: 'Моё',
+      sections: [
+        {
+          id: 'graphics',
+          title: 'Графика',
+          hint: 'Качество картинки и лимит FPS на этом устройстве',
+          icon: Gauge,
+        },
+        {
+          id: 'controls',
+          title: 'Управление',
+          hint: 'Мышь, камера, прицеливание и список клавиш',
+          icon: MousePointer2,
+        },
+        {
+          id: 'profile',
+          title: 'Профиль',
+          hint: 'Имя в комнате и звуки встречи',
+          icon: UserRound,
+        },
+      ],
+    },
+    {
+      id: 'meeting',
+      title: 'Встреча',
+      sections: [
+        {
+          id: 'actions',
+          title: 'План действий',
+          hint: actionsLeft
+            ? `${actionsLeft} не сделано`
+            : 'Договорённости встречи и кто за них взялся',
+          icon: ListChecks,
+        },
+        {
+          id: 'widgets',
+          title: 'Для живой встречи',
+          hint: 'Таймер, спиннер, счётчик и реакции',
+          icon: Dices,
+        },
+      ],
+    },
+    {
+      id: 'room',
+      title: 'Комната',
+      sections: [
+        {
+          id: 'mode',
+          title: 'Режим и карта',
+          hint: 'Во что играем: режим, карта и правила матча',
+          icon: Swords,
+          hostOnly: true,
+        },
+        {
+          id: 'world',
+          title: 'Облик мира',
+          hint: 'Стиль и тема оформления',
+          icon: Sun,
+          hostOnly: true,
+        },
+        {
+          id: 'access',
+          title: 'Доступ и приватность',
+          hint: 'Кто входит и что видно участникам',
+          icon: ShieldCheck,
+          hostOnly: true,
+        },
+      ],
+    },
+    {
+      id: 'results',
+      title: 'Результаты',
+      sections: [
+        {
+          id: 'export',
+          title: 'Импорт / экспорт',
+          hint: 'JSON, CSV, Markdown',
+          icon: Download,
+        },
+        {
+          id: 'history',
+          title: 'История изменений',
+          hint: 'Последние 40 действий',
+          icon: RotateCcw,
+        },
+        // Завершение встречи — последним пунктом и отдельной группой, а не
+        // строкой среди переключателей: оно необратимо для участников, и
+        // соседство с «Именем в комнате» его уравнивало с обычной настройкой.
+        // hostOnly — не только про замок: архивирует комнату только ведущий.
+        {
+          id: 'finish',
+          title: 'Завершение встречи',
+          hint: s?.archived
+            ? 'Комната сейчас только для чтения'
+            : 'Закрыть комнату для правок',
+          icon: Flag,
+          hostOnly: true,
+        },
+      ],
+    },
+  ];
+  /** Открыть настройки сразу на нужном разделе — из HUD или из инвентаря. */
+  const openSettings = (section: string) => {
+    setSettingsSection(section);
+    // Кнопка-шестерёнка в шапке шлёт 'menu': меню комнаты и есть настройки,
+    // отдельного списка-прослойки между ними больше нет.
+    setPanel('menu');
+  };
   const enter = async (overrideName?: string) => {
     const playerName = (overrideName || name).trim();
     if (!playerName) return;
@@ -960,24 +1121,22 @@ export default function RoomApp({ id }: { id: string }) {
           </h1>
         )}
         <span className="game-tag map-tag">{mapTitle}</span>
-        <div className="game-bar-center">
+        <div
+          className={`game-bar-center${gameMode === 'battle' ? ' with-match' : ''}`}
+        >
           {gameMode === 'battle' ? (
-            <MatchBar match={room.match} rounds={s.roundWins ?? 5} now={now} />
+            // Часы — ярлык, выезжающий из-под счёта (app/game-clock.css): время
+            // суток это фон боя, а не его счёт, и ни строки в шапке, ни высоты
+            // сцены занимать не должно.
+            <div className="match-stack">
+              <MatchBar match={room.match} rounds={s.roundWins ?? 5} now={now} />
+              <GameClock state={s} now={now} />
+            </div>
           ) : (
             <>
-              <div className="phase-steps">
-                {PHASES.map((p, i) => (
-                  <button
-                    key={p}
-                    className={`phase-step ${s.phase === i ? 'current' : ''} ${s.phase > i ? 'complete' : ''}`}
-                    disabled={!host || s.archived}
-                    onClick={() => void act({ type: 'phase', phase: i })}
-                  >
-                    <span>{s.phase > i ? <Check size={11} /> : i + 1}</span>
-                    {p}
-                  </button>
-                ))}
-              </div>
+              {/* Этапы уехали из шапки в PhaseBar над сценой: шесть кнопок
+                  занимали всю середину ради действия, которое делают пять раз
+                  за встречу, и вытесняли таймер, голоса и приватность. */}
               <button
                 className={`game-tag clock ${s.timer.running ? 'running' : ''}`}
                 onClick={() => setPanel('timer')}
@@ -1009,6 +1168,10 @@ export default function RoomApp({ id }: { id: string }) {
                 <EyeOff size={14} />
                 {s.privateWriting ? 'Приватно' : 'Открыто'}
               </button>
+              {/* В ретро MatchBar не рендерится, поэтому часы встают в тот же
+                  ряд — сразу за таймером встречи, чтобы «сколько осталось» в
+                  реальном и в игровом времени читалось рядом. */}
+              <GameClock state={s} now={now} />
             </>
           )}
         </div>
@@ -1040,6 +1203,23 @@ export default function RoomApp({ id }: { id: string }) {
             {joinRequests.length}
           </button>
         )}
+        <WorldQuickChip
+          time={s.time}
+          season={s.season}
+          now={now}
+          dayCycle={s.dayCycle}
+          host={host}
+          onDayCycleChange={(dayCycle) =>
+            void act({ type: 'room.settings', patch: { dayCycle } })
+          }
+          onTimeChange={(time) =>
+            void act({ type: 'room.settings', patch: { time } })
+          }
+          onSeasonChange={(season) =>
+            void act({ type: 'room.settings', patch: { season } })
+          }
+          onLocked={() => flash('Облик мира меняет ведущий встречи')}
+        />
         <button className="game-tag" onClick={() => setPanel('share')}>
           <Link2 size={14} />
           Пригласить
@@ -1063,6 +1243,18 @@ export default function RoomApp({ id }: { id: string }) {
         </button>
       </header>
       <section className="main-surface" aria-label="Игровой мир">
+          {/* Этапы есть только у ретро: в командном бою их роль играет MatchBar
+              в шапке. Плашка лежит в левой колонке HUD под .camera-toolbar —
+              свободное место, где она не спорит ни с зонами справа, ни с
+              панелью предметов внизу (подробности — в app/phases.css). */}
+          {gameMode === 'retro' && (
+            <PhaseBar
+              phase={s.phase}
+              host={host}
+              archived={s.archived}
+              onPhase={(phase) => void act({ type: 'phase', phase })}
+            />
+          )}
           {webglFailed ? (
             <div className="world-failed" role="alert">
               <h2>Браузер не смог открыть 3D-мир</h2>
@@ -1087,7 +1279,7 @@ export default function RoomApp({ id }: { id: string }) {
                 fpsLimit={fpsLimit}
                 packetLoss={packetLoss}
                 now={now}
-                onGraphics={() => setPanel('fps')}
+                onGraphics={() => openSettings('graphics')}
                 onPaintColor={setPaintColor}
                 tool={tool}
                 onTool={setTool}
@@ -1120,6 +1312,8 @@ export default function RoomApp({ id }: { id: string }) {
                 }
                 onFire={fire}
                 onWeapon={weapon}
+                voice={voice}
+                onTalk={talk}
                 paintColor={paintColor}
                 working={!!draft || !!selectedZone}
                 host={host}
@@ -1373,6 +1567,34 @@ export default function RoomApp({ id }: { id: string }) {
                           }}
                         >
                           <Repeat size={13} />
+                        </button>
+                      )}
+                      {/* Микрофон рядом с именем, а не в отдельном разделе
+                          настроек: заглушают конкретного человека и обычно
+                          прямо сейчас, глядя на список говорящих. */}
+                      {host && m.id !== room.host && (
+                        <button
+                          type="button"
+                          className={`voice-mute ${voiceMuted.has(m.id) ? 'is-muted' : ''}`}
+                          title={
+                            voiceMuted.has(m.id)
+                              ? 'Вернуть голос'
+                              : 'Заглушить: его перестанут слышать все'
+                          }
+                          aria-label={
+                            voiceMuted.has(m.id)
+                              ? `Вернуть голос игроку ${m.name}`
+                              : `Заглушить игрока ${m.name}`
+                          }
+                          onClick={() =>
+                            void act({
+                              type: 'voice.mute',
+                              session: m.id,
+                              muted: !voiceMuted.has(m.id),
+                            })
+                          }
+                        >
+                          {voiceMuted.has(m.id) ? <MicOff size={13} /> : <Mic size={13} />}
                         </button>
                       )}
                     </div>
@@ -1806,7 +2028,7 @@ export default function RoomApp({ id }: { id: string }) {
         <DialogContent
           className={
             'app-dialog ' +
-            (panel === 'settings'
+            (panel === 'menu'
               ? 'settings-dialog'
               : panel === 'team'
                 ? 'side-picker-dialog'
@@ -1816,23 +2038,14 @@ export default function RoomApp({ id }: { id: string }) {
           <DialogTitle>
             {(
               {
-                history: 'История изменений',
-                menu: 'Меню комнаты',
+                menu: 'Настройки',
                 team: 'Выбор стороны',
-                settings: 'Настройки встречи',
-                world: 'Облик мира',
-                mode: 'Режим игры',
-                fps: 'Графика и управление',
                 share: 'Пригласить команду',
                 join_requests: 'Запросы на вход',
                 timer: 'Время для главного',
                 vote: 'Голосование',
                 group: 'Объединить идеи в тему',
-                widgets: 'Для живой встречи',
                 tools: 'Инвентарь и инструменты',
-                actions: 'План действий',
-                export: 'Забрать результаты с собой',
-                help: 'Управление и инструменты',
               } as Record<string, string>
             )[panel] || 'Меню'}
           </DialogTitle>
@@ -1841,22 +2054,19 @@ export default function RoomApp({ id }: { id: string }) {
               ? 'Участники войдут по ссылке. Новая комната имеет отдельный адрес.'
               : panel === 'join_requests'
                 ? 'Управление пользователями, ожидающими входа в комнату'
-                : panel === 'settings'
-                  ? 'Приватность и правила совместной работы'
+                : panel === 'menu'
+                  ? 'Личные настройки, встреча и правила комнаты. Esc закрывает.'
                   : panel === 'team'
                     ? 'Сторона, скин и цвет банданы вашего бойца'
-                    : panel === 'menu'
-                    ? 'Настройки, история и всё, что не нужно каждую секунду'
-                    : panel === 'world'
-                    ? 'Стиль, тема и время суток — как выглядит мир'
-                    : panel === 'mode'
-                      ? 'Во что играем: режим, карта и правила'
-                      : panel === 'fps'
-                        ? 'Настройки графики и поведения управления для вашего устройства'
-                        : gameMode === 'battle'
-                          ? 'Снаряжение бойца'
-                          : 'Инструменты вашей ретроспективы'}
+                    : gameMode === 'battle'
+                      ? 'Снаряжение бойца'
+                      : 'Инструменты вашей ретроспективы'}
           </DialogDescription>
+          {/* Инвентарь остался отдельным диалогом: у него своя клавиша Q / I,
+              и в настройки он не переехал. Его ссылки ведут в разделы: виджеты
+              стали разделом настроек, а панели 'help' не существовало вовсе —
+              кнопка открывала пустой диалог, хотя список клавиш лежит в
+              «Управлении». */}
           {panel === 'tools' && (
             <ToolsPanel
               slots={slots}
@@ -1865,21 +2075,8 @@ export default function RoomApp({ id }: { id: string }) {
                 setTool(i);
                 setPanel('');
               }}
-              onOpenWidgets={() => setPanel('widgets')}
-              onOpenHelp={() => setPanel('help')}
-            />
-          )}
-          {panel === 'history' && (
-            <HistoryPanel
-              history={history}
-              onUndo={() =>
-                void act({ type: 'undo' }).then((r) => {
-                  if (r) {
-                    flash('Последнее действие отменено');
-                    setPanel('');
-                  }
-                })
-              }
+              onOpenWidgets={() => openSettings('widgets')}
+              onOpenHelp={() => openSettings('controls')}
             />
           )}
           {panel === 'join_requests' && (
@@ -1929,46 +2126,248 @@ export default function RoomApp({ id }: { id: string }) {
               }}
             />
           )}
-          {panel === 'world' && (
-            <WorldPanel
-              s={s}
-              host={host}
-              onStyleChange={(visualStyle) =>
-                void act({ type: 'room.settings', patch: { visualStyle } })
-              }
-              onThemeChange={(theme, season) =>
-                void act({
-                  type: 'room.settings',
-                  patch: { theme, season },
-                })
-              }
-              onTimeChange={(time) =>
-                void act({ type: 'room.settings', patch: { time } })
-              }
-              onSeasonChange={(season) =>
-                void act({ type: 'room.settings', patch: { season } })
-              }
-              onInteriorChange={(interior) =>
-                void act({ type: 'room.settings', patch: { interior } })
-              }
-            />
-          )}
           {panel === 'menu' && (
-            <MenuPanel
-              battle={gameMode === 'battle'}
-              actionsLeft={
-                s.notes.filter((n) => n.kind === 'action' && !n.done).length
-              }
-              onOpen={(next) => {
-                setPanel(next);
-                if (next === 'history')
-                  void api<{ history: typeof history }>('/api/rooms/' + id, {
-                    type: 'history',
-                  })
-                    .then((r) => setHistory(r.history))
-                    .catch((e) => setError(e.message));
-              }}
-            />
+            <SettingsShell
+              groups={settingsGroups}
+              section={settingsSection}
+              onSection={setSettingsSection}
+              host={host}
+            >
+              {settingsSection === 'graphics' && (
+                <GraphicsSection
+                  fps={fps}
+                  me={me}
+                  fpsLimit={fpsLimit}
+                  onFpsLimitChange={(v) => {
+                    setFpsLimit(Number(v));
+                    localStorage.setItem('jinaly-fps-limit', v);
+                  }}
+                  quality={quality}
+                  onQualityChange={(q) => {
+                    setQuality(q);
+                    localStorage.setItem('jinaly-quality', q);
+                  }}
+                />
+              )}
+              {settingsSection === 'controls' && (
+                <ControlsSection
+                  sensitivity={sensitivity}
+                  onSensitivityChange={(v) => {
+                    setSensitivity(v);
+                    localStorage.setItem('jinaly-sensitivity', String(v));
+                  }}
+                  invertCamera={invertCamera}
+                  onInvertCameraChange={(v) => {
+                    setInvertCamera(v);
+                    localStorage.setItem('jinaly-invert-camera', String(v));
+                  }}
+                  aimModes={aimModes}
+                  onAimModesChange={(next) => {
+                    setAimModes(next);
+                    localStorage.setItem(
+                      'jinaly-aim-modes',
+                      JSON.stringify(next),
+                    );
+                  }}
+                />
+              )}
+              {settingsSection === 'profile' && (
+                <ProfileSection
+                  me={me}
+                  sound={sound}
+                  onSoundChange={setSound}
+                  onUpdateName={(name) => {
+                    void act({ type: 'profile', name });
+                    localStorage.setItem('jinaly-name', name);
+                  }}
+                />
+              )}
+              {settingsSection === 'mode' && (
+                <ModePanel
+                  s={s}
+                  host={host}
+                  onSettings={(patch) =>
+                    void act({ type: 'room.settings', patch })
+                  }
+                />
+              )}
+              {settingsSection === 'world' && (
+                <WorldPanel
+                  s={s}
+                  host={host}
+                  onStyleChange={(visualStyle) =>
+                    void act({ type: 'room.settings', patch: { visualStyle } })
+                  }
+                  onThemeChange={(theme, season) =>
+                    void act({
+                      type: 'room.settings',
+                      patch: { theme, season },
+                    })
+                  }
+                  onInteriorChange={(interior) =>
+                    void act({ type: 'room.settings', patch: { interior } })
+                  }
+                />
+              )}
+              {settingsSection === 'access' && (
+                <AccessSection
+                  s={s}
+                  host={host}
+                  onAnonymousPlayersChange={(anonymousPlayers) =>
+                    void act({
+                      type: 'room.settings',
+                      patch: { anonymousPlayers },
+                    })
+                  }
+                  onHidePlayerStatusChange={(hidePlayerStatus) =>
+                    void act({
+                      type: 'room.settings',
+                      patch: { hidePlayerStatus },
+                    })
+                  }
+                  onPrivateWritingChange={(privateWriting) =>
+                    void act({
+                      type: 'room.settings',
+                      patch: { privateWriting },
+                    })
+                  }
+                  onAnonymousChange={(anonymous) =>
+                    void act({ type: 'room.settings', patch: { anonymous } })
+                  }
+                  onLayoutLockedChange={(layoutLocked) =>
+                    void act({ type: 'room.settings', patch: { layoutLocked } })
+                  }
+                  onAccessTypeChange={(accessType) =>
+                    void act({ type: 'access.set', accessType })
+                  }
+                  onMaxPlayersChange={(maxPlayers) => {
+                    void act({ type: 'access.max_players', maxPlayers });
+                  }}
+                />
+              )}
+              {settingsSection === 'actions' && (
+                <ActionsPanel
+                  s={s}
+                  onAddAction={() => {
+                    setPanel('');
+                    setDraft({
+                      kind: 'action',
+                      text: '',
+                      zone: 'start',
+                      color: '#b5d1c0',
+                      url: '',
+                      x: 25,
+                      y: 60,
+                      owner: '',
+                      due: '',
+                      group: '',
+                      tags: '',
+                      hidden: false,
+                      locked: false,
+                      done: false,
+                      width: 220,
+                      height: 180,
+                      rotation: 0,
+                    });
+                  }}
+                  onOpenNote={(n) => {
+                    setPanel('');
+                    editNote(n);
+                  }}
+                />
+              )}
+              {settingsSection === 'widgets' && (
+                <WidgetsPanel
+                  me={me}
+                  onMoodChange={(mood) =>
+                    void act({
+                      type: 'profile',
+                      mood,
+                    })
+                  }
+                  selectedSkin={selectedSkin}
+                  onSelectSkin={(skinId) => {
+                    setSelectedSkin(skinId);
+                    localStorage.setItem('jinaly-custom-skin', skinId);
+                    void act({
+                      type: 'profile',
+                      hat: skinId,
+                      color: selectedBandanaColor,
+                    });
+                  }}
+                  selectedBandanaColor={selectedBandanaColor}
+                  onBandanaColorChange={(color) => {
+                    setSelectedBandanaColor(color);
+                    localStorage.setItem('jinaly-bandana-color', color);
+                    void act({
+                      type: 'profile',
+                      hat: selectedSkin,
+                      color,
+                    });
+                  }}
+                  onConfetti={() =>
+                    void act({ type: 'event', kind: 'confetti', value: '🎉' })
+                  }
+                  onHat={() =>
+                    void act({ type: 'event', kind: 'hat', value: '🎩' })
+                  }
+                  onBuzzer={() => {
+                    setSound(true);
+                    void act({ type: 'event', kind: 'buzzer' });
+                  }}
+                  onPing={() => void act({ type: 'event', kind: 'ping' })}
+                  s={s}
+                  onDecrementCounter={() =>
+                    void act({ type: 'counter', down: true })
+                  }
+                  onIncrementCounter={() => void act({ type: 'counter' })}
+                  spinOptions={spinOptions}
+                  onSpinOptionsChange={setSpinOptions}
+                  online={online}
+                  onSpin={(value) =>
+                    void act({
+                      type: 'event',
+                      kind: 'spin',
+                      value,
+                    })
+                  }
+                  spinner={spinner}
+                  sound={sound}
+                  onSoundChange={setSound}
+                />
+              )}
+              {settingsSection === 'export' && (
+                <ExportPanel
+                  host={host}
+                  onExport={exportRoom}
+                  onImport={(file) => void importFile(file)}
+                />
+              )}
+              {settingsSection === 'history' && (
+                <HistoryPanel
+                  history={history}
+                  onUndo={() =>
+                    void act({ type: 'undo' }).then((r) => {
+                      if (r) {
+                        flash('Последнее действие отменено');
+                        setPanel('');
+                      }
+                    })
+                  }
+                />
+              )}
+              {settingsSection === 'finish' && (
+                <ArchiveSection
+                  archived={!!s.archived}
+                  host={host}
+                  onToggleArchive={() =>
+                    void act({ type: 'archive', value: !s.archived }).then(
+                      (r) => r && setPanel(''),
+                    )
+                  }
+                />
+              )}
+            </SettingsShell>
           )}
           {panel === 'team' && (
             <SidePicker
@@ -1977,117 +2376,22 @@ export default function RoomApp({ id }: { id: string }) {
               anime={s.visualStyle === 'anime'}
               anonymous={!!s.anonymousPlayers}
               onClose={() => setPanel('')}
-              onTeam={(team) =>
-                void act({ type: 'team.set', session: room.self, team })
-              }
               selectedSkin={selectedSkin}
-              onSelectSkin={(skinId) => {
-                setSelectedSkin(skinId);
-                localStorage.setItem('jinaly-custom-skin', skinId);
-                void act({
-                  type: 'profile',
-                  hat: skinId,
-                  color: selectedBandanaColor,
-                });
-              }}
               selectedBandanaColor={selectedBandanaColor}
-              onBandanaColorChange={(color) => {
-                setSelectedBandanaColor(color);
-                localStorage.setItem('jinaly-bandana-color', color);
-                void act({ type: 'profile', hat: selectedSkin, color });
+              /* Окно копит выбор у себя; сюда приходит только то, что реально
+                 изменилось, — и уже отсюда уходит на сервер. */
+              onApply={({ team, skin, bandanaColor }) => {
+                if (skin !== undefined && bandanaColor !== undefined) {
+                  setSelectedSkin(skin);
+                  setSelectedBandanaColor(bandanaColor);
+                  localStorage.setItem('jinaly-custom-skin', skin);
+                  localStorage.setItem('jinaly-bandana-color', bandanaColor);
+                  void act({ type: 'profile', hat: skin, color: bandanaColor });
+                }
+                // Смерть и штраф за переход считает сервер, клиент шлёт только сторону.
+                if (team)
+                  void act({ type: 'team.set', session: room.self, team });
               }}
-            />
-          )}
-          {panel === 'mode' && (
-            <ModePanel
-              s={s}
-              host={host}
-              onSettings={(patch) => void act({ type: 'room.settings', patch })}
-            />
-          )}
-          {panel === 'fps' && (
-            <FpsPanel
-              fps={fps}
-              me={me}
-              fpsLimit={fpsLimit}
-              onFpsLimitChange={(v) => {
-                setFpsLimit(Number(v));
-                localStorage.setItem('jinaly-fps-limit', v);
-              }}
-              quality={quality}
-              onQualityChange={(q) => {
-                setQuality(q);
-                localStorage.setItem('jinaly-quality', q);
-              }}
-              sensitivity={sensitivity}
-              onSensitivityChange={(v) => {
-                setSensitivity(v);
-                localStorage.setItem('jinaly-sensitivity', String(v));
-              }}
-              invertCamera={invertCamera}
-              onInvertCameraChange={(v) => {
-                setInvertCamera(v);
-                localStorage.setItem('jinaly-invert-camera', String(v));
-              }}
-              aimModes={aimModes}
-              onAimModesChange={(next) => {
-                setAimModes(next);
-                localStorage.setItem('jinaly-aim-modes', JSON.stringify(next));
-              }}
-            />
-          )}
-          {panel === 'settings' && (
-            <SettingsPanel
-              s={s}
-              host={host}
-              sound={sound}
-              onSoundChange={setSound}
-              me={me}
-              onAnonymousPlayersChange={(anonymousPlayers) =>
-                void act({
-                  type: 'room.settings',
-                  patch: { anonymousPlayers },
-                })
-              }
-              onHidePlayerStatusChange={(hidePlayerStatus) =>
-                void act({
-                  type: 'room.settings',
-                  patch: { hidePlayerStatus },
-                })
-              }
-              onPrivateWritingChange={(privateWriting) =>
-                void act({ type: 'room.settings', patch: { privateWriting } })
-              }
-              onAnonymousChange={(anonymous) =>
-                void act({ type: 'room.settings', patch: { anonymous } })
-              }
-              onLayoutLockedChange={(layoutLocked) =>
-                void act({ type: 'room.settings', patch: { layoutLocked } })
-              }
-              onAccessTypeChange={(accessType) =>
-                void act({
-                  type: 'access.set',
-                  accessType,
-                })
-              }
-              onMaxPlayersChange={(maxPlayers) => {
-                void act({
-                  type: 'access.max_players',
-                  maxPlayers,
-                });
-              }}
-              onUpdateName={(name) => {
-                void act({
-                  type: 'profile',
-                  name,
-                });
-                localStorage.setItem('jinaly-name', name);
-              }}
-              onToggleArchive={() =>
-                void act({ type: 'archive', value: !s.archived }).then(
-                  (r) => r && setPanel(''),
-                )
-              }
             />
           )}
           {panel === 'timer' && (
@@ -2147,105 +2451,6 @@ export default function RoomApp({ id }: { id: string }) {
               }
             />
           )}
-          {panel === 'widgets' && (
-            <WidgetsPanel
-              me={me}
-              onMoodChange={(mood) =>
-                void act({
-                  type: 'profile',
-                  mood,
-                })
-              }
-              selectedSkin={selectedSkin}
-              onSelectSkin={(skinId) => {
-                setSelectedSkin(skinId);
-                localStorage.setItem('jinaly-custom-skin', skinId);
-                void act({
-                  type: 'profile',
-                  hat: skinId,
-                  color: selectedBandanaColor,
-                });
-              }}
-              selectedBandanaColor={selectedBandanaColor}
-              onBandanaColorChange={(color) => {
-                setSelectedBandanaColor(color);
-                localStorage.setItem('jinaly-bandana-color', color);
-                void act({
-                  type: 'profile',
-                  hat: selectedSkin,
-                  color,
-                });
-              }}
-              onConfetti={() =>
-                void act({ type: 'event', kind: 'confetti', value: '🎉' })
-              }
-              onHat={() =>
-                void act({ type: 'event', kind: 'hat', value: '🎩' })
-              }
-              onBuzzer={() => {
-                setSound(true);
-                void act({ type: 'event', kind: 'buzzer' });
-              }}
-              onPing={() => void act({ type: 'event', kind: 'ping' })}
-              s={s}
-              onDecrementCounter={() =>
-                void act({ type: 'counter', down: true })
-              }
-              onIncrementCounter={() => void act({ type: 'counter' })}
-              spinOptions={spinOptions}
-              onSpinOptionsChange={setSpinOptions}
-              online={online}
-              onSpin={(value) =>
-                void act({
-                  type: 'event',
-                  kind: 'spin',
-                  value,
-                })
-              }
-              spinner={spinner}
-              sound={sound}
-              onSoundChange={setSound}
-            />
-          )}
-          {panel === 'actions' && (
-            <ActionsPanel
-              s={s}
-              onAddAction={() => {
-                setPanel('');
-                setDraft({
-                  kind: 'action',
-                  text: '',
-                  zone: 'start',
-                  color: '#b5d1c0',
-                  url: '',
-                  x: 25,
-                  y: 60,
-                  owner: '',
-                  due: '',
-                  group: '',
-                  tags: '',
-                  hidden: false,
-                  locked: false,
-                  done: false,
-                  width: 220,
-                  height: 180,
-                  rotation: 0,
-                });
-              }}
-              onOpenNote={(n) => {
-                setPanel('');
-                editNote(n);
-              }}
-            />
-          )}
-          {panel === 'export' && (
-            <ExportPanel
-              host={host}
-              onExport={exportRoom}
-              onImport={(file) => void importFile(file)}
-            />
-          )}
-          {panel === 'help' && <HelpPanel />}
         </DialogContent>
       </Dialog>
     </main>

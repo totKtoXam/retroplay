@@ -110,13 +110,16 @@ export function pointToSegmentDist(
   );
 }
 
-/** Shortest distance between two 3D line segments [p1, p2] and [q1, q2]. */
-export function segmentSegmentDist(
+/**
+ * Ближайшее сближение отрезков [p1, p2] и [q1, q2]: расстояние и точка на первом
+ * отрезке. Для выстрела это место, куда пришлось попадание по телу.
+ */
+export function segmentSegmentClosest(
   p1: number[],
   p2: number[],
   q1: number[],
   q2: number[],
-): number {
+): { dist: number; point: [number, number, number] } {
   const ux = p2[0] - p1[0],
     uy = p2[1] - p1[1],
     uz = p2[2] - p1[2];
@@ -183,7 +186,42 @@ export function segmentSegmentDist(
   const dpy = wy + sc * uy - tc * vy;
   const dpz = wz + sc * uz - tc * vz;
 
-  return Math.hypot(dpx, dpy, dpz);
+  return {
+    dist: Math.hypot(dpx, dpy, dpz),
+    point: [p1[0] + sc * ux, p1[1] + sc * uy, p1[2] + sc * uz],
+  };
+}
+
+/** Shortest distance between two 3D line segments [p1, p2] and [q1, q2]. */
+export function segmentSegmentDist(
+  p1: number[],
+  p2: number[],
+  q1: number[],
+  q2: number[],
+): number {
+  return segmentSegmentClosest(p1, p2, q1, q2).dist;
+}
+
+/**
+ * Перекрыта ли стеной траектория от стрелка до точки попадания.
+ *
+ * Проверять надо именно точку, куда пришёлся выстрел, а не центр тела: пуля,
+ * прошедшая поверх ящика в голову или через дверной проём наискось, попадает в
+ * цель, хотя луч в центр груди упирается в преграду. Раньше проверялся центр —
+ * и такие попадания сервер отбрасывал, хотя клиент рисовал отметку.
+ */
+function shotBlocked(
+  origin: number[],
+  impact: number[],
+  colliders?: BoxCollider3D[],
+): boolean {
+  const reach = Math.hypot(
+    impact[0] - origin[0],
+    impact[1] - origin[1],
+    impact[2] - origin[2],
+  );
+  const wall = rayCastWorldObstacle(origin, impact, colliders);
+  return !!wall && wall.distance < reach - 0.35;
 }
 
 /** Check if projectile ray passed close enough to hit player body or head. */
@@ -230,30 +268,13 @@ export function inHitRange(
     hitRadius = 0.46;
   }
 
-  if (segmentSegmentDist(origin, target, spineBottom, spineTop) >= hitRadius) {
+  const closest = segmentSegmentClosest(origin, target, spineBottom, spineTop);
+  if (closest.dist >= hitRadius) {
     return false;
   }
 
   // Check if a solid building/world wall occludes the trajectory before reaching victim
-  const victimCenter: [number, number, number] = [
-    (spineBottom[0] + spineTop[0]) * 0.5,
-    (spineBottom[1] + spineTop[1]) * 0.5,
-    (spineBottom[2] + spineTop[2]) * 0.5,
-  ];
-  const wallHit = rayCastWorldObstacle(origin, victimCenter, colliders);
-  if (
-    wallHit &&
-    wallHit.distance <
-      Math.hypot(
-        victimCenter[0] - origin[0],
-        victimCenter[1] - origin[1],
-        victimCenter[2] - origin[2],
-      ) - 0.35
-  ) {
-    return false; // Shot is obstructed by a solid wall
-  }
-
-  return true;
+  return !shotBlocked(origin, closest.point, colliders);
 }
 
 /**
@@ -447,7 +468,8 @@ export function calculatePelletsHit(
   if (dot < 0.2) return { pelletsHit: 0, damage: 0 };
 
   // Shortest distance from central shot ray to victim spine
-  const dPerp = segmentSegmentDist(origin, target, spineBottom, spineTop);
+  const closest = segmentSegmentClosest(origin, target, spineBottom, spineTop);
+  const dPerp = closest.dist;
 
   // Maximum spread cone radius at distance dist (~4.7 degrees half-angle)
   const coneRadius = dist * 0.082;
@@ -458,8 +480,7 @@ export function calculatePelletsHit(
   }
 
   // Check if a solid building/world wall occludes the shotgun blast before reaching victim
-  const wallHit = rayCastWorldObstacle(origin, [centerX, centerY, centerZ], colliders);
-  if (wallHit && wallHit.distance < dist - 0.35) {
+  if (shotBlocked(origin, closest.point, colliders)) {
     return { pelletsHit: 0, damage: 0 }; // Shotgun blast is blocked by a solid wall
   }
 

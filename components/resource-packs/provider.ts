@@ -65,10 +65,17 @@ export function createVisualProvider(options: {
         options.status('error');
       }
     },
-    update(dt: number, camera: T.Camera, state: RoomState, members: string) {
-      const key = `${state.time}/${state.season}/${state.visualStyle}/${state.interior}/${state.theme}/${members}`;
+    /**
+     * `time` — фаза идущих суток (lib/day-cycle.ts). Отдельным аргументом,
+     * потому что при запущенном цикле `state.time` хранит последнее
+     * зафиксированное значение и не меняется: без этого пакет остался бы
+     * в одном освещении, пока остальная сцена проживает сутки.
+     */
+    update(dt: number, camera: T.Camera, state: RoomState, members: string, time = state.time) {
+      const key = `${time}/${state.season}/${state.visualStyle}/${state.interior}/${state.theme}/${members}`;
       if (presentation && key !== syncKey) {
-        presentation.sync(state);
+        // Копия создаётся только при смене ключа, то есть в кадре перехода.
+        presentation.sync(time === state.time ? state : { ...state, time });
         syncKey = key;
       }
       return presentation?.update(dt, camera, state);

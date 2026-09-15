@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import * as T from 'three';
 import {
   Dialog,
@@ -19,9 +19,12 @@ import {
   type WorldEffect,
   type Note,
 } from '@/lib/model';
-import { ItemWheel } from './item-wheel';
+import { ItemWheel, type WheelGroup } from './item-wheel';
 import { WorldTablet } from './world-tablet';
-import { WorldHud } from './world-hud';
+import { AmmoIndicator, WorldHud } from './world-hud';
+import { WorldMinimap, type MinimapBlip, type MinimapFrame } from './world-minimap';
+import { spotTargets, SPOT_MEMORY_MS, type Target, type Watcher } from '@/lib/spotting';
+import type { VoiceChannel, VoiceView } from './voice-chat';
 import { createMapScene, type WorldKit } from './world-map-scene';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
@@ -36,6 +39,17 @@ import { PAINTS, CONFETTI, GRENADES, FIREWORKS, SHOTGUN_PELLET_OFFSETS, type Hit
 import { createWorldVfx } from './world-vfx';
 import { createWorldProjectiles } from './world-projectiles';
 import { createWorldRemotePlayers } from './world-remote-players';
+import {
+  createFlashlightBeam,
+  createPlayerFlashlight,
+} from './world-flashlight';
+import {
+  dayMix,
+  dayPosition,
+  sameMix,
+  TIMES_OF_DAY,
+  type DayMix,
+} from '@/lib/day-cycle';
 import { createWorldPlayer } from './world-player';
 import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
@@ -81,6 +95,13 @@ import {
 import { SNIPER_ZOOM_LEVELS, SNIPER_ZOOM_FOVS } from './world-constants';
 
 import { readAimModes, type WeaponAimModes } from '@/lib/aim-settings';
+import {
+  PAINT_SIGHT_OPTIONS,
+  DEFAULT_PAINT_SIGHT,
+  readPaintSight,
+  writePaintSight,
+  type PaintSight,
+} from '@/lib/weapon-sights';
 
 // Shield aura mesh removed — immunity is now indicated only by HUD text/icon
 
@@ -121,6 +142,10 @@ type Props = {
   onCursor?: (x: number, y: number) => void;
   pendingJoinRequestsCount?: number;
   onOpenJoinRequests?: () => void;
+  /** Состояние голосового чата для HUD (components/use-voice-chat.ts). */
+  voice?: VoiceView;
+  /** Нажали или отпустили T (своей команде) или Y (всем). */
+  onTalk?: (channel: VoiceChannel, on: boolean) => void;
 };
 export type KillMessage = {
   id: string;
@@ -262,6 +287,20 @@ export default function World(props: Props) {
   const [grenadeStyle, setGrenadeStyle] = useState('pinata');
   const [fireworkStyle, setFireworkStyle] = useState('salute');
   const [tabletZone, setTabletZone] = useState('good');
+  const [paintSight, setPaintSight] = useState<PaintSight>(DEFAULT_PAINT_SIGHT);
+  useEffect(() => {
+    // Читаем только после монтирования: на сервере localStorage нет, и разметка
+    // первого кадра разошлась бы с гидрацией. `storage` заодно подхватывает
+    // выбор, сделанный в соседней вкладке.
+    const sync = () => setPaintSight(readPaintSight());
+    sync();
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, []);
+  const applyPaintSight = useCallback((value: PaintSight) => {
+    setPaintSight(value);
+    writePaintSight(value);
+  }, []);
   const [tabletInWorld, setTabletInWorld] = useState(false);
   const [sniperZoomIndex, setSniperZoomIndex] = useState(1);
   const sniperZoomIndexRef = useRef(1);
@@ -286,6 +325,8 @@ export default function World(props: Props) {
     openContext: () => void;
     keys: Set<string>;
     refreshTargets: () => void;
+    /** Живая поза игрока: серверное эхо в `room.members` отстаёт на пинг. */
+    player: ReturnType<typeof createWorldPlayer>;
   } | null>(null);
 
   const openTabletInWorld = useCallback(() => {
@@ -305,6 +346,7 @@ export default function World(props: Props) {
     grenadeStyle,
     fireworkStyle,
     tabletZone,
+    paintSight,
   });
   useEffect(() => {
     selection.current = {
@@ -312,10 +354,98 @@ export default function World(props: Props) {
       grenadeStyle,
       fireworkStyle,
       tabletZone,
+      paintSight,
     };
-  }, [confettiStyle, grenadeStyle, fireworkStyle, tabletZone]);
+  }, [confettiStyle, grenadeStyle, fireworkStyle, tabletZone, paintSight]);
   /** Changing the room's map rebuilds the engine with that map's scene and collision. */
   const mapId = props.room.state.map ?? 'hub';
+  const minimapMap = useMemo(() => getMap(mapId), [mapId]);
+  const [mapExpanded, setMapExpanded] = useState(false);
+  // Отметки пересобираются только на новом снимке комнаты: кадр миникарты идёт
+  // 60 раз в секунду, а позиции приходят с сервера десять. Там же считается и
+  // засветка — лучи против всей геометрии карты каждый кадр не нужны.
+  const blipCache = useRef<{ from: Person[]; out: MinimapBlip[] } | null>(null);
+  /** Последнее известное место засвеченного врага и когда его видели. */
+  const spotted = useRef(new Map<string, { x: number; z: number; team?: string; at: number }>());
+  /**
+   * Кадр миникарты. Своя поза берётся у движка — серверная отстаёт на пинг.
+   *
+   * Свои видны всегда, враги — только те, кого кто-то из своих держит в секторе
+   * вокруг прицела и видит не через стену (lib/spotting.ts). Иначе план
+   * показывал бы то, чего игрок глазами не видит, и сам был бы читом.
+   */
+  const readMinimap = useCallback((): MinimapFrame | null => {
+    const player = engine.current?.player;
+    if (!player) return null;
+    const room = latest.current.room;
+    if (blipCache.current?.from !== room.members) {
+      const me = room.members.find((m) => m.id === room.self);
+      const alive = (m: Person) => (m.hp ?? 100) > 0;
+      const allies = room.members.filter(
+        (m) => m.id !== room.self && (!me?.team || m.team === me.team),
+      );
+      const now = Date.now();
+      if (me?.team) {
+        // Смотрят все свои живые. За себя берём живую позу движка: она точнее
+        // серверной ровно на пинг, а сектор засветки узкий.
+        const watchers: Watcher[] = [
+          {
+            x: player.pos.x,
+            y: player.pos.y,
+            z: player.pos.z,
+            yaw: player.cameraYaw,
+            pitch: player.pitch,
+            stance: player.stance,
+          },
+        ];
+        for (const m of allies)
+          if (alive(m))
+            watchers.push({
+              x: m.pose.x,
+              y: m.pose.y,
+              z: m.pose.z,
+              yaw: m.pose.yaw,
+              pitch: m.pose.pitch,
+              stance: m.pose.stance,
+            });
+        const enemies = room.members.filter((m) => m.team && m.team !== me.team && alive(m));
+        const targets: Target[] = enemies.map((m) => ({
+          id: m.id,
+          x: m.pose.x,
+          y: m.pose.y,
+          z: m.pose.z,
+          stance: m.pose.stance,
+        }));
+        for (const id of spotTargets(watchers, targets, minimapMap.colliders)) {
+          const m = enemies.find((e) => e.id === id);
+          if (m) spotted.current.set(id, { x: m.pose.x, z: m.pose.z, team: m.team, at: now });
+        }
+        const live = new Set(enemies.map((m) => m.id));
+        for (const [id, mark] of spotted.current)
+          if (now - mark.at > SPOT_MEMORY_MS || !live.has(id)) spotted.current.delete(id);
+      } else if (spotted.current.size) {
+        spotted.current.clear();
+      }
+      const out: MinimapBlip[] = [];
+      for (const m of allies)
+        out.push({ x: m.pose.x, z: m.pose.z, team: m.team, dead: !alive(m) });
+      for (const mark of spotted.current.values())
+        out.push({
+          x: mark.x,
+          z: mark.z,
+          team: mark.team,
+          enemy: true,
+          fresh: 1 - (now - mark.at) / SPOT_MEMORY_MS,
+        });
+      blipCache.current = { from: room.members, out };
+    }
+    return {
+      x: player.pos.x,
+      z: player.pos.z,
+      yaw: player.cameraYaw,
+      blips: blipCache.current.out,
+    };
+  }, [minimapMap]);
   const self = props.room.members.find((m) => m.id === props.room.self);
   const dead = self?.hp === 0;
   const [killfeed, setKillfeed] = useState<KillMessage[]>([]);
@@ -626,7 +756,16 @@ export default function World(props: Props) {
       'Игровой мир: клик — играть, движение мыши — камера, WASD — движение, Esc — курсор',
     );
     const camera = new T.PerspectiveCamera(64, 1, 0.06, 350);
-    kit.update(latest.current.room.state);
+    /** Фаза суток по серверным часам: `props.now` приходит с поправкой сервера. */
+    const currentMix = () =>
+      dayMix(latest.current.room.state, latest.current.now);
+    /** Та же фаза одним словом — для визуальных пакетов, которые живут на `time`. */
+    const currentPhase = () =>
+      TIMES_OF_DAY[
+        Math.floor(dayPosition(latest.current.room.state, latest.current.now)) %
+          TIMES_OF_DAY.length
+      ];
+    kit.update(latest.current.room.state, currentMix());
     kit.setNotes(latest.current.room.state);
     const cameraObstacles: T.Object3D[] = [];
     // Отладочный доступ к сцене: в dev и по ?debug=1 — чтобы разбирать визуальные баги с натуры.
@@ -641,6 +780,8 @@ export default function World(props: Props) {
     });
     scene.add(camera);
     const hands = createFirstPersonHands(camera);
+    // Свой фонарик висит на камере: светит туда, куда смотрит игрок.
+    const flashlight = createPlayerFlashlight(camera);
     let composer: EffectComposer | undefined,
       bloom: UnrealBloomPass | undefined;
     if (isCinematic || isBalanced) {
@@ -669,7 +810,7 @@ export default function World(props: Props) {
     // through a reassignable hook instead of closing over `rebuildSceneryTargets` directly.
     let refreshSceneryTargets = () => {};
     const visuals = createVisualProvider({ scene, hands: hands.group, quality: props.quality, stations: kit.stations, renderer, graphics: () => graphicsRef.current,
-      restore: () => { kit.update(latest.current.room.state); renderer.toneMappingExposure = defaultExposure; refreshSceneryTargets(); },
+      restore: () => { kit.update(latest.current.room.state, currentMix()); renderer.toneMappingExposure = defaultExposure; refreshSceneryTargets(); },
       status: setPackStatus,
     });
     // Resource packs dress the hub around its board stations; battle maps keep their own look.
@@ -682,6 +823,11 @@ export default function World(props: Props) {
       if (o instanceof T.Mesh) o.castShadow = props.quality !== 'low';
     });
     scene.add(avatar);
+    // Тот же луч, что видят остальные, висит и на своём аватаре: в третьем лице
+    // игрок видит собственный фонарик, а в первом луч пропадает вместе с
+    // аватаром (`avatar.visible` ниже) и не светит в камеру.
+    const localBeam = createFlashlightBeam();
+    avatar.add(localBeam.group);
     // Attach custom skins & bandana to local avatar
     const localSkinResult = attachCustomSkins(avatar);
     const localBandanaMat = localSkinResult.bandanaMat;
@@ -733,6 +879,7 @@ export default function World(props: Props) {
       nearZone = '',
       middle = false,
       left = false,
+      flashlightOn = false,
       aimHeld = false,
       aimBlend = 0,
       equippedTool = latest.current.tool,
@@ -825,7 +972,13 @@ export default function World(props: Props) {
       const list: T.Mesh[] = [];
       for (const remote of remoteAvatars.values())
         remote.traverse((o) => {
-          if (o instanceof T.Mesh && !o.userData.transientProjectile)
+          // `presentationOnly` — декор вроде луча фонарика: он виден, но не
+          // является ни мишенью, ни препятствием для дуги броска.
+          if (
+            o instanceof T.Mesh &&
+            !o.userData.transientProjectile &&
+            !o.userData.presentationOnly
+          )
             list.push(o);
         });
       return list;
@@ -874,6 +1027,7 @@ export default function World(props: Props) {
       splat: vfx.splat,
       smearPlayerWithPaint: vfx.smearPlayerWithPaint,
       checkSceneryHit,
+      colliders: map.colliders,
     });
     const { flights, spawn } = projectiles;
     let lastReportedRounds = { ...magazine.current.rounds };
@@ -1027,7 +1181,7 @@ export default function World(props: Props) {
         : new T.Vector3(0, 1, 0);
       const origin =
         perspectiveRef.current === 'first'
-          ? hands.group.localToWorld(new T.Vector3(0, 0.025, -0.69))
+          ? hands.muzzle(tool)
           : pos
             .clone()
             .add(
@@ -1214,6 +1368,7 @@ export default function World(props: Props) {
     engine.current = {
       visuals,
       capture,
+      player,
       closeInventory: (resume = true) => {
         middle = false;
         setRadial(false);
@@ -1408,6 +1563,10 @@ export default function World(props: Props) {
           'KeyF',
           'KeyV',
           'KeyR',
+          'KeyZ',
+          'KeyM',
+          'KeyT',
+          'KeyY',
           'ArrowLeft',
           'ArrowRight',
           'ArrowUp',
@@ -1432,6 +1591,9 @@ export default function World(props: Props) {
         }
       }
       if (e.code === 'KeyR') beginReload();
+      // План по M разворачивается и сворачивается и живым, и убитым: смотреть
+      // карту в ожидании возрождения — обычное дело.
+      if (e.code === 'KeyM') setMapExpanded((v) => !v);
       if (e.code === 'KeyX') player.holdCrouch();
       if (isDead()) return;
       if (e.code === 'Space') player.jump();
@@ -1442,11 +1604,24 @@ export default function World(props: Props) {
         latest.current.onUseTool(nearZone);
         clear();
       }
-      if (e.code === 'KeyF') engine.current?.reset();
+      // F занял фонарик — привычная по шутерам клавиша, и нажимают её в бою
+      // куда чаще, чем выравнивают камеру. Сброс угла обзора переехал на Z:
+      // соседняя с WASD свободная клавиша, до которой дотягивается та же рука.
+      // Проверка на Ctrl/Alt/Cmd выше по обработчику остаётся общей для обеих.
+      if (e.code === 'KeyZ') engine.current?.reset();
+      if (e.code === 'KeyF') {
+        flashlightOn = flashlight.toggle();
+        localBeam.set(flashlightOn && !isDead(), player.pitch);
+      }
       if (e.code === 'KeyV')
         choosePerspective(
           perspectiveRef.current === 'first' ? 'third' : 'first',
         );
+      // Рация: пока клавиша зажата, голос идёт своим (T) или всем (Y).
+      // Разговор не зависит от того, жив ли игрок: мёртвому тем более есть что
+      // сказать команде, и молчать в ожидании возрождения незачем.
+      if (e.code === 'KeyT') latest.current.onTalk?.('team', true);
+      if (e.code === 'KeyY') latest.current.onTalk?.('all', true);
       if (e.code.startsWith('Digit')) {
         const slot = slotForDigit(modeOf(latest.current.room.state), e.code);
         if (slot !== undefined) {
@@ -1461,8 +1636,11 @@ export default function World(props: Props) {
       if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
         releaseScoreHold();
       // Отпускание обрабатываем и с модификаторами: иначе приседание залипло бы
-      // после X + случайно нажатого Ctrl.
+      // после X + случайно нажатого Ctrl. По той же причине — и рация: зажатая
+      // T плюс случайный Alt оставили бы микрофон открытым.
       if (e.code === 'KeyX') player.releaseCrouch();
+      if (e.code === 'KeyT') latest.current.onTalk?.('team', false);
+      if (e.code === 'KeyY') latest.current.onTalk?.('all', false);
 
     };
     const onMouse = (e: MouseEvent) => {
@@ -1955,6 +2133,7 @@ export default function World(props: Props) {
           ? selection.current.tabletZone
           : selection.current.grenadeStyle,
         tabletInspectRef.current,
+        selection.current.paintSight,
       );
       const sniperFov = SNIPER_ZOOM_FOVS[sniperZoomIndexRef.current];
       const baseTargetFov =
@@ -1994,6 +2173,9 @@ export default function World(props: Props) {
         nearZone = nearest;
         setNear(nearest);
       }
+      // Луч на своём аватаре идёт за взглядом: его видят остальные, значит и
+      // направление должно совпадать с тем, куда игрок смотрит.
+      localBeam.set(flashlightOn && !isDead(), player.pitch);
       remotePlayers.update(now, dt);
       projectiles.update(now, player.stance);
       vfx.update(now, dt);
@@ -2027,6 +2209,7 @@ export default function World(props: Props) {
           crouching: player.crouching,
           aiming: aimHeld,
           reload: magazine.current.progress(now),
+          light: flashlightOn,
         });
         poseAt = now;
       }
@@ -2058,7 +2241,7 @@ export default function World(props: Props) {
         composer?.setPixelRatio(renderer.getPixelRatio());
         resize();
       }
-      const meteredExposure = visuals.update(dt, camera, latest.current.room.state, remotePlayers.remoteKey);
+      const meteredExposure = visuals.update(dt, camera, latest.current.room.state, remotePlayers.remoteKey, currentPhase());
       remotePlayers.disposeRetired();
       const desiredExposure = (meteredExposure ?? defaultExposure) * (custom?.exposure ?? 1);
       renderer.toneMappingExposure = T.MathUtils.damp(renderer.toneMappingExposure, desiredExposure, 1.6, dt);
@@ -2109,6 +2292,8 @@ export default function World(props: Props) {
         }
       });
       weaponDisposed = true;
+      flashlight.dispose();
+      localBeam.dispose();
       projectiles.dispose();
       vfx.dispose();
       trajectoryGeo.dispose();
@@ -2123,7 +2308,8 @@ export default function World(props: Props) {
     };
   }, [props.quality, openTabletInWorld, closeTabletInWorld, mapId]);
   useEffect(() => {
-    engine.current?.kit.update(latest.current.room.state);
+    const state = latest.current.room.state;
+    engine.current?.kit.update(state, dayMix(state, latest.current.now));
     engine.current?.visuals.invalidate();
     engine.current?.shadow();
     engine.current?.refreshTargets();
@@ -2133,7 +2319,20 @@ export default function World(props: Props) {
     props.room.state.time,
     props.room.state.season,
     props.room.state.interior,
+    props.room.state.dayCycle,
   ]);
+  // Ход суток: свет пересчитывается по серверным часам раз в секунду вместе с
+  // `props.now`. Полный `kit.update` для этого не нужен — он обходит сцену и
+  // перекрашивает стили, а по ходу суток меняются только свет, небо и туман.
+  // За 3-минутную фазу это 180 шагов, каждый настолько мал, что переход читается
+  // как непрерывный.
+  const appliedMix = useRef<DayMix | null>(null);
+  useEffect(() => {
+    const mix = dayMix(props.room.state, props.now);
+    if (appliedMix.current && sameMix(mix, appliedMix.current)) return;
+    appliedMix.current = mix;
+    engine.current?.kit.setDayMix(mix);
+  }, [props.now, props.room.state]);
   useEffect(() => {
     engine.current?.kit.setNotes(latest.current.room.state);
   }, [props.room.version]);
@@ -2149,6 +2348,77 @@ export default function World(props: Props) {
   const gameMode = modeOf(props.room.state);
   const slots = slotsFor(gameMode);
   const currentSlot = slots.find((s) => s.index === props.tool);
+  /*
+   * Что лежит в колесе СКМ для нынешнего инструмента. У краскомёта групп две —
+   * прицелы сверху, краска снизу: и то и другое меняют посреди боя, а второй
+   * кнопки под это нет. У остальных инструментов группа одна, и колесо
+   * выглядит как раньше.
+   */
+  const wheelGroups: WheelGroup[] =
+    current.id === 'paint'
+      ? [
+          {
+            id: 'sight',
+            title: 'Прицел',
+            selected: paintSight,
+            items: PAINT_SIGHT_OPTIONS,
+          },
+          {
+            id: 'paint',
+            title: 'Краска',
+            selected:
+              PAINTS.find((p) => p.color === props.paintColor)?.id || 'violet',
+            items: PAINTS,
+          },
+        ]
+      : [
+          current.id === 'confetti'
+            ? {
+                id: 'confetti',
+                title: 'Набор конфетти',
+                selected: confettiStyle,
+                items: CONFETTI,
+              }
+            : current.id === 'grenade'
+              ? {
+                  id: 'grenade',
+                  title: 'Пиньято',
+                  selected: grenadeStyle,
+                  items: GRENADES,
+                }
+              : current.id === 'sniper'
+                ? {
+                    id: 'sniper',
+                    title: 'Фейерверки',
+                    selected: fireworkStyle,
+                    items: FIREWORKS,
+                  }
+                : current.id === 'sticky'
+                  ? {
+                      id: 'sticky',
+                      title: 'Зона стикера',
+                      selected: tabletZone,
+                      items: ZONES.map((z) => ({
+                        id: z.id,
+                        label: z.title,
+                        color: z.color,
+                        icon: z.emoji,
+                      })),
+                    }
+                  : {
+                      id: 'board',
+                      title: 'Планшет',
+                      selected: 'board',
+                      items: [
+                        {
+                          id: 'board',
+                          label: 'Открыть доску',
+                          color: '#64d4ef',
+                          icon: '📱',
+                        },
+                      ],
+                    },
+        ];
   return (
     <div
       className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''}`}
@@ -2180,6 +2450,7 @@ export default function World(props: Props) {
         killfeed={killfeed}
         personalAlert={personalAlert}
         respawnSeconds={respawnSeconds}
+        voice={props.voice}
         freezeSeconds={Math.max(
           0,
           Math.ceil(((props.room.match?.until ?? 0) - props.now) / 1000),
@@ -2221,21 +2492,17 @@ export default function World(props: Props) {
           <span>Работать с идеями</span>
         </button>
       )}
+      {/* Вид индикатора (цифры или графика) выбирается в настройках, поэтому
+          разметка и подписка на настройку живут в world-hud.tsx. Место —
+          слева от панели предметов: правый нижний угол занят миникартой. */}
       {['paint', 'confetti', 'sniper'].includes(current?.id) && (
-        <div
-          className={`ammo-panel ${reloading ? 'is-reloading' : ''}`}
-          aria-live="polite"
-        >
-          <span>{reloading ? 'ПЕРЕЗАРЯДКА' : current.label}</span>
-          <strong>
-            {rounds[current.id as Blaster]}{' '}
-            <small>/ {CAPACITY[current.id as Blaster]}</small>
-          </strong>
-          <div>
-            <kbd>R</kbd> перезарядить <i /> <kbd>ПКМ</kbd> прицел
-          </div>
-        </div>
+        <AmmoIndicator
+          rounds={rounds[current.id as Blaster]}
+          capacity={CAPACITY[current.id as Blaster]}
+          reloading={reloading}
+        />
       )}
+      <WorldMinimap map={minimapMap} read={readMinimap} expanded={mapExpanded} />
       <div className="equipped-card">
         <span className="weapon-number">{currentSlot?.key ?? '—'}</span>
         <div>
@@ -2327,7 +2594,7 @@ export default function World(props: Props) {
                     : '📱'}
         </span>
         {current.id === 'paint'
-          ? 'Выбрать краску'
+          ? 'Краска и прицел'
           : current.id === 'confetti'
             ? CONFETTI.find((c) => c.id === confettiStyle)?.label
             : current.id === 'grenade'
@@ -2343,58 +2610,12 @@ export default function World(props: Props) {
         <ItemWheel
           key={current.id}
           title={
-            current.id === 'paint'
-              ? 'Палитра'
-              : current.id === 'confetti'
-                ? 'Набор конфетти'
-                : current.id === 'grenade'
-                  ? 'Пиньято'
-                  : current.id === 'sniper'
-                    ? 'Фейерверки'
-                    : current.id === 'sticky'
-                      ? 'Зона стикера'
-                      : 'Планшет'
+            current.id === 'paint' ? 'Краскомёт' : wheelGroups[0].title
           }
-          items={
-            current.id === 'paint'
-              ? PAINTS
-              : current.id === 'confetti'
-                ? CONFETTI
-                : current.id === 'grenade'
-                  ? GRENADES
-                  : current.id === 'sniper'
-                    ? FIREWORKS
-                    : current.id === 'sticky'
-                      ? ZONES.map((z) => ({
-                        id: z.id,
-                        label: z.title,
-                        color: z.color,
-                        icon: z.emoji,
-                      }))
-                      : [
-                        {
-                          id: 'board',
-                          label: 'Открыть доску',
-                          color: '#64d4ef',
-                          icon: '📱',
-                        },
-                      ]
-          }
-          selected={
-            current.id === 'paint'
-              ? PAINTS.find((p) => p.color === props.paintColor)?.id || 'violet'
-              : current.id === 'confetti'
-                ? confettiStyle
-                : current.id === 'grenade'
-                  ? grenadeStyle
-                  : current.id === 'sniper'
-                    ? fireworkStyle
-                    : current.id === 'sticky'
-                      ? tabletZone
-                      : 'board'
-          }
-          onSelect={(id: string) => {
-            if (current.id === 'paint')
+          groups={wheelGroups}
+          onSelect={(id: string, group: string) => {
+            if (group === 'sight') applyPaintSight(id as PaintSight);
+            else if (current.id === 'paint')
               props.onPaintColor(PAINTS.find((p) => p.id === id)!.color);
             else if (current.id === 'confetti') setConfettiStyle(id);
             else if (current.id === 'grenade') setGrenadeStyle(id);

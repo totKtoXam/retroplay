@@ -3,6 +3,10 @@ import './globals.css';
 import '../components/resource-packs/packs.css';
 import './theme.css';
 import './side-picker.css';
+import './hud.css';
+import './game-clock.css';
+import './phases.css';
+import './settings-menu.css';
 /**
  * Ставит тему на <html> до первой отрисовки, чтобы не было вспышки светлого
  * фона. Логика повторяет applyTheme() из hooks/use-theme.ts.

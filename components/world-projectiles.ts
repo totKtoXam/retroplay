@@ -1,6 +1,7 @@
 import * as T from 'three';
 import type { Room, WorldEffect } from '@/lib/model';
 import { hitZone, inHitRange, type HitZone } from '@/lib/game-items';
+import type { BoxCollider3D } from '@/lib/world-collision';
 import type { Perspective } from '@/lib/game-camera';
 import {
   partyGeometry,
@@ -46,6 +47,7 @@ export function createWorldProjectiles({
   splat,
   smearPlayerWithPaint,
   checkSceneryHit,
+  colliders,
 }: {
   scene: T.Scene;
   latest: { readonly current: { room: Room } };
@@ -63,6 +65,8 @@ export function createWorldProjectiles({
     at: T.Vector3,
     normal: T.Vector3,
   ) => { point: T.Vector3; normal: T.Vector3 } | null;
+  /** Стены текущей карты: без них отметка попадания загоралась бы сквозь них. */
+  colliders: BoxCollider3D[];
 }) {
   const flights: Flight[] = [];
   /**
@@ -152,8 +156,8 @@ export function createWorldProjectiles({
         const myCenter = new T.Vector3(myPos.x, myPos.y + 0.95, myPos.z);
         // Грубая клиентская проверка — только для декораций (брызги краски на своём
         // аватаре и на руках в первом лице). Она заведомо шире серверной: радиус 1.15 м
-        // ловит промахи рядом, поза берётся текущая, а не отмотанная, и без коллайдеров
-        // текущей карты. Урон по ней НЕ показываем — вспышку даёт падение hp с сервера.
+        // ловит промахи рядом, а поза берётся текущая, а не отмотанная. Урон по ней
+        // НЕ показываем — вспышку даёт падение hp с сервера.
         const hitMe =
           f.target.distanceTo(myCenter) < 1.15 ||
           inHitRange(
@@ -161,19 +165,36 @@ export function createWorldProjectiles({
             [f.origin.x, f.origin.y, f.origin.z],
             [f.target.x, f.target.y, f.target.z],
             { x: myPos.x, y: myPos.y, z: myPos.z, stance: currentStance },
+            colliders,
           );
 
         if (hitMe && f.author !== latest.current.room.self) {
           isHitOnPlayer = true;
           hitPlayerGroup = avatar;
           if (perspectiveRef.current === 'first') {
+            /*
+             * Краска на своём экране: прилетело — забрызгало обзор. Клякса
+             * висит на камере, а не на группе рук: она на «забрале» игрока и
+             * не должна ездить вместе с оружием при прицеливании.
+             *
+             * И не по центру: там прицел, и залепить его — значит отнять
+             * возможность ответить. Место по кругу выбирается случайно, так
+             * что две подряд не ложатся друг на друга.
+             */
+            const angle = Math.random() * Math.PI * 2;
+            const spread = 0.3 + Math.random() * 0.12;
             splat(
-              new T.Vector3(0.04, -0.02, -0.45),
+              new T.Vector3(
+                Math.cos(angle) * spread,
+                Math.sin(angle) * spread * 0.7,
+                -0.45,
+              ),
               new T.Vector3(0, 0, 1),
               f.color,
               f.born + f.duration,
-              hands.group,
-              0.22,
+              hands.group.parent ?? hands.group,
+              0.14,
+              true,
             );
           }
         }
@@ -188,24 +209,27 @@ export function createWorldProjectiles({
               member.pose.y + 0.95,
               member.pose.z,
             );
-            if (
-              f.target.distanceTo(remoteCenter) < 1.15 ||
-              inHitRange(
-                f.kind,
-                [f.origin.x, f.origin.y, f.origin.z],
-                [f.target.x, f.target.y, f.target.z],
-                {
-                  x: member.pose.x,
-                  y: member.pose.y,
-                  z: member.pose.z,
-                  stance: member.pose.stance,
-                },
-              )
-            ) {
+            // Попадание по чужому аватару. Отметку о своём попадании ставит только
+            // строгая проверка с коллайдерами карты: иначе она загоралась бы и на
+            // выстрелах, которые сервер отбросит как перекрытые стеной.
+            const strictHit = inHitRange(
+              f.kind,
+              [f.origin.x, f.origin.y, f.origin.z],
+              [f.target.x, f.target.y, f.target.z],
+              {
+                x: member.pose.x,
+                y: member.pose.y,
+                z: member.pose.z,
+                yaw: member.pose.yaw,
+                stance: member.pose.stance,
+              },
+              colliders,
+            );
+            if (strictHit || f.target.distanceTo(remoteCenter) < 1.15) {
               isHitOnPlayer = true;
               hitPlayerGroup = remote;
               // Своё попадание отмечаем зоной: по гранате зон нет, она накрывает целиком.
-              if (f.author === latest.current.room.self && f.kind !== 'grenade')
+              if (strictHit && f.author === latest.current.room.self && f.kind !== 'grenade')
                 hitMarker.current(
                   hitZone(
                     [f.origin.x, f.origin.y, f.origin.z],

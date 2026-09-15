@@ -1,8 +1,8 @@
 'use client';
 import { GraphicsPanel } from './graphics-panel';
 
+import { useState } from 'react';
 import {
-  Backpack,
   Bell,
   Check,
   ChevronRight,
@@ -11,19 +11,13 @@ import {
   Download,
   Flag,
   Folder,
-  Gauge,
-  HelpCircle,
-  ListChecks,
   MousePointer2,
   PartyPopper,
   Pause,
   Play,
   Plus,
   RotateCcw,
-  Settings2,
   Smile,
-  Sun,
-  Swords,
   Vote,
   X,
 } from 'lucide-react';
@@ -46,6 +40,11 @@ import { Choice, Toggle } from './controls';
 import { StylePicker } from './style-picker';
 import { ResourcePackPicker } from './resource-pack-picker';
 import { type WeaponAimModes } from '@/lib/aim-settings';
+import {
+  readAmmoDisplay,
+  writeAmmoDisplay,
+  type AmmoDisplay,
+} from '@/lib/ammo-display';
 import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from '@/lib/avatar-catalog';
 
 export function HelpPanel() {
@@ -54,8 +53,9 @@ export function HelpPanel() {
       <p>
         <b>Камера:</b> кликните по миру и двигайте мышь — удерживать
         кнопки не нужно. Esc освобождает курсор для меню. Стрелки тоже
-        вращают камеру. V переключает первое и третье лицо. F сбрасывает
-        угол обзора. Alt + колесо меняет расстояние в третьем лице.
+        вращают камеру. V переключает первое и третье лицо. Z сбрасывает
+        угол обзора. F включает и выключает фонарик — его луч видят
+        и остальные игроки. Alt + колесо меняет расстояние в третьем лице.
         Захват мыши включается щелчком по миру.
       </p>
       <p>
@@ -718,45 +718,43 @@ export function MatchBar({
 
 /* Выбор стороны и внешнего вида живёт в components/side-picker.tsx. */
 
-/** Всё, что не нужно в бою каждую секунду: настройки, история, экспорт. */
-export function MenuPanel({
-  actionsLeft,
-  battle,
-  onOpen,
+/**
+ * Завершение встречи — единственное, что осталось от прежнего меню комнаты.
+ *
+ * Меню было промежуточным экраном: список действий, у которого первым пунктом
+ * стояла кнопка «Настройки». Лишний шаг убрали, действия переехали разделами
+ * в сами настройки, а этот раздел — отдельным, последним: комната после него
+ * становится только для чтения, и до кнопки надо дойти осознанно, а не задеть
+ * её, пока щёлкаешь переключатели по соседству.
+ */
+export function ArchiveSection({
+  archived,
+  host,
+  onToggleArchive,
 }: {
-  actionsLeft: number;
-  /** В бою добавляется выбор стороны и внешнего вида. */
-  battle: boolean;
-  onOpen: (panel: string) => void;
+  archived: boolean;
+  host: boolean;
+  onToggleArchive: () => void;
 }) {
   return (
-    <div className="room-menu">
-      {(
-        [
-          ...(battle
-            ? ([['team', Swords, 'Выбор стороны', 'Команда, скин, бандана']] as const)
-            : []),
-          ['tools', Backpack, 'Инвентарь', 'Предметы этого режима'],
-          ['mode', Swords, 'Режим игры', 'Режим, карта и правила'],
-          ['world', Sun, 'Облик мира', 'Стиль, тема, время суток'],
-          ['settings', Settings2, 'Настройки встречи', 'Приватность и доступ'],
-          ['actions', ListChecks, 'План действий', `${actionsLeft} не сделано`],
-          ['widgets', Dices, 'Для живой встречи', 'Таймер, спиннер, счётчик'],
-          ['export', Download, 'Импорт / экспорт', 'JSON, CSV, Markdown'],
-          ['history', RotateCcw, 'История изменений', 'Последние 40 действий'],
-          ['fps', Gauge, 'Графика и управление', 'FPS, чувствительность мыши'],
-          ['help', HelpCircle, 'Управление', 'Клавиши и подсказки'],
-        ] as const
-      ).map(([id, Icon, title, hint]) => (
-        <button key={id} onClick={() => onOpen(id)}>
-          <Icon size={18} />
-          <div>
-            <strong>{title}</strong>
-            <small>{hint}</small>
-          </div>
-          <ChevronRight size={16} />
-        </button>
-      ))}
+    <div className="settings-danger">
+      <p>
+        {archived
+          ? 'Встреча завершена: карточки, голоса и план действий видны всем, но никто их не меняет. Ведущий может открыть комнату снова — например, чтобы дописать договорённости.'
+          : 'Комната станет только для чтения: карточки, голоса и план действий сохранятся, но менять их не сможет никто, включая вас. Вернуть всё обратно может только ведущий.'}
+      </p>
+      <button
+        type="button"
+        className="settings-danger-action"
+        disabled={!host}
+        onClick={onToggleArchive}
+      >
+        <Flag size={16} />
+        {archived ? 'Открыть встречу снова' : 'Завершить встречу'}
+      </button>
+      {!host && (
+        <small>Завершает и открывает встречу только ведущий.</small>
+      )}
     </div>
   );
 }
@@ -766,16 +764,12 @@ export function WorldPanel({
   host,
   onStyleChange,
   onThemeChange,
-  onTimeChange,
-  onSeasonChange,
   onInteriorChange,
 }: {
   s: RoomState;
   host: boolean;
   onStyleChange: (visualStyle: string) => void;
   onThemeChange: (theme: string, season: string) => void;
-  onTimeChange: (time: string) => void;
-  onSeasonChange: (season: string) => void;
   onInteriorChange: (interior: boolean) => void;
 }) {
   return (
@@ -799,32 +793,11 @@ export function WorldPanel({
           </button>
         ))}
       </div>
-      <div className="two-fields">
-        <Choice
-          label="Время суток"
-          value={s.time}
-          disabled={!host}
-          onChange={onTimeChange}
-          options={[
-            ['dawn', 'Рассвет'],
-            ['day', 'День'],
-            ['sunset', 'Закат'],
-            ['night', 'Ночь'],
-          ].map(([value, label]) => ({ value, label }))}
-        />
-        <Choice
-          label="Время года"
-          value={s.season}
-          disabled={!host}
-          onChange={onSeasonChange}
-          options={[
-            ['spring', 'Весна'],
-            ['summer', 'Лето'],
-            ['autumn', 'Осень'],
-            ['winter', 'Зима'],
-          ].map(([value, label]) => ({ value, label }))}
-        />
-      </div>
+      {/* Время суток и время года переехали в шапку: их меняют посреди встречи
+          чаще всего, и ради этого не стоит открывать настройки. */}
+      <p className="settings-moved-hint">
+        Время суток и время года — в шапке комнаты, рядом с названием.
+      </p>
       {/* The interior is a room of the hub; battle maps have their own buildings. */}
       {modeOf(s) === 'retro' && (
         <Toggle
@@ -962,6 +935,48 @@ export function ModePanel({
           }}
         />
       </label>
+      {/* Общий выключатель микрофонов. Заглушить всех разом нужно ровно тогда,
+          когда ведущий что-то объясняет или записывает разбор, — это мера на
+          минуту, поэтому она стоит рядом с правилами комнаты, а не прячется в
+          списке участников, где глушат по одному. */}
+      <Toggle
+        label="Голосовой чат"
+        description="T — говорить своей команде, Y — всем. Выключенный чат глушит микрофоны сразу у всех"
+        value={s.voiceEnabled !== false}
+        disabled={!host}
+        onChange={(voiceEnabled) => onSettings({ voiceEnabled })}
+      />
+      {/* Щит возрождения. Выключатель и длительность — одна настройка на двоих:
+          ноль секунд и есть «щита нет», поэтому поле прячется, когда щит снят,
+          и не заставляет гадать, что значит «0». */}
+      <Toggle
+        label="Щит возрождения"
+        description="Несколько секунд неуязвимости после появления на спавне: отсчёт идёт с первого шага"
+        value={(s.shieldSeconds ?? 5) > 0}
+        disabled={!host}
+        onChange={(on) => onSettings({ shieldSeconds: on ? 5 : 0 })}
+      />
+      {(s.shieldSeconds ?? 5) > 0 && (
+        <label className="field">
+          Щит возрождения, секунд
+          <input
+            type="number"
+            aria-label="Длительность щита возрождения"
+            key={s.shieldSeconds ?? 5}
+            defaultValue={s.shieldSeconds ?? 5}
+            min="1"
+            max="30"
+            step="1"
+            disabled={!host}
+            onBlur={(e) => {
+              const value = Number(e.target.value);
+              if (Number.isInteger(value) && value >= 1 && value <= 30)
+                onSettings({ shieldSeconds: value });
+              else e.target.value = String(s.shieldSeconds ?? 5);
+            }}
+          />
+        </label>
+      )}
     </>
   );
 }
@@ -973,19 +988,42 @@ export function ModePanel({
  */
 export const FPS_LIMITS = [20, 30, 60, 120];
 
-export function FpsPanel({
+/**
+ * Вид индикатора патронов. Единственная настройка раздела, которая не проходит
+ * через `room-app`: она нужна только HUD, поэтому состояние держим здесь, а бой
+ * подхватывает её по событию из `lib/ammo-display` — без лишней пары пропсов
+ * через всё дерево комнаты.
+ */
+function AmmoDisplayChoice() {
+  // Читаем при первом рендере, как `readAimModes()` в room-app: раздел настроек
+  // открывается только по действию игрока, на сервере не рендерится, и
+  // расхождения с гидрацией тут быть не может.
+  const [display, setDisplay] = useState<AmmoDisplay>(() => readAmmoDisplay());
+  return (
+    <Choice
+      label="Индикатор патронов"
+      value={display}
+      onChange={(value) => {
+        const next: AmmoDisplay = value === 'graphic' ? 'graphic' : 'numbers';
+        setDisplay(next);
+        writeAmmoDisplay(next);
+      }}
+      options={[
+        { value: 'numbers', label: 'Цифры · остаток и размер магазина' },
+        { value: 'graphic', label: 'Графика · шкала магазина без чисел' },
+      ]}
+    />
+  );
+}
+
+/** Что и как рисуем на этом устройстве. Настройка личная, живёт в localStorage. */
+export function GraphicsSection({
   fps,
   me,
   fpsLimit,
   onFpsLimitChange,
   quality,
   onQualityChange,
-  sensitivity,
-  onSensitivityChange,
-  invertCamera,
-  onInvertCameraChange,
-  aimModes,
-  onAimModesChange,
 }: {
   fps: number;
   me: Person | undefined;
@@ -993,16 +1031,9 @@ export function FpsPanel({
   onFpsLimitChange: (value: string) => void;
   quality: string;
   onQualityChange: (quality: string) => void;
-  sensitivity: number;
-  onSensitivityChange: (sensitivity: number) => void;
-  invertCamera: boolean;
-  onInvertCameraChange: (invertCamera: boolean) => void;
-  aimModes: WeaponAimModes;
-  onAimModesChange: (modes: WeaponAimModes) => void;
 }) {
   return (
     <>
-      <ResourcePackPicker />
       <GraphicsPanel />
       <p className="performance-summary">
         {fps} FPS · {me?.ping || 0} мс
@@ -1035,6 +1066,34 @@ export function FpsPanel({
           },
         ]}
       />
+      <AmmoDisplayChoice />
+      <ResourcePackPicker />
+    </>
+  );
+}
+
+/**
+ * Мышь, камера и клавиши. Раньше это жило в двух разных пунктах меню —
+ * «Графика и управление» и «Управление», — поэтому искать чувствительность
+ * приходилось наугад. Теперь настройки и список клавиш в одном разделе.
+ */
+export function ControlsSection({
+  sensitivity,
+  onSensitivityChange,
+  invertCamera,
+  onInvertCameraChange,
+  aimModes,
+  onAimModesChange,
+}: {
+  sensitivity: number;
+  onSensitivityChange: (sensitivity: number) => void;
+  invertCamera: boolean;
+  onInvertCameraChange: (invertCamera: boolean) => void;
+  aimModes: WeaponAimModes;
+  onAimModesChange: (modes: WeaponAimModes) => void;
+}) {
+  return (
+    <>
       <label className="field">
         Чувствительность камеры: {sensitivity.toFixed(1)}×
         <input
@@ -1091,16 +1150,22 @@ export function FpsPanel({
           ))}
         </div>
       </div>
+      <details className="settings-keys">
+        <summary>Все клавиши и подсказки</summary>
+        <HelpPanel />
+      </details>
     </>
   );
 }
 
-export function SettingsPanel({
+/**
+ * Правила комнаты и доступ — всё, что меняет только ведущий.
+ * Личное («Ваше имя») отсюда уехало в ProfileSection, а «Завершить встречу» —
+ * в меню действий: необратимой кнопке не место между переключателями.
+ */
+export function AccessSection({
   s,
   host,
-  sound,
-  onSoundChange,
-  me,
   onAnonymousPlayersChange,
   onHidePlayerStatusChange,
   onPrivateWritingChange,
@@ -1108,14 +1173,9 @@ export function SettingsPanel({
   onLayoutLockedChange,
   onAccessTypeChange,
   onMaxPlayersChange,
-  onUpdateName,
-  onToggleArchive,
 }: {
   s: RoomState;
   host: boolean;
-  sound: boolean;
-  onSoundChange: (sound: boolean) => void;
-  me: Person | undefined;
   onAnonymousPlayersChange: (anonymousPlayers: boolean) => void;
   onHidePlayerStatusChange: (hidePlayerStatus: boolean) => void;
   onPrivateWritingChange: (privateWriting: boolean) => void;
@@ -1123,8 +1183,6 @@ export function SettingsPanel({
   onLayoutLockedChange: (layoutLocked: boolean) => void;
   onAccessTypeChange: (accessType: RoomAccessType) => void;
   onMaxPlayersChange: (maxPlayers: number) => void;
-  onUpdateName: (name: string) => void;
-  onToggleArchive: () => void;
 }) {
   return (
     <>
@@ -1161,7 +1219,6 @@ export function SettingsPanel({
         disabled={!host}
         onChange={onLayoutLockedChange}
       />
-      <Toggle label="Звуки встречи" value={sound} onChange={onSoundChange} />
       {host && (
         <div className="settings-access-box">
           <span className="settings-subheading">Доступ к комнате</span>
@@ -1201,6 +1258,24 @@ export function SettingsPanel({
           </label>
         </div>
       )}
+    </>
+  );
+}
+
+/** Личное: как меня зовут и звучит ли встреча. Доступно всем, не только ведущему. */
+export function ProfileSection({
+  me,
+  sound,
+  onSoundChange,
+  onUpdateName,
+}: {
+  me: Person | undefined;
+  sound: boolean;
+  onSoundChange: (sound: boolean) => void;
+  onUpdateName: (name: string) => void;
+}) {
+  return (
+    <>
       <label className="field">
         Ваше имя
         <input
@@ -1213,15 +1288,7 @@ export function SettingsPanel({
           }}
         />
       </label>
-      {host && (
-        <button
-          className="secondary"
-          onClick={() => onToggleArchive()}
-        >
-          <Check size={16} />
-          {s.archived ? 'Открыть встречу снова' : 'Завершить встречу'}
-        </button>
-      )}
+      <Toggle label="Звуки встречи" value={sound} onChange={onSoundChange} />
     </>
   );
 }
