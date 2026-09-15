@@ -44,8 +44,8 @@ import { TOOL_ICONS } from './tool-icons';
 import { Choice, Toggle } from './controls';
 import { StylePicker } from './style-picker';
 import { ResourcePackPicker } from './resource-pack-picker';
-import { type WeaponAimModes } from './world';
-import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from './world-skins';
+import { type WeaponAimModes } from '@/lib/aim-settings';
+import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from '@/lib/avatar-catalog';
 
 export function HelpPanel() {
   return (
@@ -964,6 +964,13 @@ export function ModePanel({
   );
 }
 
+/**
+ * Значения ограничителя кадров. 120 на экране 60 Гц ничего не добавляет: кадры
+ * всё равно выдаёт браузер, поэтому вариант подписан «без ограничения».
+ * Симуляция игрока идёт шагами 1/60 с независимо от FPS (world-player.ts).
+ */
+export const FPS_LIMITS = [20, 30, 60, 120];
+
 export function FpsPanel({
   fps,
   me,
@@ -1001,9 +1008,9 @@ export function FpsPanel({
         label="Лимит FPS"
         value={String(fpsLimit)}
         onChange={onFpsLimitChange}
-        options={[20, 30, 60].map((v) => ({
+        options={FPS_LIMITS.map((v) => ({
           value: String(v),
-          label: `${v} FPS`,
+          label: v === 120 ? '120 FPS · без ограничения' : `${v} FPS`,
         }))}
       />
       <Choice

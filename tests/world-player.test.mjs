@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createWorldPlayer } from '../components/world-player.ts';
 import { buildArena, perimeterWalls } from '../lib/maps/types.ts';
+import { applyPresence, memberFromRow } from '../lib/room-hub-core.ts';
 
 /**
  * A flat 20 x 20 arena with a ramp, a low crate and a wall with a 1.3 m crawl hole.
@@ -144,4 +145,47 @@ test('teleport resets the fall and the stance', () => {
   run(3);
   p.teleport(-5, 0, -5);
   assert.deepEqual([p.pos.x, p.pos.y, p.pos.z, p.stance, p.vy], [-5, 0, -5, 'stand', 0]);
+});
+
+for (const fps of [10, 20, 30, 60, 144]) test(`fixed simulation: walking and jumping at ${fps} FPS`, () => {
+  const { p, keys } = player(); keys.add('KeyW');
+  for (let i = 0; i < fps; i++) p.advance(1 / fps, { control: true, aimHeld: false });
+  assert.ok(Math.abs(p.pos.z + 4.8) < 1e-8, `one second moves 4.8 m: ${p.pos.z}`);
+  const reference = player().p, jumper = player().p;
+  reference.jump(); jumper.jump();
+  for (let i = 0; i < 60; i++) reference.update(1 / 60, { control: false, aimHeld: false });
+  for (let i = 0; i < fps; i++) jumper.advance(1 / fps, { control: false, aimHeld: false });
+  assert.ok(Math.abs(jumper.pos.y - reference.pos.y) < 1e-8);
+  assert.ok(Math.abs(jumper.vy - reference.vy) < 1e-8);
+});
+test('fixed simulation bounds suspended-tab catch-up and corrects position without changing look', () => {
+  const { p, keys, stances } = player(); keys.add('KeyW');
+  p.advance(100, { control: true, aimHeld: false });
+  assert.ok(Math.abs(p.pos.z + 1.2) < 1e-8);
+  p.cameraYaw = 1; p.pitch = 0.5;
+  p.correctPosition({ x: 1, y: 0, z: 1, yaw: 0, stance: 'lie', moving: false });
+  assert.deepEqual([p.pos.x, p.pos.y, p.pos.z, p.stance, p.vy], [1, 0, 1, 'lie', 0]);
+  assert.deepEqual([p.cameraYaw, p.pitch, stances.at(-1)], [1, 0.5, 'lie']);
+});
+
+for (const scenario of [
+  { name: 'flat jump', x: 0, z: 0, jump: true, yaw: 0 },
+  { name: 'ramp', x: -7, z: -1.5, yaw: 0 },
+  { name: 'crate jump', x: 2, z: 0, jump: true, yaw: -Math.PI / 2 },
+  { name: 'crawl passage', x: 4.5, z: 1, crouch: true, yaw: Math.PI },
+]) test(`server accepts actual client physics: ${scenario.name}`, () => {
+  const initial = { x: scenario.x, y: 0, z: scenario.z, yaw: scenario.yaw, stance: 'stand', moving: false };
+  const { p, keys } = player({ initial });
+  const m = memberFromRow({ session: 'physics', pose: JSON.stringify(initial) });
+  keys.add('KeyW');
+  if (scenario.crouch) p.holdCrouch();
+  if (scenario.jump) p.jump();
+  for (let frame = 1; frame <= 180; frame++) {
+    p.advance(1 / 60, { control: true, aimHeld: false });
+    if (frame % 8 !== 0) continue; // actual network cadence around 120 ms
+    const pose = { x: Math.round(p.pos.x * 100) / 100, y: Math.round(p.pos.y * 100) / 100,
+      z: Math.round(p.pos.z * 100) / 100, yaw: p.heading, stance: p.stance, moving: true };
+    applyPresence(m, { pose, life: 0 }, 100000 + frame * 1000 / 60, map);
+    assert.equal(m.positionRevision, 0, `refused frame ${frame}: ${JSON.stringify(pose)} vs ${JSON.stringify(m.pose)}`);
+  }
 });

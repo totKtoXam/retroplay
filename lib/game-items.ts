@@ -52,8 +52,7 @@ export const effectStyle = (kind: string, value: unknown) => {
     return GRENADES.find((v) => v.id === value)?.id || 'pinata';
   return CONFETTI.find((v) => v.id === value)?.id || 'classic';
 };
-export const effectCooldown = (kind: string) =>
-  kind === 'grenade' ? 1200 : kind === 'sniper' ? 1100 : kind === 'confetti' ? 650 : kind === 'like' ? 350 : 90;
+export { weaponCooldown as effectCooldown } from './weapon-definition.ts';
 export const SHOTGUN_PELLET_OFFSETS: [number, number][] = [
   [0, 0.18],
   [Math.PI * 0.25, 0.45],

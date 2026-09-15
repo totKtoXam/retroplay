@@ -1,4 +1,5 @@
 import { env } from 'cloudflare:workers';
+import { authIdentity, guestIdentity } from './auth';
 export function db() {
   if (!env.DB) throw Error('Хранилище комнат недоступно');
   return env.DB;
@@ -23,18 +24,20 @@ export async function notifyMember(id: string, self: string) {
     console.error('room hub notify failed', e);
   }
 }
+/**
+ * Личность участника запроса — та же строка, что лежит в `members.session`.
+ * У вошедшего в аккаунт это `users.public_id`, у гостя — SHA-256 от его
+ * cookie-токена. Остальной код о способе входа не знает (db/auth.ts).
+ */
 export async function session(request: Request) {
-  const token = request.headers
-    .get('cookie')
-    ?.match(/(?:^|;\s*)jinaly_session=([a-f0-9-]{36})(?:;|$)/)?.[1];
-  if (!token) return null;
-  const bytes = await crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(token),
-  );
-  return Array.from(new Uint8Array(bytes), (b) =>
-    b.toString(16).padStart(2, '0'),
-  ).join('');
+  try {
+    const identity = await authIdentity(request);
+    if (identity) return identity.publicId;
+  } catch (error) {
+    // Сломанный вход не должен ронять комнаты: гость всё ещё может играть.
+    console.error('auth session lookup failed', error);
+  }
+  return (await guestIdentity(request)) || null;
 }
 export const json = (value: unknown, status = 200) =>
   Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });

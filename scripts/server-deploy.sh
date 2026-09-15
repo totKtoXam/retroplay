@@ -2,7 +2,7 @@
 # Runs on the LAN server after `git pull` (called by deploy.ps1 / deploy.sh).
 # Usage: bash scripts/server-deploy.sh [previous HEAD]
 # Installs dependencies when package-lock.json changed, migrates local D1,
-# runs tests, builds the production bundle and restarts retro3d.service.
+# checks and builds before migrating and restarting retro3d.service.
 
 set -euo pipefail
 export PATH="/home/user/tools/node-v22.23.2-linux-x64/bin:$PATH"
@@ -17,14 +17,17 @@ if [ ! -d node_modules ] || { [ -n "$PREV_HEAD" ] && ! git diff --quiet "$PREV_H
   npm ci --no-audit --no-fund
 fi
 
-echo "==> Applying D1 migrations to the local database..."
-npx wrangler d1 migrations apply site-creator-d1 --local --config wrangler.local.json
-
 echo "==> Running server tests..."
 npm test
 
 echo "==> Building production bundle..."
 npm run build
+
+echo "==> Applying D1 migrations to the local database..."
+npx wrangler d1 migrations apply site-creator-d1 --local --config wrangler.local.json
+
+echo "==> Reconciling legacy combat columns..."
+node scripts/ensure-combat-columns.mjs site-creator-d1 --local --config wrangler.local.json
 
 echo "==> Restarting retro3d.service..."
 systemctl --user restart retro3d.service

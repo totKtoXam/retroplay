@@ -1,3 +1,4 @@
+import { WEAPONS } from '../lib/weapon-definition.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -98,18 +99,18 @@ test('shots faster than the weapon cooldown are rejected', () => {
   const h = duel();
   assert.equal(fire(h, 'a', T).ok, true);
   assert.equal(fire(h, 'a', T + 50).ok, false);
-  assert.equal(fire(h, 'a', T + 100).ok, true);
+  assert.equal(fire(h, 'a', T + WEAPONS.paint.cooldown).ok, true);
   assert.equal(h.members.get('v').hp, 60);
 });
 
 test('a lethal hit kills, credits the killer and the latest other attacker, and posts a kill effect', () => {
   const h = hub(member('a'), member('b'), member('v', { pose: stand(0, 0) }));
   fire(h, 'b', T);
-  for (let i = 1; i <= 4; i++) fire(h, 'a', T + i * 100);
+  for (let i = 1; i <= 4; i++) fire(h, 'a', T + i * WEAPONS.paint.cooldown);
   const v = h.members.get('v');
   assert.equal(v.hp, 0);
   assert.equal(v.deaths, 1);
-  assert.equal(v.respawnAt, T + 400 + 5000);
+  assert.equal(v.respawnAt, T + 4 * WEAPONS.paint.cooldown + 5000);
   assert.equal(h.members.get('a').kills, 1);
   assert.equal(h.members.get('b').assists, 1);
   const kill = h.effects.find((e) => e.kind === 'kill');
@@ -192,7 +193,7 @@ test('malformed or out-of-reach shots are rejected; archived rooms ignore shots'
 test('anonymous rooms hide names in members and in the kill feed; internals are not exposed', () => {
   const h = duel();
   h.room.anonymous = true;
-  for (let i = 0; i < 5; i++) fire(h, 'a', T + i * 100);
+  for (let i = 0; i < 5; i++) fire(h, 'a', T + i * WEAPONS.paint.cooldown);
   const names = publicMembers(h, T + 500).map((m) => m.name);
   assert.deepEqual(names, ['Участник', 'Участник']);
   const effects = publicEffects(effectsSince(h, T + 500), true);
@@ -253,7 +254,7 @@ test('lag compensation rewinds at most 250 ms and never for grenades', () => {
   assert.equal(g.effect.rewindTo, T + 2000);
 });
 
-test('teleports are refused; a client stuck on refusals is resynced after 1.5 s', () => {
+test('repeated teleports are refused and publish a correction instead of trusting the client', () => {
   assert.equal(isBlocked3D(20, 0, 0, 0.25), false);
   const h = duel();
   const v = h.members.get('v');
@@ -263,9 +264,10 @@ test('teleports are refused; a client stuck on refusals is resynced after 1.5 s'
   applyPresence(v, { pose: stand(20, 0), life: 0 }, T + 1000);
   assert.equal(v.pose.x, 0);
   applyPresence(v, { pose: stand(20, 0), life: 0 }, T + 1600);
-  assert.equal(v.pose.x, 20, 'resynced');
-  applyPresence(v, { pose: stand(20.3, 0), life: 0 }, T + 1650);
-  assert.equal(v.pose.x, 20.3, 'normal movement continues');
+  assert.equal(v.pose.x, 0, 'repeated requests cannot bypass the movement budget');
+  assert.equal(publicMembers(h, T + 1600).find((m) => m.id === 'v').positionRevision, 3);
+  applyPresence(v, { pose: stand(0.3, 0), life: 0 }, T + 1650);
+  assert.equal(v.pose.x, 0.3, 'normal movement continues from the accepted position');
 });
 
 // A battle map (teams on); the hub stays free-for-all.
@@ -288,7 +290,7 @@ test('teams: friendly fire is off by default and the host sets its share', () =>
 
 test('teams: a kill scores for the team, a team kill scores nothing', () => {
   const h = battle(member('a', { team: 'red' }), member('v', { team: 'blue', pose: stand(0, 0) }));
-  for (let i = 0; i < 5; i++) fire(h, 'a', T + i * 100);
+  for (let i = 0; i < 5; i++) fire(h, 'a', T + i * WEAPONS.paint.cooldown);
   assert.deepEqual(
     [h.match.score.red, h.members.get('a').kills, h.members.get('v').deaths],
     [1, 1, 1],
@@ -296,7 +298,7 @@ test('teams: a kill scores for the team, a team kill scores nothing', () => {
   const t = battle(member('a', { team: 'red' }), member('v', { team: 'red', pose: stand(0, 0) }));
   t.room.friendlyFire = true;
   t.room.friendlyFirePercent = 100;
-  for (let i = 0; i < 5; i++) fire(t, 'a', T + i * 100);
+  for (let i = 0; i < 5; i++) fire(t, 'a', T + i * WEAPONS.paint.cooldown);
   const kill = t.effects.find((e) => e.kind === 'kill');
   assert.deepEqual(
     [t.match.score.red, t.members.get('a').kills, t.members.get('v').deaths, kill.teamkill],
@@ -333,7 +335,7 @@ test('rounds: the dead wait for the next round and the surviving team takes it',
   h.match = newMatch(h.room, T);
   // Раунд начинается с пяти секунд подготовки: стрелять можно только после неё.
   resolveCombat(h, T + 5001);
-  for (let i = 0; i < 5; i++) fire(h, 'a', T + 6000 + i * 100);
+  for (let i = 0; i < 5; i++) fire(h, 'a', T + 6000 + i * WEAPONS.paint.cooldown);
   const v = h.members.get('v');
   assert.equal(v.hp, 0);
   for (const m of h.members.values()) m.seen = T + 20_000;
@@ -431,4 +433,13 @@ test('a like never wounds, even straight in the head', () => {
   fire(h, 'a', T, 'like', { origin: [0, 2.07, 4], target: [0, 2.07, 0] });
   assert.equal(h.members.get('v').hp, 100, 'лайк безвреден');
   assert.equal(h.effects.some((e) => e.kind === 'kill'), false, 'и никого не убивает');
+});
+
+test('vertical teleports at unchanged XZ stay rejected after repeated attempts', () => {
+  const h = duel(), v = h.members.get('v');
+  applyPresence(v, { pose: { ...v.pose, y: 10 }, life: 0 }, T);
+  assert.equal(v.pose.y, 0);
+  assert.equal(v.positionRevision, 1);
+  for (let i = 1; i <= 50; i++) applyPresence(v, { pose: { ...v.pose, y: 10 }, life: 0 }, T + i * 100);
+  assert.equal(v.pose.y, 0, 'waiting longer does not grant a vertical teleport');
 });

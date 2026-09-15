@@ -432,3 +432,12 @@ html[data-theme='dark'] .join-card h1,
 html[data-theme='dark'] .join-card h2 {
   color: var(--jin-text);
 }
+
+/* --- Вход и аккаунт -------------------------------------------------------
+   Остальные правила блока .auth-* в globals.css написаны на переменных и в
+   тёмной теме меняются сами. Здесь только кнопка выхода: её перекрывает более
+   частное правило html[data-theme='dark'] .light-button. */
+html[data-theme='dark'] .auth-logout {
+  background: var(--jin-danger-bg);
+  color: var(--jin-danger-text);
+}

@@ -1,11 +1,17 @@
-export type Blaster = 'paint' | 'confetti' | 'sniper' | 'like';
+import { WEAPONS, type Blaster } from './weapon-definition.ts';
+export type { Blaster } from './weapon-definition.ts';
 export const CAPACITY: Record<Blaster, number> = {
-  paint: 24,
-  confetti: 6,
-  sniper: 5,
-  like: 12,
+  paint: WEAPONS.paint.capacity,
+  confetti: WEAPONS.confetti.capacity,
+  sniper: WEAPONS.sniper.capacity,
+  like: WEAPONS.like.capacity,
 };
-/** Локальные игровые заряды. Серверные карточки и права комнаты не затрагиваются. */
+export type MagazineSnapshot = {
+  rounds: Record<Blaster, number>;
+  loading: { tool: Blaster; start: number; end: number } | null;
+  lastShot: number | null;
+};
+/** The same state machine runs on the authority and for immediate local prediction. */
 export class ToolMagazine {
   rounds: Record<Blaster, number> = { ...CAPACITY };
   private loading: { tool: Blaster; start: number; end: number } | null = null;
@@ -23,15 +29,7 @@ export class ToolMagazine {
     this.loading = {
       tool,
       start: now,
-      end:
-        now +
-        (tool === 'paint'
-          ? 1450
-          : tool === 'confetti'
-            ? 1700
-            : tool === 'like'
-              ? 1250
-              : 1900),
+      end: now + WEAPONS[tool].reload,
     };
     return true;
   }
@@ -53,16 +51,19 @@ export class ToolMagazine {
   cancel() {
     this.loading = null;
   }
+  snapshot(): MagazineSnapshot {
+    return { rounds: { ...this.rounds }, loading: this.loading && { ...this.loading },
+      lastShot: Number.isFinite(this.lastShot) ? this.lastShot : null };
+  }
+  restore(state: MagazineSnapshot, offset = 0) {
+    this.rounds = { ...state.rounds };
+    this.loading = state.loading && { ...state.loading,
+      start: state.loading.start + offset, end: state.loading.end + offset };
+    this.lastShot = state.lastShot === null ? -Infinity : state.lastShot + offset;
+  }
   fire(tool: Blaster, now: number) {
     this.tick(now);
-    const cooldown =
-      tool === 'paint'
-        ? 180
-        : tool === 'confetti'
-          ? 550
-          : tool === 'like'
-            ? 320
-            : 1050;
+    const cooldown = WEAPONS[tool].cooldown;
     if (this.loading || now - this.lastShot < cooldown) return false;
     if (!this.rounds[tool]) {
       this.reload(tool, now);

@@ -9,6 +9,7 @@ import {
   notifyRoom,
   notifyMember,
 } from '@/db/server';
+import { ensureCombatColumns } from '@/db/combat';
 import type { LiveView } from '@/worker/room-hub';
 import {
   applyUndo,
@@ -96,6 +97,7 @@ async function buildRoomSnapshot(
 export async function GET(request: Request, context: Context) {
   try {
     await ensureJoinRequestsTable();
+    await ensureCombatColumns();
     const { id } = await context.params;
     const self = await session(request);
     if (!self) return json({ error: 'Откройте приложение заново' }, 401);
@@ -201,6 +203,7 @@ export async function GET(request: Request, context: Context) {
 export async function POST(request: Request, context: Context) {
   try {
     await ensureJoinRequestsTable();
+    await ensureCombatColumns();
     const { id } = await context.params,
       self = await session(request);
     if (!self) {
@@ -391,8 +394,10 @@ export async function POST(request: Request, context: Context) {
       return json(await roomHub(id).team(id, op.session, op.team));
     }
     if (op.type === 'effect') {
-      if (JSON.parse(r.state).archived) return json({ ok: false });
       return json(await roomHub(id).effect(id, self, op));
+    }
+    if (op.type === 'weapon') {
+      return json(await roomHub(id).weapon(id, self, op));
     }
     if (op.type === 'history') {
       const { results } = await db()
