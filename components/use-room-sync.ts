@@ -406,7 +406,17 @@ export function useRoomSync({
       const ws = socketRef.current;
       const viaSocket = ws?.readyState === WebSocket.OPEN && !!roomRef.current;
       try {
-        if (!document.hidden) {
+        /*
+         * Первая загрузка комнаты не зависит от видимости вкладки. Presence в
+         * фоне мы намеренно не шлём — незачем сообщать позицию игрока, который
+         * не смотрит на экран. Но раньше под этой же проверкой стоял и первый
+         * refresh, а обработчик тиков ничего не делает, пока комната не
+         * загружена: открытая в фоновой вкладке комната навсегда зависала на
+         * «Готовим место для встречи…» и оживала только от переключения на неё.
+         */
+        if (!roomRef.current) {
+          await refresh();
+        } else if (!document.hidden) {
           if (viaSocket && roomRef.current) {
             ws.send(
               JSON.stringify({
@@ -456,8 +466,6 @@ export function useRoomSync({
             } else {
               await refresh();
             }
-          } else {
-            await refresh();
           }
         }
       } catch (e) {
