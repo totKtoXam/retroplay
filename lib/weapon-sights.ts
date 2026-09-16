@@ -63,3 +63,45 @@ export function aimHold(tool: string, aim: number) {
     z: HIP_HOLD.z + (sight.z - HIP_HOLD.z) * blend,
   };
 }
+
+/**
+ * Какой прицел стоит на краскомёте. Оба сидят на одной линии, поэтому выбор
+ * ничего не меняет в баллистике — только в том, через что смотрит игрок:
+ * механика не закрывает обзор рамкой, коллиматор даёт точку и подсветку целей.
+ */
+export type PaintSight = 'irons' | 'dot';
+export const DEFAULT_PAINT_SIGHT: PaintSight = 'dot';
+const PAINT_SIGHT_KEY = 'jinaly-paint-sight';
+
+/** Варианты для колеса выбора (СКМ). */
+export const PAINT_SIGHT_OPTIONS = [
+  {
+    id: 'irons',
+    label: 'Механический',
+    icon: '∧',
+    color: '#9fb2c9',
+  },
+  {
+    id: 'dot',
+    label: 'Коллиматор',
+    icon: '⊙',
+    color: '#ff5566',
+  },
+];
+
+export function readPaintSight(): PaintSight {
+  if (typeof window === 'undefined') return DEFAULT_PAINT_SIGHT;
+  try {
+    return localStorage.getItem(PAINT_SIGHT_KEY) === 'irons'
+      ? 'irons'
+      : DEFAULT_PAINT_SIGHT;
+  } catch {}
+  return DEFAULT_PAINT_SIGHT;
+}
+
+export function writePaintSight(value: PaintSight) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(PAINT_SIGHT_KEY, value);
+  } catch {}
+}

@@ -138,7 +138,10 @@ assert.equal(
 );
 const effects = (await req(guest, path)).data.effects;
 assert.equal(effects.find((e) => e.id === grenade.id).variant, 'pinata');
-await wait(1500);
+// Let the guest actually leave the server's 15-second online window before
+// firing. Merely stopping requests does not immediately make a player offline;
+// a server tick or checkpoint restore can legitimately resolve the fuse.
+await wait(15600);
 await req(host, path, fire('grenade', 'meteor'));
 await wait(15600);
 await req(guest, path, { type: 'presence', pose, life: 1 });

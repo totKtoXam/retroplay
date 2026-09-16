@@ -14,6 +14,7 @@ export const RESOURCE_PACKS = [
     badge: 'FIELD / 01',
     ui: 'field',
   },
+  { id: 'urban-realism', name: 'Urban Realism', subtitle: 'Архитектура, керамика, тёплый свет', badge: 'URBAN / 02', ui: 'urban' },
 ] as const;
 export type ResourcePackId = (typeof RESOURCE_PACKS)[number]['id'];
 export const PACK_STORAGE_KEY = 'jinaly-resource-pack';

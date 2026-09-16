@@ -170,6 +170,16 @@ export function createWorldVfx({
     now: number,
     parent: T.Object3D = scene,
     scale = 1,
+    /**
+     * `at` уже задано в координатах родителя.
+     *
+     * Ветка ниже писалась под кляксы на бойце: туда приходит мировая точка
+     * попадания, её переводят в координаты аватара и прижимают по высоте к
+     * корпусу. Брызгам на своём экране этот перевод не нужен и вреден — они и
+     * так заданы относительно камеры, а «прижать к корпусу» уносило их в
+     * произвольное место, вплоть до середины прицела.
+     */
+    inParentSpace = false,
   ) => {
     const shape = new T.Shape();
     for (let i = 0; i <= 32; i++) {
@@ -193,7 +203,13 @@ export function createWorldVfx({
     decal.userData.projectileCollision = 'ignore';
     if (scale !== 1) decal.scale.setScalar(scale);
 
-    if (parent !== scene) {
+    if (inParentSpace) {
+      decal.position.copy(at);
+      decal.quaternion.setFromUnitVectors(
+        normalUp,
+        normal.clone().normalize(),
+      );
+    } else if (parent !== scene) {
       parent.updateMatrixWorld(true);
       const localPos = parent.worldToLocal(at.clone());
       localPos.y = Math.max(0.35, Math.min(1.65, localPos.y));

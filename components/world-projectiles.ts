@@ -172,13 +172,29 @@ export function createWorldProjectiles({
           isHitOnPlayer = true;
           hitPlayerGroup = avatar;
           if (perspectiveRef.current === 'first') {
+            /*
+             * Краска на своём экране: прилетело — забрызгало обзор. Клякса
+             * висит на камере, а не на группе рук: она на «забрале» игрока и
+             * не должна ездить вместе с оружием при прицеливании.
+             *
+             * И не по центру: там прицел, и залепить его — значит отнять
+             * возможность ответить. Место по кругу выбирается случайно, так
+             * что две подряд не ложатся друг на друга.
+             */
+            const angle = Math.random() * Math.PI * 2;
+            const spread = 0.3 + Math.random() * 0.12;
             splat(
-              new T.Vector3(0.04, -0.02, -0.45),
+              new T.Vector3(
+                Math.cos(angle) * spread,
+                Math.sin(angle) * spread * 0.7,
+                -0.45,
+              ),
               new T.Vector3(0, 0, 1),
               f.color,
               f.born + f.duration,
-              hands.group,
-              0.22,
+              hands.group.parent ?? hands.group,
+              0.14,
+              true,
             );
           }
         }
