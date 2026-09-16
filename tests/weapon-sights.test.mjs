@@ -13,11 +13,13 @@ const GUN_NAME = {
 };
 
 /** Прогоняем столько кадров, чтобы затухли доводка после смены оружия и отдача. */
-function hold(tool, aim, frames = 90) {
+function hold(tool, aim, frames = 90, sight = 'dot') {
   const camera = new T.PerspectiveCamera(60, 1, 0.06, 350);
   const hands = createFirstPersonHands(camera);
   for (let i = 0; i < frames; i++)
-    hands.update(1 / 60, 10 + i / 60, 0, tool, '#ffffff', true, aim, 0);
+    hands.update(
+      1 / 60, 10 + i / 60, 0, tool, '#ffffff', true, aim, 0, 'pinata', 0, sight,
+    );
   camera.updateMatrixWorld(true);
   return { camera, hands };
 }
@@ -119,4 +121,36 @@ test('aimHold ведёт руку от бедра к линии прицела �
     assert.deepEqual(aimHold(tool, -3), hip);
   }
   assert.deepEqual(aimHold('sticky', 1), { ...HIP_HOLD });
+});
+
+test('У краскомёта поднят ровно один прицел, и колесо его переключает', () => {
+  const camera = new T.PerspectiveCamera(60, 1, 0.06, 350);
+  const hands = createFirstPersonHands(camera);
+  const optic = camera.getObjectByName('paint-optic');
+  const irons = camera.getObjectByName('paint-irons');
+  const frames = (sight) => {
+    for (let i = 0; i < 8; i++)
+      hands.update(
+        1 / 60, 10 + i / 60, 0, 'paint', '#ffffff', true, 1, 0, 'pinata', 0, sight,
+      );
+  };
+  frames('irons');
+  assert.equal(optic.visible, false, 'с механическим коллиматор снят');
+  assert.equal(irons.visible, true);
+  frames('dot');
+  assert.equal(optic.visible, true);
+  assert.equal(irons.visible, false, 'под коллиматором мушка сложена');
+});
+
+test('Оба прицела краскомёта целятся в одну точку', () => {
+  for (const sight of ['irons', 'dot']) {
+    const { camera } = hold('paint', 1, 90, sight);
+    for (const marker of ['sight-rear', 'sight-front']) {
+      const p = inEye(camera, 'paint', marker);
+      assert.ok(
+        Math.abs(p.x) < 1e-6 && Math.abs(p.y) < 1e-6,
+        `${sight}: ${marker} должна стоять на оси камеры`,
+      );
+    }
+  }
 });

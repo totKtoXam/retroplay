@@ -3,6 +3,8 @@ import { makeGrenade, setGrenadeStyle, partyGeometry } from './party-geometry.ts
 import {
   WEAPON_SIGHTS,
   HIP_HOLD,
+  DEFAULT_PAINT_SIGHT,
+  type PaintSight,
   type WeaponSight,
 } from '../lib/weapon-sights.ts';
 import * as T from 'three';
@@ -77,16 +79,35 @@ export function createFirstPersonHands(camera: T.Camera) {
     color: '#64d4ef',
     depthTest: false,
   });
+  /*
+   * Точка коллиматора. Почти прозрачная: непрозрачная точка на тёмном фоне
+   * превращается в кляксу и закрывает собой то, во что целятся, — а в оптике
+   * она должна лежать на цели, не пряча её. Смешивание идёт в линейном
+   * пространстве, где яркий красный почти единица, поэтому пяти процентов
+   * хватает, чтобы точку было видно.
+   */
   const dotGlow = new T.MeshBasicMaterial({
     color: '#ff5566',
+    transparent: true,
+    opacity: 0.0425,
     depthTest: false,
+    depthWrite: false,
   });
-  // Стекло коллиматора и окуляра: прозрачные материалы три рисует последними,
-  // поэтому блик всегда ложится поверх корпуса и точки — как и в жизни.
+  /*
+   * Стекло коллиматора и окуляра. Прозрачные материалы три рисует последними,
+   * поэтому блик всегда ложится поверх корпуса и точки — как и в жизни.
+   *
+   * Доля намеренно крошечная. Смешивание идёт в линейном пространстве, а не в
+   * sRGB: яркий голубой там почти единица, тёмная комната — сотые доли, и даже
+   * «двенадцать процентов» превращали окно прицела в сплошную голубую заливку,
+   * сквозь которую не было видно ничего. Пять процентов дают оттенок стекла,
+   * оставляя картинку за ним.
+   */
   const glass = new T.MeshBasicMaterial({
     color: '#8fe3ff',
     transparent: true,
-    opacity: 0.17,
+    opacity: 0.05,
+    side: T.DoubleSide,
     depthTest: false,
     depthWrite: false,
   });
@@ -211,44 +232,62 @@ export function createFirstPersonHands(camera: T.Camera) {
   feed.rotation.set(0, 0, Math.PI / 2);
   barrel(0.046, 0.055, accent, 0, 0.018, -0.685, paintGun);
   /*
-   * Механический прицел. Целик с прорезью на планке и мушка в защитных «ушах»
-   * у дула — вершина мушки и плечи целика стоят на одной высоте, и она же
-   * высота линии прицела. Уши выше мушки: они прикрывают её от ударов и
-   * обрамляют картинку, не закрывая цель.
+   * Два прицела на одной линии, переключаются колесом (СКМ). Основания обоих
+   * остаются на стволе всегда — это часть железа, — а поднимается только то,
+   * чем целятся: сложенная мушка не торчит в окне коллиматора, а снятый
+   * коллиматор не закрывает механику рамкой.
    */
   box(0.056, 0.06, 0.055, polymer, 0, 0.055, paintSight.front, paintGun);
   box(0.046, 0.018, 0.05, metal, 0, 0.092, paintSight.front, paintGun);
+  /*
+   * Механический прицел: целик с прорезью на планке и мушка в защитных «ушах»
+   * у дула. Вершина мушки и плечи целика стоят на одной высоте, и она же —
+   * высота линии прицела. Уши выше мушки: они прикрывают её от ударов и
+   * обрамляют картинку, не закрывая цель.
+   */
+  const paintIrons = new T.Group();
+  paintIrons.name = 'paint-irons';
+  paintGun.add(paintIrons);
   for (const side of [-1, 1])
-    box(0.008, 0.042, 0.016, metal, side * 0.019, 0.122, paintSight.front, paintGun);
-  box(0.0055, 0.022, 0.0055, metal, 0, 0.107, paintSight.front, paintGun);
-  box(0.042, 0.014, 0.032, polymer, 0, 0.088, paintSight.rear, paintGun);
+    box(0.008, 0.042, 0.016, metal, side * 0.019, 0.122, paintSight.front, paintIrons);
+  box(0.0055, 0.022, 0.0055, metal, 0, 0.107, paintSight.front, paintIrons);
+  box(0.042, 0.014, 0.032, polymer, 0, 0.088, paintSight.rear, paintIrons);
   for (const side of [-1, 1])
-    box(0.009, 0.026, 0.014, metal, side * 0.011, 0.105, paintSight.rear, paintGun);
+    box(0.009, 0.026, 0.014, metal, side * 0.011, 0.105, paintSight.rear, paintIrons);
   /*
    * Коллиматор поверх той же линии. Окно широкое намеренно: узкая щель
    * превращает прицеливание в подглядывание через прорезь, а смысл коллиматора
    * в том, чтобы видеть поле боя целиком и держать точку на цели.
    */
-  box(0.082, 0.02, 0.085, polymer, 0, 0.099, -0.175, paintGun);
+  const paintOptic = new T.Group();
+  paintOptic.name = 'paint-optic';
+  paintGun.add(paintOptic);
+  box(0.082, 0.016, 0.085, polymer, 0, 0.097, -0.175, paintOptic);
   for (const side of [-1, 1])
-    box(0.009, 0.058, 0.014, polymer, side * 0.039, 0.129, -0.175, paintGun);
-  box(0.092, 0.01, 0.09, polymer, 0, 0.161, -0.175, paintGun);
+    box(0.009, 0.062, 0.014, polymer, side * 0.039, 0.131, -0.175, paintOptic);
+  box(0.092, 0.01, 0.09, polymer, 0, 0.165, -0.175, paintOptic);
+  /*
+   * Точка мелкая намеренно. С прежним радиусом она перекрывала около восьми
+   * тысячных от расстояния до цели: на десяти метрах это восемь сантиметров —
+   * голова бойца целиком. Прицеливаться по кляксе, которая больше того, во что
+   * целишься, нельзя.
+   */
   const paintDot = part(
-    new T.SphereGeometry(0.0055, 8, 8),
+    new T.SphereGeometry(0.0032, 8, 8),
     dotGlow,
     0,
     paintSight.y,
     -0.178,
-    paintGun,
+    paintOptic,
   );
   paintDot.renderOrder = 1002;
   const paintGlass = part(
-    new T.PlaneGeometry(0.072, 0.052),
+    new T.PlaneGeometry(0.07, 0.056),
     glass,
     0,
-    0.129,
+    0.131,
     -0.163,
-    paintGun,
+    paintOptic,
   );
   paintGlass.rotation.x = 0.16;
   paintGlass.renderOrder = 1003;
@@ -549,6 +588,7 @@ export function createFirstPersonHands(camera: T.Camera) {
       reload: number,
       variant = 'pinata',
       tabletInspect = 0,
+      paintSight: PaintSight = DEFAULT_PAINT_SIGHT,
     ) {
       group.visible = active && !(tool === 'sniper' && aim > 0.12);
       weapon.visible =
@@ -557,6 +597,9 @@ export function createFirstPersonHands(camera: T.Camera) {
         tool === 'sniper' ||
         tool === 'like';
       paintGun.visible = tool === 'paint';
+      // Поднят ровно один прицел: второй сложен и не лезет в картинку.
+      paintIrons.visible = paintSight === 'irons';
+      paintOptic.visible = paintSight === 'dot';
       shotgun.visible = tool === 'confetti';
       sniperRifle.visible = tool === 'sniper' && aim <= 0.12;
       likeBlaster.visible = tool === 'like';

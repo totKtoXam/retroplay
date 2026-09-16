@@ -1,0 +1,27 @@
+{
+  "asset": "Concrete Floor",
+  "author": "Poly Haven",
+  "license": "CC0-1.0",
+  "licenseUrl": "https://polyhaven.com/license",
+  "assetUrl": "https://polyhaven.com/a/concrete_floor",
+  "files": [
+    {
+      "file": "albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete_floor/concrete_floor_diff_2k.jpg",
+      "sha256": "72249ce8ba5cedd518ebb60840e882a3506a4b2a24958055d1b36752dbcfda36",
+      "bytes": 4169270
+    },
+    {
+      "file": "normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete_floor/concrete_floor_nor_gl_2k.jpg",
+      "sha256": "b540b5d2ecb3d9eae96dbfda158b488abae243fe5d77b3ea37cc5453015419bf",
+      "bytes": 4003915
+    },
+    {
+      "file": "roughness.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete_floor/concrete_floor_rough_2k.jpg",
+      "sha256": "03db782c91585efd510282792338b54a89742c416ede34c8a2a65ada6fbab778",
+      "bytes": 2347865
+    }
+  ]
+}

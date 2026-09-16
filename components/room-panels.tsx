@@ -1,4 +1,5 @@
 'use client';
+import { GraphicsPanel } from './graphics-panel';
 
 import { useState } from 'react';
 import {
@@ -1179,6 +1180,7 @@ export function GraphicsSection({
 }) {
   return (
     <>
+      <GraphicsPanel />
       <p className="performance-summary">
         {fps} FPS · {me?.ping || 0} мс
       </p>
