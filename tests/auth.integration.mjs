@@ -120,6 +120,44 @@ await test('Короткий пароль и кривой адрес не при
   assert.equal(bad.status, 400);
 });
 
+// --- Настройки аккаунта -----------------------------------------------------
+await test('Гостю настройки не хранятся, но и ошибки нет', async () => {
+  const guest = browser();
+  await req(guest, '/api/session', {});
+  const got = await req(guest, '/api/settings');
+  assert.equal(got.status, 200);
+  assert.equal(got.data.user, null);
+  const saved = await req(guest, '/api/settings', { base: 0, settings: { 'jinaly-theme': 'dark' } });
+  assert.equal(saved.status, 401);
+});
+
+await test('Настройки аккаунта сохраняются, чужие ключи отбрасываются', async () => {
+  const empty = await req(alice, '/api/settings');
+  assert.equal(empty.status, 200);
+  assert.equal(empty.data.updated, 0);
+  const saved = await req(alice, '/api/settings', {
+    base: 0,
+    settings: { 'jinaly-theme': 'dark', 'jinaly-sound': 'true', 'evil-key': 'x' },
+  });
+  assert.equal(saved.status, 200, JSON.stringify(saved.data));
+  assert.ok(saved.data.updated > 0);
+  const got = await req(alice, '/api/settings');
+  assert.deepEqual(got.data.settings, { 'jinaly-theme': 'dark', 'jinaly-sound': 'true' });
+  assert.equal(got.data.updated, saved.data.updated);
+});
+
+await test('Запись поверх устаревшей версии не затирает чужие изменения', async () => {
+  const now = await req(alice, '/api/settings');
+  const stale = await req(alice, '/api/settings', {
+    base: now.data.updated - 1,
+    settings: { 'jinaly-theme': 'light' },
+  });
+  assert.equal(stale.status, 409);
+  assert.deepEqual(stale.data.settings, now.data.settings, 'в ответе свежая версия для слияния');
+  const again = await req(alice, '/api/settings', { base: 0, settings: {} });
+  assert.equal(again.status, 409, 'первая запись не должна перезаписать существующие настройки');
+});
+
 // --- Вход и выход ----------------------------------------------------------
 await test('Вход по неверному паролю отклоняется без подсказки', async () => {
   const wrong = await req(browser(), '/api/auth/login', {

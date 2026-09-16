@@ -19,6 +19,7 @@ import {
   readCookie,
   safeNext,
 } from '@/lib/auth';
+import { cleanSettings, type SettingsValues } from '@/lib/settings-sync';
 
 export { safeNext };
 
@@ -93,6 +94,11 @@ export async function ensureAuthTables() {
       created INTEGER NOT NULL
     )`,
     `CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens (user, kind)`,
+    `CREATE TABLE IF NOT EXISTS user_settings (
+      user TEXT PRIMARY KEY NOT NULL,
+      data TEXT NOT NULL DEFAULT '{}',
+      updated INTEGER NOT NULL
+    )`,
   ];
   try {
     for (const sql of statements) await db().prepare(sql).run();
@@ -292,6 +298,51 @@ export async function updateUser(id: string, fields: Partial<UserRow>) {
     )
     .bind(...keys.map((k) => fields[k as keyof UserRow]!), Date.now(), id)
     .run();
+}
+
+/** Личные настройки аккаунта (lib/settings-sync.ts); `updated` 0 — ещё не сохранялись. */
+export async function readUserSettings(userId: string) {
+  await ensureAuthTables();
+  const row = await db()
+    .prepare('SELECT data, updated FROM user_settings WHERE user=?')
+    .bind(userId)
+    .first<{ data: string; updated: number }>();
+  if (!row) return { settings: {} as SettingsValues, updated: 0 };
+  let parsed: unknown = {};
+  try {
+    parsed = JSON.parse(row.data);
+  } catch {
+    // Повреждённая запись — считаем, что настроек нет, следующая запись её заменит.
+  }
+  return { settings: cleanSettings(parsed), updated: row.updated };
+}
+
+/**
+ * Запись настроек поверх версии `base`, которую видел клиент. Если с тех пор
+ * настройки сохранило другое устройство, ничего не пишется и возвращается
+ * `null`: клиент должен сначала слить свои изменения с чужими.
+ */
+export async function writeUserSettings(
+  userId: string,
+  settings: SettingsValues,
+  base: number,
+) {
+  await ensureAuthTables();
+  // Версия строго растёт, даже если часы воркера отстали от прошлой записи.
+  const updated = Math.max(Date.now(), base + 1);
+  const data = JSON.stringify(settings);
+  const result = base
+    ? await db()
+        .prepare('UPDATE user_settings SET data=?, updated=? WHERE user=? AND updated=?')
+        .bind(data, updated, userId, base)
+        .run()
+    : await db()
+        .prepare(
+          'INSERT INTO user_settings (user, data, updated) VALUES (?,?,?) ON CONFLICT(user) DO NOTHING',
+        )
+        .bind(userId, data, updated)
+        .run();
+  return result.meta.changes ? updated : null;
 }
 
 /** Создаёт сессию входа и возвращает заголовки: вход + сброс гостевой cookie. */

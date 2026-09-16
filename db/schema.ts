@@ -175,3 +175,15 @@ export const authTokens = sqliteTable(
   },
   (t) => [index('idx_auth_tokens_user').on(t.user, t.kind)],
 );
+
+/**
+ * Личные настройки аккаунта (lib/settings-sync.ts): JSON «ключ localStorage →
+ * строка». `updated` — версия для записи без потери чужих изменений.
+ */
+export const userSettings = sqliteTable('user_settings', {
+  user: text('user')
+    .primaryKey()
+    .references(() => users.id),
+  data: text('data').notNull().default('{}'),
+  updated: integer('updated').notNull(),
+});

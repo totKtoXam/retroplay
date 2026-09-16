@@ -34,6 +34,7 @@ import { useAuth } from '../hooks/use-auth';
 import { StylePicker } from './style-picker';
 import { ResourcePackPicker } from './resource-pack-picker';
 import { ThemeToggle } from './theme-toggle';
+import { syncSettingsNow } from './settings-sync';
 import { useResourcePack } from '../hooks/use-resource-pack';
 type Summary = {
   id: string;
@@ -365,6 +366,8 @@ export default function Lobby() {
         mail={auth.mail}
         onChanged={async () => {
           await auth.refresh();
+          // Вошли или вышли: подтянуть настройки аккаунта на это устройство.
+          void syncSettingsNow();
           await loadRooms();
         }}
       />

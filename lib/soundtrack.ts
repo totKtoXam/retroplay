@@ -1,4 +1,5 @@
 import { musicGain, trackTitleFromFile } from './music-mix';
+import { SETTINGS_APPLIED_EVENT } from './settings-sync';
 import {
   deleteStoredTrack,
   loadStoredTracks,
@@ -311,10 +312,7 @@ function customTrack(id: string, name: string): PlaylistTrack {
   };
 }
 
-/** Настройки и свои треки подтягиваются при первой подписке — только в браузере. */
-function loadLibrary() {
-  if (libraryLoaded || typeof window === 'undefined') return;
-  libraryLoaded = true;
+function loadPrefs() {
   try {
     const prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
     const patch: Partial<MusicState> = {};
@@ -322,13 +320,28 @@ function loadLibrary() {
       patch.volume = Math.max(0, Math.min(1, prefs.volume));
     if (typeof prefs.background === 'boolean')
       patch.background = prefs.background;
-    if (BUILTIN_PLAYLIST.some((t) => t.id === prefs.track))
-      patch.track = prefs.track;
-    else if (typeof prefs.track === 'string') savedCustomTrack = prefs.track;
-    if (Object.keys(patch).length) setState(patch);
+    if (typeof prefs.track === 'string') {
+      // Играющий трек не переключаем; свой трек — только если его файл уже здесь.
+      if (currentMusicState.playlist.some((t) => t.id === prefs.track)) {
+        if (!currentMusicState.playing) patch.track = prefs.track;
+      } else savedCustomTrack = prefs.track;
+    }
+    if (Object.keys(patch).length) {
+      setState(patch);
+      applyGain();
+    }
   } catch {
     // Повреждённые настройки — остаёмся на значениях по умолчанию.
   }
+}
+
+/** Настройки и свои треки подтягиваются при первой подписке — только в браузере. */
+function loadLibrary() {
+  if (libraryLoaded || typeof window === 'undefined') return;
+  libraryLoaded = true;
+  loadPrefs();
+  // Настройки с аккаунта пришли уже после загрузки страницы (lib/settings-sync.ts).
+  window.addEventListener(SETTINGS_APPLIED_EVENT, loadPrefs);
   void loadStoredTracks()
     .then((stored) => {
       const added = stored.filter((t) => !customUrls.has(t.id));

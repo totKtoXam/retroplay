@@ -77,6 +77,7 @@ import { Card } from './board';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { readAimModes, type WeaponAimModes } from '@/lib/aim-settings';
 import { PREF_KEYS, readChoice, readPref, writePref } from '@/lib/user-prefs';
+import { SETTINGS_APPLIED_EVENT } from '@/lib/settings-sync';
 import { PAINTS } from '@/lib/game-items';
 import {
   ActionsPanel,
@@ -256,6 +257,33 @@ export default function RoomApp({ id }: { id: string }) {
   useEffect(() => {
     eventTime.current = Date.now();
   }, [id]);
+  /** Личные настройки с этого устройства: при входе в комнату и после синхронизации с аккаунтом. */
+  const loadDeviceSettings = useCallback(() => {
+    const savedSensitivity = Number(
+      localStorage.getItem('jinaly-sensitivity') || 1,
+    );
+    setSensitivity(
+      Number.isFinite(savedSensitivity)
+        ? Math.min(2, Math.max(0.4, savedSensitivity))
+        : 1,
+    );
+    setInvertCamera(localStorage.getItem('jinaly-invert-camera') === 'true');
+    setAimModes(readAimModes());
+    const savedQuality = localStorage.getItem('jinaly-quality');
+    setQuality(
+      savedQuality === 'high' ? 'cinematic' : savedQuality || 'balanced',
+    );
+    const savedFps = Number(localStorage.getItem('jinaly-fps-limit'));
+    setFpsLimit(FPS_LIMITS.includes(savedFps) ? savedFps : 60);
+    setSound(readPref(PREF_KEYS.sound) === 'true');
+    setPaintColor(
+      readChoice(
+        PREF_KEYS.paintColor,
+        PAINTS.map((p) => p.color),
+        '#bc91f5',
+      ),
+    );
+  }, []);
   const {
     room,
     join,
@@ -282,30 +310,7 @@ export default function RoomApp({ id }: { id: string }) {
     setError,
     onReady: () => {
       setName(localStorage.getItem('jinaly-name') || '');
-      const savedSensitivity = Number(
-        localStorage.getItem('jinaly-sensitivity') || 1,
-      );
-      setSensitivity(
-        Number.isFinite(savedSensitivity)
-          ? Math.min(2, Math.max(0.4, savedSensitivity))
-          : 1,
-      );
-      setInvertCamera(localStorage.getItem('jinaly-invert-camera') === 'true');
-      setAimModes(readAimModes());
-      const savedQuality = localStorage.getItem('jinaly-quality');
-      setQuality(
-        savedQuality === 'high' ? 'cinematic' : savedQuality || 'balanced',
-      );
-      const savedFps = Number(localStorage.getItem('jinaly-fps-limit'));
-      setFpsLimit(FPS_LIMITS.includes(savedFps) ? savedFps : 60);
-      setSound(readPref(PREF_KEYS.sound) === 'true');
-      setPaintColor(
-        readChoice(
-          PREF_KEYS.paintColor,
-          PAINTS.map((p) => p.color),
-          '#bc91f5',
-        ),
-      );
+      loadDeviceSettings();
     },
   });
   // Часы комнаты идут по серверному времени: и матч, и внутриигровые сутки
@@ -318,6 +323,25 @@ export default function RoomApp({ id }: { id: string }) {
   useEffect(() => {
     roomRef.current = room;
   }, [room]);
+  const skinRef = useRef({ skin: selectedSkin, color: selectedBandanaColor });
+  useEffect(() => {
+    skinRef.current = { skin: selectedSkin, color: selectedBandanaColor };
+  }, [selectedSkin, selectedBandanaColor]);
+  // Настройки с аккаунта могли прийти уже в комнате (lib/settings-sync.ts).
+  useEffect(() => {
+    const onApplied = () => {
+      loadDeviceSettings();
+      const skin = localStorage.getItem('jinaly-custom-skin') || 'agent';
+      const color = localStorage.getItem('jinaly-bandana-color') || '#3b82f6';
+      if (skin === skinRef.current.skin && color === skinRef.current.color)
+        return;
+      setSelectedSkin(skin);
+      setSelectedBandanaColor(color);
+      if (roomRef.current) void act({ type: 'profile', hat: skin, color });
+    };
+    window.addEventListener(SETTINGS_APPLIED_EVENT, onApplied);
+    return () => window.removeEventListener(SETTINGS_APPLIED_EVENT, onApplied);
+  }, [act, loadDeviceSettings]);
   const changeSound = useCallback((value: boolean) => {
     setSound(value);
     writePref(PREF_KEYS.sound, String(value));

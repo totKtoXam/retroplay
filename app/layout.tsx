@@ -8,6 +8,7 @@ import './game-clock.css';
 import './phases.css';
 import './settings-menu.css';
 import './music-player.css';
+import { SettingsSync } from '../components/settings-sync';
 /**
  * Ставит тему на <html> до первой отрисовки, чтобы не было вспышки светлого
  * фона. Логика повторяет applyTheme() из hooks/use-theme.ts.
@@ -28,7 +29,10 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body>{children}</body>
+      <body>
+        <SettingsSync />
+        {children}
+      </body>
     </html>
   );
 }
