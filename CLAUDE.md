@@ -13,11 +13,13 @@ Jinaly · Retro 3D — совместные ретроспективы + 3D-шу
 
 Основная ветка — `main`. Перед мержем своей ветки подтягивать изменения из `main`.
 
-## Скилы Three.js
+## Скилы Three.js (референсы)
+
+Список референсов проекта — раздел «Референсы» в `README.md`; при добавлении новых источников дополнять его.
 
 Пакет [threejs-game-skills](https://github.com/majidmanzarpour/threejs-game-skills) (коммит `e5f301d`) установлен на уровне проекта: для Claude Code — `.claude/skills/threejs-*`, для Codex — `.agents/skills/threejs-*` (копии одинаковые). Точка входа — `threejs-game-director`. Это вендорный код: руками не править, обновлять копированием `skills/` из свежего клона в обе папки. Исключены из `tsc` и `oxfmt`.
 
-Скил `object-to-threejs-procedural` из [img2obj](https://github.com/vinhhien112/img2obj) (коммит `659718b`, MIT) лежит там же, в обеих папках: процедурная Three.js-модель по картинке, скрипты на Python 3.10+ без внешних зависимостей. Оригинал — Codex-плагин, поэтому раскладка плоская (`SKILL.md`, `references/`, `scripts/` в одной папке) и есть две правки путей: абзац про `<plugin-root>` в `SKILL.md` и `reference_root` в `scripts/sculpt_module_state.py`. При обновлении повторить обе правки.
+Скил `object-to-threejs-procedural` из [img2obj](https://github.com/vinhhien112/img2obj) (коммит `659718b`, MIT) лежит там же, в обеих папках: процедурная Three.js-модель по картинке, скрипты на Python 3.10+ без внешних зависимостей. Оригинал — Codex-плагин, поэтому раскладка плоская (`SKILL.md`, `references/`, `scripts/` в одной папке) и есть две правки путей: абзац про `<plugin-root>` в `SKILL.md` и `reference_root` в `scripts/sculpt_module_state.py`. При обновлении повторить обе правки. Для Codex он намеренно ставится скилом, а не плагином: плагин из репозитория в Codex (2026-09) требует ручной установки, на Windows часто не находится (openai/codex#26037), а одноимённый скил в `.agents/skills` даёт дубли (#22626).
 
 ## Модели субагентов
 

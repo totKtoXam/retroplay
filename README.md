@@ -128,3 +128,10 @@ LAN-сервер работает в продакшен-режиме: `retro3d.s
 ## Публикация
 
 Проект зарегистрирован в Sites через `.openai/hosting.json`. Публикуйте собранный Worker вместе с миграциями из `drizzle`; не переносите локальную базу или сессионные cookie в исходный код. Сначала проверка и сборка, затем сохранение версии и публикация для выбранной аудитории.
+
+## Референсы
+
+Сторонние материалы, на которые опирается разработка 3D-части. Код из них в игру не входит: это скилы для ИИ-агентов, они лежат в `.claude/skills/` (Claude Code) и `.agents/skills/` (Codex).
+
+- [majidmanzarpour/threejs-game-skills](https://github.com/majidmanzarpour/threejs-game-skills) (MIT) — девять скилов для браузерных игр на Three.js: геймплей, графика, интерфейс, генерация 3D-моделей, картинок и звука, отладка, проверка перед релизом. Начинать с `threejs-game-director`. Генерация через Tripo, Gemini и ElevenLabs работает только при ключах `TRIPO_API_KEY`, `GEMINI_API_KEY`, `ELEVENLABS_API_KEY` в окружении агента; ключи не коммитить и не передавать в клиентский код.
+- [vinhhien112/img2obj](https://github.com/vinhhien112/img2obj) (MIT) — скил `object-to-threejs-procedural`: по картинке строит процедурную Three.js-модель кодом. Нужен Python 3.10+.
