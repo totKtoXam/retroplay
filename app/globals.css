@@ -4395,8 +4395,10 @@ h1 > span {
 .col-status.is-online {
   color: #7fe0b8;
 }
-.col-status.is-offline {
-  color: #64748b;
+/* «Отошёл» — состояние временное: человек свернул вкладку или переподключается.
+   Янтарный, а не серый: серое читается как «его уже нет», а он ещё в комнате. */
+.col-status.is-away {
+  color: #d6a75f;
 }
 .col-num {
   font-variant-numeric: tabular-nums;

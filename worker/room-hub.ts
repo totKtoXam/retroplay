@@ -168,7 +168,13 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     let hub: HubState;
     try {
       hub = await this.state(room);
-      await this.member(hub, self);
+      // Открыл комнату — значит, в ней. Иначе вернувшийся из свёрнутой вкладки
+      // до первого пакета присутствия выглядел бы ушедшим, в том числе в
+      // собственной таблице. Продлевать это на каждом тике нельзя: свёрнутая
+      // вкладка тогда навсегда оставалась бы «в сети» (lib/model.ts, Presence).
+      const joined = await this.member(hub, self);
+      joined.seen = Math.max(joined.seen, Date.now());
+      this.markDirty(false);
     } catch {
       return new Response('Сначала войдите в комнату', { status: 403 });
     }

@@ -200,6 +200,40 @@ export type Pose = {
   /** Client only: the life this pose belongs to (sent as the presence `life`). */
   life?: number;
 };
+/**
+ * Присутствие участника. Комната узнаёт о человеке только по его пакетам, и
+ * тишина в них означает разное: свернул вкладку, переподключается или просто
+ * закрыл игру. Поэтому состояний три, а не два.
+ *
+ * Пакеты не уходят из скрытой вкладки (components/use-room-sync.ts), так что
+ * «отошёл» — это и сворачивание окна тоже. Пока человек «отошёл», он остаётся в
+ * комнате со своим счётом и командой; вернулся — снова «в сети».
+ */
+export type Presence = 'online' | 'away' | 'left';
+/** Свежий пакет: человек здесь и сейчас. */
+export const ONLINE_MS = 15_000;
+/**
+ * Столько молчания комната ещё держит за человеком место. Минуты с запасом
+ * хватает и на перезагрузку страницы, и на обрыв связи, а дальше считаем, что
+ * он ушёл: из таблицы и с карты такие пропадают.
+ */
+export const PRESENT_MS = 60_000;
+/**
+ * Сколько комната вообще помнит человека. Это не состояние присутствия, а
+ * уборка: запись нужна, чтобы вернувшийся получил обратно своё имя, команду и
+ * счёт, и через десять минут она уже никому не нужна.
+ */
+export const ROOM_MEMORY_MS = 600_000;
+
+export function presenceOf(lastSeen: number, now: number): Presence {
+  const quiet = now - lastSeen;
+  return quiet < ONLINE_MS ? 'online' : quiet < PRESENT_MS ? 'away' : 'left';
+}
+/** В сети: позиция и пинг у него сейчас настоящие. */
+export const isOnline = (lastSeen: number, now: number) => presenceOf(lastSeen, now) === 'online';
+/** Ещё в комнате: в сети или отошёл, но не ушёл. */
+export const isPresent = (lastSeen: number, now: number) => presenceOf(lastSeen, now) !== 'left';
+
 export type Person = {
   id: string;
   name: string;
@@ -371,6 +405,8 @@ export type Room = {
   self: string;
   created: number;
   effects?: WorldEffect[];
+  /** Время сервера в последнем снимке: по нему и считается присутствие. */
+  serverNow?: number;
 };
 export const uid = (): string => {
   if (typeof crypto !== 'undefined') {

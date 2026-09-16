@@ -63,6 +63,8 @@ import {
 import {
   ZONES,
   GAME_TOOLS,
+  isOnline,
+  isPresent,
   kdaRatio,
   voteCount,
   type Note,
@@ -511,7 +513,7 @@ export default function RoomApp({ id }: { id: string }) {
   const me = room?.members.find((m) => m.id === room.self),
     host = room?.host === room?.self,
     s = room?.state,
-    online = room?.members.filter((m) => now - m.lastSeen < 15000) || [],
+    online = room?.members.filter((m) => isOnline(m.lastSeen, now)) || [],
     gameMode = modeOf(s ?? {}),
     mapTitle =
       MAP_CATALOG.find((m) => m.id === (s?.map ?? 'hub'))?.title ?? 'Хаб',
@@ -1518,7 +1520,12 @@ export default function RoomApp({ id }: { id: string }) {
                 <span className="col-num col-ping">ПИНГ</span>
               </div>
               <div className="monitor-table-body">
-                {[...room.members]
+                {/* Покинувших игру в таблице нет: раньше показывались все, кто
+                    когда-либо заходил, и список копил ушедших. Себя оставляем
+                    всегда — из скрытой вкладки пакеты не уходят, и смотрящий
+                    вычеркнул бы сам себя. */}
+                {room.members
+                  .filter((m) => m.id === room.self || isPresent(m.lastSeen, now))
                   .sort((a, b) => kdaRatio(b) - kdaRatio(a))
                   .map((m) => (
                   <div key={m.id} className="monitor-table-row">
@@ -1598,12 +1605,16 @@ export default function RoomApp({ id }: { id: string }) {
                         </button>
                       )}
                     </div>
+                    {/* Состояний два вместо прежнего «в сети / не в сети»:
+                        ушедшие до таблицы просто не доходят, а всё, что между, —
+                        это «отошёл», то есть свернул вкладку или
+                        переподключается. */}
                     <span
                       className={`col-status ${
-                        now - m.lastSeen < 15000 ? 'is-online' : 'is-offline'
+                        isOnline(m.lastSeen, now) ? 'is-online' : 'is-away'
                       }`}
                     >
-                      {now - m.lastSeen < 15000 ? 'в сети' : 'не в сети'}
+                      {isOnline(m.lastSeen, now) ? 'в сети' : 'отошёл'}
                     </span>
                     <span
                       className={`col-num col-hp ${
@@ -1623,7 +1634,7 @@ export default function RoomApp({ id }: { id: string }) {
                       </>
                     )}
                     <span className="col-num col-ping">
-                      {now - m.lastSeen < 15000 ? `${m.ping} мс` : '—'}
+                      {isOnline(m.lastSeen, now) ? `${m.ping} мс` : '—'}
                     </span>
                   </div>
                   ))}

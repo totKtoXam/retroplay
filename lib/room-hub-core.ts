@@ -14,7 +14,15 @@ import {
   LIMB_DAMAGE_SCALE,
   SNIPER_LIMB_DAMAGE,
 } from './game-items.ts';
-import { uid, type Person, type Pose, type RoomState, type WorldEffect } from './model.ts';
+import {
+  ONLINE_MS,
+  ROOM_MEMORY_MS,
+  uid,
+  type Person,
+  type Pose,
+  type RoomState,
+  type WorldEffect,
+} from './model.ts';
 import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
 import { getMap } from './maps/index.ts';
 import { modeOf } from './maps/catalog.ts';
@@ -23,7 +31,7 @@ import { stanceHeight, type Bounds, type GameMap, type SpawnPoint, type Team } f
 /** Effects older than this are neither resolved nor sent to clients. */
 export const EFFECT_TTL_MS = 15_000;
 /** Members unseen for longer than this cannot be hit. */
-export const ONLINE_MS = 15_000;
+export { ONLINE_MS };
 export const SPAWN_POSE: Pose = { x: 0, y: 0, z: 4, yaw: 0, stance: 'stand', moving: false };
 /** Lag compensation: shots are checked against where victims were at most this long ago. */
 export const MAX_REWIND_MS = 250;
@@ -823,10 +831,21 @@ export function voiceSilenced(state: HubState, id: string) {
   return !state.room.voiceEnabled || state.room.voiceMuted.has(id);
 }
 
-/** Members as clients see them: newest first, at most 100, names hidden in anonymous rooms. */
+/**
+ * Members as clients see them: newest first, at most 100, names hidden in
+ * anonymous rooms.
+ *
+ * Давно забытых снимок не несёт — иначе список копил бы всех, кто когда-либо
+ * заходил, и сотня мест уходила бы на ушедших. Это именно уборка, а не
+ * присутствие: кто «в сети», кто «отошёл», а кто ушёл, решает получатель по
+ * `lastSeen` (`presenceOf` в lib/model.ts). Снимок один на всю комнату, и
+ * вырезать по присутствию здесь нельзя: из скрытой вкладки пакеты не уходят, и
+ * получатель вырезал бы в том числе самого себя.
+ */
 export function publicMembers(state: HubState, now: number): Person[] {
   const anonymous = state.room.anonymous;
   return [...state.members.values()]
+    .filter((m) => m.seen > now - ROOM_MEMORY_MS)
     .sort((a, b) => b.seen - a.seen)
     .slice(0, 100)
     .map((m) => ({
