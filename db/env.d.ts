@@ -25,5 +25,11 @@ declare namespace Cloudflare {
     MAIL_FROM?: string;
     /** Базовый адрес приложения для ссылок в письмах. */
     APP_URL?: string;
+    /**
+     * Ключ внешнего API серверных ботов (app/api/rooms/[id]/bots): кто его знает,
+     * тот добавляет и убирает ботов в любой комнате от имени ведущего. Не задан —
+     * API выключен.
+     */
+    BOTS_API_TOKEN?: string;
   }
 }

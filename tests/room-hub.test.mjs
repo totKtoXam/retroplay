@@ -57,6 +57,7 @@ const room = (over = {}) => ({
   shieldSeconds: 5,
   voiceEnabled: true,
   voiceMuted: new Set(),
+  bots: [],
   archived: false,
   map: 'hub',
   teams: false,
