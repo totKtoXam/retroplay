@@ -1,7 +1,7 @@
 'use client';
 import { useState, useSyncExternalStore } from 'react';
 import Board from './board';
-import { ZONES, type Room, type RoomState, type Note } from '@/lib/model';
+import { isOnline, ZONES, type Room, type RoomState, type Note } from '@/lib/model';
 import { dayMoment } from '@/lib/day-cycle';
 import {
   Bell,
@@ -408,7 +408,7 @@ export function WorldTablet(props: WorldTabletProps) {
               <b>Участники</b>
               <p>
                 {props.room.members
-                  .filter((m) => props.now - m.lastSeen < 15000)
+                  .filter((m) => isOnline(m.lastSeen, props.now))
                   .map((m) =>
                     props.room.state.anonymousPlayers || props.room.state.anonymous
                       ? 'Аноним'

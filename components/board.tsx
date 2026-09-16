@@ -9,7 +9,7 @@ import {
   LockKeyhole,
   GripVertical,
 } from 'lucide-react';
-import { ZONES, voteCount, type Room, type Note } from '@/lib/model';
+import { isOnline, ZONES, voteCount, type Room, type Note } from '@/lib/model';
 export const zoneOrigin = (zone: string) => {
   const i = Math.max(
     0,
@@ -579,7 +579,7 @@ export default function Board({
               .filter(
                 (m) =>
                   m.id !== room.self &&
-                  now - m.lastSeen < 15000 &&
+                  isOnline(m.lastSeen, now) &&
                   (m.cursor?.mode === 'board' || m.cursor?.mode === 'tablet'),
               )
               .map((m) => {

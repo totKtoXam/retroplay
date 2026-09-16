@@ -1,5 +1,5 @@
 import * as T from 'three';
-import type { Room } from '@/lib/model';
+import { isOnline, type Room } from '@/lib/model';
 import { isBlocked3D, rayCastWorldObstacle } from '@/lib/world-collision';
 import type { GameMap } from '@/lib/maps/types';
 import type { WorldKit } from './world-map-scene';
@@ -127,14 +127,12 @@ export function createWorldRemotePlayers({
     });
   };
   const update = (now: number, dt: number) => {
-    const serverNow =
-      (latest.current.room as Room & { serverNow?: number }).serverNow ??
-      Date.now();
+    const serverNow = latest.current.room.serverNow ?? Date.now();
     liveRemoteIds.clear();
     for (const member of latest.current.room.members) {
       if (member.id === latest.current.room.self) continue;
-      // Server treats players unseen for 15 s as gone; don't keep avatars for them.
-      if (serverNow - member.lastSeen >= 15000) continue;
+      // Отошедшего от экрана в мире не показываем: его поза уже несвежая.
+      if (!isOnline(member.lastSeen, serverNow)) continue;
       liveRemoteIds.add(member.id);
       let remote = remoteAvatars.get(member.id);
       if (!remote) {
@@ -180,7 +178,7 @@ export function createWorldRemotePlayers({
         isRemoteDead && now - (remoteDeathTime || now) < 3800;
 
       remote.visible =
-        Date.now() - member.lastSeen < 15000 &&
+        isOnline(member.lastSeen, serverNow) &&
         (!isRemoteDead || isRemoteDeathRecent);
       setAvatarAnonymous(
         remote,

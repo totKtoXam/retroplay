@@ -13,6 +13,15 @@ import {
   TIMES_OF_DAY,
   type DayCycle,
 } from './day-cycle.ts';
+import {
+  BOT_NAMES,
+  isBotId,
+  isBotLevel,
+  MAX_BOTS,
+  MAX_BOTS_PER_ADD,
+  type BotLevel,
+  type BotSpec,
+} from './bot-levels.ts';
 
 export const ZONES = [
   {
@@ -200,8 +209,44 @@ export type Pose = {
   /** Client only: the life this pose belongs to (sent as the presence `life`). */
   life?: number;
 };
+/**
+ * Присутствие участника. Комната узнаёт о человеке только по его пакетам, и
+ * тишина в них означает разное: свернул вкладку, переподключается или просто
+ * закрыл игру. Поэтому состояний три, а не два.
+ *
+ * Пакеты не уходят из скрытой вкладки (components/use-room-sync.ts), так что
+ * «отошёл» — это и сворачивание окна тоже. Пока человек «отошёл», он остаётся в
+ * комнате со своим счётом и командой; вернулся — снова «в сети».
+ */
+export type Presence = 'online' | 'away' | 'left';
+/** Свежий пакет: человек здесь и сейчас. */
+export const ONLINE_MS = 15_000;
+/**
+ * Столько молчания комната ещё держит за человеком место. Минуты с запасом
+ * хватает и на перезагрузку страницы, и на обрыв связи, а дальше считаем, что
+ * он ушёл: из таблицы и с карты такие пропадают.
+ */
+export const PRESENT_MS = 60_000;
+/**
+ * Сколько комната вообще помнит человека. Это не состояние присутствия, а
+ * уборка: запись нужна, чтобы вернувшийся получил обратно своё имя, команду и
+ * счёт, и через десять минут она уже никому не нужна.
+ */
+export const ROOM_MEMORY_MS = 600_000;
+
+export function presenceOf(lastSeen: number, now: number): Presence {
+  const quiet = now - lastSeen;
+  return quiet < ONLINE_MS ? 'online' : quiet < PRESENT_MS ? 'away' : 'left';
+}
+/** В сети: позиция и пинг у него сейчас настоящие. */
+export const isOnline = (lastSeen: number, now: number) => presenceOf(lastSeen, now) === 'online';
+/** Ещё в комнате: в сети или отошёл, но не ушёл. */
+export const isPresent = (lastSeen: number, now: number) => presenceOf(lastSeen, now) !== 'left';
+
 export type Person = {
   id: string;
+  /** Серверный бот и его уровень сложности; у людей поля нет. */
+  bot?: BotLevel;
   name: string;
   color: string;
   /** 'red' | 'blue' in team battles, empty in free-for-all. */
@@ -294,6 +339,14 @@ export type RoomState = {
    * приходят и уходят — заглушённый останется заглушённым и после перезахода.
    */
   voiceMuted?: string[];
+  /**
+   * Серверные боты (lib/bot-brain.ts). Здесь только кто они — имя, уровень и
+   * сторона; бой, счёт и позиции ботов живут в сервере комнаты, как и у людей.
+   * В D1 у ботов нет строк участников: они не копятся в комнате, когда их
+   * убирают. Играют только в командном бою — в ретроспективе сервер их не
+   * выпускает, но список остаётся до возвращения в бой.
+   */
+  bots?: BotSpec[];
   title: string;
   theme: string;
   visualStyle?: 'classic' | 'anime';
@@ -371,6 +424,8 @@ export type Room = {
   self: string;
   created: number;
   effects?: WorldEffect[];
+  /** Время сервера в последнем снимке: по нему и считается присутствие. */
+  serverNow?: number;
 };
 export const uid = (): string => {
   if (typeof crypto !== 'undefined') {
@@ -743,6 +798,40 @@ export function applyOperation(
       muted.add(op.session);
     }
     s.voiceMuted = [...muted];
+  } else if (kind === 'bots.add') {
+    hostOnly();
+    if (modeOf(s) !== 'battle') throw Error('Боты играют только в командном бою');
+    if (!isBotLevel(op.level)) throw Error('Неизвестный уровень сложности');
+    const level = op.level;
+    // «auto» и пустое — сторону выберет сервер: в меньшую команду.
+    const team = op.team === 'red' || op.team === 'blue' ? op.team : '';
+    const count = op.count === undefined ? 1 : finite(op.count, 1, MAX_BOTS_PER_ADD);
+    if (!Number.isInteger(count)) throw Error('Число ботов должно быть целым');
+    const bots = s.bots ?? [];
+    if (bots.length + count > MAX_BOTS)
+      throw Error(`В комнате не больше ${MAX_BOTS} ботов: сейчас ${bots.length}`);
+    const used = new Set(bots.map((b) => b.name));
+    for (let i = 0; i < count; i++) {
+      const name =
+        BOT_NAMES.find((n) => !used.has(n)) ??
+        `Бот ${bots.length + 1}`;
+      used.add(name);
+      bots.push({ id: 'bot-' + uid().replaceAll('-', '').slice(0, 12), name, level, team });
+    }
+    s.bots = bots;
+  } else if (kind === 'bots.remove') {
+    hostOnly();
+    if (op.all === true) s.bots = [];
+    else {
+      if (!isBotId(op.id) || !s.bots?.some((b) => b.id === op.id)) throw Error('Бот не найден');
+      s.bots = s.bots.filter((b) => b.id !== op.id);
+    }
+  } else if (kind === 'bots.level') {
+    hostOnly();
+    const bot = s.bots?.find((b) => b.id === op.id);
+    if (!bot) throw Error('Бот не найден');
+    if (!isBotLevel(op.level)) throw Error('Неизвестный уровень сложности');
+    bot.level = op.level;
   } else if (kind === 'phase') {
     hostOnly();
     s.phase = finite(op.phase, 0, 5);

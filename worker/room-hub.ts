@@ -4,6 +4,8 @@ import { ensureCombatColumns } from '@/db/combat';
 import { controlWeapon, weaponReply } from '@/lib/weapon-authority';
 import type { Person, WorldEffect } from '@/lib/model';
 import { getMap } from '@/lib/maps';
+import type { BotBrain } from '@/lib/bot-brain';
+import { isBotId } from '@/lib/bot-levels';
 import {
   applyPresence,
   balanceTeam,
@@ -14,12 +16,15 @@ import {
   setTeam,
   effectsSince,
   fireEffect,
+  humansOnline,
   isFrozen,
   memberFromRow,
   publicEffects,
   publicMembers,
   resolveCombat,
   roomFromState,
+  stepBots,
+  syncBots,
   type HubMatch,
   type HubMember,
   type HubState,
@@ -55,6 +60,8 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
   private roomId = '';
   private sockets = new Map<WebSocket, string>();
   private ticker: ReturnType<typeof setInterval> | null = null;
+  /** Мозги серверных ботов: память, маршрут, прицел. В checkpoint не входят — после перезапуска бот просто заново осматривается. */
+  private brains = new Map<string, BotBrain>();
   private sentSeq = 0;
   private dirty = false;
   private flushScheduled = false;
@@ -97,6 +104,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     );
     const changed = resolveCombat(hub, now);
     this.markDirty(changed);
+    this.wakeBots(hub);
     return this.view(hub, now, since);
   }
 
@@ -121,6 +129,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const hub = await this.state(room);
     const now = Date.now();
     if (resolveCombat(hub, now)) this.markDirty();
+    this.wakeBots(hub);
     return this.view(hub, now, since);
   }
 
@@ -156,6 +165,8 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
         changeMap(hub, Date.now());
         this.markDirty();
       }
+      if (syncBots(hub, Date.now())) this.markDirty();
+      this.wakeBots(hub);
     }
     this.broadcast(JSON.stringify({ t: 'refresh' }));
   }
@@ -168,7 +179,13 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     let hub: HubState;
     try {
       hub = await this.state(room);
-      await this.member(hub, self);
+      // Открыл комнату — значит, в ней. Иначе вернувшийся из свёрнутой вкладки
+      // до первого пакета присутствия выглядел бы ушедшим, в том числе в
+      // собственной таблице. Продлевать это на каждом тике нельзя: свёрнутая
+      // вкладка тогда навсегда оставалась бы «в сети» (lib/model.ts, Presence).
+      const joined = await this.member(hub, self);
+      joined.seen = Math.max(joined.seen, Date.now());
+      this.markDirty(false);
     } catch {
       return new Response('Сначала войдите в комнату', { status: 403 });
     }
@@ -289,6 +306,15 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     }
   }
 
+  /**
+   * Боты играют, пока в комнате есть люди, — даже если все они сидят на HTTP
+   * без сокета: иначе на плохой сети бой с ботами просто замирал бы. Такт сам
+   * останавливается, когда не остаётся ни сокетов, ни людей в сети.
+   */
+  private wakeBots(hub: HubState) {
+    if (hub.room.bots.length && humansOnline(hub, Date.now())) this.startTicking();
+  }
+
   private startTicking() {
     this.ticker ??= setInterval(() => this.tick(), TICK_MS);
   }
@@ -300,8 +326,15 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
 
   private tick() {
     const hub = this.hub;
-    if (!hub || !this.sockets.size) return this.stopTicking();
+    if (!hub) return this.stopTicking();
     const now = Date.now();
+    const bots = hub.room.bots.length > 0 && humansOnline(hub, now);
+    if (!this.sockets.size && !bots) return this.stopTicking();
+    if (bots) {
+      stepBots(hub, this.brains, now);
+      // Шаги ботов, как и presence людей, уходят в D1 редкой записью без checkpoint.
+      this.markDirty(false);
+    }
     if (resolveCombat(hub, now)) this.markDirty();
     const fresh = hub.effects.filter((e) => e.seq > this.sentSeq);
     this.sentSeq = hub.seq;
@@ -373,6 +406,8 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       const m = memberFromRow(r);
       hub.members.set(m.id, m);
     }
+    // До восстановления checkpoint: бою, жизням и счёту ботов есть куда вернуться.
+    syncBots(hub, Date.now());
     const saved = this.savedCheckpoint();
     const restored = saved !== undefined && restoreCheckpoint(room, hub, saved);
     this.hub = hub;
@@ -444,7 +479,8 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const update = db.prepare(
       'UPDATE members SET seen=?,pose=?,ping=?,cursor=?,hp=?,respawn_at=?,immune_until=?,life=?,kills=?,deaths=?,assists=?,recent_damage=?,last_shot=?,team=? WHERE room=? AND session=?',
     );
-    const statements = [...hub.members.values()].map((m) =>
+    // У ботов нет строк в D1: их состояние живёт только здесь и в checkpoint.
+    const statements = [...hub.members.values()].filter((m) => !isBotId(m.id)).map((m) =>
       update.bind(
         m.seen,
         JSON.stringify(m.pose),

@@ -40,6 +40,7 @@ import {
   Gauge,
   MousePointer2,
   Swords,
+  Bot,
   Sun,
   ShieldCheck,
   UserRound,
@@ -63,6 +64,8 @@ import {
 import {
   ZONES,
   GAME_TOOLS,
+  isOnline,
+  isPresent,
   kdaRatio,
   voteCount,
   type Note,
@@ -90,6 +93,7 @@ import {
   VotePanel,
   MatchBar,
   ModePanel,
+  BotsPanel,
   WidgetsPanel,
   WorldPanel,
   FPS_LIMITS,
@@ -103,6 +107,7 @@ import { useRoomSync } from './use-room-sync';
 import { useVoiceChat } from './use-voice-chat';
 import { MAP_CATALOG, modeOf } from '@/lib/maps/catalog';
 import { defaultSlot, hasSlot, slotsFor } from '@/lib/loadout';
+import { BOT_LEVELS } from '@/lib/bot-levels';
 
 const World = lazy(() => import('./world'));
 const kinds: Record<string, string> = {
@@ -511,7 +516,7 @@ export default function RoomApp({ id }: { id: string }) {
   const me = room?.members.find((m) => m.id === room.self),
     host = room?.host === room?.self,
     s = room?.state,
-    online = room?.members.filter((m) => now - m.lastSeen < 15000) || [],
+    online = room?.members.filter((m) => isOnline(m.lastSeen, now)) || [],
     gameMode = modeOf(s ?? {}),
     mapTitle =
       MAP_CATALOG.find((m) => m.id === (s?.map ?? 'hub'))?.title ?? 'Хаб',
@@ -582,6 +587,18 @@ export default function RoomApp({ id }: { id: string }) {
           title: 'Режим и карта',
           hint: 'Во что играем: режим, карта и правила матча',
           icon: Swords,
+          hostOnly: true,
+        },
+        {
+          id: 'bots',
+          title: 'Боты',
+          hint:
+            gameMode !== 'battle'
+              ? 'Играют только в командном бою'
+              : s?.bots?.length
+                ? `В бою: ${s.bots.length}`
+                : 'Соперники и напарники четырёх уровней',
+          icon: Bot,
           hostOnly: true,
         },
         {
@@ -1187,7 +1204,7 @@ export default function RoomApp({ id }: { id: string }) {
               style={{ background: m.color, color: '#fff' }}
               title={m.name}
             >
-              {m.name[0]}
+              {Array.from(m.name)[0]}
             </span>
           ))}
           <b>{online.length}</b>
@@ -1518,7 +1535,12 @@ export default function RoomApp({ id }: { id: string }) {
                 <span className="col-num col-ping">ПИНГ</span>
               </div>
               <div className="monitor-table-body">
-                {[...room.members]
+                {/* Покинувших игру в таблице нет: раньше показывались все, кто
+                    когда-либо заходил, и список копил ушедших. Себя оставляем
+                    всегда — из скрытой вкладки пакеты не уходят, и смотрящий
+                    вычеркнул бы сам себя. */}
+                {room.members
+                  .filter((m) => m.id === room.self || isPresent(m.lastSeen, now))
                   .sort((a, b) => kdaRatio(b) - kdaRatio(a))
                   .map((m) => (
                   <div key={m.id} className="monitor-table-row">
@@ -1527,7 +1549,7 @@ export default function RoomApp({ id }: { id: string }) {
                         className="avatar mini-avatar"
                         style={{ background: m.color, color: 'white' }}
                       >
-                        {m.name[0]}
+                        {Array.from(m.name)[0]}
                       </span>
                       <span className="user-name-box">
                         <strong className="name-text">
@@ -1535,7 +1557,11 @@ export default function RoomApp({ id }: { id: string }) {
                           {m.id === room.self ? ' (вы)' : ''}
                         </strong>
                         <small className="role-text">
-                          {m.id === room.host ? 'Ведущий' : 'Участник'}
+                          {m.bot
+                            ? `Бот · ${BOT_LEVELS[m.bot]?.label ?? ''}`
+                            : m.id === room.host
+                              ? 'Ведущий'
+                              : 'Участник'}
                           {gameMode === 'battle' &&
                             ` · ${m.team === 'red' ? 'красные' : m.team === 'blue' ? 'синие' : 'без команды'}`}
                         </small>
@@ -1572,7 +1598,7 @@ export default function RoomApp({ id }: { id: string }) {
                       {/* Микрофон рядом с именем, а не в отдельном разделе
                           настроек: заглушают конкретного человека и обычно
                           прямо сейчас, глядя на список говорящих. */}
-                      {host && m.id !== room.host && (
+                      {host && m.id !== room.host && !m.bot && (
                         <button
                           type="button"
                           className={`voice-mute ${voiceMuted.has(m.id) ? 'is-muted' : ''}`}
@@ -1598,12 +1624,16 @@ export default function RoomApp({ id }: { id: string }) {
                         </button>
                       )}
                     </div>
+                    {/* Состояний два вместо прежнего «в сети / не в сети»:
+                        ушедшие до таблицы просто не доходят, а всё, что между, —
+                        это «отошёл», то есть свернул вкладку или
+                        переподключается. */}
                     <span
                       className={`col-status ${
-                        now - m.lastSeen < 15000 ? 'is-online' : 'is-offline'
+                        isOnline(m.lastSeen, now) ? 'is-online' : 'is-away'
                       }`}
                     >
-                      {now - m.lastSeen < 15000 ? 'в сети' : 'не в сети'}
+                      {isOnline(m.lastSeen, now) ? 'в сети' : 'отошёл'}
                     </span>
                     <span
                       className={`col-num col-hp ${
@@ -1623,7 +1653,7 @@ export default function RoomApp({ id }: { id: string }) {
                       </>
                     )}
                     <span className="col-num col-ping">
-                      {now - m.lastSeen < 15000 ? `${m.ping} мс` : '—'}
+                      {isOnline(m.lastSeen, now) ? `${m.ping} мс` : '—'}
                     </span>
                   </div>
                   ))}
@@ -2189,6 +2219,14 @@ export default function RoomApp({ id }: { id: string }) {
                   onSettings={(patch) =>
                     void act({ type: 'room.settings', patch })
                   }
+                />
+              )}
+              {settingsSection === 'bots' && (
+                <BotsPanel
+                  s={s}
+                  host={host}
+                  members={room.members}
+                  onAct={(op) => void act(op)}
                 />
               )}
               {settingsSection === 'world' && (

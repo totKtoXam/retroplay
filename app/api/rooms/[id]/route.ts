@@ -11,19 +11,14 @@ import {
 } from '@/db/server';
 import { ensureCombatColumns } from '@/db/combat';
 import type { LiveView } from '@/worker/room-hub';
+import { assembleState } from '@/lib/room-store';
+import { publicState, cleanText, type RoomState } from '@/lib/model';
 import {
-  applyUndo,
-  assembleState,
-  diffForUndo,
-  planWrite,
-  type NoteRow,
-} from '@/lib/room-store';
-import {
-  applyOperation,
-  publicState,
-  cleanText,
-  type RoomState,
-} from '@/lib/model';
+  checkBotSlots,
+  commitOperation,
+  noteRows,
+  occupiedSlots,
+} from '@/db/room-ops';
 type Context = { params: Promise<{ id: string }> };
 type Row = {
   id: string;
@@ -32,18 +27,6 @@ type Row = {
   version: number;
   created: number;
 };
-
-/** Members unseen for longer than this no longer occupy a player slot. */
-const ACTIVE_MEMBER_MS = 60_000;
-
-/** The room's cards (lib/room-store.ts). */
-async function noteRows(id: string) {
-  const { results } = await db()
-    .prepare('SELECT id,position,data FROM notes WHERE room=?')
-    .bind(id)
-    .all<NoteRow>();
-  return results;
-}
 
 async function buildRoomSnapshot(
   id: string,
@@ -144,10 +127,7 @@ export async function GET(request: Request, context: Context) {
           .bind(id, r.host)
           .first<{ name: string }>();
 
-        const count = await db()
-          .prepare('SELECT COUNT(*) AS n FROM members WHERE room=? AND seen>?')
-          .bind(id, Date.now() - ACTIVE_MEMBER_MS)
-          .first<{ n: number }>();
+        const occupied = await occupiedSlots(id, roomState);
 
         return json({
           join: true,
@@ -157,7 +137,7 @@ export async function GET(request: Request, context: Context) {
           title: roomState.title,
           theme: roomState.theme,
           hostName: hostMember?.name || 'Ведущий',
-          membersCount: count?.n || 0,
+          membersCount: occupied,
           maxPlayers: access.maxPlayers || 8,
         });
       }
@@ -167,10 +147,7 @@ export async function GET(request: Request, context: Context) {
         .bind(id, r.host)
         .first<{ name: string }>();
 
-      const count = await db()
-        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=? AND seen>?')
-        .bind(id, Date.now() - ACTIVE_MEMBER_MS)
-        .first<{ n: number }>();
+      const occupied = await occupiedSlots(id, roomState);
 
       return json({
         join: true,
@@ -178,7 +155,7 @@ export async function GET(request: Request, context: Context) {
         title: roomState.title,
         theme: roomState.theme,
         hostName: hostMember?.name || 'Ведущий',
-        membersCount: count?.n || 0,
+        membersCount: occupied,
         maxPlayers: access.maxPlayers || 8,
       });
     }
@@ -211,7 +188,7 @@ export async function POST(request: Request, context: Context) {
       return json({ error: 'Откройте приложение заново' }, 401);
     }
     const op = await payload(request);
-    let r = await db()
+    const r = await db()
       .prepare('SELECT * FROM rooms WHERE id=?')
       .bind(id)
       .first<Row>();
@@ -239,11 +216,8 @@ export async function POST(request: Request, context: Context) {
         }
       }
 
-      const count = await db()
-        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=? AND seen>?')
-        .bind(id, Date.now() - ACTIVE_MEMBER_MS)
-        .first<{ n: number }>();
-      if ((count?.n || 0) >= maxPlayers) throw Error('Комната заполнена');
+      const occupied = await occupiedSlots(id, roomState);
+      if (occupied >= maxPlayers) throw Error('Комната заполнена');
 
       const existing = await db()
         .prepare(
@@ -290,11 +264,8 @@ export async function POST(request: Request, context: Context) {
 
       if (roomState.archived) throw Error('Комната закрыта');
 
-      const count = await db()
-        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=? AND seen>?')
-        .bind(id, Date.now() - ACTIVE_MEMBER_MS)
-        .first<{ n: number }>();
-      if ((count?.n || 0) >= maxPlayers)
+      const occupied = await occupiedSlots(id, roomState);
+      if (occupied >= maxPlayers)
         throw Error('В комнате не осталось свободного места');
 
       await db()
@@ -323,15 +294,12 @@ export async function POST(request: Request, context: Context) {
     if (op.type === 'join') {
       const name = cleanText(op.name, 40);
       if (!name) throw Error('Введите ваше имя');
-      const count = await db()
-        .prepare('SELECT COUNT(*) AS n FROM members WHERE room=? AND seen>?')
-        .bind(id, Date.now() - ACTIVE_MEMBER_MS)
-        .first<{ n: number }>();
+      const occupied = await occupiedSlots(id, roomState);
       const exists = await db()
         .prepare('SELECT session FROM members WHERE room=? AND session=?')
         .bind(id, self)
         .first();
-      if (!exists && (count?.n || 0) >= maxPlayers)
+      if (!exists && occupied >= maxPlayers)
         throw Error('Комната заполнена');
 
       if (
@@ -353,7 +321,7 @@ export async function POST(request: Request, context: Context) {
       }
 
       const colors = ['#368c78', '#c38464', '#827ba9', '#5b8ba6', '#b59848'];
-      const color = colors[(count?.n || 0) % colors.length];
+      const color = colors[occupied % colors.length];
       await db()
         .prepare(
           'INSERT INTO members (room,session,name,color,seen,pose,ping,mood,hat,immune_until) VALUES (?,?,?,?,?,?,0,?,?,?) ON CONFLICT(room,session) DO UPDATE SET name=excluded.name,seen=excluded.seen',
@@ -455,74 +423,9 @@ export async function POST(request: Request, context: Context) {
       await notifyMember(id, self);
       return json({ ok: true });
     }
-    for (let attempt = 0; attempt < 5; attempt++) {
-      if (attempt)
-        r = await db()
-          .prepare('SELECT * FROM rooms WHERE id=?')
-          .bind(id)
-          .first<Row>();
-      if (!r) throw Error('Комната не найдена');
-      const rows = await noteRows(id);
-      const current = assembleState(r.state, rows);
-      let updated: RoomState;
-      if (op.type === 'undo') {
-        const last = await db()
-          .prepare(
-            'SELECT author,before FROM history WHERE room=? AND version=?',
-          )
-          .bind(id, r.version)
-          .first<{ author: string; before: string }>();
-        if (!last || last.author !== self)
-          throw Error(
-            'Отмена доступна только для вашего последнего действия, пока комнату не изменил другой участник',
-          );
-        updated = applyUndo(current, JSON.parse(last.before));
-      } else updated = applyOperation(current, op, self, r.host);
-      // One transaction; every write is guarded by the version read above, so a concurrent
-      // change makes the whole batch a no-op and the loop retries on fresh data.
-      const write = planWrite(r.state, rows, updated);
-      const guard = 'EXISTS(SELECT 1 FROM rooms WHERE id=? AND version=?)';
-      const results = await db().batch([
-        db()
-          .prepare(
-            'INSERT INTO history (room,version,author,before,action,at) SELECT id,version+1,?,?,?,? FROM rooms WHERE id=? AND version=?',
-          )
-          .bind(
-            self,
-            JSON.stringify(diffForUndo(current, updated)),
-            String(op.type),
-            Date.now(),
-            id,
-            r.version,
-          ),
-        db()
-          .prepare(
-            `INSERT INTO notes (room,id,position,data) SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.position'),json_extract(value,'$.data') FROM json_each(?) WHERE ${guard} ON CONFLICT(room,id) DO UPDATE SET position=excluded.position,data=excluded.data`,
-          )
-          .bind(id, JSON.stringify(write.upsert), id, r.version),
-        db()
-          .prepare(
-            `DELETE FROM notes WHERE room=? AND id IN (SELECT value FROM json_each(?)) AND ${guard}`,
-          )
-          .bind(id, JSON.stringify(write.remove), id, r.version),
-        db()
-          .prepare(
-            'UPDATE rooms SET state=COALESCE(?,state),version=version+1 WHERE id=? AND version=?',
-          )
-          .bind(write.state, id, r.version),
-        db()
-          .prepare('DELETE FROM history WHERE room=? AND version<?')
-          .bind(id, r.version - 39),
-      ]);
-      if (results[3].meta.changes) {
-        await notifyRoom(id);
-        return json({
-          ok: true,
-          version: r.version + 1,
-          state: publicState(updated, self, r.host),
-        });
-      }
-    }
+    if (op.type === 'bots.add') await checkBotSlots(id, roomState, op);
+    const done = await commitOperation(id, op, self, r);
+    if (done) return json(done);
     return json(
       { error: 'Комнату обновил другой участник. Повторите действие.' },
       409,

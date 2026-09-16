@@ -53,6 +53,16 @@ const ROOM = args.room || '';
 const COUNT = Math.max(1, Math.min(16, Number(args.count) || 6));
 const MINUTES = args.minutes === undefined ? 20 : Number(args.minutes);
 const INVITE = args.invite || '';
+/**
+ * Сторона ботов: `red`, `blue` или `auto` (как раскидает сервер).
+ *
+ * Автобаланс сервера считает всех, кто когда-либо заходил в комнату, — включая
+ * давно ушедших: операции «выйти» в игре нет, и строки участников копятся. В
+ * обжитой комнате предсказать, куда он поставит новичка, невозможно, а набрать
+ * ровные составы нужно именно предсказуемо. Свою сторону игрок вправе выбрать
+ * сам, этим и пользуемся.
+ */
+const TEAM = ['red', 'blue'].includes(args.team) ? args.team : '';
 const REPORT_PATH =
   process.env.BOTS_REPORT || path.join(process.cwd(), 'scratchpad', 'bots-report.json');
 
@@ -84,8 +94,9 @@ if (!ROOM || args.help === 'true') {
       'Боты для боевой комнаты Jinaly · Retro 3D.',
       '',
       'node --experimental-strip-types scripts/bots.mjs --url http://host:port --room <id> \\',
-      '     [--count 6] [--minutes 20] [--names Алма,Ерлан] [--invite <token>]',
+      '     [--count 6] [--minutes 20] [--names Алма,Ерлан] [--invite <token>] [--team red]',
       '',
+      '--team red|blue — все боты встают в одну сторону (по умолчанию как раскидает сервер).',
       '--minutes 0 — работать до Ctrl+C. Отчёт: ' + REPORT_PATH + ' (или $BOTS_REPORT).',
     ].join('\n'),
   );
@@ -761,6 +772,14 @@ class Bot {
     }
     await this.request('POST', ROOM_PATH, { type: 'profile', color: this.color });
     await this.refresh();
+    // Переход в свою сторону в бою стоит очка: сервер списывает убийство, чтобы
+    // невыгодно было перебегать к выигрывающим. Для бота, который только вошёл,
+    // это лишняя строка в таблице, поэтому переходим только если сервер поставил
+    // не туда.
+    if (TEAM && this.team !== TEAM) {
+      await this.request('POST', ROOM_PATH, { type: 'team.set', session: this.id, team: TEAM });
+      await this.refresh();
+    }
     this.graceUntil = Date.now() + 3000;
   }
 

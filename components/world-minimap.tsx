@@ -1,21 +1,7 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import type { GameMap } from '@/lib/maps/types';
-
-/**
- * Что миникарта показывает про одного бойца. Свои — всегда; враги — только
- * засвеченные (lib/spotting.ts), и `fresh` гаснет по мере того, как отметка
- * стареет: на плане остаётся последнее известное место, а не текущее.
- */
-export type MinimapBlip = {
-  x: number;
-  z: number;
-  team?: string;
-  dead?: boolean;
-  enemy?: boolean;
-  /** 1 — только что видели, 0 — отметка вот-вот погаснет. */
-  fresh?: number;
-};
+import type { MinimapBlip } from '@/lib/minimap-blips';
 /** Снимок кадра: своя поза приходит из движка, чужие — из последнего состояния комнаты. */
 export type MinimapFrame = { x: number; z: number; yaw: number; blips: MinimapBlip[] };
 
