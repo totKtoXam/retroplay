@@ -98,6 +98,7 @@ import {
 import { SNIPER_ZOOM_LEVELS, SNIPER_ZOOM_FOVS } from './world-constants';
 
 import { readAimModes, type WeaponAimModes } from '@/lib/aim-settings';
+import { PREF_KEYS, readChoice, writePref } from '@/lib/user-prefs';
 import {
   PAINT_SIGHT_OPTIONS,
   DEFAULT_PAINT_SIGHT,
@@ -302,7 +303,12 @@ export default function World(props: Props) {
     // Читаем только после монтирования: на сервере localStorage нет, и разметка
     // первого кадра разошлась бы с гидрацией. `storage` заодно подхватывает
     // выбор, сделанный в соседней вкладке.
-    const sync = () => setPaintSight(readPaintSight());
+    const sync = () => {
+      setPaintSight(readPaintSight());
+      setConfettiStyle(readChoice(PREF_KEYS.confettiStyle, CONFETTI.map((c) => c.id), 'classic'));
+      setGrenadeStyle(readChoice(PREF_KEYS.grenadeStyle, GRENADES.map((g) => g.id), 'pinata'));
+      setFireworkStyle(readChoice(PREF_KEYS.fireworkStyle, FIREWORKS.map((f) => f.id), 'salute'));
+    };
     sync();
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
@@ -2682,9 +2688,16 @@ export default function World(props: Props) {
             if (group === 'sight') applyPaintSight(id as PaintSight);
             else if (current.id === 'paint')
               props.onPaintColor(PAINTS.find((p) => p.id === id)!.color);
-            else if (current.id === 'confetti') setConfettiStyle(id);
-            else if (current.id === 'grenade') setGrenadeStyle(id);
-            else if (current.id === 'sniper') setFireworkStyle(id);
+            else if (current.id === 'confetti') {
+              setConfettiStyle(id);
+              writePref(PREF_KEYS.confettiStyle, id);
+            } else if (current.id === 'grenade') {
+              setGrenadeStyle(id);
+              writePref(PREF_KEYS.grenadeStyle, id);
+            } else if (current.id === 'sniper') {
+              setFireworkStyle(id);
+              writePref(PREF_KEYS.fireworkStyle, id);
+            }
             else if (current.id === 'sticky') setTabletZone(id);
             else if (current.id === 'pointer') openTabletInWorld();
             engine.current?.closeInventory();

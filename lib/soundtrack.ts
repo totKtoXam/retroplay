@@ -1,5 +1,6 @@
 import { prepareTrack } from './audio-convert';
 import { musicGain, trackTitleFromFile } from './music-mix';
+import { SETTINGS_APPLIED_EVENT } from './settings-sync';
 import {
   deleteStoredTrack,
   loadStoredTracks,
@@ -276,6 +277,8 @@ const musicListeners = new Set<() => void>();
 /** Blob-ссылки загруженных треков: живут, пока открыта страница. */
 const customUrls = new Map<string, string>();
 let libraryLoaded = false;
+/** Сохранённый свой трек: применяется, когда его файл подгрузится из IndexedDB. */
+let savedCustomTrack = '';
 /** Растёт на каждый запуск и паузу: ответ устаревшего `play()` не должен перетирать новый. */
 let playToken = 0;
 
@@ -296,6 +299,7 @@ function savePrefs() {
       JSON.stringify({
         volume: currentMusicState.volume,
         background: currentMusicState.background,
+        track: currentMusicState.track,
       }),
     );
   } catch {
@@ -314,10 +318,7 @@ function customTrack(id: string, name: string): PlaylistTrack {
   };
 }
 
-/** Настройки и свои треки подтягиваются при первой подписке — только в браузере. */
-function loadLibrary() {
-  if (libraryLoaded || typeof window === 'undefined') return;
-  libraryLoaded = true;
+function loadPrefs() {
   try {
     const prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
     const patch: Partial<MusicState> = {};
@@ -325,10 +326,28 @@ function loadLibrary() {
       patch.volume = Math.max(0, Math.min(1, prefs.volume));
     if (typeof prefs.background === 'boolean')
       patch.background = prefs.background;
-    if (Object.keys(patch).length) setState(patch);
+    if (typeof prefs.track === 'string') {
+      // Играющий трек не переключаем; свой трек — только если его файл уже здесь.
+      if (currentMusicState.playlist.some((t) => t.id === prefs.track)) {
+        if (!currentMusicState.playing) patch.track = prefs.track;
+      } else savedCustomTrack = prefs.track;
+    }
+    if (Object.keys(patch).length) {
+      setState(patch);
+      applyGain();
+    }
   } catch {
     // Повреждённые настройки — остаёмся на значениях по умолчанию.
   }
+}
+
+/** Настройки и свои треки подтягиваются при первой подписке — только в браузере. */
+function loadLibrary() {
+  if (libraryLoaded || typeof window === 'undefined') return;
+  libraryLoaded = true;
+  loadPrefs();
+  // Настройки с аккаунта пришли уже после загрузки страницы (lib/settings-sync.ts).
+  window.addEventListener(SETTINGS_APPLIED_EVENT, loadPrefs);
   void loadStoredTracks()
     .then((stored) => {
       const added = stored.filter((t) => !customUrls.has(t.id));
@@ -339,6 +358,11 @@ function loadLibrary() {
           ...currentMusicState.playlist,
           ...added.map((t) => customTrack(t.id, t.name)),
         ],
+        // Свой трек выбирается, только когда его файл нашёлся на устройстве.
+        ...(!currentMusicState.playing &&
+        added.some((t) => t.id === savedCustomTrack)
+          ? { track: savedCustomTrack }
+          : {}),
       });
     })
     .catch(() => {
@@ -367,6 +391,7 @@ export async function playMusic(id = currentMusicState.track) {
     if (!sharedPlayer) sharedPlayer = new Soundtrack();
     applyGain();
     setState({ track: trackId, error: undefined });
+    savePrefs();
     if (url) await sharedPlayer.playFile(url, () => void nextMusic());
     else await sharedPlayer.play(trackId);
     if (token !== playToken) return;
