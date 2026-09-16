@@ -7,12 +7,14 @@ type SavedMember = Omit<HubMember, 'weapon'> & {
 type Checkpoint = {
   version: 1; roomId: string; map: string; teams: boolean;
   match: HubState['match']; effects: HubState['effects']; seq: number; members: SavedMember[];
+  /** Партия «Предателя»; в чекпоинтах до режима её нет. */
+  impostor?: HubState['impostor'];
 };
 /** JSON only; absolute server deadlines survive restarts without restarting their timers. */
 export function encodeCheckpoint(roomId: string, hub: HubState): string {
   const saved: Checkpoint = {
     version: 1, roomId, map: hub.room.map, teams: hub.room.teams,
-    match: hub.match, effects: hub.effects, seq: hub.seq,
+    match: hub.match, effects: hub.effects, seq: hub.seq, impostor: hub.impostor,
     members: [...hub.members.values()].map(({ weapon, ...member }) => ({
       ...member, weapon: weapon && { ...weapon, magazine: weapon.magazine.snapshot() },
     })),
@@ -32,6 +34,7 @@ export function restoreCheckpoint(roomId: string, hub: HubState, data: string): 
   hub.match = saved.match;
   hub.effects = saved.effects;
   hub.seq = saved.seq;
+  if (saved.impostor) hub.impostor = saved.impostor;
   for (const previous of saved.members) {
     const current = hub.members.get(previous.id);
     if (!current) continue;

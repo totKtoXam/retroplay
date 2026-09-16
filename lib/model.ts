@@ -7,6 +7,7 @@ import {
   modeOfMap,
   type GameMode,
 } from './maps/catalog.ts';
+import { IMPOSTOR_LIMITS, type ImpostorSettings } from './impostor-settings.ts';
 import {
   anchorFor,
   dayMoment,
@@ -406,6 +407,8 @@ export type RoomState = {
   matchMinutes?: number;
   /** Rounds won that take the match in rounds mode. */
   roundWins?: number;
+  /** Настройки режима «Предатель»; недостающее берётся по умолчанию (lib/impostor.ts). */
+  impostor?: Partial<ImpostorSettings>;
   access?: RoomAccess;
   readyCheck?: {
     active: boolean;
@@ -761,7 +764,7 @@ export function applyOperation(
     // The mode comes first: a map only counts if it belongs to that mode. Switching the
     // mode moves the room to that mode's default map when the old one does not fit.
     if ('mode' in p || 'map' in p) {
-      const mode = ('mode' in p ? oneOf(p.mode, ['retro', 'battle']) : modeOf(s)) as GameMode;
+      const mode = ('mode' in p ? oneOf(p.mode, ['retro', 'battle', 'impostor']) : modeOf(s)) as GameMode;
       const map = 'map' in p ? oneOf(p.map, MAP_IDS) : (s.map ?? 'hub');
       if (modeOfMap(map) !== mode) {
         if ('map' in p) throw Error('Эта карта не для выбранного режима');
@@ -780,6 +783,18 @@ export function applyOperation(
       s.matchMode = oneOf(p.matchMode, ['deathmatch', 'rounds']) as
         | 'deathmatch'
         | 'rounds';
+    if ('impostor' in p) {
+      const src = p.impostor as Record<string, unknown> | null;
+      if (!src || typeof src !== 'object' || Array.isArray(src)) throw Error('Некорректные настройки режима');
+      const next: Partial<ImpostorSettings> = { ...s.impostor };
+      for (const [key, [min, max]] of Object.entries(IMPOSTOR_LIMITS) as [keyof typeof IMPOSTOR_LIMITS, readonly [number, number]][])
+        if (key in src) {
+          next[key] = finite(src[key], min, max);
+          if (!Number.isInteger(next[key])) throw Error('Значение должно быть целым числом');
+        }
+      if ('confirmEjects' in src) next.confirmEjects = !!src.confirmEjects;
+      s.impostor = next;
+    }
     for (const [key, min, max] of [
       ['killLimit', 0, 200],
       ['matchMinutes', 0, 60],

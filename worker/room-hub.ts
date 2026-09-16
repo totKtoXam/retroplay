@@ -3,11 +3,10 @@ import { DurableObject } from 'cloudflare:workers';
 import { ensureCombatColumns } from '@/db/combat';
 import { controlWeapon, weaponReply } from '@/lib/weapon-authority';
 import type { Person, WorldEffect } from '@/lib/model';
-import { getMap } from '@/lib/maps';
 import type { BotBrain } from '@/lib/bot-brain';
 import { isBotId } from '@/lib/bot-levels';
+import { impostorView, newImpostorGame, type ImpostorView } from '@/lib/impostor';
 import {
-  applyPresence,
   balanceTeam,
   changeMap,
   newMatch,
@@ -17,8 +16,9 @@ import {
   effectsSince,
   fireEffect,
   humansOnline,
-  isFrozen,
+  impostorAction,
   memberFromRow,
+  presence,
   publicEffects,
   publicMembers,
   resolveCombat,
@@ -46,6 +46,8 @@ export type LiveView = {
   effects: WorldEffect[];
   /** Team battle score and clock; free-for-all rooms keep it at zero. */
   match: HubMatch;
+  /** Партия «Предателя» глазами получателя; только в этом режиме. */
+  impostor?: ImpostorView;
 };
 
 /**
@@ -94,18 +96,11 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
   async presence(room: string, self: string, op: Record<string, unknown>, since: number | null) {
     const hub = await this.state(room);
     const now = Date.now();
-    applyPresence(
-      await this.member(hub, self),
-      op,
-      now,
-      getMap(hub.room.map),
-      isFrozen(hub, now),
-      hub.room.shieldSeconds * 1000,
-    );
+    presence(hub, await this.member(hub, self), op, now);
     const changed = resolveCombat(hub, now);
     this.markDirty(changed);
     this.wakeBots(hub);
-    return this.view(hub, now, since);
+    return this.view(hub, now, since, self);
   }
 
   async effect(room: string, self: string, op: Record<string, unknown>) {
@@ -125,12 +120,34 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     return this.acknowledge(controlWeapon(member, op, Date.now()));
   }
 
-  async live(room: string, since: number | null) {
+  async live(room: string, since: number | null, self?: string) {
     const hub = await this.state(room);
     const now = Date.now();
     if (resolveCombat(hub, now)) this.markDirty();
     this.wakeBots(hub);
-    return this.view(hub, now, since);
+    return this.view(hub, now, since, self);
+  }
+
+  /** Действие режима «Предатель» по HTTP (без сокета). */
+  async impostor(room: string, self: string, op: Record<string, unknown>) {
+    const hub = await this.state(room);
+    await this.member(hub, self);
+    return this.impostorAct(hub, self, op);
+  }
+
+  /**
+   * Ход партии меняет роли, жизни и места за столом — горячее состояние, которое должно
+   * пережить перезапуск объекта: сразу в checkpoint и сразу всем сокетам.
+   */
+  private impostorAct(hub: HubState, self: string, op: Record<string, unknown>) {
+    const now = Date.now();
+    const result = impostorAction(hub, self, op, now);
+    if (result.ok) {
+      resolveCombat(hub, now);
+      this.markDirty();
+      this.sendTicks(hub, now, []);
+    }
+    return result;
   }
 
   /**
@@ -202,7 +219,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     // Catch the new socket up on the last couple of seconds; clients dedupe effects by id.
     const now = Date.now();
     if (resolveCombat(hub, now)) this.markDirty();
-    server.send(JSON.stringify({ t: 'tick', ...this.view(hub, now, now - 2000) }));
+    server.send(JSON.stringify({ t: 'tick', ...this.view(hub, now, now - 2000, self) }));
     this.startTicking();
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -221,14 +238,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     if (!hub || !m) return;
     const now = Date.now();
     if (msg.t === 'presence') {
-      applyPresence(
-        m,
-        msg,
-        now,
-        getMap(hub.room.map),
-        isFrozen(hub, now),
-        hub.room.shieldSeconds * 1000,
-      );
+      presence(hub, m, msg, now);
       this.markDirty(false);
     } else if (msg.t === 'effect') {
       let reply;
@@ -246,6 +256,9 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       ws.send(JSON.stringify({ t: 'pong', at: msg.at }));
     } else if (msg.t === 'voice') {
       this.relayVoice(hub, self, msg);
+    } else if (msg.t === 'impostor') {
+      const result = this.impostorAct(hub, self, msg);
+      ws.send(JSON.stringify({ t: 'impostor', id: typeof msg.id === 'string' ? msg.id : '', ...result }));
     }
   }
 
@@ -338,12 +351,26 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     if (resolveCombat(hub, now)) this.markDirty();
     const fresh = hub.effects.filter((e) => e.seq > this.sentSeq);
     this.sentSeq = hub.seq;
-    this.broadcast(
-      JSON.stringify({
-        t: 'tick',
-        ...this.snapshot(hub, now, fresh),
-      }),
-    );
+    this.sendTicks(hub, now, fresh);
+  }
+
+  /**
+   * Рассылка такта. Обычно снимок один на всех; в «Предателе» — свой каждому: роли,
+   * задания и призраки у всех разные, а общий снимок выдал бы тайну любому, кто
+   * откроет инструменты разработчика.
+   */
+  private sendTicks(hub: HubState, now: number, effects: HubState['effects']) {
+    if (hub.room.mode !== 'impostor') {
+      this.broadcast(JSON.stringify({ t: 'tick', ...this.snapshot(hub, now, effects) }));
+      return;
+    }
+    for (const [ws, id] of this.sockets) {
+      try {
+        ws.send(JSON.stringify({ t: 'tick', ...this.snapshot(hub, now, effects, id) }));
+      } catch {
+        this.sockets.delete(ws);
+      }
+    }
   }
 
   private broadcast(message: string) {
@@ -356,8 +383,8 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     }
   }
 
-  private view(hub: HubState, now: number, since: number | null): LiveView {
-    return this.snapshot(hub, now, effectsSince(hub, now, since));
+  private view(hub: HubState, now: number, since: number | null, self?: string): LiveView {
+    return this.snapshot(hub, now, effectsSince(hub, now, since), self);
   }
 
   /** Build every transport snapshot from the same live-state contract. */
@@ -365,12 +392,15 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     hub: HubState,
     now: number,
     effects: HubState['effects'],
+    viewer?: string,
   ): LiveView {
+    const impostor = hub.room.mode === 'impostor' && viewer !== undefined;
     return {
       now,
-      members: publicMembers(hub, now),
+      members: publicMembers(hub, now, impostor ? viewer : undefined),
       effects: publicEffects(effects, hub.room.anonymous),
       match: hub.match,
+      ...(impostor ? { impostor: impostorView(hub, viewer) } : {}),
     };
   }
 
@@ -401,6 +431,11 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       effects: [],
       seq: 0,
       match: newMatch(settings, Date.now()),
+      impostor: newImpostorGame(),
+      connected: (id) => {
+        for (const owner of this.sockets.values()) if (owner === id) return true;
+        return false;
+      },
     };
     for (const r of members.results as Record<string, unknown>[]) {
       const m = memberFromRow(r);

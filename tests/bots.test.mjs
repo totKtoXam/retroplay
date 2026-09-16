@@ -1,3 +1,4 @@
+import { newImpostorGame } from '../lib/impostor.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyOperation, initialState } from '../lib/model.ts';
@@ -42,6 +43,7 @@ function hubFor(state, over = {}) {
     effects: [],
     seq: 0,
     match: { mode: 'deathmatch', score: { red: 0, blue: 0 }, round: 1, phase: 'live', until: 0 },
+    impostor: newImpostorGame(),
   };
   return { hub, human };
 }

@@ -11,4 +11,5 @@ export const HUB: GameMap = {
   ceilingHeight: getCeilingHeight,
   // The hub is a meeting place, not a battle map: everyone keeps the single plaza spawn.
   spawns: { red: [{ x: 0, z: 4 }], blue: [{ x: 0, z: 4 }] },
+  stations: [],
 };

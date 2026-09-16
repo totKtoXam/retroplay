@@ -19,6 +19,7 @@ import {
   voiceSilenced,
 } from '../lib/room-hub-core.ts';
 import { isBlocked3D } from '../lib/world-collision.ts';
+import { IMPOSTOR_DEFAULTS, newImpostorGame } from '../lib/impostor.ts';
 import { getMap } from '../lib/maps/index.ts';
 
 const T = 1_000_000;
@@ -60,6 +61,8 @@ const room = (over = {}) => ({
   bots: [],
   archived: false,
   map: 'hub',
+  mode: 'retro',
+  impostor: { ...IMPOSTOR_DEFAULTS },
   teams: false,
   friendlyFire: false,
   friendlyFirePercent: 50,
@@ -75,6 +78,7 @@ const hub = (...members) => ({
   effects: [],
   seq: 0,
   match: { mode: 'deathmatch', score: { red: 0, blue: 0 }, round: 1, phase: 'live', until: 0 },
+  impostor: newImpostorGame(),
 });
 // Shooter stands at spawn (0,0,4); the victim at the origin is hit in the body.
 const shot = (kind = 'paint', over = {}) => ({

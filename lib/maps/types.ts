@@ -50,6 +50,12 @@ export type MapCylinder = {
 export type MapSphere = { x: number; y: number; z: number; r: number; color: string };
 export type MapWater = Bounds & { y: number; color?: string };
 export type MapLight = { x: number; y: number; z: number; color: string; intensity: number; distance: number };
+/** Kind of mini-game at a task station (режим «Предатель», lib/impostor.ts). */
+export type TaskKind = 'wires' | 'hold' | 'calibrate' | 'code' | 'upload';
+/** A place where a crewmate does a task: the player must stand within reach of (x, z). */
+export type TaskStation = { id: string; kind: TaskKind; title: string; room: string; x: number; z: number };
+/** The meeting table with the emergency button at its centre. */
+export type MeetingPoint = { x: number; z: number; /** Seat ring radius around the table. */ seats: number };
 
 export type ArenaDef = {
   id: string;
@@ -71,6 +77,9 @@ export type ArenaDef = {
   water?: MapWater[];
   lights?: MapLight[];
   spawns: Record<Team, SpawnPoint[]>;
+  /** Task stations of the impostor mode. */
+  stations?: TaskStation[];
+  meeting?: MeetingPoint;
 };
 
 export type GameMap = {
@@ -85,6 +94,9 @@ export type GameMap = {
   spawns: Record<Team, SpawnPoint[]>;
   /** Set for declarative maps; the hub builds its own scene. */
   arena?: ArenaDef;
+  /** Task stations of the impostor mode; empty on other maps. */
+  stations: TaskStation[];
+  meeting?: MeetingPoint;
 };
 
 const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
@@ -163,5 +175,7 @@ export function buildArena(def: ArenaDef): GameMap {
     ceilingHeight,
     spawns: def.spawns,
     arena: def,
+    stations: def.stations ?? [],
+    meeting: def.meeting,
   };
 }

@@ -27,7 +27,29 @@ import {
 } from './model.ts';
 import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
 import { getMap } from './maps/index.ts';
-import { modeOf } from './maps/catalog.ts';
+import { modeOf, type GameMode } from './maps/catalog.ts';
+import {
+  emergency,
+  finishTask,
+  gameActive,
+  hearsVoice,
+  IMPOSTOR_DEFAULTS,
+  IMPOSTOR_LIMITS,
+  isGhost,
+  kill,
+  movementFrozen,
+  newImpostorGame,
+  report,
+  startGame,
+  startTask,
+  stopGame,
+  updateImpostor,
+  visibleTo,
+  vote,
+  type ImpostorGame,
+  type ImpostorResult,
+  type ImpostorSettings,
+} from './impostor.ts';
 import { stanceHeight, type Bounds, type GameMap, type SpawnPoint, type Team } from './maps/types.ts';
 
 /** Effects older than this are neither resolved nor sent to clients. */
@@ -114,6 +136,10 @@ export type HubRoom = {
   archived: boolean;
   /** Map id (lib/maps). */
   map: string;
+  /** Режим комнаты (lib/maps/catalog.ts). */
+  mode: GameMode;
+  /** Настройки режима «Предатель» (lib/impostor.ts). */
+  impostor: ImpostorSettings;
   /** Team battle: on for battle maps, off for the hub. */
   teams: boolean;
   friendlyFire: boolean;
@@ -140,6 +166,10 @@ export type HubState = {
   effects: HubEffect[];
   seq: number;
   match: HubMatch;
+  /** Партия режима «Предатель»; в других режимах стоит в лобби. */
+  impostor: ImpostorGame;
+  /** Открыт ли у участника сокет (ставит объект комнаты; в checkpoint не входит). */
+  connected?: (id: string) => boolean;
 };
 
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
@@ -191,6 +221,8 @@ export function roomFromState(host: string, state: Partial<RoomState>): HubRoom 
       })),
     archived: !!state.archived,
     map: getMap(state.map).id,
+    mode: modeOf(state),
+    impostor: impostorSettings(state.impostor),
     // Teams belong to the battle mode; a retrospective is free-for-all.
     teams: modeOf(state) === 'battle',
     friendlyFire: !!state.friendlyFire,
@@ -200,6 +232,18 @@ export function roomFromState(host: string, state: Partial<RoomState>): HubRoom 
     matchMinutes: clamp(state.matchMinutes ?? 10, 0, 60),
     roundWins: clamp(state.roundWins ?? 5, 1, 15),
   };
+}
+
+/** Настройки режима «Предатель» из состояния комнаты: неизвестное — по умолчанию, числа — в пределах. */
+export function impostorSettings(raw: unknown): ImpostorSettings {
+  const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const out: ImpostorSettings = { ...IMPOSTOR_DEFAULTS };
+  for (const [key, [min, max]] of Object.entries(IMPOSTOR_LIMITS) as [keyof typeof IMPOSTOR_LIMITS, readonly [number, number]][]) {
+    const value = src[key];
+    if (finite(value)) out[key] = clamp(Math.round(value), min, max);
+  }
+  if (typeof src.confirmEjects === 'boolean') out.confirmEjects = src.confirmEjects;
+  return out;
 }
 
 /** A `members` row from D1 (snake_case columns) as a hub member. */
@@ -326,6 +370,8 @@ export function applyPresence(
   frozen = false,
   /** Длительность щита возрождения, мс; 0 — щит выключен в настройках комнаты. */
   shieldMs = 5000,
+  /** Призрак режима «Предатель»: скорость проверяется, стены — нет. */
+  ghost = false,
 ) {
   const pose = sanitizePose(op.pose, map.bounds);
   const cursor = sanitizeCursor(op.cursor);
@@ -353,7 +399,8 @@ export function applyPresence(
   m.riseBudget = Math.min(1.5, (m.riseBudget ?? 1.5) + 6.5 * dt);
   const rise = pose.y - from.y;
   const verticalAllowed = rise <= m.riseBudget && -rise <= 1.5 + 26 * Math.min(dt, 0.5);
-  if (!verticalAllowed || !moveAllowed(map, from, pose, step, m.moveBudget)) {
+  const allowed = ghost ? step <= m.moveBudget : moveAllowed(map, from, pose, step, m.moveBudget);
+  if (!verticalAllowed || !allowed) {
     if (!m.refusedSince) m.refusedSince = now;
     m.positionRevision = (m.positionRevision ?? 0) + 1;
     const stance = blockedAt(map, { ...from, stance: pose.stance }) ? from.stance : pose.stance;
@@ -371,9 +418,20 @@ export function applyPresence(
     m.immuneUntil = shieldMs > 0 ? now + shieldMs : 0;
 }
 
+/** Пакет присутствия с правилами комнаты: карта, заморозка, щит и призраки. */
+export function presence(
+  state: HubState,
+  m: HubMember,
+  op: { pose?: unknown; cursor?: unknown; ping?: unknown; life?: unknown },
+  now: number,
+) {
+  const ghost = state.room.mode === 'impostor' && isGhost(state.impostor, m.id);
+  applyPresence(m, op, now, getMap(state.room.map), isFrozen(state, now), state.room.shieldSeconds * 1000, ghost);
+}
+
 export type FireResult = {
   ok: boolean;
-  reason?: 'respawning' | 'immune' | 'freeze' | 'cooldown' | 'magazine' | 'stale-life' | 'duplicate';
+  reason?: 'respawning' | 'immune' | 'freeze' | 'cooldown' | 'magazine' | 'stale-life' | 'duplicate' | 'mode';
   effect?: HubEffect;
 };
 
@@ -391,6 +449,8 @@ export function fireEffect(
   if (!isVec3(origin) || !isVec3(target) || !isVec3(normal)) throw Error('Некорректная траектория');
   if (typeof op.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(op.color))
     throw Error('Некорректный цвет');
+  // В «Предателе» оружия нет: убивает только нож предателя (lib/impostor.ts).
+  if (state.room.mode === 'impostor') return { ok: false, reason: 'mode' };
   if (isFrozen(state, now)) return { ok: false, reason: 'freeze' };
   const shooter = state.members.get(self);
   if (!shooter || shooter.hp <= 0) return { ok: false, reason: 'respawning' };
@@ -557,9 +617,10 @@ export function newMatch(room: HubRoom, now: number): HubMatch {
   };
 }
 
-/** Идёт подготовка раунда: движение, выстрелы и урон отключены. */
+/** Идёт подготовка раунда или собрание «Предателя»: движение, выстрелы и урон отключены. */
 export function isFrozen(state: HubState, now: number) {
   const m = state.match;
+  if (state.room.mode === 'impostor') return movementFrozen(state.impostor);
   return (
     state.room.teams &&
     m.mode === 'rounds' &&
@@ -650,6 +711,7 @@ export function updateMatch(state: HubState, now: number) {
  */
 export function changeMap(state: HubState, now: number) {
   state.effects = [];
+  state.impostor = { ...newImpostorGame(), game: state.impostor.game };
   state.match = newMatch(state.room, now);
   for (const m of state.members.values()) {
     m.kills = 0;
@@ -781,6 +843,7 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
  */
 export function resolveCombat(state: HubState, now: number) {
   let changed = updateMatch(state, now);
+  changed = updateImpostor(state, now, (id, seat) => seatMember(state, id, seat)) || changed;
   changed = revive(state, now) || changed;
   const before = state.effects.length;
   state.effects = state.effects.filter((e) => e.at > now - EFFECT_TTL_MS);
@@ -834,6 +897,7 @@ export function voiceAudience(
   from: string,
   channel: 'team' | 'all',
 ): (id: string) => boolean {
+  if (state.room.mode === 'impostor') return (id) => id !== from && hearsVoice(state.impostor, from, id);
   const author = state.members.get(from);
   if (channel === 'all' || !state.room.teams || !author?.team) return (id) => id !== from;
   const team = author.team;
@@ -856,11 +920,16 @@ export function voiceSilenced(state: HubState, id: string) {
  * вырезать по присутствию здесь нельзя: из скрытой вкладки пакеты не уходят, и
  * получатель вырезал бы в том числе самого себя.
  */
-export function publicMembers(state: HubState, now: number): Person[] {
+export function publicMembers(state: HubState, now: number, viewer?: string): Person[] {
   const anonymous = state.room.anonymous;
   const bots = new Map(state.room.bots.map((b) => [b.id, b.level]));
+  // В «Предателе» живые не видят призраков: снимок собирается для каждого получателя.
+  const hidden =
+    viewer !== undefined && state.room.mode === 'impostor' && gameActive(state.impostor)
+      ? (id: string) => !visibleTo(state.impostor, viewer, id)
+      : () => false;
   return [...state.members.values()]
-    .filter((m) => m.seen > now - ROOM_MEMORY_MS)
+    .filter((m) => m.seen > now - ROOM_MEMORY_MS && !hidden(m.id))
     .sort((a, b) => b.seen - a.seen)
     .slice(0, 100)
     .map((m) => ({
@@ -1001,4 +1070,45 @@ export function stepBots(state: HubState, brains: Map<string, BotBrain>, now: nu
     if (shot && fireEffect(state, m.id, shot, now).ok) fired = true;
   }
   return fired;
+}
+
+// ------------------------------------------------------------------ «Предатель»
+
+/** Новая жизнь на месте за столом: клиент телепортируется, увидев смену жизни. */
+export function seatMember(state: HubState, id: string, seat: SpawnPoint) {
+  const m = state.members.get(id);
+  if (!m) return;
+  m.life += 1;
+  m.hp = 100;
+  m.respawnAt = 0;
+  m.immuneUntil = 0;
+  m.recentDamage = {};
+  placeAt(m, seat);
+}
+
+/** Действие игрока в режиме «Предатель». Сервер решает всё сам: клиент только просит. */
+export function impostorAction(state: HubState, self: string, op: Record<string, unknown>, now: number): ImpostorResult {
+  if (state.room.mode !== 'impostor') return { ok: false, error: 'Комната не в режиме «Предатель»' };
+  if (state.room.archived) return { ok: false, error: 'Комната в архиве' };
+  const place = (id: string, seat: SpawnPoint) => seatMember(state, id, seat);
+  switch (op.action) {
+    case 'start':
+      return startGame(state, self, now, place);
+    case 'stop':
+      return stopGame(state, self);
+    case 'kill':
+      return kill(state, self, op.target, now);
+    case 'report':
+      return report(state, self, op.body, now, place);
+    case 'meeting':
+      return emergency(state, self, now, place);
+    case 'vote':
+      return vote(state, self, op.target, now);
+    case 'task.start':
+      return startTask(state, self, op.station, now);
+    case 'task.done':
+      return finishTask(state, self, op.station, now);
+    default:
+      return { ok: false, error: 'Неизвестное действие' };
+  }
 }

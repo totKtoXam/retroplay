@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { encodeCheckpoint, restoreCheckpoint } from '../lib/room-checkpoint.ts';
 import { memberFromRow, newMatch, roomFromState } from '../lib/room-hub-core.ts';
 import { memberWeapon, weaponReply } from '../lib/weapon-authority.ts';
+import { newImpostorGame } from '../lib/impostor.ts';
 function state() {
   const room = roomFromState('a', { map: 'mansion' });
   return { room, members: new Map([['a', memberFromRow({ session: 'a', name: 'current', life: 2, hp: 70 })]]),
-    match: newMatch(room, 1000), effects: [], seq: 0 };
+    match: newMatch(room, 1000), effects: [], seq: 0, impostor: newImpostorGame() };
 }
 test('JSON restart preserves match, lives, magazine, revision and reload deadline', () => {
   const source = state(), m = source.members.get('a');

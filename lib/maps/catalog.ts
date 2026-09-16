@@ -1,6 +1,6 @@
 // Which maps exist and what mode each belongs to — names only, no geometry, so the
 // lobby and lib/model.ts can reason about modes without loading every map's boxes.
-export type GameMode = 'retro' | 'battle';
+export type GameMode = 'retro' | 'battle' | 'impostor';
 
 export const MAP_CATALOG = [
   { id: 'hub', title: 'Хаб', mode: 'retro' },
@@ -8,6 +8,7 @@ export const MAP_CATALOG = [
   { id: 'bazaar', title: 'Базар', mode: 'battle' },
   { id: 'mountain', title: 'Горный лагерь', mode: 'battle' },
   { id: 'valley', title: 'Ледниковая долина', mode: 'battle' },
+  { id: 'ship', title: 'Корабль', mode: 'impostor' },
 ] as const satisfies readonly { id: string; title: string; mode: GameMode }[];
 
 export type MapId = (typeof MAP_CATALOG)[number]['id'];
@@ -20,7 +21,14 @@ export const MODES: { id: GameMode; title: string; hint: string }[] = [
     hint: 'Встреча в хабе: доска в планшете, стикеры и безобидные предметы',
   },
   { id: 'battle', title: 'Командный бой', hint: 'Две команды на боевой карте, оружие и счёт' },
+  {
+    id: 'impostor',
+    title: 'Предатель',
+    hint: 'Экипаж чинит корабль, предатели тайно мешают; собрания и голосование',
+  },
 ];
+
+const GAME_MODES: readonly string[] = ['retro', 'battle', 'impostor'];
 
 /** Maps the host can pick in this mode. */
 export const mapsForMode = (mode: GameMode) => MAP_CATALOG.filter((m) => m.mode === mode);
@@ -31,4 +39,4 @@ export const modeOfMap = (id?: string): GameMode =>
   MAP_CATALOG.find((m) => m.id === id)?.mode ?? 'retro';
 /** The mode a room is in: its own setting, or the one its map belongs to. */
 export const modeOf = (state: { mode?: string; map?: string }): GameMode =>
-  state.mode === 'battle' || state.mode === 'retro' ? state.mode : modeOfMap(state.map);
+  GAME_MODES.includes(state.mode as string) ? (state.mode as GameMode) : modeOfMap(state.map);

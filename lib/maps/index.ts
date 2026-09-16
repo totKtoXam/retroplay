@@ -2,6 +2,7 @@ import { BAZAAR } from './bazaar.ts';
 import { HUB } from './hub.ts';
 import { MANSION } from './mansion.ts';
 import { MOUNTAIN } from './mountain.ts';
+import { SHIP } from './ship.ts';
 import { VALLEY } from './valley.ts';
 import { MAP_CATALOG, type MapId } from './catalog.ts';
 import { buildArena, type GameMap } from './types.ts';
@@ -14,6 +15,7 @@ const MAPS: Record<MapId, GameMap> = {
   bazaar: buildArena(BAZAAR),
   mountain: buildArena(MOUNTAIN),
   valley: buildArena(VALLEY),
+  ship: buildArena(SHIP),
 };
 
 /** The room's map; unknown or missing ids fall back to the hub. */

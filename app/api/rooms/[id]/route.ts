@@ -67,6 +67,7 @@ async function buildRoomSnapshot(
     self,
     serverNow: live.now,
     match: live.match,
+    ...(live.impostor ? { impostor: live.impostor } : {}),
     joinRequests: pendingJoinRequests,
     effects: live.effects,
     state:
@@ -166,7 +167,7 @@ export async function GET(request: Request, context: Context) {
     const sinceParam = url.searchParams.get('sinceEffect');
     const sinceEffect = sinceParam !== null ? Number(sinceParam) : null;
 
-    const live = await roomHub(id).live(id, sinceEffect);
+    const live = await roomHub(id).live(id, sinceEffect, self);
     const snapshot = await buildRoomSnapshot(id, r, roomState, self, clientVersion, live);
     return json(snapshot);
   } catch (e) {
@@ -369,6 +370,9 @@ export async function POST(request: Request, context: Context) {
     }
     if (op.type === 'weapon') {
       return json(await roomHub(id).weapon(id, self, op));
+    }
+    if (op.type === 'impostor') {
+      return json(await roomHub(id).impostor(id, self, op));
     }
     if (op.type === 'history') {
       const { results } = await db()
