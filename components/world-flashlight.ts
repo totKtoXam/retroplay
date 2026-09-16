@@ -9,10 +9,10 @@ import * as T from 'three';
  * — это N динамических пятен и перекомпиляция материалов на каждое включение.
  * Поэтому:
  *
- * - настоящий `SpotLight` есть только у своего игрока и висит на камере, то есть
- *   ровно один на сцену независимо от числа участников — на любом качестве;
+ * - настоящий `SpotLight` есть только у своего игрока, то есть ровно один на
+ *   сцену независимо от числа участников — на любом качестве;
  * - всем остальным фонарик виден как луч: аддитивный конус с затуханием и
- *   светящаяся линза на плече. Это два меша без освещения и без теней, они
+ *   светящаяся линза у дула оружия. Это два меша без освещения и без теней, они
  *   стоят почти ничего, но в ночном бою чужой фонарик видно за десятки метров —
  *   а именно это и важно, чтобы включённый свет не давал бесплатного
  *   преимущества.
@@ -24,6 +24,26 @@ import * as T from 'three';
 /** Длина видимого луча в метрах и радиус пятна на его конце. */
 const BEAM_LENGTH = 11;
 const BEAM_RADIUS = 2.4;
+
+/**
+ * Фонарик подствольный: светит от дула, а не из груди. Точки — в координатах
+ * пивота `gun` аватара (components/world-avatar.ts), у каждой модели своя длина
+ * ствола. Без оружия в руках (граната, планшет) свет идёт из кисти.
+ */
+const AVATAR_MUZZLE: Record<string, [number, number, number]> = {
+  paint: [0, 0.18, -0.37],
+  confetti: [0, 0.17, -0.39],
+  sniper: [0, 0.17, -0.75],
+};
+const AVATAR_HAND: [number, number, number] = [0, 0.05, -0.08];
+const muzzleScratch = new T.Vector3();
+
+/** Где у аватара дуло: точка в мире по пивоту `gun`. */
+export function avatarMuzzle(gun: T.Object3D, tool: string, target = new T.Vector3()) {
+  gun.updateWorldMatrix(true, false);
+  const [x, y, z] = gun.visible ? (AVATAR_MUZZLE[tool] ?? AVATAR_HAND) : AVATAR_HAND;
+  return gun.localToWorld(target.set(x, y, z));
+}
 
 function beamGeometry() {
   const geo = new T.ConeGeometry(BEAM_RADIUS, BEAM_LENGTH, 18, 1, true);
@@ -47,15 +67,20 @@ function beamGeometry() {
 
 export type FlashlightBeam = {
   group: T.Group;
-  /** Включить/выключить и довернуть луч туда, куда смотрит игрок. */
-  set(on: boolean, pitch: number): void;
+  /**
+   * Включить/выключить и довернуть луч туда, куда смотрит игрок. Начало луча —
+   * у дула оружия `tool` в руке аватара, на который луч повешен.
+   */
+  set(on: boolean, pitch: number, tool?: string): void;
   dispose(): void;
 };
 
 /**
  * Видимый луч на аватаре. Вешается на группу аватара, поэтому едет и
  * поворачивается вместе с ним, а в первом лице пропадает заодно со своим
- * аватаром (`avatar.visible`) — светить себе в лицо не надо.
+ * аватаром (`avatar.visible`) — светить себе в лицо не надо. Начало луча
+ * каждый кадр ставится к дулу: руки с оружием качаются при ходьбе и
+ * поднимаются за прицелом, и луч из неподвижной точки у плеча от них отрывался.
  */
 export function createFlashlightBeam(): FlashlightBeam {
   const group = new T.Group();
@@ -87,10 +112,23 @@ export function createFlashlightBeam(): FlashlightBeam {
   // общую чистку аватара — своей `dispose` он освобождается сам.
   for (const part of [cone, lens]) part.userData.presentationOnly = true;
   group.add(cone, lens);
+  let gun: T.Object3D | null = null,
+    gunOwner: T.Object3D | null = null;
   return {
     group,
-    set(on, pitch) {
+    set(on, pitch, tool = '') {
       group.visible = on;
+      // Пивот оружия ищется один раз на аватар: скелет аватара не пересобирается.
+      if (group.parent !== gunOwner) {
+        gunOwner = group.parent;
+        gun = gunOwner?.getObjectByName('gun') ?? null;
+      }
+      if (on && gun && group.parent) {
+        // Матрицы аватара и оружия — с одного кадра, поэтому точка в
+        // координатах аватара верна, даже если сам аватар ещё не перерисован.
+        avatarMuzzle(gun, tool, muzzleScratch);
+        group.position.copy(group.parent.worldToLocal(muzzleScratch));
+      }
       // Вперёд у группы — −Z; поворот на −pitch совпадает с viewDirection()
       // из lib/game-camera.ts, по которой считается взгляд игрока.
       group.rotation.x = -pitch;
@@ -108,14 +146,18 @@ export type PlayerFlashlight = {
   on: boolean;
   /** Переключить фонарик; возвращает новое состояние. */
   toggle(): boolean;
+  /** Поставить свет к дулу (`origin`, мир) и направить туда, куда смотрит игрок. */
+  aim(origin: T.Vector3, direction: T.Vector3): void;
   dispose(): void;
 };
 
 /**
- * Свой фонарик: единственный динамический источник света в сцене. Висит на
- * камере — светит туда, куда смотрит игрок, и в первом, и в третьем лице.
+ * Свой фонарик: единственный динамический источник света в сцене. Светит от
+ * дула оружия туда, куда смотрит игрок: от первого лица — от оружия в руках,
+ * от третьего — от оружия аватара. Раньше он висел на камере, и в третьем
+ * лице свет шёл из-за спины персонажа, а в первом — из переносицы.
  */
-export function createPlayerFlashlight(camera: T.Camera): PlayerFlashlight {
+export function createPlayerFlashlight(scene: T.Object3D): PlayerFlashlight {
   // Свет создаётся на любом качестве, включая `low`. Раньше на слабых
   // настройках SpotLight не создавался вовсе, а от первого лица свой луч скрыт
   // вместе с аватаром — и фонарик там не делал ровно ничего: нажатие F
@@ -128,9 +170,7 @@ export function createPlayerFlashlight(camera: T.Camera): PlayerFlashlight {
   // 30 м.
   const light = new T.SpotLight('#fff3d2', 0, 30, Math.PI / 7, 0.6, 1);
   light.castShadow = false;
-  light.position.set(0.12, -0.1, 0);
-  light.target.position.set(0, 0, -1);
-  camera.add(light, light.target);
+  scene.add(light, light.target);
   let on = false;
   return {
     get on() {
@@ -140,6 +180,10 @@ export function createPlayerFlashlight(camera: T.Camera): PlayerFlashlight {
       on = !on;
       light.intensity = on ? 28 : 0;
       return on;
+    },
+    aim(origin, direction) {
+      light.position.copy(origin);
+      light.target.position.copy(origin).addScaledVector(direction, 20);
     },
     dispose() {
       light.removeFromParent();

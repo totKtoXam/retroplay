@@ -179,23 +179,14 @@ export function createRealisticPresentation(
   });
   let lastState = '',
     elapsed = 0;
-  function sync(state: RoomState) {
-    const key = `${state.time}/${state.season}/${state.visualStyle}/${state.interior}/${state.theme}`;
-    if (key !== lastState) {
-      registerScene();
-      lastState = key;
-    }
-    replacements.forEach(({ replacement }, mesh) => {
-      mesh.material = replacement;
-    });
+  // One fog for the pack's lifetime: light() runs every second on a running day cycle.
+  const fog = new T.Fog('#9da5a5', 58, 180);
+  function light(state: RoomState) {
     const night = state.time === 'night',
       sunset = state.time === 'sunset',
       dawn = state.time === 'dawn';
-    scene.fog = new T.Fog(
-      night ? '#141b23' : sunset ? '#a79a89' : '#9da5a5',
-      58,
-      180,
-    );
+    fog.color.set(night ? '#141b23' : sunset ? '#a79a89' : '#9da5a5');
+    scene.fog = fog;
     scene.environmentIntensity = night ? 0.3 : 0.55;
     for (const light of lightDefaults.keys()) {
       if (light instanceof T.HemisphereLight) {
@@ -206,6 +197,17 @@ export function createRealisticPresentation(
         light.color.set(night ? '#9aaabd' : sunset ? '#f5cfaa' : '#f3eee2');
       } else if (light instanceof T.DirectionalLight) light.intensity = 0.08;
     }
+  }
+  function sync(state: RoomState) {
+    const key = `${state.time}/${state.season}/${state.visualStyle}/${state.interior}/${state.theme}`;
+    if (key !== lastState) {
+      registerScene();
+      lastState = key;
+    }
+    replacements.forEach(({ replacement }, mesh) => {
+      mesh.material = replacement;
+    });
+    light(state);
     scene.traverse((o) => {
       if (o instanceof T.Group && o.name === 'player-avatar' && !actors.has(o))
         actors.set(o, dressFieldCharacter(o, library));
@@ -219,6 +221,7 @@ export function createRealisticPresentation(
   }
   return {
     sync,
+    light,
     impact(at: T.Vector3, color: string) { vfx.impact(at, color); },
     update(dt: number, camera: T.Camera, state: RoomState) {
       elapsed += dt; vfx.update(dt);

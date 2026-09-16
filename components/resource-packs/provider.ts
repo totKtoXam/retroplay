@@ -2,7 +2,11 @@ import type * as T from 'three';
 import { GRAPHICS_PRESETS, type GraphicsSettings } from '../../lib/graphics-settings';
 import type { ResourcePackId } from '../../lib/resource-packs';
 import type { RoomState } from '../../lib/model';
-type Presentation = { sync(state: RoomState): void; update(dt: number, camera: T.Camera, state: RoomState): number | undefined; impact(at: T.Vector3, color: string): void; readonly textureBytes: number; dispose(): void };
+type Presentation = {
+  sync(state: RoomState): void;
+  /** Только свет, туман и небо пакета — дёшево, без обхода сцены. `sync` делает то же самое. */
+  light(state: RoomState): void;
+  update(dt: number, camera: T.Camera, state: RoomState): number | undefined; impact(at: T.Vector3, color: string): void; readonly textureBytes: number; dispose(): void };
 
 /** Default is the existing live scene. Pack changes never reconstruct the game engine. */
 export function createVisualProvider(options: {
@@ -20,6 +24,7 @@ export function createVisualProvider(options: {
     disposed = false;
   let presentation: Presentation | undefined;
   let syncKey = '';
+  let relit = true;
   let graphicsKey = '';
   let activeId: ResourcePackId = 'default';
   return {
@@ -73,16 +78,28 @@ export function createVisualProvider(options: {
      */
     update(dt: number, camera: T.Camera, state: RoomState, members: string, time = state.time) {
       const key = `${time}/${state.season}/${state.visualStyle}/${state.interior}/${state.theme}/${members}`;
-      if (presentation && key !== syncKey) {
-        // Копия создаётся только при смене ключа, то есть в кадре перехода.
-        presentation.sync(time === state.time ? state : { ...state, time });
+      if (presentation && (key !== syncKey || !relit)) {
+        // Копия создаётся только в кадре перехода или повторного света.
+        const phased = time === state.time ? state : { ...state, time };
+        if (key !== syncKey) presentation.sync(phased);
+        else presentation.light(phased);
         syncKey = key;
+        relit = true;
       }
       return presentation?.update(dt, camera, state);
     },
     impact(at: T.Vector3, color: string) { presentation?.impact(at, color); },
     invalidate() {
       syncKey = '';
+    },
+    /**
+     * Базовая сцена только что переставила свет по ходу суток (раз в секунду).
+     * Свет пакета лежит поверх базового, и без повторного применения он
+     * слетал до следующей полной синхронизации: сцена мигала между светом
+     * пакета и базовым при каждом входе и выходе игрока.
+     */
+    relight() {
+      relit = false;
     },
     dispose() {
       disposed = true;

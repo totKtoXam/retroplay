@@ -16,7 +16,6 @@ export function createUrbanPresentation(scene:T.Scene,hands:T.Group,settings:Gra
   const fog=scene.fog, background=scene.background, environment=scene.environment, environmentIntensity=scene.environmentIntensity;
   const generator=new T.PMREMGenerator(renderer), studio=new RoomEnvironment();
   const reflection=generator.fromScene(studio,.04);studio.dispose();generator.dispose();
-  scene.environment=reflection.texture;scene.environmentIntensity=.65;
   scene.traverse(o=>{if(o instanceof T.Light)lights.set(o,{color:o.color.clone(),intensity:o.intensity});});
   function material(source:T.Material) {
     if(clones.has(source))return clones.get(source)!;
@@ -45,6 +44,19 @@ export function createUrbanPresentation(scene:T.Scene,hands:T.Group,settings:Gra
     clones.set(source,next);return next;
   }
   let exposure = .88;
+  // One sky colour and fog for the pack's lifetime: light() runs every second on a running day cycle.
+  const sky=new T.Color('#a5bcc8'), packFog=new T.Fog(sky,95,260);
+  /** Pack lighting on top of the base scene; the base day cycle resets it every second (provider.relight). */
+  function light(state:RoomState) {
+    const night=state.time==='night',warm=state.time==='sunset'||state.time==='dawn';
+    exposure=night?1.05:.88;
+    sky.set(night?'#111e35':warm?'#d9b29c':'#a5bcc8');packFog.color.copy(sky);
+    scene.background=sky;scene.fog=packFog;scene.environment=reflection.texture;scene.environmentIntensity=.65;
+    lights.forEach((_,light)=>{
+      if(light instanceof T.HemisphereLight){light.color.set(night?'#748aaa':'#d9e7f0');light.intensity=night?.4:.65;}
+      if(light instanceof T.DirectionalLight){light.color.set(night?'#9ebee6':warm?'#ffc18c':'#fff1d3');light.intensity=night?.65:2.1;}
+    });
+  }
   function sync(state:RoomState) {
     const meshes:T.Mesh[]=[],avatars:T.Group[]=[];
     scene.traverse(o=>{
@@ -57,16 +69,9 @@ export function createUrbanPresentation(scene:T.Scene,hands:T.Group,settings:Gra
     replacements.forEach((r,o)=>{o.material=r.next;});
     avatars.forEach(a=>{if(!actors.has(a))actors.set(a,createUrbanSuit(a,m));});
     for(const [a,suit]of actors)if(!a.parent){suit.dispose();actors.delete(a);}else suit.sync();
-    const night=state.time==='night',warm=state.time==='sunset'||state.time==='dawn';
-    exposure=night?1.05:.88;
-    const sky=night?'#111e35':warm?'#d9b29c':'#a5bcc8';
-    scene.background=new T.Color(sky);scene.fog=new T.Fog(sky,95,260);
-    lights.forEach((_,light)=>{
-      if(light instanceof T.HemisphereLight){light.color.set(night?'#748aaa':'#d9e7f0');light.intensity=night?.4:.65;}
-      if(light instanceof T.DirectionalLight){light.color.set(night?'#9ebee6':warm?'#ffc18c':'#fff1d3');light.intensity=night?.65:2.1;}
-    });
+    light(state);
   }
-  return {sync,textureBytes:m.textureBytes,impact(_at:T.Vector3,_color:string){},
+  return {sync,light,textureBytes:m.textureBytes,impact(_at:T.Vector3,_color:string){},
     update(_dt:number,camera:T.Camera,_state:RoomState){district.update(camera);return exposure;},
     dispose(){facades.forEach(f=>f.dispose());actors.forEach(a=>a.dispose());tool.dispose();district.dispose();replacements.forEach((r,o)=>{o.material=r.original;});clones.forEach(c=>c.dispose());lights.forEach((v,l)=>{l.color.copy(v.color);l.intensity=v.intensity;});scene.fog=fog;scene.background=background;scene.environment=environment;scene.environmentIntensity=environmentIntensity;reflection.dispose();m.dispose();}};
 }
