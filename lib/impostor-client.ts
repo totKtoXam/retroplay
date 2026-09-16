@@ -4,8 +4,10 @@
 import {
   BUTTON_RANGE,
   KILL_RANGE,
+  PANEL_RANGE,
   REPORT_RANGE,
   TASK_RANGE,
+  VENT_RANGE,
   type ImpostorView,
 } from './impostor.ts';
 import type { GameMap } from './maps/types.ts';
@@ -24,7 +26,10 @@ export const amGhost = (v?: ImpostorView | null) => inGame(v) && (!v.role || !v.
 export const impostorFrozen = (v?: ImpostorView | null) =>
   !!v && (v.phase === 'intro' || v.phase === 'meeting' || v.phase === 'voting' || v.phase === 'eject');
 
-/** Невыполненное своё задание, у пульта которого я стою. Предателю — никогда. */
+/** Сижу в вентиляции: двигаться нельзя, видно меня только своим. */
+export const inVentNow = (v?: ImpostorView | null) => !!v && v.phase === 'play' && !!v.vent;
+
+/** Невыполненное своё задание, у пульта которого я стою. Предателю — никогда; призраку — да. */
 export function taskHere(v: ImpostorView | undefined, me: Point) {
   if (!v || v.phase !== 'play' || v.role !== 'crew') return null;
   let best = null,
@@ -81,6 +86,57 @@ export function killTarget(
 export function atButton(v: ImpostorView | undefined, map: GameMap, me: Point) {
   if (!v || v.phase !== 'play' || !v.role || !v.alive || !map.meeting) return false;
   return distance(me, map.meeting) <= BUTTON_RANGE;
+}
+
+/** Пульт идущей аварии в пределах досягаемости (живым, не из вентиляции). */
+export function panelHere(v: ImpostorView | undefined, map: GameMap, me: Point) {
+  if (!v || v.phase !== 'play' || !v.sabotage || !v.role || !v.alive || v.vent) return null;
+  const kind = v.sabotage.kind;
+  let best = null,
+    bestDistance = PANEL_RANGE;
+  for (const p of map.panels) {
+    if (p.sabotage !== kind || (kind === 'o2' && v.sabotage.fixed.includes(p.id))) continue;
+    const d = distance(me, p);
+    if (d <= bestDistance) {
+      best = p;
+      bestDistance = d;
+    }
+  }
+  return best;
+}
+
+/** Решётка вентиляции рядом — только живому предателю вне вентиляции. */
+export function ventHere(v: ImpostorView | undefined, map: GameMap, me: Point) {
+  if (!v || v.phase !== 'play' || v.role !== 'impostor' || !v.alive || v.vent) return null;
+  let best = null,
+    bestDistance = VENT_RANGE;
+  for (const vent of map.vents) {
+    const d = distance(me, vent);
+    if (d <= bestDistance) {
+      best = vent;
+      bestDistance = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * Радиус обзора, м; null — без ограничений (вне партии и у призраков). Предатели видят
+ * дальше, а при аварии света у экипажа остаётся пара шагов.
+ */
+export function visionRadius(v?: ImpostorView | null) {
+  if (!inGame(v) || amGhost(v) || v.phase !== 'play') return null;
+  if (v.role === 'impostor') return 12;
+  return v.sabotage?.kind === 'lights' ? 3.5 : 8;
+}
+
+/**
+ * Кого рисовать на миникарте. В партии план не должен выдавать чужие позиции: живой
+ * экипаж не видит на нём никого, предатель — только союзников, призрак — всех.
+ */
+export function minimapShows(v: ImpostorView | undefined, id: string) {
+  if (!inGame(v) || amGhost(v)) return true;
+  return v.role === 'impostor' && v.allies.includes(id);
 }
 
 /** Название отсека, где стоит игрок. */

@@ -154,9 +154,16 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     m: DayMix,
   ) => target.set(table[m.from]).lerp(scratch.set(table[m.to]), m.blend);
   const setDayMix = (m: DayMix) => {
-    mixInto(skyMaterial.uniforms.top.value as T.Color, ARENA_SKY_TOP, m);
-    mixInto(skyMaterial.uniforms.bottom.value as T.Color, ARENA_SKY_BOTTOM, m);
-    mixInto(fog.color, ARENA_FOG, m);
+    if (def.indoor) {
+      // В помещении (корабль) за стенами — тёмный космос при любом времени суток.
+      (skyMaterial.uniforms.top.value as T.Color).set('#03050a');
+      (skyMaterial.uniforms.bottom.value as T.Color).set('#0b1020');
+      fog.color.set('#05070d');
+    } else {
+      mixInto(skyMaterial.uniforms.top.value as T.Color, ARENA_SKY_TOP, m);
+      mixInto(skyMaterial.uniforms.bottom.value as T.Color, ARENA_SKY_BOTTOM, m);
+      mixInto(fog.color, ARENA_FOG, m);
+    }
     scene.fog = fog;
     hemi.intensity = mixValue(ARENA_HEMI, m);
     mixInto(hemi.color, ARENA_HEMI_COLOR, m);

@@ -10,6 +10,11 @@ import {
   taskHere,
   voiceAllowed,
   zoneAt,
+  panelHere,
+  ventHere,
+  visionRadius,
+  minimapShows,
+  inVentNow,
 } from '../lib/impostor-client.ts';
 import { getMap } from '../lib/maps/index.ts';
 
@@ -40,6 +45,9 @@ const view = (over = {}) => ({
   winner: null,
   winReason: null,
   roles: null,
+  sabotage: null,
+  sabotageReadyAt: 0,
+  vent: null,
   ...over,
 });
 
@@ -85,4 +93,28 @@ test('voice: silence while playing, meetings for the living, ghosts only among g
   assert.equal(voiceAllowed(ghost, 'p1'), false, 'a ghost cannot reach the living');
   assert.equal(voiceAllowed(ghost, 'dead'), true);
   assert.equal(voiceAllowed(ghost, 'spectator'), true, 'spectators are ghosts too');
+});
+
+test('sabotage panels, vents, vision and the minimap', () => {
+  const map = getMap('ship');
+  const lights = map.panels.find((p) => p.sabotage === 'lights');
+  assert.equal(panelHere(view(), map, lights), null, 'nothing to repair');
+  const dark = view({ sabotage: { kind: 'lights', until: 0, fixed: [], held: [] } });
+  assert.equal(panelHere(dark, map, lights).id, lights.id);
+  assert.equal(panelHere(dark, map, { x: lights.x + 3, z: lights.z }), null);
+  const o2 = view({ sabotage: { kind: 'o2', until: 1, fixed: ['o2-panel'], held: [] } });
+  const done = map.panels.find((p) => p.id === 'o2-panel');
+  assert.equal(panelHere(o2, map, done), null, 'a repaired O2 panel is not offered again');
+  const vent = map.vents[0];
+  assert.equal(ventHere(view(), map, vent), null, 'crew has no vents');
+  assert.equal(ventHere(view({ role: 'impostor' }), map, vent).id, vent.id);
+  assert.equal(inVentNow(view({ role: 'impostor', vent: vent.id })), true);
+  assert.equal(visionRadius(view({ phase: 'lobby' })), null);
+  assert.equal(visionRadius(view({ alive: false })), null, 'ghosts see everything');
+  assert.ok(visionRadius(dark) < visionRadius(view()), 'lights sabotage narrows crew vision');
+  assert.equal(visionRadius(view({ role: 'impostor', sabotage: dark.sabotage })), visionRadius(view({ role: 'impostor' })));
+  assert.equal(minimapShows(view(), 'p1'), false);
+  assert.equal(minimapShows(view({ role: 'impostor', allies: ['p1'] }), 'p1'), true);
+  assert.equal(minimapShows(view({ alive: false }), 'p1'), true);
+  assert.equal(minimapShows(view({ phase: 'lobby' }), 'p1'), true);
 });

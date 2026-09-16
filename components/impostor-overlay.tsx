@@ -4,18 +4,21 @@
 // действий, мини-игры, собрание с голосованием и итог. Всё, что здесь видно, пришло в
 // снимке партии этого игрока (`room.impostor`), а каждое действие проверяет сервер.
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { Check, Crosshair, Megaphone, Siren, Skull, Wrench } from 'lucide-react';
+import { AlertTriangle, Check, Crosshair, Megaphone, Siren, Skull, Wind, Wrench, Zap } from 'lucide-react';
 import type { Pose, Room } from '@/lib/model';
 import { getMap } from '@/lib/maps';
-import { MIN_PLAYERS, TASK_MS, type ImpostorView } from '@/lib/impostor';
+import { MIN_PLAYERS, SABOTAGE_KINDS, TASK_MS, type ImpostorView } from '@/lib/impostor';
+import type { SabotageKind, SabotagePanel, TaskKind } from '@/lib/maps/types';
 import {
   atButton,
   amGhost,
   bodyHere,
   inGame,
   killTarget,
+  panelHere,
   secondsLeft,
   taskHere,
+  ventHere,
   zoneAt,
 } from '@/lib/impostor-client';
 import type { ImpostorReply } from './use-room-sync';
@@ -37,7 +40,45 @@ const WIN_TEXT: Record<string, string> = {
   ejected: 'Все предатели изгнаны',
   kills: 'Предатели сравнялись с экипажем',
   left: 'Соперники покинули корабль',
+  sabotage: 'Корабль не пережил аварию',
 };
+
+const SABOTAGE_TITLE: Record<SabotageKind, string> = {
+  lights: 'Свет',
+  comms: 'Связь',
+  reactor: 'Реактор',
+  o2: 'O2',
+};
+/** Какой мини-игрой чинится авария; реактор — отдельное удержание вдвоём. */
+const REPAIR_GAME: Record<Exclude<SabotageKind, 'reactor'>, TaskKind> = {
+  lights: 'hold',
+  comms: 'calibrate',
+  o2: 'code',
+};
+
+/** Стабилизатор реактора: пока кнопка зажата, пульт считается удерживаемым. */
+function ReactorHold({ held, onHold }: { held: number; onHold: () => void }) {
+  const [holding, setHolding] = useState(false);
+  useEffect(() => {
+    if (!holding) return;
+    onHold();
+    const timer = setInterval(onHold, 500);
+    return () => clearInterval(timer);
+  }, [holding, onHold]);
+  return (
+    <div className="impostor-hold">
+      <p className="impostor-task-hint">Держат стабилизаторы: {held} / 2 — нужен второй игрок у другого пульта</p>
+      <button
+        className="impostor-hold-button"
+        onPointerDown={() => setHolding(true)}
+        onPointerUp={() => setHolding(false)}
+        onPointerLeave={() => setHolding(false)}
+      >
+        {holding ? 'Держу…' : 'Удерживайте'}
+      </button>
+    </div>
+  );
+}
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
@@ -52,16 +93,24 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
   const [toast, setToast] = useState('');
   const [task, setTask] = useState<{ station: string; kind: ImpostorView['tasks'][number]['kind']; title: string; startedAt: number } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [repair, setRepair] = useState<SabotagePanel | null>(null);
+  const [sabotageMenu, setSabotageMenu] = useState(false);
   // Кадр обновления: подсказки «рядом пульт / тело / цель» зависят от позы, а она в ref.
   const phaseRef = useRef(room.impostor?.phase);
+  const sabotageRef = useRef(room.impostor?.sabotage?.kind);
   useEffect(() => {
     phaseRef.current = room.impostor?.phase;
+    sabotageRef.current = room.impostor?.sabotage?.kind;
   });
   useEffect(() => {
     const timer = setInterval(() => {
       setNow(serverNow());
-      // Мини-игра закрывается сама, если игра ушла из фазы «play» (собрание, конец).
-      if (phaseRef.current !== 'play') setTask(null);
+      // Мини-игра и ремонт закрываются сами, если игра ушла из фазы «play» или аварию починили.
+      if (phaseRef.current !== 'play') {
+        setTask(null);
+        setSabotageMenu(false);
+      }
+      setRepair((r) => (r && (phaseRef.current !== 'play' || sabotageRef.current !== r.sabotage) ? null : r));
     }, 200);
     return () => clearInterval(timer);
   }, [serverNow]);
@@ -86,10 +135,15 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
   const hereBody = bodyHere(view, me);
   const target = killTarget(view, room.self, me, room.members);
   const button = atButton(view, map, me);
+  const herePanel = panelHere(view, map, me);
+  const hereVent = ventHere(view, map, me);
+  const myVent = view?.vent ? map.vents.find((v) => v.id === view.vent) : undefined;
 
-  // Экран с курсором: мини-игра, собрание, итог. Мир на это время не слушает ввод.
+  // Экран с курсором: мини-игра, ремонт, вентиляция, собрание, итог. Мир на это время не слушает ввод.
   const openGame = phase === 'play' ? task : null;
-  const needsCursor = !!openGame || meeting || phase === 'ended';
+  const openRepair = phase === 'play' && repair && view?.sabotage?.kind === repair.sabotage ? repair : null;
+  const openMenu = phase === 'play' && sabotageMenu;
+  const needsCursor = !!openGame || !!openRepair || openMenu || !!myVent || meeting || phase === 'ended';
   useEffect(() => {
     onBlocked(needsCursor);
     if (needsCursor && document.pointerLockElement) document.exitPointerLock();
@@ -119,13 +173,30 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
   useEffect(() => {
     finishRef.current = finishTask;
   });
+  const repairRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    repairRef.current = () => {
+      if (!openRepair) return;
+      void run({ action: 'fix', panel: openRepair.id }).then((ok) => {
+        if (ok && openRepair.sabotage !== 'reactor') setRepair(null);
+      });
+    };
+  });
+  const onRepairDone = useCallback(() => repairRef.current(), []);
 
-  const act = useRef({ use: () => {}, report: () => {}, kill: () => {} });
+  const act = useRef({ use: () => {}, report: () => {}, kill: () => {}, sabotage: () => {} });
   useEffect(() => {
     act.current = {
+      // E: ремонт аварии важнее задания; предатель у решётки лезет в вентиляцию, из неё — вылезает.
       use: () => {
-        if (hereTask) void openTask();
+        if (view?.vent) void run({ action: 'vent.exit' });
+        else if (herePanel) setRepair(herePanel);
+        else if (hereTask) void openTask();
+        else if (hereVent) void run({ action: 'vent.enter', vent: hereVent.id });
         else if (button) void run({ action: 'meeting' });
+      },
+      sabotage: () => {
+        if (view?.role === 'impostor' && view.alive) setSabotageMenu((open) => !open);
       },
       report: () => {
         if (hereBody) void run({ action: 'report', body: hereBody.victim });
@@ -143,19 +214,30 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
-      if (e.code === 'Escape' && task) {
+      if (e.code === 'Escape' && (task || repair || sabotageMenu)) {
         setTask(null);
+        setRepair(null);
+        setSabotageMenu(false);
         return;
       }
-      const handler = e.code === 'KeyE' ? 'use' : e.code === 'KeyR' ? 'report' : e.code === 'KeyQ' ? 'kill' : null;
+      const handler =
+        e.code === 'KeyE'
+          ? 'use'
+          : e.code === 'KeyR'
+            ? 'report'
+            : e.code === 'KeyQ'
+              ? 'kill'
+              : e.code === 'KeyB'
+                ? 'sabotage'
+                : null;
       if (!handler) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      if (!e.repeat && !task) act.current[handler]();
+      if (!e.repeat && !task && !repair) act.current[handler]();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [active, task]);
+  }, [active, task, repair, sabotageMenu]);
 
   const nameOf = (id: string) => view?.players.find((p) => p.id === id)?.name ?? 'Игрок';
 
@@ -214,6 +296,7 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
             <span style={{ width: `${view.progress.total ? (view.progress.done / view.progress.total) * 100 : 0}%` }} />
           </div>
           {impostor && <p className="impostor-muted">Ложные задания — для прикрытия</p>}
+          {view.sabotage?.kind === 'comms' && <p className="impostor-muted">Связь нарушена — список заданий недоступен</p>}
           {ghost && view.role === 'crew' && <p className="impostor-muted">Доделайте задания — экипаж ещё может победить</p>}
           <ul>
             {view.tasks.map((t) => (
@@ -225,10 +308,37 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
         </div>
       )}
 
+      {phase === 'play' && view.sabotage && (
+        <div className={`impostor-alarm${view.sabotage.until ? ' is-critical' : ''}`}>
+          <AlertTriangle size={16} />
+          <span>
+            {view.sabotage.kind === 'lights' && 'Свет отключён'}
+            {view.sabotage.kind === 'comms' && 'Связь нарушена'}
+            {view.sabotage.kind === 'reactor' &&
+              `Авария реактора · ${secondsLeft(view.sabotage.until, now)} с · стабилизаторы ${view.sabotage.held.length} / 2`}
+            {view.sabotage.kind === 'o2' &&
+              `Утечка O2 · ${secondsLeft(view.sabotage.until, now)} с · пульты ${view.sabotage.fixed.length} / 2`}
+            {' — '}
+            {[...new Set(map.panels.filter((p) => p.sabotage === view.sabotage?.kind).map((p) => p.room))].join(', ')}
+          </span>
+        </div>
+      )}
+
       {phase === 'play' && (
         <>
           <div className="impostor-zone">{zoneAt(map, me)}</div>
           <div className="impostor-actions">
+            {impostor && !ghost && (
+              <button
+                className="impostor-action"
+                disabled={view.sabotageReadyAt > now || !!view.sabotage}
+                onClick={() => act.current.sabotage()}
+              >
+                <Zap size={22} />
+                <span>{view.sabotageReadyAt > now ? secondsLeft(view.sabotageReadyAt, now) : 'Саботаж'}</span>
+                <kbd>B</kbd>
+              </button>
+            )}
             {impostor && !ghost && (
               <button
                 className="impostor-action is-kill"
@@ -249,16 +359,34 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
             )}
             <button
               className="impostor-action"
-              disabled={!hereTask && !(button && view.meetingsLeft > 0 && view.buttonReadyAt <= now)}
+              disabled={
+                !herePanel && !hereTask && !hereVent && !(button && view.meetingsLeft > 0 && view.buttonReadyAt <= now)
+              }
               onClick={() => act.current.use()}
             >
-              {button && !hereTask ? <Siren size={22} /> : <Wrench size={22} />}
+              {herePanel ? (
+                <AlertTriangle size={22} />
+              ) : hereTask ? (
+                <Wrench size={22} />
+              ) : hereVent ? (
+                <Wind size={22} />
+              ) : button ? (
+                <Siren size={22} />
+              ) : (
+                <Wrench size={22} />
+              )}
               <span>
-                {button && !hereTask
-                  ? view.buttonReadyAt > now
-                    ? secondsLeft(view.buttonReadyAt, now)
-                    : `Собрание · ${view.meetingsLeft}`
-                  : 'Использовать'}
+                {herePanel
+                  ? 'Починить'
+                  : hereTask
+                    ? 'Использовать'
+                    : hereVent
+                      ? 'Вентиляция'
+                      : button
+                        ? view.buttonReadyAt > now
+                          ? secondsLeft(view.buttonReadyAt, now)
+                          : `Собрание · ${view.meetingsLeft}`
+                        : 'Использовать'}
               </span>
               <kbd>E</kbd>
             </button>
@@ -270,6 +398,85 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
         <button className="impostor-stop" onClick={() => void run({ action: 'stop' })}>
           Остановить партию
         </button>
+      )}
+
+      {/* ---- Вентиляция ---- */}
+      {phase === 'play' && myVent && (
+        <div className="impostor-vent">
+          <strong>Вы в вентиляции · {myVent.room}</strong>
+          <div className="impostor-vent-links">
+            {myVent.links.map((id) => {
+              const to = map.vents.find((v) => v.id === id);
+              return (
+                <button key={id} onClick={() => void run({ action: 'vent.move', vent: id })}>
+                  → {to?.room ?? id}
+                </button>
+              );
+            })}
+          </div>
+          <button className="primary" onClick={() => void run({ action: 'vent.exit' })}>
+            Вылезти (E)
+          </button>
+        </div>
+      )}
+
+      {/* ---- Меню саботажа ---- */}
+      {openMenu && (
+        <div className="impostor-modal">
+          <div className="impostor-card">
+            <header>
+              <strong>Саботаж</strong>
+              <button className="impostor-close" onClick={() => setSabotageMenu(false)} aria-label="Закрыть">
+                ×
+              </button>
+            </header>
+            <div className="impostor-sabotage-list">
+              {SABOTAGE_KINDS.filter((k) => map.panels.some((p) => p.sabotage === k)).map((k) => (
+                <button
+                  key={k}
+                  disabled={view.sabotageReadyAt > now || !!view.sabotage}
+                  onClick={() => {
+                    setSabotageMenu(false);
+                    void run({ action: 'sabotage', kind: k });
+                  }}
+                >
+                  <strong>{SABOTAGE_TITLE[k]}</strong>
+                  <span className="impostor-muted">
+                    {k === 'lights' && 'Экипаж почти ничего не видит'}
+                    {k === 'comms' && 'Экипаж теряет списки заданий'}
+                    {k === 'reactor' && 'Не починят вдвоём за 45 с — победа'}
+                    {k === 'o2' && 'Не починят оба пульта за 45 с — победа'}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {view.sabotageReadyAt > now && (
+              <p className="impostor-muted">Следующий саботаж через {secondsLeft(view.sabotageReadyAt, now)} с</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ---- Ремонт аварии ---- */}
+      {openRepair && (
+        <div className="impostor-modal">
+          <div className="impostor-card">
+            <header>
+              <strong>{openRepair.title}</strong>
+              <button className="impostor-close" onClick={() => setRepair(null)} aria-label="Закрыть">
+                ×
+              </button>
+            </header>
+            {openRepair.sabotage === 'reactor' ? (
+              <ReactorHold held={view.sabotage?.held.length ?? 0} onHold={onRepairDone} />
+            ) : (
+              (() => {
+                const Game = TASK_GAMES[REPAIR_GAME[openRepair.sabotage]];
+                return <Game onDone={onRepairDone} />;
+              })()
+            )}
+          </div>
+        </div>
       )}
 
       {/* ---- Мини-игра ---- */}

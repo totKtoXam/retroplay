@@ -23,12 +23,15 @@ export function createWorldRemotePlayers({
   quality,
   latest,
   map,
+  hidden,
 }: {
   scene: T.Scene;
   kit: WorldKit;
   quality: string;
   latest: { readonly current: { room: Room } };
   map: GameMap;
+  /** Режим прячет этого игрока от смотрящего (обзор в «Предателе»): вне радиуса или за стеной. */
+  hidden?: (pose: { x: number; y: number; z: number }) => boolean;
 }) {
   const remoteAvatars = new Map<string, T.Group>(),
     remoteBandanaMats = new Map<string, T.MeshStandardMaterial>(),
@@ -179,7 +182,8 @@ export function createWorldRemotePlayers({
 
       remote.visible =
         isOnline(member.lastSeen, serverNow) &&
-        (!isRemoteDead || isRemoteDeathRecent);
+        (!isRemoteDead || isRemoteDeathRecent) &&
+        !hidden?.(remote.position);
       setAvatarAnonymous(
         remote,
         !!latest.current.room.state.anonymousPlayers,
@@ -197,12 +201,23 @@ export function createWorldRemotePlayers({
       // Update remote skin if changed
       applyAvatarSkin(remote, member.hat || member.skin || 'agent', colorOf(member), remoteBandanaMats.get(member.id));
       const ally = isAlly(member);
-      const mark = modeOf(latest.current.room.state) === 'battle' ? (ally ? '▲ ' : '✖ ') : '';
-      const caption = isRemoteDead
-        ? '💀 ПОГИБ'
-        : latest.current.room.state.anonymousPlayers
-          ? `${mark}${member.hp ?? 100} HP${isRemoteShielded ? ' 🛡️' : ''}`
-          : `${mark}${member.name.slice(0, 12)} · ${member.hp ?? 100}${isRemoteShielded ? ' 🛡️' : ''}`;
+      const mode = modeOf(latest.current.room.state);
+      // В «Предателе» здоровья нет, а призраков (их видят только призраки) отмечаем, чтобы
+      // не путать с живыми.
+      const impostor = mode === 'impostor' ? latest.current.room.impostor : undefined;
+      const inParty = impostor?.players.find((p) => p.id === member.id);
+      const ghostMark =
+        impostor && impostor.phase !== 'lobby' && impostor.phase !== 'ended' && (!inParty || !inParty.alive) ? '👻 ' : '';
+      const mark = mode === 'battle' ? (ally ? '▲ ' : '✖ ') : ghostMark;
+      const caption = mode === 'impostor'
+        ? latest.current.room.state.anonymousPlayers
+          ? mark || 'Участник'
+          : `${mark}${member.name.slice(0, 12)}`
+        : isRemoteDead
+          ? '💀 ПОГИБ'
+          : latest.current.room.state.anonymousPlayers
+            ? `${mark}${member.hp ?? 100} HP${isRemoteShielded ? ' 🛡️' : ''}`
+            : `${mark}${member.name.slice(0, 12)} · ${member.hp ?? 100}${isRemoteShielded ? ' 🛡️' : ''}`;
       let label = labels.get(member.id);
       // Hide label when host setting hidePlayerStatus is on
       const shouldHideLabel = !!latest.current.room.state.hidePlayerStatus;

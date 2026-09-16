@@ -59,7 +59,8 @@ import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { slotsFor, slotForDigit, cycleSlot } from '@/lib/loadout';
 import { modeOf } from '@/lib/maps/catalog';
-import { amGhost, impostorFrozen } from '@/lib/impostor-client';
+import { amGhost, impostorFrozen, inVentNow, minimapShows, visionRadius } from '@/lib/impostor-client';
+import { rayCastWorldObstacle } from '@/lib/world-collision';
 import { CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import { WeaponPrediction } from '@/lib/weapon-prediction';
 import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
@@ -400,7 +401,10 @@ export default function World(props: Props) {
         from: room.members,
         now,
         out: minimapBlips({
-          members: room.members,
+          // В «Предателе» план не выдаёт чужих позиций (lib/impostor-client.ts, minimapShows).
+          members: room.impostor
+            ? room.members.filter((m) => m.id === room.self || minimapShows(room.impostor, m.id))
+            : room.members,
           self: room.self,
           now,
           me: {
@@ -747,6 +751,7 @@ export default function World(props: Props) {
     // Погода поверх любой карты. «Под крышей» — когда над камерой есть потолок или вся
     // карта внутри помещения (корабль): там ни осадков, ни ветра.
     const indoor = !!map.arena?.indoor;
+    let visionFog: { base: { near: number; far: number }; near: number; far: number } | null = null;
     const weather = createWorldWeather({
       scene,
       sunlight: kit.sunlight,
@@ -848,12 +853,23 @@ export default function World(props: Props) {
     let appliedLocalSkinId = cachedLocalSkinId;
     let appliedLocalBandanaColor = cachedLocalBandanaColor;
     applyAvatarSkin(avatar, appliedLocalSkinId, appliedLocalBandanaColor, localBandanaMat);
+    // Обзор в «Предателе»: дальше радиуса и за стенами других игроков не видно. Сервер
+    // позиции всё равно присылает — это правило игры, а не защита от читов.
+    const visionEye = new T.Vector3();
     const remotePlayers = createWorldRemotePlayers({
       scene,
       kit,
       quality: props.quality,
       latest,
       map,
+      hidden: (at) => {
+        const radius = visionRadius(latest.current.room.impostor);
+        if (radius === null) return false;
+        const dx = at.x - visionEye.x,
+          dz = at.z - visionEye.z;
+        if (dx * dx + dz * dz > radius * radius) return true;
+        return !!rayCastWorldObstacle([visionEye.x, visionEye.y + 1.5, visionEye.z], [at.x, at.y + 1.2, at.z], map.colliders)?.hit;
+      },
     });
     const { remoteAvatars, deadTimers } = remotePlayers;
     const shadow = new T.Mesh(
@@ -1856,6 +1872,8 @@ export default function World(props: Props) {
         ) {
           shoot();
         } else if (t === 'pointer') {
+          // В «Предателе» планшет — пустые руки: доска ретро в этом режиме не нужна.
+          if (modeOf(latest.current.room.state) === 'impostor') return;
           if (tabletInWorldRef.current) closeTabletInWorld();
           else openTabletInWorld();
         } else if (t === 'sticky') {
@@ -2065,7 +2083,9 @@ export default function World(props: Props) {
       // Подготовка раунда: сервер всё равно не примет шаг, поэтому и локально
       // игрок стоит — иначе картинка «уезжает», а потом возвращается назад.
       const frozen =
-        latest.current.room.match?.phase === 'freeze' || impostorFrozen(latest.current.room.impostor);
+        latest.current.room.match?.phase === 'freeze' ||
+        impostorFrozen(latest.current.room.impostor) ||
+        inVentNow(latest.current.room.impostor);
       const control =
         enabled() && !latest.current.blocked && !middle && !isDead() && !frozen;
       const { moving, speed, dx, dz, groundY } = player.advance(elapsed, {
@@ -2075,6 +2095,7 @@ export default function World(props: Props) {
       avatar.position.copy(pos);
       avatar.position.y += 0.27;
       avatar.rotation.y = player.heading;
+      visionEye.copy(pos);
       syncBodies();
 
       const myMember = latest.current.room.members.find(
@@ -2311,6 +2332,26 @@ export default function World(props: Props) {
         indoor ? { ...latest.current.room.state, weather: 'clear' } : latest.current.room.state,
         !map.arena && latest.current.room.state.interior,
       );
+      // Обзор «Предателя» — туман на радиусе видимости. Исходные границы тумана карты
+      // запоминаем один раз, чтобы вернуть их, когда ограничение снимется.
+      // Своё значение держим отдельно: погода каждый кадр пересчитывает туман от того,
+      // что видит в сцене, и не даёт ему быть ближе 18 м.
+      if (indoor && scene.fog instanceof T.Fog) {
+        const radius = visionRadius(latest.current.room.impostor);
+        // Туман считается от камеры, а обзор — от игрока: в третьем лице камера позади.
+        const behind = camera.position.distanceTo(pos);
+        const base = visionFog?.base ?? { near: scene.fog.near, far: scene.fog.far };
+        const far = radius === null ? base.far : radius * 1.15 + behind;
+        const near = radius === null ? base.near : radius * 0.45 + behind;
+        // Первый кадр — сразу на месте (вход посреди аварии), дальше плавно, чтобы авария
+        // света гасила свет, а не щёлкала.
+        visionFog ??= { base, near, far };
+        const k = Math.min(1, dt * 6);
+        visionFog.far += (far - visionFog.far) * k;
+        visionFog.near += (near - visionFog.near) * k;
+        scene.fog.far = visionFog.far;
+        scene.fog.near = visionFog.near;
+      }
       // Индикатор ветра у прицела: стрелка — куда сносит относительно взгляда,
       // число — скорость. Пишем прямо в DOM: React-рендер каждый кадр не нужен.
       const indicator = windIndicator.current;
