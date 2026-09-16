@@ -32,6 +32,7 @@ export function createWorldPlayer({
   isDead,
   onStance,
   wind,
+  ghost,
 }: {
   map: GameMap;
   keys: Set<string>;
@@ -45,6 +46,8 @@ export function createWorldPlayer({
    * Missing in tests: no wind at all.
    */
   wind?: () => { x: number; z: number } | null;
+  /** Призрак режима «Предатель»: стены его не держат (сервер проверяет только скорость). */
+  ghost?: () => boolean;
 }) {
   const pos = new T.Vector3(
     initial?.x ?? 0,
@@ -63,7 +66,7 @@ export function createWorldPlayer({
 
   // Body height follows the stance, so crouching or lying fits through low openings.
   const blocked = (x: number, z: number, y = pos.y, stance = currentStance) =>
-    isBlocked3D(x, z, y, 0.32, stanceHeight(stance), map.colliders);
+    !ghost?.() && isBlocked3D(x, z, y, 0.32, stanceHeight(stance), map.colliders);
   /** Whether there is room to take `stance` here (no standing up inside a crawl hole). */
   const canStand = (stance: 'stand' | 'sit' | 'lie') =>
     !blocked(pos.x, pos.z, pos.y, stance) &&
@@ -239,7 +242,7 @@ export function createWorldPlayer({
 
     // Anti-stuck depenetration: guarantee player never gets stuck inside colliders
     const playerRadius = 0.32;
-    const worldColliders = map.colliders;
+    const worldColliders = ghost?.() ? [] : map.colliders;
     for (const c of worldColliders) {
       if (
         pos.x + playerRadius > c.minX &&

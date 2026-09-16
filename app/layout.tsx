@@ -4,6 +4,7 @@ import '../components/resource-packs/packs.css';
 import './theme.css';
 import './side-picker.css';
 import './hud.css';
+import './impostor.css';
 import './game-clock.css';
 import './phases.css';
 import './settings-menu.css';

@@ -1,0 +1,480 @@
+/*
+ * Режим «Предатель» поверх 3D-сцены (components/impostor-overlay.tsx).
+ * Как и HUD (app/hud.css), цвета свои: под интерфейсом произвольный кадр сцены.
+ */
+
+.impostor-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+  color: #eef3fb;
+  font-size: 14px;
+}
+.impostor-layer button,
+.impostor-layer .impostor-card,
+.impostor-layer .impostor-lobby,
+.impostor-layer .impostor-tasks {
+  pointer-events: auto;
+}
+
+.impostor-lobby,
+.impostor-tasks,
+.impostor-card,
+.impostor-toast,
+.impostor-zone {
+  background: rgba(10, 16, 28, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.impostor-muted {
+  color: #a9b4c6;
+  font-size: 12px;
+}
+
+/* --- Лобби --- */
+.impostor-lobby {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  white-space: nowrap;
+}
+
+/* --- Показ роли --- */
+.impostor-intro {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle, rgba(8, 12, 22, 0.55), rgba(4, 6, 12, 0.9));
+  text-align: center;
+  animation: impostor-fade 0.4s ease;
+}
+.impostor-intro h2 {
+  margin: 0;
+  font-size: clamp(36px, 8vw, 72px);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.impostor-intro.is-crew h2 {
+  color: #7fe0f0;
+}
+.impostor-intro.is-impostor h2,
+.impostor-role.is-impostor {
+  color: #ff5a5f;
+}
+.impostor-intro p {
+  font-size: 18px;
+  color: #d6deea;
+}
+
+/* --- Задания --- */
+.impostor-tasks {
+  position: absolute;
+  top: 150px;
+  left: 16px;
+  width: min(290px, calc(100vw - 32px));
+  padding: 10px 12px;
+}
+.impostor-role {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+  color: #7fe0f0;
+  margin-bottom: 6px;
+}
+.impostor-progress,
+.impostor-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.impostor-progress span,
+.impostor-bar span {
+  display: block;
+  height: 100%;
+  background: #4ade80;
+  transition: width 0.2s ease;
+}
+.impostor-tasks ul {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.impostor-tasks li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.impostor-tasks li.is-done {
+  color: #86efac;
+  text-decoration: line-through;
+}
+
+.impostor-zone {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+.impostor-zone:empty {
+  display: none;
+}
+
+/* --- Кнопки действий --- */
+.impostor-actions {
+  position: absolute;
+  /* Левее миникарты в правом нижнем углу. */
+  right: 176px;
+  bottom: 24px;
+  display: flex;
+  gap: 10px;
+}
+.impostor-action {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 86px;
+  height: 86px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(20, 30, 48, 0.85);
+  color: #f1f5fb;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.impostor-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.impostor-action.is-kill:not(:disabled) {
+  background: rgba(150, 24, 32, 0.9);
+}
+.impostor-action kbd {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.impostor-stop {
+  position: absolute;
+  /* Над затемнением собрания: ведущий может прервать партию из любой фазы. */
+  z-index: 2;
+  top: 64px;
+  right: 16px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(10, 16, 28, 0.7);
+  color: #d6deea;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* --- Модальные экраны --- */
+.impostor-modal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(3, 6, 12, 0.55);
+  pointer-events: auto;
+  animation: impostor-fade 0.2s ease;
+}
+.impostor-card {
+  width: min(520px, 100%);
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  padding: 14px 16px;
+}
+.impostor-card header,
+.impostor-card footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.impostor-card header {
+  margin-bottom: 12px;
+}
+.impostor-card footer {
+  margin-top: 12px;
+}
+.impostor-card button:not(.impostor-player):not(.impostor-wire):not(.impostor-close) {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  cursor: pointer;
+}
+.impostor-card button.primary {
+  background: #6d5dfc;
+  border-color: #6d5dfc;
+}
+.impostor-close {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 22px;
+  cursor: pointer;
+}
+.impostor-timer {
+  font-variant-numeric: tabular-nums;
+  color: #fcd34d;
+  white-space: nowrap;
+}
+.impostor-task-hint {
+  text-align: center;
+  color: #c3cddc;
+  margin: 8px 0;
+}
+
+/* Собрание */
+.impostor-meeting {
+  width: min(640px, 100%);
+}
+.impostor-eject {
+  font-size: 18px;
+  text-align: center;
+  margin: 4px 0 12px;
+}
+.impostor-players {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+.impostor-player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.impostor-player:disabled {
+  cursor: default;
+}
+.impostor-player:not(:disabled):hover {
+  border-color: #fcd34d;
+}
+.impostor-player.is-dead {
+  opacity: 0.5;
+}
+.impostor-player.is-dead .impostor-player-name {
+  text-decoration: line-through;
+}
+.impostor-player-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.impostor-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
+.impostor-badge {
+  font-size: 10px;
+  color: #86efac;
+}
+.impostor-votes {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+}
+
+/* Итог */
+.impostor-ended {
+  text-align: center;
+}
+.impostor-ended h2 {
+  margin: 0 0 4px;
+  font-size: 30px;
+}
+.impostor-ended.is-crew h2 {
+  color: #7fe0f0;
+}
+.impostor-ended.is-impostor h2 {
+  color: #ff5a5f;
+}
+.impostor-result {
+  font-weight: 700;
+}
+.impostor-roles {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+}
+.impostor-roles li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.impostor-toast {
+  position: absolute;
+  bottom: 280px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  white-space: nowrap;
+}
+
+/* --- Мини-игры --- */
+.impostor-wires {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.impostor-wires-column {
+  display: grid;
+  gap: 14px;
+}
+.impostor-wire {
+  width: 64px;
+  height: 18px;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.impostor-wire.is-picked {
+  border-color: #fff;
+}
+.impostor-wire.is-joined {
+  opacity: 0.35;
+  cursor: default;
+}
+.impostor-hold,
+.impostor-upload,
+.impostor-calibrate {
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+}
+.impostor-hold .impostor-bar,
+.impostor-upload .impostor-bar {
+  width: 100%;
+  height: 14px;
+}
+.impostor-card .impostor-hold-button {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  font-weight: 700;
+  touch-action: none;
+  user-select: none;
+}
+.impostor-calibrate-track {
+  position: relative;
+  width: 100%;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.impostor-calibrate-zone {
+  position: absolute;
+  left: 41%;
+  width: 18%;
+  top: 0;
+  bottom: 0;
+  background: rgba(74, 222, 128, 0.45);
+}
+.impostor-calibrate-marker {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 4px;
+  margin-left: -2px;
+  background: #fcd34d;
+}
+.impostor-code {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+.impostor-code-note {
+  padding: 4px 10px;
+  background: #fef3c7;
+  color: #3b2f0a;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+}
+.impostor-code-screen {
+  font-family: ui-monospace, monospace;
+  font-size: 28px;
+  letter-spacing: 0.3em;
+}
+.impostor-code-pad {
+  display: grid;
+  grid-template-columns: repeat(5, 48px);
+  gap: 6px;
+}
+.impostor-card .impostor-code-pad button {
+  padding: 10px 0;
+}
+
+@keyframes impostor-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .impostor-tasks {
+    top: 140px;
+    font-size: 12px;
+  }
+  .impostor-actions {
+    bottom: 96px;
+    right: 8px;
+  }
+  .impostor-action {
+    width: 70px;
+    height: 70px;
+  }
+}

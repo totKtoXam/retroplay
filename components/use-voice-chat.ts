@@ -11,6 +11,7 @@ import {
   type VoiceView,
 } from './voice-chat';
 import type { VoiceSink } from './use-room-sync';
+import { amGhost, voiceAllowed } from '@/lib/impostor-client';
 
 /**
  * Голосовой чат в жизни комнаты: создать на входе, кормить составом и правилами
@@ -75,7 +76,17 @@ export function useVoiceChat({
       '|' +
       (room.state.voiceEnabled === false ? 'off' : 'on') +
       '|' +
-      (room.state.voiceMuted ?? []).join(',')
+      (room.state.voiceMuted ?? []).join(',') +
+      '|' +
+      // «Предатель»: фаза и известные мне смерти меняют, кого можно слышать.
+      (room.impostor
+        ? room.impostor.phase +
+          ':' +
+          room.impostor.players
+            .filter((p) => !p.alive || p.left)
+            .map((p) => p.id)
+            .join(',')
+        : '')
     : '';
   useEffect(() => {
     const voice = chat.current;
@@ -91,6 +102,12 @@ export function useVoiceChat({
       peers: members
         .filter((m) => m.id !== self && !m.bot)
         .map((m) => ({ id: m.id, team: m.team || '' })),
+      allowSend: (id) => voiceAllowed(roomRef.current?.impostor, id),
+      // Призрак слышит всех; живой — только когда режим разрешает говорить.
+      allowHear: (id) => {
+        const view = roomRef.current?.impostor;
+        return amGhost(view) || voiceAllowed(view, id);
+      },
     });
   }, [signature, self]);
 

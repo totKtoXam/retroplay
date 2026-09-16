@@ -30,8 +30,8 @@ export const MAX_PLAYERS = 15;
 export const TASK_RANGE = 1.8;
 export const KILL_RANGE = 2.2;
 export const REPORT_RANGE = 3.5;
-/** От центра стола до кнопки: стоя вплотную к столу, дотягиваешься. */
-export const BUTTON_RANGE = 2.8;
+/** От центра стола до кнопки: дотягиваешься, стоя у стола или на своём месте за ним. */
+export const BUTTON_RANGE = 3.6;
 /** Минимальное время у пульта: быстрее мини-игру честно не пройти. */
 export const TASK_MS: Record<TaskKind, number> = {
   wires: 2500,
@@ -63,7 +63,7 @@ export type ImpostorPlayer = {
   /** Начатое задание: у какого пульта и с какого момента. */
   working: { station: string; at: number } | null;
 };
-export type ImpostorBody = { victim: string; x: number; y: number; z: number; at: number };
+export type ImpostorBody = { victim: string; x: number; y: number; z: number; at: number; color: string };
 export type ImpostorMeeting = {
   caller: string;
   reason: 'report' | 'button';
@@ -89,9 +89,9 @@ export type ImpostorGame = {
 };
 
 /** Минимум, что нужно о члене комнаты: так модуль не тянет весь room-hub-core. */
-export type ImpostorMember = { id: string; seen: number; pose: Pose; life: number };
+export type ImpostorMember = { id: string; seen: number; pose: Pose; life: number; color?: string; name?: string };
 export type ImpostorHub = {
-  room: { host: string; map: string; impostor: ImpostorSettings; mode: string };
+  room: { host: string; map: string; impostor: ImpostorSettings; mode: string; anonymous?: boolean };
   members: Map<string, ImpostorMember>;
   impostor: ImpostorGame;
   /**
@@ -274,7 +274,7 @@ export function kill(hub: ImpostorHub, self: string, target: unknown, now: numbe
   victim.p.alive = false;
   victim.p.working = null;
   const { x, y, z } = victim.m.pose;
-  g.bodies.push({ victim: target, x, y, z, at: now });
+  g.bodies.push({ victim: target, x, y, z, at: now, color: victim.m.color ?? '#c0392b' });
   killer.p.killReadyAt = now + hub.room.impostor.killCooldownSeconds * 1000;
   checkWinner(g, now);
   return OK;
@@ -555,8 +555,13 @@ export type ImpostorView = {
   killReadyAt: number;
   buttonReadyAt: number;
   working: { station: string; at: number } | null;
-  /** Участники партии; `alive: false` — только об известных всем смертях. */
-  players: { id: string; alive: boolean; left: boolean }[];
+  /**
+   * Участники партии; `alive: false` — только об известных всем смертях. Имя и цвет здесь,
+   * потому что погибших нет в списке участников у живых, а на собрании их показывают.
+   */
+  players: { id: string; alive: boolean; left: boolean; name: string; color: string }[];
+  /** Сколько предателей в партии — это знают все. */
+  impostors: number;
   bodies: ImpostorBody[];
   meeting: ImpostorMeeting | null;
   /** Кто уже проголосовал; за кого — только после голосования. */
@@ -598,12 +603,18 @@ export function impostorView(hub: ImpostorHub, viewer: string): ImpostorView {
     killReadyAt: me?.role === 'impostor' ? me.killReadyAt : 0,
     buttonReadyAt: g.buttonReadyAt,
     working: me?.working ?? null,
-    players: Object.values(g.players).map((p) => ({
-      id: p.id,
-      // Призраки и итог партии знают правду; живые — только то, что открылось на собрании.
-      alive: ended || ghost || p.revealed ? p.alive : true,
-      left: p.left,
-    })),
+    players: Object.values(g.players).map((p) => {
+      const m = hub.members.get(p.id);
+      return {
+        id: p.id,
+        // Призраки и итог партии знают правду; живые — только то, что открылось на собрании.
+        alive: ended || ghost || p.revealed ? p.alive : true,
+        left: p.left,
+        name: hub.room.anonymous ? 'Участник' : (m?.name ?? 'Игрок'),
+        color: m?.color ?? '#8d97a6',
+      };
+    }),
+    impostors: Object.values(g.players).filter((p) => p.role === 'impostor').length,
     // Тела видны на карте всем: их и так видно глазами, если подойти.
     bodies: g.bodies,
     meeting: g.meeting,

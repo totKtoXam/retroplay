@@ -59,6 +59,7 @@ import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { slotsFor, slotForDigit, cycleSlot } from '@/lib/loadout';
 import { modeOf } from '@/lib/maps/catalog';
+import { amGhost, impostorFrozen } from '@/lib/impostor-client';
 import { CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import { WeaponPrediction } from '@/lib/weapon-prediction';
 import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
@@ -907,8 +908,48 @@ export default function World(props: Props) {
       isDead: () => isDead(),
       onStance: setStance,
       wind: () => (windOn() ? weather.wind : null),
+      ghost: () => amGhost(latest.current.room.impostor),
     });
     const { pos } = player;
+    // Тела режима «Предатель»: лежащая капсула цвета погибшего и торчащая кость.
+    const bodies = new Map<string, T.Group>();
+    const syncBodies = () => {
+      const list = latest.current.room.impostor?.bodies ?? [];
+      const wanted = new Set(list.map((b) => b.victim + ':' + b.at));
+      for (const [key, group] of bodies)
+        if (!wanted.has(key)) {
+          scene.remove(group);
+          group.traverse((o) => {
+            if (o instanceof T.Mesh) {
+              o.geometry.dispose();
+              (o.material as T.Material).dispose();
+            }
+          });
+          bodies.delete(key);
+        }
+      for (const b of list) {
+        const key = b.victim + ':' + b.at;
+        if (bodies.has(key)) continue;
+        const group = new T.Group();
+        const torso = new T.Mesh(
+          new T.CapsuleGeometry(0.32, 0.5, 4, 12),
+          new T.MeshStandardMaterial({ color: b.color, roughness: 0.6 }),
+        );
+        torso.rotation.z = Math.PI / 2;
+        torso.position.set(-0.15, 0.3, 0);
+        const bone = new T.Mesh(
+          new T.CylinderGeometry(0.06, 0.06, 0.45, 8),
+          new T.MeshStandardMaterial({ color: '#f4efe6', roughness: 0.5 }),
+        );
+        bone.position.set(0.45, 0.4, 0);
+        bone.rotation.z = -Math.PI / 3;
+        group.add(torso, bone);
+        group.position.set(b.x, b.y, b.z);
+        group.rotation.y = (b.at % 628) / 100;
+        scene.add(group);
+        bodies.set(key, group);
+      }
+    };
     const vfx = createWorldVfx({ scene, quality: props.quality, camera });
     const { burst, paintDropletGeo } = vfx;
     // Per-frame camera-update scratch vectors, reused to avoid allocating on every tick.
@@ -2023,7 +2064,8 @@ export default function World(props: Props) {
       }
       // Подготовка раунда: сервер всё равно не примет шаг, поэтому и локально
       // игрок стоит — иначе картинка «уезжает», а потом возвращается назад.
-      const frozen = latest.current.room.match?.phase === 'freeze';
+      const frozen =
+        latest.current.room.match?.phase === 'freeze' || impostorFrozen(latest.current.room.impostor);
       const control =
         enabled() && !latest.current.blocked && !middle && !isDead() && !frozen;
       const { moving, speed, dx, dz, groundY } = player.advance(elapsed, {
@@ -2033,6 +2075,7 @@ export default function World(props: Props) {
       avatar.position.copy(pos);
       avatar.position.y += 0.27;
       avatar.rotation.y = player.heading;
+      syncBodies();
 
       const myMember = latest.current.room.members.find(
         (m) => m.id === latest.current.room.self,

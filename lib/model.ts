@@ -8,6 +8,7 @@ import {
   type GameMode,
 } from './maps/catalog.ts';
 import { IMPOSTOR_LIMITS, type ImpostorSettings } from './impostor-settings.ts';
+import type { ImpostorView } from './impostor.ts';
 import {
   anchorFor,
   dayMoment,
@@ -432,6 +433,8 @@ export type Room = {
   id: string;
   host: string;
   match?: Match;
+  /** Партия «Предателя» глазами этого игрока (lib/impostor.ts); только в этом режиме. */
+  impostor?: ImpostorView;
   version: number;
   state: RoomState;
   members: Person[];

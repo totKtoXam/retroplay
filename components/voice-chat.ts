@@ -82,6 +82,10 @@ export type VoiceRules = {
   myTeam: string;
   /** Остальные участники комнаты — без себя. */
   peers: VoicePeerInfo[];
+  /** Режим разрешает говорить этому собеседнику (в «Предателе» — не всем и не всегда). */
+  allowSend?: (id: string) => boolean;
+  /** Режим разрешает слышать этого собеседника. */
+  allowHear?: (id: string) => boolean;
 };
 
 /** Отметка «говорит» без обновления живёт столько: страховка от потерянного «отпустил». */
@@ -133,8 +137,11 @@ export function createVoiceChat({
   const teamOf = (id: string) => rules.peers.find((p) => p.id === id)?.team ?? '';
   /** Слышит ли этот собеседник мой канал: в свободной игре «свои» — это все. */
   const inChannel = (id: string, want: VoiceChannel) =>
-    want === 'all' || !rules.teams || !rules.myTeam || teamOf(id) === rules.myTeam;
+    (rules.allowSend?.(id) ?? true) &&
+    (want === 'all' || !rules.teams || !rules.myTeam || teamOf(id) === rules.myTeam);
   const silenced = (id: string) => !rules.enabled || rules.muted.has(id);
+  /** Звук собеседника выключен: заглушён или режим не даёт его слышать. */
+  const deaf = (id: string) => silenced(id) || !(rules.allowHear?.(id) ?? true);
 
   function publish() {
     if (disposed) return;
@@ -194,7 +201,7 @@ export function createVoiceChat({
     const audio = document.createElement('audio');
     audio.autoplay = true;
     // Свой голос в наушники не возвращаем, чужой — играем всегда, если не заглушён.
-    audio.muted = silenced(id);
+    audio.muted = deaf(id);
     const peer: Peer = { id, pc, polite: selfId < id, makingOffer: false, audio, sender: null, track: null };
     peers.set(id, peer);
 
@@ -386,7 +393,7 @@ export function createVoiceChat({
         // не дожидаясь, пока игрок отпустит клавишу.
         if (channel) setTalk(channel, false);
       }
-      for (const peer of peers.values()) peer.audio.muted = silenced(peer.id);
+      for (const peer of peers.values()) peer.audio.muted = deaf(peer.id);
       const present = new Set(rules.peers.map((p) => p.id));
       // Копия ключей, потому что dropPeer удаляет из той же карты.
       for (const id of Array.from(peers.keys()))

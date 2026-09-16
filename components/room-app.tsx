@@ -114,6 +114,8 @@ import { defaultSlot, hasSlot, slotsFor } from '@/lib/loadout';
 import { BOT_LEVELS } from '@/lib/bot-levels';
 
 const World = lazy(() => import('./world'));
+// Как и мир, интерфейс «Предателя» тянет геометрию карт — грузится отдельно и только в этом режиме.
+const ImpostorOverlay = lazy(() => import('./impostor-overlay'));
 const kinds: Record<string, string> = {
   pointer: 'sticky',
   sticky: 'sticky',
@@ -175,6 +177,8 @@ export default function RoomApp({ id }: { id: string }) {
     [quality, setQuality] = useState('balanced'),
     [fps, setFps] = useState(0),
     [monitor, setMonitor] = useState(false),
+    // Экран режима «Предатель» (мини-игра, собрание) держит курсор — мир не слушает ввод.
+    [impostorBlocked, setImpostorBlocked] = useState(false),
     [now, setNow] = useState(() => Date.now()),
     [seconds, setSeconds] = useState('300'),
     [voteLimit, setVoteLimit] = useState('5'),
@@ -296,6 +300,7 @@ export default function RoomApp({ id }: { id: string }) {
     act,
     fire,
     weapon,
+    impostor,
     sendVoice,
     setVoiceSink,
     serverNow,
@@ -1404,8 +1409,21 @@ export default function RoomApp({ id }: { id: string }) {
                 blocked={
                   !!panel ||
                   !!draft ||
-                  !!selectedZone
+                  !!selectedZone ||
+                  impostorBlocked
                 }
+              />
+            </Suspense>
+          )}
+          {gameMode === 'impostor' && !webglFailed && (
+            <Suspense fallback={null}>
+              <ImpostorOverlay
+                room={room}
+                host={host}
+                serverNow={serverNow}
+                pose={pose}
+                send={impostor}
+                onBlocked={setImpostorBlocked}
               />
             </Suspense>
           )}

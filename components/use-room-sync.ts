@@ -9,10 +9,13 @@ import {
   type RefObject,
   type SetStateAction,
 } from 'react';
-import type { Room, RoomState, Pose, WorldEffect } from '@/lib/model';
+import { uid, type Room, type RoomState, type Pose, type WorldEffect } from '@/lib/model';
 import { api, ready } from '@/lib/client';
 import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
 import type { VoiceSignal } from './voice-chat';
+
+/** Ответ сервера на действие режима «Предатель». */
+export type ImpostorReply = { ok: boolean; error?: string };
 
 /** Чем комната кормит голосовой чат: сообщениями с сервера и фактом переподключения. */
 export type VoiceSink = {
@@ -56,8 +59,10 @@ type SocketMessage =
       members: Room['members'];
       effects: WorldEffect[];
       match?: Room['match'];
+      impostor?: Room['impostor'];
     }
   | { t: 'refresh' }
+  | { t: 'impostor'; id: string; ok: boolean; error?: string }
   | ({ t: 'voice' } & VoiceSignal)
   | { t: 'pong'; at: number }
   | ({ t: 'weapon' } & WeaponReply)
@@ -212,6 +217,7 @@ export function useRoomSync({
             ...old,
             members: data.members,
             match: data.match ?? old.match,
+            impostor: data.impostor,
             effects,
           };
         }
@@ -306,6 +312,38 @@ export function useRoomSync({
     return request;
   }, [id]);
   const weapon = useCallback((command: WeaponCommand) => sendWeapon({ ...command, type: 'weapon' }), [sendWeapon]);
+  const impostorRequests = useRef(new Map<string, { resolve: (reply: ImpostorReply) => void; timer: ReturnType<typeof setTimeout> }>());
+  /**
+   * Действие режима «Предатель». Ответ сервера — принято или почему нет; само
+   * изменение партии приходит следующим тиком. Без сокета — тем же HTTP, что и всё.
+   */
+  const impostor = useCallback(
+    (action: Record<string, unknown>): Promise<ImpostorReply> => {
+      const ws = socketRef.current;
+      if (ws?.readyState === WebSocket.OPEN) {
+        const requestId = uid();
+        return new Promise((resolve) => {
+          const timer = setTimeout(() => {
+            impostorRequests.current.delete(requestId);
+            resolve({ ok: false, error: 'Сервер не ответил' });
+          }, 5000);
+          impostorRequests.current.set(requestId, { resolve, timer });
+          try {
+            ws.send(JSON.stringify({ ...action, t: 'impostor', id: requestId }));
+          } catch {
+            clearTimeout(timer);
+            impostorRequests.current.delete(requestId);
+            resolve({ ok: false, error: 'Связь с сервером потеряна' });
+          }
+        });
+      }
+      return api<ImpostorReply>('/api/rooms/' + id, { ...action, type: 'impostor' }).catch((e: Error) => ({
+        ok: false,
+        error: e.message,
+      }));
+    },
+    [id],
+  );
   /**
    * Служебное сообщение голосового чата. Только через сокет: договориться о
    * соединении по HTTP-опросу нельзя — пока ответ дойдёт, предложение устареет.
@@ -398,10 +436,18 @@ export function useRoomSync({
                   members: msg.members,
                   serverNow: msg.now,
                   match: msg.match ?? old.match,
+                  impostor: msg.impostor,
                   effects: mergeEffects(old.effects, msg.effects),
                 } as Room)
               : old,
           );
+        } else if (msg.t === 'impostor') {
+          const pending = impostorRequests.current.get(msg.id);
+          if (pending) {
+            clearTimeout(pending.timer);
+            impostorRequests.current.delete(msg.id);
+            pending.resolve({ ok: msg.ok, error: msg.error });
+          }
         } else if (msg.t === 'voice') {
           voiceSink.current?.signal(msg);
         } else if (msg.t === 'refresh') {
@@ -418,6 +464,11 @@ export function useRoomSync({
           pending.reject(new Error('Связь с сервером потеряна'));
         }
         weaponRequests.current.clear();
+        for (const pending of impostorRequests.current.values()) {
+          clearTimeout(pending.timer);
+          pending.resolve({ ok: false, error: 'Связь с сервером потеряна' });
+        }
+        impostorRequests.current.clear();
         clearInterval(pinger);
         if (socketRef.current === ws) socketRef.current = null;
         if (stop) return;
@@ -564,6 +615,7 @@ export function useRoomSync({
     act,
     fire,
     weapon,
+    impostor,
     sendVoice,
     setVoiceSink,
     serverNow,
