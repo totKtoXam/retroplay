@@ -2812,161 +2812,6 @@ h1 > span {
   display: flex;
   gap: 10px;
 }
-.music-dock {
-  position: absolute;
-  z-index: 7;
-  right: 20px;
-  top: 100px;
-  display: flex;
-  align-items: center;
-  border: 1px solid #9c9aba55;
-  background: #22283be8;
-  border-radius: 13px;
-  color: #dcd7ed;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 8px 25px #171a3820;
-}
-.music-play {
-  width: 38px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-right: 1px solid #74718545;
-  background: transparent;
-  color: #c2ade8;
-}
-.music-open {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  background: none;
-  border: 0;
-  color: inherit;
-  padding: 8px 12px;
-  text-align: left;
-}
-.music-open small {
-  display: block;
-  font-size: 8px;
-  letter-spacing: 1.6px;
-  color: #9b94b2;
-}
-.music-open strong {
-  display: block;
-  font-size: 11px;
-  margin-top: 3px;
-  font-weight: 550;
-}
-.music-bars {
-  height: 19px;
-  display: flex;
-  gap: 2px;
-  align-items: center;
-}
-.music-bars i {
-  width: 2px;
-  height: 5px;
-  background: #c4abd9;
-  border-radius: 2px;
-}
-.is-playing .music-bars i {
-  animation: radio-bar 0.9s ease-in-out infinite alternate;
-}
-.music-bars i:nth-child(2) {
-  animation-delay: -0.3s;
-}
-.music-bars i:nth-child(3) {
-  animation-delay: -0.6s;
-}
-.music-bars i:nth-child(4) {
-  animation-delay: -0.1s;
-}
-@keyframes radio-bar {
-  from {
-    height: 4px;
-  }
-  to {
-    height: 17px;
-  }
-}
-.music-popover {
-  width: 300px;
-  border-radius: 20px;
-  padding: 20px;
-  background: #fffaf5;
-  color: #62526f;
-  border: 1px solid #eadbea;
-  box-shadow: 0 18px 60px #241b3d25;
-  z-index: 100;
-}
-.music-heading {
-  display: flex;
-  gap: 13px;
-  align-items: center;
-  margin-bottom: 18px;
-}
-.music-heading strong {
-  display: block;
-  font-size: 15px;
-}
-.music-heading small {
-  display: block;
-  font-size: 10px;
-  color: #a393ac;
-  margin-top: 4px;
-}
-.music-tracks {
-  display: grid;
-  gap: 6px;
-}
-.music-tracks button {
-  display: flex;
-  text-align: left;
-  align-items: center;
-  gap: 14px;
-  background: transparent;
-  border: 1px solid transparent;
-  color: #9b84ab;
-  border-radius: 12px;
-  padding: 11px;
-}
-.music-tracks button.selected {
-  background: #f0e5f7;
-  border-color: #d8bfe8;
-}
-.music-tracks strong {
-  font-size: 12px;
-  color: #70577d;
-}
-.music-tracks small {
-  display: block;
-  font-size: 10px;
-  color: #a28baf;
-  margin-top: 4px;
-}
-.music-volume {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 19px 0;
-}
-.music-volume input {
-  width: 100%;
-  accent-color: #a585bc;
-}
-.music-volume output {
-  font-size: 11px;
-  min-width: 32px;
-}
-.style-anime .music-dock {
-  background: #fff6f1e8;
-  color: #775b8b;
-  border-color: #ead8ef;
-}
-.style-anime .music-play {
-  color: #a780bd;
-}
 .camera-fallback-hint {
   top: 152px;
   font-size: 9px;
@@ -2981,30 +2826,6 @@ h1 > span {
   }
 }
 @media (max-width: 680px) {
-  .music-dock {
-    top: 85px;
-    right: 14px;
-  }
-  .music-open {
-    padding: 7px 9px;
-    gap: 7px;
-  }
-  .music-open > svg {
-    display: none;
-  }
-  .music-play {
-    width: 31px;
-    height: 40px;
-  }
-  .music-open small {
-    font-size: 7px;
-  }
-  .music-open strong {
-    font-size: 10px;
-  }
-  .music-bars {
-    display: none;
-  }
   .tool-library {
     grid-template-columns: 1fr;
   }
@@ -3014,11 +2835,6 @@ h1 > span {
   }
   .camera-onboarding {
     bottom: 185px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .is-playing .music-bars i {
-    animation: none;
   }
 }
 .style-anime.mode-3d .camera-onboarding span,
@@ -3091,8 +2907,7 @@ h1 > span {
 
 .style-classic.mode-3d .world-location,
 .style-classic.mode-3d .camera-toolbar,
-.style-classic.mode-3d .equipped-card,
-.style-classic.mode-3d .music-dock {
+.style-classic.mode-3d .equipped-card {
   background: #162125e8;
   border-color: #ffffff24;
   color: #d8dfdd;
@@ -3154,8 +2969,7 @@ h1 > span {
 
 /* Tactical direction: angular panels, coral accents, restrained cyan light. */
 
-.style-classic.mode-3d .world-location,
-.style-classic.mode-3d .music-dock {
+.style-classic.mode-3d .world-location {
   background: #121e2aef;
   border-radius: 4px;
   border-color: #ffffff26;
@@ -4459,8 +4273,6 @@ h1 > span {
   position: static !important;
 }
 
-/* Unified top-right bar placing music player directly right of environment dock */
-
 /* Diegetic handheld tablet viewport with live projected retrospective board */
 .diegetic-tablet-container {
   position: absolute;
@@ -4761,9 +4573,8 @@ h1 > span {
   background: #15803d;
 }
 
-/* Tablet Environment & Music Views */
-.tablet-env-view,
-.tablet-music-view {
+/* Tablet Environment View */
+.tablet-env-view {
   flex: 1;
   overflow-y: auto;
   padding: 20px 24px;
@@ -4809,51 +4620,6 @@ h1 > span {
   border-color: #38bdf8;
   color: #38bdf8;
   box-shadow: 0 0 15px rgba(56, 189, 248, 0.25);
-}
-.playing-pulse {
-  color: #22c55e;
-  font-size: 9px;
-  animation: pulse 1s infinite;
-}
-.tablet-music-controls-row {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  background: rgba(30, 41, 59, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 14px 18px;
-  margin-top: 8px;
-}
-.tablet-music-play-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 8px;
-  background: #38bdf8;
-  color: #0f172a;
-  font-weight: 700;
-  font-size: 12.5px;
-  border: none;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.tablet-music-play-toggle:hover {
-  background: #7dd3fc;
-}
-.tablet-music-volume {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-  color: #94a3b8;
-  font-size: 12px;
-}
-.tablet-music-volume input[type='range'] {
-  flex: 1;
-  accent-color: #38bdf8;
-  cursor: pointer;
 }
 .tablet-home-bar {
   flex-shrink: 0;
@@ -4957,8 +4723,6 @@ h1 > span {
 }
 
 /* Tablet Environment Section */
-
-/* Tablet Music Section */
 
 /* ==========================================================================
    Room Visibility and Access Management Styles

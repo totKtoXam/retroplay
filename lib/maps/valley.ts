@@ -485,6 +485,7 @@ export const VALLEY: ArenaDef = {
   title: 'Ледниковая долина',
   bounds: BOUNDS,
   groundColor: SNOW,
+  season: 'winter',
   outsideColor: '#c4d2de',
   boxes,
   ramps,

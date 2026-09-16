@@ -1,0 +1,255 @@
+/*
+ * Музыкальный плеер в шапке комнаты (components/music-player.tsx).
+ *
+ * Чип собран из тех же кирпичей, что и .game-tag: рамка, скругление и цвета
+ * шапки (--hud-*), чтобы не выделяться среди таймера и участников. Внутри —
+ * кнопки без своих рамок, разделённые тонкими линиями, как сегменты одного
+ * пульта. Всплывающий плейлист — обычная поверхность интерфейса (--jin-*), как
+ * у соседнего чипа «Мир».
+ */
+
+.music-chip {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  min-width: 0;
+  border: 1px solid #ffffff33;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--hud-dim);
+}
+.music-chip.is-playing {
+  border-color: var(--hud-accent);
+}
+
+.music-chip-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border: 0;
+  border-left: 1px solid #ffffff1f;
+  background: none;
+  color: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.music-chip-btn:first-child {
+  border-left: 0;
+}
+.music-chip-btn:hover,
+.music-chip-btn[data-popup-open] {
+  color: #fff;
+  background: #ffffff14;
+}
+.music-chip-play {
+  color: var(--hud-text);
+}
+/* «Фон» — режим по умолчанию, поэтому подсвечен спокойно, а «Громко» — ярче:
+   это осознанное отступление, о котором стоит помнить. */
+.music-chip-mode:not(.on) {
+  color: #ffc861;
+}
+
+.music-chip-now {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 150px;
+  padding: 3px 8px 3px 2px;
+  color: var(--hud-text);
+}
+.music-chip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.music-bars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 12px;
+  flex: none;
+}
+.music-bars i {
+  width: 2px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hud-accent);
+  opacity: 0.6;
+}
+.is-playing .music-bars i {
+  opacity: 1;
+  animation: music-bar 0.9s ease-in-out infinite alternate;
+}
+.music-bars i:nth-child(2) {
+  animation-delay: -0.3s;
+}
+.music-bars i:nth-child(3) {
+  animation-delay: -0.6s;
+}
+@keyframes music-bar {
+  from {
+    height: 3px;
+  }
+  to {
+    height: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-playing .music-bars i {
+    animation: none;
+    height: 10px;
+  }
+}
+
+/* Узкая шапка: остаются кнопки, название и подписи уходят. */
+@media (max-width: 1100px) {
+  .music-chip-now {
+    max-width: 96px;
+  }
+  .music-chip-mode span {
+    display: none;
+  }
+}
+@media (max-width: 820px) {
+  .music-chip-now {
+    display: none;
+  }
+}
+
+/* --- плейлист --- */
+.music-pop {
+  display: grid;
+  gap: 8px;
+  width: 290px;
+  padding: 11px;
+}
+.music-pop-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.music-pop-head strong {
+  font-size: 13px;
+  color: var(--jin-text);
+}
+.music-pop-head small {
+  font-size: 11px;
+  color: var(--jin-text-faint);
+}
+.music-pop-list {
+  display: grid;
+  gap: 3px;
+  max-height: min(320px, 50vh);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.music-pop-list li {
+  display: flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+.music-pop-list li:hover {
+  background: var(--jin-surface-3);
+}
+.music-pop-list li.active {
+  border-color: var(--jin-accent);
+  background: var(--jin-accent-soft);
+}
+.music-pop-track {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  color: var(--jin-text);
+  text-align: left;
+}
+.music-pop-icon {
+  width: 14px;
+  flex: none;
+  text-align: center;
+  color: var(--jin-accent-hover);
+}
+.music-pop-text {
+  display: grid;
+  min-width: 0;
+}
+.music-pop-text strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.music-pop-text small {
+  font-size: 10.5px;
+  color: var(--jin-text-muted);
+}
+.music-pop-remove {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 3px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--jin-text-faint);
+}
+.music-pop-remove:hover {
+  color: #e5484d;
+  background: var(--jin-surface);
+}
+.music-pop-row {
+  display: flex;
+  gap: 6px;
+}
+.music-pop-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--jin-border);
+  border-radius: 8px;
+  background: var(--jin-surface);
+  color: var(--jin-text);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.music-pop-action:hover {
+  background: var(--jin-surface-3);
+}
+.music-pop-volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--jin-text-muted);
+}
+.music-pop-volume input {
+  flex: 1;
+  accent-color: var(--jin-accent);
+}
+.music-pop-volume output {
+  min-width: 34px;
+  font-size: 11px;
+  text-align: right;
+}
+.music-pop-error {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #e5484d;
+}

@@ -57,6 +57,11 @@ export type ArenaDef = {
   /** Playable area; the client and the server clamp poses to exactly these bounds. */
   bounds: Bounds;
   groundColor: string;
+  /**
+   * The season the map is painted in (lib/season-colors.ts); other seasons recolour it
+   * from there. Missing means summer.
+   */
+  season?: 'spring' | 'summer' | 'autumn' | 'winter';
   /** Terrain beyond the walls. */
   outsideColor?: string;
   boxes: MapBox[];

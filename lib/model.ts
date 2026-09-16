@@ -22,6 +22,7 @@ import {
   type BotLevel,
   type BotSpec,
 } from './bot-levels.ts';
+import { WEATHER_SETTINGS } from './weather.ts';
 
 export const ZONES = [
   {
@@ -351,6 +352,16 @@ export type RoomState = {
   theme: string;
   visualStyle?: 'classic' | 'anime';
   season: string;
+  /**
+   * Погода (lib/weather.ts): конкретная или 'auto' — смена по сезону на
+   * серверных часах. У комнат, созданных до погоды, поля нет, и там ясно.
+   */
+  weather?: string;
+  /**
+   * Ветер сносит игроков и пули, а у прицела виден его индикатор. Выключает
+   * ведущий: это правило боя для всех, а не личная настройка. Нет поля — включено.
+   */
+  windEffects?: boolean;
   time: string;
   /**
    * Идущие сутки (lib/day-cycle.ts). Пока `running` — время суток считается из
@@ -486,6 +497,8 @@ export function initialState(
     mode: 'retro',
     map: 'hub',
     season: THEMES.find((t) => t.id === theme)?.season || 'spring',
+    weather: 'auto',
+    windEffects: true,
     time: 'day',
     // Новые комнаты живут по идущим суткам: якорь ставится так, чтобы встреча
     // начиналась в полдень — в том же освещении, что и раньше.
@@ -725,6 +738,7 @@ export function applyOperation(
     }
     if ('season' in p)
       s.season = oneOf(p.season, ['spring', 'summer', 'autumn', 'winter']);
+    if ('weather' in p) s.weather = oneOf(p.weather, [...WEATHER_SETTINGS]);
     // Идущие сутки и ручной выбор времени — один переключатель на двоих.
     // Включение цикла подхватывает ту фазу, что сейчас на экране, а остановка
     // фиксирует её же: мир не должен прыгать в другое время суток от нажатия
@@ -782,6 +796,7 @@ export function applyOperation(
       'anonymousPlayers',
       'hidePlayerStatus',
       'layoutLocked',
+      'windEffects',
     ] as const)
       if (key in p) s[key] = !!p[key];
   } else if (kind === 'voice.mute') {

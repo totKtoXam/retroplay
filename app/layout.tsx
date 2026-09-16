@@ -7,6 +7,7 @@ import './hud.css';
 import './game-clock.css';
 import './phases.css';
 import './settings-menu.css';
+import './music-player.css';
 /**
  * Ставит тему на <html> до первой отрисовки, чтобы не было вспышки светлого
  * фона. Логика повторяет applyTheme() из hooks/use-theme.ts.
