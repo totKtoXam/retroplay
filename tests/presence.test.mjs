@@ -58,7 +58,7 @@ const member = (id, seenAgo) => [
 ];
 
 const hub = (...members) => ({
-  room: { anonymous: false, shieldSeconds: 0 },
+  room: { anonymous: false, shieldSeconds: 0, bots: [] },
   members: new Map(members),
 });
 
