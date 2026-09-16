@@ -253,3 +253,11 @@
   line-height: 1.35;
   color: #e5484d;
 }
+
+.music-pop-status {
+  display: block;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--jin-text-muted);
+}

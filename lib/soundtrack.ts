@@ -1,3 +1,4 @@
+import { prepareTrack } from './audio-convert';
 import { musicGain, trackTitleFromFile } from './music-mix';
 import {
   deleteStoredTrack,
@@ -244,6 +245,8 @@ export type MusicState = {
   voiceActive: boolean;
   playlist: PlaylistTrack[];
   error?: string;
+  /** Что сейчас делается с загруженным файлом: «Конвертирую «x» — 40 %». */
+  converting?: string;
 };
 
 const BUILTIN_PLAYLIST: PlaylistTrack[] = TRACKS.map((t) => ({
@@ -256,7 +259,8 @@ const BUILTIN_PLAYLIST: PlaylistTrack[] = TRACKS.map((t) => ({
 /** Потолок одного файла: IndexedDB выдержит и больше, но это уже не песня, а альбом. */
 export const MAX_TRACK_BYTES = 50 * 1024 * 1024;
 const MAX_CUSTOM_TRACKS = 50;
-const AUDIO_EXT = /\.(mp3|m4a|aac|ogg|oga|opus|wav|flac|webm)$/i;
+const AUDIO_EXT =
+  /\.(mp3|m4a|m4b|mp4|aac|ogg|oga|opus|wav|aif|aiff|flac|webm|wma|caf|ape|wv)$/i;
 const PREFS_KEY = 'jinaly-music-prefs';
 
 let sharedPlayer: Soundtrack | null = null;
@@ -303,7 +307,9 @@ function customTrack(id: string, name: string): PlaylistTrack {
   return {
     id,
     title: trackTitleFromFile(name),
-    subtitle: 'Ваш файл',
+    subtitle: ['Ваш файл', /\.([a-z0-9]{1,5})$/i.exec(name)?.[1]?.toUpperCase()]
+      .filter(Boolean)
+      .join(' · '),
     custom: true,
   };
 }
@@ -414,8 +420,21 @@ function isAudioFile(file: File) {
   return file.type.startsWith('audio/') || AUDIO_EXT.test(file.name);
 }
 
-/** Добавить файлы в плейлист. Первый принятый файл сразу начинает играть. */
-export async function addMusicFiles(files: Iterable<File>) {
+/** Загрузки идут по одной: ffmpeg один на вкладку, и его журнал нельзя делить. */
+let uploads: Promise<void> = Promise.resolve();
+
+/**
+ * Добавить файлы в плейлист. MP3, AAC и FLAC сохраняются как есть, остальное
+ * конвертируется (lib/audio-format.ts). Первый принятый файл сразу играет.
+ */
+export function addMusicFiles(files: Iterable<File>) {
+  const list = Array.from(files);
+  // Сбой одной загрузки не должен останавливать очередь следующих.
+  uploads = uploads.then(() => addNow(list)).catch(() => {});
+  return uploads;
+}
+
+async function addNow(files: File[]) {
   const accepted: PlaylistTrack[] = [];
   const problems: string[] = [];
   let room = MAX_CUSTOM_TRACKS - customUrls.size;
@@ -432,27 +451,47 @@ export async function addMusicFiles(files: Iterable<File>) {
       problems.push(`в плейлисте уже ${MAX_CUSTOM_TRACKS} своих треков`);
       break;
     }
+    let prepared;
+    try {
+      prepared = await prepareTrack(file, (stage, progress) =>
+        setState({
+          converting:
+            stage === 'loading'
+              ? `Готовлю конвертер для «${file.name}»…`
+              : `Конвертирую «${file.name}» — ${Math.round(progress * 100)} %`,
+        }),
+      );
+    } catch {
+      problems.push(`«${file.name}» не удалось прочитать или конвертировать`);
+      continue;
+    } finally {
+      setState({ converting: undefined });
+    }
+    if (prepared.blob.size > MAX_TRACK_BYTES) {
+      problems.push(`«${file.name}» после конвертации больше 50 МБ`);
+      continue;
+    }
     room--;
     const id = 'user:' + crypto.randomUUID();
-    customUrls.set(id, URL.createObjectURL(file));
-    accepted.push(customTrack(id, file.name));
+    customUrls.set(id, URL.createObjectURL(prepared.blob));
+    const track = customTrack(id, prepared.name);
+    accepted.push(track);
+    // Трек появляется в плейлисте сразу, не дожидаясь конвертации остальных.
+    setState({ playlist: [...currentMusicState.playlist, track] });
     try {
       await saveStoredTrack({
         id,
-        name: file.name,
-        blob: file,
+        name: prepared.name,
+        blob: prepared.blob,
         addedAt: Date.now(),
       });
     } catch {
       problems.push(`«${file.name}» не сохранится после перезагрузки`);
     }
   }
-  setState({
-    playlist: [...currentMusicState.playlist, ...accepted],
-    error: problems.length ? problems.join('; ') : undefined,
-  });
+  setState({ error: problems.length ? problems.join('; ') : undefined });
   if (!accepted.length) return;
-  await playMusic(accepted[0].id);
+  if (!currentMusicState.playing) await playMusic(accepted[0].id);
   // Запуск стирает прошлую ошибку, а про отклонённые файлы игрок должен узнать.
   if (problems.length && !currentMusicState.error)
     setState({ error: problems.join('; ') });

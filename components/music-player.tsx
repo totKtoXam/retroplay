@@ -77,7 +77,9 @@ export function MusicPlayer({ voiceActive }: { voiceActive: boolean }) {
           <i />
           <i />
         </span>
-        <span className="music-chip-title">{current.title}</span>
+        <span className="music-chip-title">
+          {music.converting ? 'Конвертирую…' : current.title}
+        </span>
       </span>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
@@ -158,6 +160,11 @@ export function MusicPlayer({ voiceActive }: { voiceActive: boolean }) {
             />
             <output>{Math.round(music.volume * 100)}%</output>
           </label>
+          {music.converting && (
+            <output className="music-pop-status">
+              {music.converting}
+            </output>
+          )}
           {music.error && (
             <p className="music-pop-error" role="alert">
               {music.error}
