@@ -17,6 +17,8 @@ Jinaly · Retro 3D — совместные ретроспективы + 3D-шу
 
 Пакет [threejs-game-skills](https://github.com/majidmanzarpour/threejs-game-skills) (коммит `e5f301d`) установлен на уровне проекта: для Claude Code — `.claude/skills/threejs-*`, для Codex — `.agents/skills/threejs-*` (копии одинаковые). Точка входа — `threejs-game-director`. Это вендорный код: руками не править, обновлять копированием `skills/` из свежего клона в обе папки. Исключены из `tsc` и `oxfmt`.
 
+Скил `object-to-threejs-procedural` из [img2obj](https://github.com/vinhhien112/img2obj) (коммит `659718b`, MIT) лежит там же, в обеих папках: процедурная Three.js-модель по картинке, скрипты на Python 3.10+ без внешних зависимостей. Оригинал — Codex-плагин, поэтому раскладка плоская (`SKILL.md`, `references/`, `scripts/` в одной папке) и есть две правки путей: абзац про `<plugin-root>` в `SKILL.md` и `reference_root` в `scripts/sculpt_module_state.py`. При обновлении повторить обе правки.
+
 ## Модели субагентов
 
 - **По умолчанию** субагенты Claude работают на **Sonnet 5 с effort `xhigh`** («Sonnet Extra»). Настроено в `.claude/settings.json`: `env.CLAUDE_CODE_SUBAGENT_MODEL = claude-sonnet-5` и `modelSettings.claude-sonnet-5.effortLevel = xhigh`.

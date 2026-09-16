@@ -10,6 +10,8 @@
     "bun.lock",
     "bun.lockb",
     ".claude/skills/threejs-*",
-    ".agents/skills/threejs-*"
+    ".claude/skills/object-to-threejs-procedural",
+    ".agents/skills/threejs-*",
+    ".agents/skills/object-to-threejs-procedural"
   ]
 }
