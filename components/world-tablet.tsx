@@ -1,5 +1,5 @@
 'use client';
-import { useState, useSyncExternalStore } from 'react';
+import { useState } from 'react';
 import Board from './board';
 import { isOnline, ZONES, type Room, type RoomState, type Note } from '@/lib/model';
 import { dayMoment } from '@/lib/day-cycle';
@@ -21,19 +21,7 @@ import {
   Sunrise,
   Sunset,
   Moon,
-  Music2,
-  Play,
-  Pause,
-  Volume2,
 } from 'lucide-react';
-import {
-  TRACKS,
-  getMusicState,
-  subscribeMusic,
-  playMusic,
-  pauseMusic,
-  setMusicVolume,
-} from '@/lib/soundtrack';
 
 type WorldTabletProps = {
   room: Room;
@@ -49,7 +37,7 @@ type WorldTabletProps = {
 };
 
 export function WorldTablet(props: WorldTabletProps) {
-  const [tabletTab, setTabletTab] = useState<'board' | 'env' | 'music'>('board');
+  const [tabletTab, setTabletTab] = useState<'board' | 'env'>('board');
   const [tabletTool, setTabletTool] = useState('pointer');
   const [actionItemsOpen, setActionItemsOpen] = useState(false);
   const [tabletSearch, setTabletSearch] = useState('');
@@ -66,11 +54,6 @@ export function WorldTablet(props: WorldTabletProps) {
   const timerText = `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(
     left % 60,
   ).padStart(2, '0')}`;
-  const music = useSyncExternalStore(
-    subscribeMusic,
-    getMusicState,
-    getMusicState,
-  );
 
   return (
     <div
@@ -122,12 +105,6 @@ export function WorldTablet(props: WorldTabletProps) {
             onClick={() => setTabletTab('env')}
           >
             🌲 Ландшафт
-          </button>
-          <button
-            className={`tablet-tab-btn ${tabletTab === 'music' ? 'active' : ''}`}
-            onClick={() => setTabletTab('music')}
-          >
-            🎵 Музыка
           </button>
         </nav>
 
@@ -511,68 +488,6 @@ export function WorldTablet(props: WorldTabletProps) {
                     </button>
                   );
                 })}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {tabletTab === 'music' && (
-          <div className="tablet-music-view">
-            <div className="tablet-settings-section">
-              <h3>Фоновый саундтрек</h3>
-              <div className="tablet-settings-chips">
-                {TRACKS.map((t) => {
-                  const active = music.track === t.id;
-                  return (
-                    <button
-                      key={t.id}
-                      className={`tablet-setting-chip ${active ? 'active' : ''}`}
-                      onClick={() => {
-                        if (active) {
-                          pauseMusic();
-                        } else {
-                          void playMusic(t.id);
-                        }
-                      }}
-                    >
-                      <Music2 size={16} />
-                      <span>{t.title}</span>
-                      {active && <span className="playing-pulse">●</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="tablet-music-controls-row">
-              <button
-                className="tablet-music-play-toggle"
-                onClick={() => {
-                  if (music.playing) {
-                    pauseMusic();
-                  } else {
-                    void playMusic(music.track || 'steppe');
-                  }
-                }}
-              >
-                {music.playing ? <Pause size={18} /> : <Play size={18} />}
-                <span>{music.playing ? 'Пауза' : 'Воспроизведение'}</span>
-              </button>
-
-              <div className="tablet-music-volume">
-                <Volume2 size={16} />
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={music.volume}
-                  onChange={(e) =>
-                    setMusicVolume(parseFloat(e.target.value))
-                  }
-                  aria-label="Громкость музыки"
-                />
-                <span>{Math.round(music.volume * 100)}%</span>
               </div>
             </div>
           </div>

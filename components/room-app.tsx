@@ -100,6 +100,7 @@ import {
 } from './room-panels';
 import { SettingsShell, type SettingsGroup } from './settings-shell';
 import { WorldQuickChip } from './world-quick-chip';
+import { MusicPlayer } from './music-player';
 import { GameClock } from './game-clock';
 import { SidePicker } from './side-picker';
 import { PhaseBar } from './phase-bar';
@@ -1192,6 +1193,11 @@ export default function RoomApp({ id }: { id: string }) {
             </>
           )}
         </div>
+        {/* Музыка в шапке, а не в планшете: её меняют посреди игры, не
+            отрываясь от сцены. В фоновом режиме уступает голосам рации. */}
+        <MusicPlayer
+          voiceActive={!!voice.talking || voice.speakers.some((v) => v.audible)}
+        />
         <button
           className="game-tag people"
           onClick={() => setMonitor(true)}

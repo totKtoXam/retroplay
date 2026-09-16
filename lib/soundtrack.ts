@@ -1,3 +1,10 @@
+import { musicGain, trackTitleFromFile } from './music-mix';
+import {
+  deleteStoredTrack,
+  loadStoredTracks,
+  saveStoredTrack,
+} from './music-library';
+
 export const TRACKS = [
   {
     id: 'evening',
@@ -46,6 +53,8 @@ export class Soundtrack {
   private next = 0;
   private track = TRACKS[0];
   private voices = new Set<AudioScheduledSourceNode>();
+  /** Плеер загруженных файлов: идёт через тот же master, чтобы громкость и приглушение были общими. */
+  private element: HTMLAudioElement | null = null;
   constructor() {
     const c = (this.context = new AudioContext());
     this.master = c.createGain();
@@ -171,11 +180,29 @@ export class Soundtrack {
     this.schedule();
     this.timer = setInterval(() => this.schedule(), 75);
   }
+  /** Загруженный файл. `onEnded` зовётся, только если трек доиграл сам, а не был остановлен. */
+  async playFile(url: string, onEnded: () => void) {
+    this.stop();
+    const generation = this.generation;
+    if (!this.element) {
+      this.element = new Audio();
+      this.element.preload = 'auto';
+      this.context.createMediaElementSource(this.element).connect(this.master);
+    }
+    const element = this.element;
+    element.onended = () => {
+      if (generation === this.generation) onEnded();
+    };
+    element.src = url;
+    await this.context.resume();
+    if (generation !== this.generation) return;
+    await element.play();
+  }
   volume(value: number) {
     this.master.gain.setTargetAtTime(
       Math.max(0, Math.min(1, value)),
       this.context.currentTime,
-      0.08,
+      0.12,
     );
   }
   stop() {
@@ -188,6 +215,10 @@ export class Soundtrack {
       } catch {}
     }
     this.voices.clear();
+    if (this.element) {
+      this.element.onended = null;
+      this.element.pause();
+    }
   }
   async dispose() {
     this.stop();
@@ -195,23 +226,118 @@ export class Soundtrack {
   }
 }
 
+/** Трек плейлиста: встроенная аранжировка или файл, загруженный игроком. */
+export type PlaylistTrack = {
+  id: string;
+  title: string;
+  subtitle: string;
+  custom: boolean;
+};
+
 export type MusicState = {
   playing: boolean;
   track: string;
   volume: number;
+  /** Музыка на фоне: тише и уступает голосам. Включено по умолчанию. */
+  background: boolean;
+  /** Кто-то сейчас говорит в голосовой чат. */
+  voiceActive: boolean;
+  playlist: PlaylistTrack[];
   error?: string;
 };
+
+const BUILTIN_PLAYLIST: PlaylistTrack[] = TRACKS.map((t) => ({
+  id: t.id,
+  title: t.title,
+  subtitle: t.subtitle,
+  custom: false,
+}));
+
+/** Потолок одного файла: IndexedDB выдержит и больше, но это уже не песня, а альбом. */
+export const MAX_TRACK_BYTES = 50 * 1024 * 1024;
+const MAX_CUSTOM_TRACKS = 50;
+const AUDIO_EXT = /\.(mp3|m4a|aac|ogg|oga|opus|wav|flac|webm)$/i;
+const PREFS_KEY = 'jinaly-music-prefs';
 
 let sharedPlayer: Soundtrack | null = null;
 let currentMusicState: MusicState = {
   playing: false,
   track: 'evening',
-  volume: 0.25,
+  volume: 0.5,
+  background: true,
+  voiceActive: false,
+  playlist: BUILTIN_PLAYLIST,
 };
 const musicListeners = new Set<() => void>();
+/** Blob-ссылки загруженных треков: живут, пока открыта страница. */
+const customUrls = new Map<string, string>();
+let libraryLoaded = false;
+/** Растёт на каждый запуск и паузу: ответ устаревшего `play()` не должен перетирать новый. */
+let playToken = 0;
 
-function notifyMusic() {
+function setState(patch: Partial<MusicState>) {
+  currentMusicState = { ...currentMusicState, ...patch };
   musicListeners.forEach((l) => l());
+}
+
+function applyGain() {
+  const { volume, background, voiceActive } = currentMusicState;
+  sharedPlayer?.volume(musicGain(volume, background, voiceActive));
+}
+
+function savePrefs() {
+  try {
+    localStorage.setItem(
+      PREFS_KEY,
+      JSON.stringify({
+        volume: currentMusicState.volume,
+        background: currentMusicState.background,
+      }),
+    );
+  } catch {
+    // Настройки удобства: без хранилища просто не запомнятся.
+  }
+}
+
+function customTrack(id: string, name: string): PlaylistTrack {
+  return {
+    id,
+    title: trackTitleFromFile(name),
+    subtitle: 'Ваш файл',
+    custom: true,
+  };
+}
+
+/** Настройки и свои треки подтягиваются при первой подписке — только в браузере. */
+function loadLibrary() {
+  if (libraryLoaded || typeof window === 'undefined') return;
+  libraryLoaded = true;
+  try {
+    const prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
+    const patch: Partial<MusicState> = {};
+    if (typeof prefs.volume === 'number')
+      patch.volume = Math.max(0, Math.min(1, prefs.volume));
+    if (typeof prefs.background === 'boolean')
+      patch.background = prefs.background;
+    if (Object.keys(patch).length) setState(patch);
+  } catch {
+    // Повреждённые настройки — остаёмся на значениях по умолчанию.
+  }
+  void loadStoredTracks()
+    .then((stored) => {
+      const added = stored.filter((t) => !customUrls.has(t.id));
+      for (const t of added) customUrls.set(t.id, URL.createObjectURL(t.blob));
+      if (!added.length) return;
+      setState({
+        playlist: [
+          ...currentMusicState.playlist,
+          ...added.map((t) => customTrack(t.id, t.name)),
+        ],
+      });
+    })
+    .catch(() => {
+      // Нет IndexedDB (приватный режим и т. п.) — свои треки живут до перезагрузки.
+    });
 }
 
 export function getMusicState(): MusicState {
@@ -220,43 +346,133 @@ export function getMusicState(): MusicState {
 
 export function subscribeMusic(listener: () => void) {
   musicListeners.add(listener);
+  loadLibrary();
   return () => {
     musicListeners.delete(listener);
   };
 }
 
 export async function playMusic(id = currentMusicState.track) {
+  const token = ++playToken;
+  const known = currentMusicState.playlist.some((t) => t.id === id);
+  const trackId = known ? id : BUILTIN_PLAYLIST[0].id;
+  const url = customUrls.get(trackId);
   try {
     if (!sharedPlayer) sharedPlayer = new Soundtrack();
-    sharedPlayer.volume(currentMusicState.volume);
-    await sharedPlayer.play(id);
-    currentMusicState = {
-      ...currentMusicState,
-      playing: true,
-      track: id,
-      error: undefined,
-    };
-    notifyMusic();
+    applyGain();
+    setState({ track: trackId, error: undefined });
+    if (url) await sharedPlayer.playFile(url, () => void nextMusic());
+    else await sharedPlayer.play(trackId);
+    if (token !== playToken) return;
+    setState({ playing: true });
   } catch {
-    currentMusicState = {
-      ...currentMusicState,
+    if (token !== playToken) return;
+    sharedPlayer?.stop();
+    setState({
       playing: false,
-      error: 'Браузер не запустил звук. Нажмите воспроизведение ещё раз.',
-    };
-    notifyMusic();
+      error: url
+        ? 'Этот файл браузер воспроизвести не смог.'
+        : 'Браузер не запустил звук. Нажмите воспроизведение ещё раз.',
+    });
   }
 }
 
 export function pauseMusic() {
+  playToken++;
   sharedPlayer?.stop();
-  currentMusicState = { ...currentMusicState, playing: false };
-  notifyMusic();
+  setState({ playing: false });
+}
+
+/** Соседний трек плейлиста по кругу: `step` 1 — следующий, -1 — предыдущий. */
+export function nextMusic(step = 1) {
+  const list = currentMusicState.playlist;
+  const at = list.findIndex((t) => t.id === currentMusicState.track);
+  const next = list[(at + step + list.length) % list.length];
+  return playMusic(next.id);
 }
 
 export function setMusicVolume(v: number) {
-  const vol = Math.max(0, Math.min(1, v));
-  currentMusicState = { ...currentMusicState, volume: vol };
-  sharedPlayer?.volume(vol);
-  notifyMusic();
+  setState({ volume: Math.max(0, Math.min(1, v)) });
+  applyGain();
+  savePrefs();
 }
 
+export function setMusicBackground(background: boolean) {
+  setState({ background });
+  applyGain();
+  savePrefs();
+}
+
+/** Голосовой чат сообщает, говорит ли кто-то: в фоновом режиме музыка уступает. */
+export function setMusicVoiceActive(voiceActive: boolean) {
+  if (currentMusicState.voiceActive === voiceActive) return;
+  setState({ voiceActive });
+  applyGain();
+}
+
+function isAudioFile(file: File) {
+  return file.type.startsWith('audio/') || AUDIO_EXT.test(file.name);
+}
+
+/** Добавить файлы в плейлист. Первый принятый файл сразу начинает играть. */
+export async function addMusicFiles(files: Iterable<File>) {
+  const accepted: PlaylistTrack[] = [];
+  const problems: string[] = [];
+  let room = MAX_CUSTOM_TRACKS - customUrls.size;
+  for (const file of files) {
+    if (!isAudioFile(file)) {
+      problems.push(`«${file.name}» — не аудиофайл`);
+      continue;
+    }
+    if (file.size > MAX_TRACK_BYTES) {
+      problems.push(`«${file.name}» больше 50 МБ`);
+      continue;
+    }
+    if (room <= 0) {
+      problems.push(`в плейлисте уже ${MAX_CUSTOM_TRACKS} своих треков`);
+      break;
+    }
+    room--;
+    const id = 'user:' + crypto.randomUUID();
+    customUrls.set(id, URL.createObjectURL(file));
+    accepted.push(customTrack(id, file.name));
+    try {
+      await saveStoredTrack({
+        id,
+        name: file.name,
+        blob: file,
+        addedAt: Date.now(),
+      });
+    } catch {
+      problems.push(`«${file.name}» не сохранится после перезагрузки`);
+    }
+  }
+  setState({
+    playlist: [...currentMusicState.playlist, ...accepted],
+    error: problems.length ? problems.join('; ') : undefined,
+  });
+  if (!accepted.length) return;
+  await playMusic(accepted[0].id);
+  // Запуск стирает прошлую ошибку, а про отклонённые файлы игрок должен узнать.
+  if (problems.length && !currentMusicState.error)
+    setState({ error: problems.join('; ') });
+}
+
+export async function removeMusicTrack(id: string) {
+  const url = customUrls.get(id);
+  if (!url) return;
+  if (currentMusicState.track === id) {
+    pauseMusic();
+    setState({ track: BUILTIN_PLAYLIST[0].id });
+  }
+  customUrls.delete(id);
+  URL.revokeObjectURL(url);
+  setState({
+    playlist: currentMusicState.playlist.filter((t) => t.id !== id),
+  });
+  try {
+    await deleteStoredTrack(id);
+  } catch {
+    // Не удалилось из хранилища — трек вернётся после перезагрузки, это не страшно.
+  }
+}
