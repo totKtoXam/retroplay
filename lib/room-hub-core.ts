@@ -2,6 +2,8 @@
 // Pure functions only: the rules are the ones the D1 version enforced in app/api/rooms/[id]
 // and db/combat.ts, so HTTP fallback and WebSocket clients see the same game.
 import { memberWeapon } from './weapon-authority.ts';
+import { BotBrain } from './bot-brain.ts';
+import { BOT_PREFIX, isBotId, isBotLevel, MAX_BOTS, type BotSpec } from './bot-levels.ts';
 import { isBlaster } from './weapon-definition.ts';
 import type { ToolMagazine } from './tool-magazine.ts';
 import {
@@ -99,6 +101,8 @@ export type HubRoom = {
   voiceEnabled: boolean;
   /** Кого ведущий заглушил: их голос не идёт дальше сервера. */
   voiceMuted: Set<string>;
+  /** Серверные боты комнаты (lib/bot-brain.ts); их участники живут только здесь, не в D1. */
+  bots: BotSpec[];
   archived: boolean;
   /** Map id (lib/maps). */
   map: string;
@@ -167,6 +171,16 @@ export function roomFromState(host: string, state: Partial<RoomState>): HubRoom 
     shieldSeconds: clamp(state.shieldSeconds ?? 5, 0, 30),
     voiceEnabled: state.voiceEnabled !== false,
     voiceMuted: new Set(Array.isArray(state.voiceMuted) ? state.voiceMuted : []),
+    // Боты — участники командного боя: в ретроспективе сервер их не выпускает.
+    bots: (modeOf(state) === 'battle' && Array.isArray(state.bots) ? state.bots : [])
+      .filter((b) => b && isBotId(b.id) && isBotLevel(b.level))
+      .slice(0, MAX_BOTS)
+      .map((b) => ({
+        id: b.id,
+        name: String(b.name || 'Бот').slice(0, 40),
+        level: b.level,
+        team: b.team === 'red' || b.team === 'blue' ? b.team : '',
+      })),
     archived: !!state.archived,
     map: getMap(state.map).id,
     // Teams belong to the battle mode; a retrospective is free-for-all.
@@ -826,11 +840,13 @@ export function voiceSilenced(state: HubState, id: string) {
 /** Members as clients see them: newest first, at most 100, names hidden in anonymous rooms. */
 export function publicMembers(state: HubState, now: number): Person[] {
   const anonymous = state.room.anonymous;
+  const bots = new Map(state.room.bots.map((b) => [b.id, b.level]));
   return [...state.members.values()]
     .sort((a, b) => b.seen - a.seen)
     .slice(0, 100)
     .map((m) => ({
       id: m.id,
+      ...(bots.has(m.id) ? { bot: bots.get(m.id) } : {}),
       name: anonymous ? 'Участник' : m.name,
       color: m.color,
       team: m.team,
@@ -855,4 +871,115 @@ export function publicMembers(state: HubState, now: number): Person[] {
           : Math.max(0, m.immuneUntil - now),
       respawnRemaining: Math.max(0, m.respawnAt - now),
     }));
+}
+
+// ------------------------------------------------------------------ боты
+
+const BOT_COLORS = ['#ff647c', '#ffb851', '#7fe0b8', '#64d4ef', '#bc91f5', '#f49fd6'];
+/**
+ * В комнате есть живой человек в сети. Без людей боты спят: играть им не для
+ * кого, а каждый такт — работа сервера комнаты.
+ */
+export function humansOnline(state: HubState, now: number) {
+  for (const m of state.members.values()) if (!isBotId(m.id) && m.seen > now - ONLINE_MS) return true;
+  return false;
+}
+
+/**
+ * Сторона нового бота. В отличие от `balanceTeam` считаются только те, кто в
+ * сети, и сами боты: строки давно ушедших игроков копятся в комнате (операции
+ * «выйти» нет), и по ним бот вставал бы не туда, где людей и правда меньше.
+ */
+function botTeam(state: HubState, spec: BotSpec, now: number): Team | '' {
+  if (!state.room.teams) return '';
+  if (spec.team) return spec.team;
+  let red = 0,
+    blue = 0;
+  for (const o of state.members.values()) {
+    if (o.id === spec.id || !(isBotId(o.id) || o.seen > now - ONLINE_MS)) continue;
+    if (o.team === 'red') red++;
+    else if (o.team === 'blue') blue++;
+  }
+  return red <= blue ? 'red' : 'blue';
+}
+
+/**
+ * Привести участников-ботов к списку в настройках комнаты: новых поставить на
+ * спавн их стороны, удалённых убрать. Уже играющих не трогает — смена уровня
+ * меняет только мозг (`stepBots`), а не жизнь и счёт бота.
+ */
+export function syncBots(state: HubState, now: number) {
+  let changed = false;
+  const wanted = new Set(state.room.bots.map((b) => b.id));
+  // Удалять из Map во время обхода безопасно: удалённые ключи просто не встретятся.
+  for (const id of state.members.keys())
+    if (isBotId(id) && !wanted.has(id)) {
+      state.members.delete(id);
+      changed = true;
+    }
+  const map = getMap(state.room.map);
+  state.room.bots.forEach((spec, i) => {
+    const known = state.members.get(spec.id);
+    if (known) {
+      known.name = BOT_PREFIX + spec.name;
+      return;
+    }
+    const m = memberFromRow({
+      session: spec.id,
+      name: BOT_PREFIX + spec.name,
+      color: BOT_COLORS[i % BOT_COLORS.length],
+      seen: now,
+    });
+    m.team = botTeam(state, spec, now);
+    armShield(state, m);
+    state.members.set(spec.id, m);
+    placeAt(m, chooseSpawn(state, map, m.id, now, m.team));
+    changed = true;
+  });
+  return changed;
+}
+
+/**
+ * Такт всех ботов комнаты: каждый смотрит, решает и шлёт серверу то же, что
+ * прислал бы клиент, — шаг через `applyPresence`, выстрел через `fireEffect`.
+ * Урон по-прежнему считает `resolveCombat`. Возвращает, выстрелил ли кто-то.
+ *
+ * Такт идёт тремя фазами, а не бот за ботом: сначала все думают по одному и
+ * тому же снимку, потом все шагают, потом все стреляют. Иначе ходивший позже
+ * видел бы соперников уже на новом месте, а его соперники стреляли бы туда,
+ * где его к расчёту попаданий уже нет, — в зеркальном матче равных ботов это
+ * давало стороне, стоящей в списке второй, полтора убийства на одно.
+ */
+export function stepBots(state: HubState, brains: Map<string, BotBrain>, now: number) {
+  const specs = state.room.bots;
+  for (const id of brains.keys()) if (!specs.some((b) => b.id === id)) brains.delete(id);
+  if (!specs.length || !humansOnline(state, now)) return false;
+  const map = getMap(state.room.map);
+  const ctx = { state, map, now, frozen: isFrozen(state, now), squad: brains };
+  const turns: { m: HubMember; brain: BotBrain; presence: ReturnType<BotBrain['think']> }[] = [];
+  // Характер — по номеру бота внутри его команды: так у сторон одинаковый
+  // набор характеров, а не «двое напористых против двоих осторожных».
+  const inTeam = new Map<string, number>();
+  for (const spec of specs) {
+    const m = state.members.get(spec.id);
+    if (!m) continue;
+    const index = inTeam.get(m.team) ?? 0;
+    inTeam.set(m.team, index + 1);
+    let brain = brains.get(spec.id);
+    if (!brain) {
+      brain = new BotBrain(spec, index);
+      brains.set(spec.id, brain);
+    }
+    brain.setLevel(spec.level);
+    turns.push({ m, brain, presence: brain.think(ctx, m) });
+  }
+  for (const { m, presence } of turns)
+    applyPresence(m, presence, now, map, ctx.frozen, state.room.shieldSeconds * 1000);
+  let fired = false;
+  for (const { m, brain } of turns) {
+    const { shot, reload } = brain.trigger(ctx, m);
+    if (reload) memberWeapon(m).magazine.reload(reload, now);
+    if (shot && fireEffect(state, m.id, shot, now).ok) fired = true;
+  }
+  return fired;
 }

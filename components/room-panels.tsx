@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import {
   Bell,
+  Bot,
   Check,
   ChevronRight,
   Copy,
@@ -17,6 +18,7 @@ import {
   Plus,
   RotateCcw,
   Smile,
+  Trash2,
   Vote,
   X,
 } from 'lucide-react';
@@ -45,6 +47,13 @@ import {
   type AmmoDisplay,
 } from '@/lib/ammo-display';
 import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from '@/lib/avatar-catalog';
+import {
+  BOT_LEVEL_IDS,
+  BOT_LEVELS,
+  MAX_BOTS,
+  MAX_BOTS_PER_ADD,
+  type BotLevel,
+} from '@/lib/bot-levels';
 
 export function HelpPanel() {
   return (
@@ -975,6 +984,143 @@ export function ModePanel({
             }}
           />
         </label>
+      )}
+    </>
+  );
+}
+
+const LEVEL_OPTIONS = BOT_LEVEL_IDS.map((id) => ({ value: id, label: BOT_LEVELS[id].label }));
+const TEAM_NAMES: Record<string, string> = { red: 'красные', blue: 'синие' };
+
+/**
+ * Серверные боты комнаты. Ими управляет сам сервер комнаты: ведущий только
+ * говорит, сколько, какого уровня и за какую сторону, — терминал и отдельный
+ * скрипт для этого больше не нужны. Каждый бот занимает место игрока, поэтому
+ * рядом виден лимит комнаты: иначе «добавить 10» молча упиралось бы в него.
+ */
+export function BotsPanel({
+  s,
+  host,
+  members,
+  onAct,
+}: {
+  s: RoomState;
+  host: boolean;
+  members: Person[];
+  onAct: (op: Record<string, unknown>) => void;
+}) {
+  const [level, setLevel] = useState<BotLevel>('strong');
+  const [team, setTeam] = useState('auto');
+  const [count, setCount] = useState(1);
+  const bots = s.bots ?? [];
+  if (modeOf(s) !== 'battle')
+    return (
+      <p className="bots-note">
+        Боты играют только в командном бою. Переключите режим в разделе «Режим и карта» —
+        {bots.length ? ` добавленные раньше боты (${bots.length}) вернутся в бой сами.` : ' и добавляйте.'}
+      </p>
+    );
+  const live = new Map(members.map((m) => [m.id, m]));
+  const left = MAX_BOTS - bots.length;
+  const amount = Math.max(1, Math.min(MAX_BOTS_PER_ADD, left, count));
+  return (
+    <>
+      <div className="bots-add">
+        <div className="two-fields">
+          <Choice
+            label="Уровень"
+            value={level}
+            disabled={!host}
+            onChange={(value) => setLevel(value as BotLevel)}
+            options={LEVEL_OPTIONS}
+          />
+          <Choice
+            label="Сторона"
+            value={team}
+            disabled={!host}
+            onChange={setTeam}
+            options={[
+              { value: 'auto', label: 'В меньшую команду' },
+              { value: 'red', label: 'Красные' },
+              { value: 'blue', label: 'Синие' },
+            ]}
+          />
+        </div>
+        <p className="bots-level-hint">{BOT_LEVELS[level].hint}</p>
+        <div className="bots-add-row">
+          <label className="field">
+            Сколько
+            <input
+              type="number"
+              aria-label="Сколько ботов добавить"
+              value={count}
+              min="1"
+              max={Math.max(1, Math.min(MAX_BOTS_PER_ADD, left))}
+              step="1"
+              disabled={!host || left <= 0}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                if (Number.isInteger(value)) setCount(value);
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="primary"
+            disabled={!host || left <= 0}
+            onClick={() => onAct({ type: 'bots.add', level, team, count: amount })}
+          >
+            <Bot size={16} /> Добавить {amount > 1 ? amount : ''}
+          </button>
+        </div>
+        <p className="bots-limit">
+          Ботов {bots.length} из {MAX_BOTS}. Каждый занимает место игрока — лимит комнаты{' '}
+          {s.access?.maxPlayers || 8} в разделе «Доступ и приватность».
+        </p>
+      </div>
+      {bots.length > 0 && (
+        <div className="bots-list">
+          {bots.map((b) => {
+            const m = live.get(b.id);
+            const side = m?.team || b.team;
+            return (
+              <div key={b.id} className={`bot-row team-${side || 'none'}`}>
+                <span className="bot-name">
+                  <strong>{b.name}</strong>
+                  <small>
+                    {side ? TEAM_NAMES[side] : 'сторона при входе'}
+                    {m ? ` · ${m.kills ?? 0}/${m.deaths ?? 0}/${m.assists ?? 0}` : ''}
+                  </small>
+                </span>
+                <Choice
+                  label={`Уровень бота ${b.name}`}
+                  value={b.level}
+                  disabled={!host}
+                  onChange={(value) => onAct({ type: 'bots.level', id: b.id, level: value })}
+                  options={LEVEL_OPTIONS}
+                />
+                <button
+                  type="button"
+                  className="bot-remove"
+                  disabled={!host}
+                  title="Убрать бота"
+                  aria-label={`Убрать бота ${b.name}`}
+                  onClick={() => onAct({ type: 'bots.remove', id: b.id })}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            className="secondary bots-clear"
+            disabled={!host}
+            onClick={() => onAct({ type: 'bots.remove', all: true })}
+          >
+            <Trash2 size={15} /> Убрать всех ботов
+          </button>
+        </div>
       )}
     </>
   );

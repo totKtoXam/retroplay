@@ -6857,3 +6857,108 @@ body.item-wheel-open [data-slot='dialog-overlay'] {
   background: rgba(248, 113, 113, 0.14);
   color: #fda4a4;
 }
+
+/* Раздел «Боты» в настройках комнаты. */
+.bots-note,
+.bots-level-hint,
+.bots-limit {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--jin-text-muted);
+}
+.bots-add {
+  display: grid;
+  gap: 6px;
+}
+.bots-add .field {
+  margin: 0;
+}
+.bots-add-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.bots-add-row .field {
+  width: 110px;
+}
+.bots-add-row .primary {
+  padding: 10px 16px;
+}
+.bots-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+.bot-row {
+  /* Держит в строке спрятанную подпись уровня: иначе её абсолютная позиция
+     отсчитывается от диалога и растягивает его второй полосой прокрутки. */
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid var(--jin-border);
+  border-left: 3px solid var(--jin-border);
+  border-radius: 9px;
+}
+.bot-row.team-red {
+  border-left-color: #ff5d52;
+}
+.bot-row.team-blue {
+  border-left-color: #5aa9ff;
+}
+.bot-row .field {
+  margin: 0;
+}
+/* Подпись «Уровень бота …» нужна читалке экрана, а не глазу: строка и так про бота. */
+.bot-row .field > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.bot-name {
+  display: grid;
+  min-width: 0;
+}
+.bot-name strong {
+  font-size: 13px;
+  color: var(--jin-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-name small {
+  font-size: 11px;
+  color: var(--jin-text-muted);
+}
+.bot-remove {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid var(--jin-border);
+  color: var(--jin-text-muted);
+}
+.bot-remove:hover:not(:disabled) {
+  color: #d9534f;
+  border-color: #d9534f66;
+}
+.bots-clear {
+  justify-self: start;
+  margin-top: 4px;
+  padding: 8px 12px;
+}
+@media (max-width: 520px) {
+  .bot-row {
+    grid-template-columns: minmax(0, 1fr) 28px;
+  }
+  .bot-row .field {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

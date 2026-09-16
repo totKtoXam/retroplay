@@ -13,6 +13,15 @@ import {
   TIMES_OF_DAY,
   type DayCycle,
 } from './day-cycle.ts';
+import {
+  BOT_NAMES,
+  isBotId,
+  isBotLevel,
+  MAX_BOTS,
+  MAX_BOTS_PER_ADD,
+  type BotLevel,
+  type BotSpec,
+} from './bot-levels.ts';
 
 export const ZONES = [
   {
@@ -202,6 +211,8 @@ export type Pose = {
 };
 export type Person = {
   id: string;
+  /** Серверный бот и его уровень сложности; у людей поля нет. */
+  bot?: BotLevel;
   name: string;
   color: string;
   /** 'red' | 'blue' in team battles, empty in free-for-all. */
@@ -294,6 +305,14 @@ export type RoomState = {
    * приходят и уходят — заглушённый останется заглушённым и после перезахода.
    */
   voiceMuted?: string[];
+  /**
+   * Серверные боты (lib/bot-brain.ts). Здесь только кто они — имя, уровень и
+   * сторона; бой, счёт и позиции ботов живут в сервере комнаты, как и у людей.
+   * В D1 у ботов нет строк участников: они не копятся в комнате, когда их
+   * убирают. Играют только в командном бою — в ретроспективе сервер их не
+   * выпускает, но список остаётся до возвращения в бой.
+   */
+  bots?: BotSpec[];
   title: string;
   theme: string;
   visualStyle?: 'classic' | 'anime';
@@ -743,6 +762,40 @@ export function applyOperation(
       muted.add(op.session);
     }
     s.voiceMuted = [...muted];
+  } else if (kind === 'bots.add') {
+    hostOnly();
+    if (modeOf(s) !== 'battle') throw Error('Боты играют только в командном бою');
+    if (!isBotLevel(op.level)) throw Error('Неизвестный уровень сложности');
+    const level = op.level;
+    // «auto» и пустое — сторону выберет сервер: в меньшую команду.
+    const team = op.team === 'red' || op.team === 'blue' ? op.team : '';
+    const count = op.count === undefined ? 1 : finite(op.count, 1, MAX_BOTS_PER_ADD);
+    if (!Number.isInteger(count)) throw Error('Число ботов должно быть целым');
+    const bots = s.bots ?? [];
+    if (bots.length + count > MAX_BOTS)
+      throw Error(`В комнате не больше ${MAX_BOTS} ботов: сейчас ${bots.length}`);
+    const used = new Set(bots.map((b) => b.name));
+    for (let i = 0; i < count; i++) {
+      const name =
+        BOT_NAMES.find((n) => !used.has(n)) ??
+        `Бот ${bots.length + 1}`;
+      used.add(name);
+      bots.push({ id: 'bot-' + uid().replaceAll('-', '').slice(0, 12), name, level, team });
+    }
+    s.bots = bots;
+  } else if (kind === 'bots.remove') {
+    hostOnly();
+    if (op.all === true) s.bots = [];
+    else {
+      if (!isBotId(op.id) || !s.bots?.some((b) => b.id === op.id)) throw Error('Бот не найден');
+      s.bots = s.bots.filter((b) => b.id !== op.id);
+    }
+  } else if (kind === 'bots.level') {
+    hostOnly();
+    const bot = s.bots?.find((b) => b.id === op.id);
+    if (!bot) throw Error('Бот не найден');
+    if (!isBotLevel(op.level)) throw Error('Неизвестный уровень сложности');
+    bot.level = op.level;
   } else if (kind === 'phase') {
     hostOnly();
     s.phase = finite(op.phase, 0, 5);

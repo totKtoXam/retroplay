@@ -68,7 +68,10 @@ export function useVoiceChat({
     roomRef.current = room;
   });
   const signature = room
-    ? room.members.map((m) => m.id + ':' + (m.team || '')).join(',') +
+    ? room.members
+        .filter((m) => !m.bot)
+        .map((m) => m.id + ':' + (m.team || ''))
+        .join(',') +
       '|' +
       (room.state.voiceEnabled === false ? 'off' : 'on') +
       '|' +
@@ -84,7 +87,10 @@ export function useVoiceChat({
       muted: new Set(state.voiceMuted ?? []),
       teams: modeOf(state) === 'battle',
       myTeam: members.find((m) => m.id === self)?.team || '',
-      peers: members.filter((m) => m.id !== self).map((m) => ({ id: m.id, team: m.team || '' })),
+      // Боты не говорят и не слушают: соединение с ними некому принять.
+      peers: members
+        .filter((m) => m.id !== self && !m.bot)
+        .map((m) => ({ id: m.id, team: m.team || '' })),
     });
   }, [signature, self]);
 
