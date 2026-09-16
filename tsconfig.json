@@ -27,5 +27,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "work", ".claude"]
+  "exclude": ["node_modules", "work", ".claude", ".agents"]
 }

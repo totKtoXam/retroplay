@@ -13,6 +13,10 @@ Jinaly · Retro 3D — совместные ретроспективы + 3D-шу
 
 Основная ветка — `main`. Перед мержем своей ветки подтягивать изменения из `main`.
 
+## Скилы Three.js
+
+Пакет [threejs-game-skills](https://github.com/majidmanzarpour/threejs-game-skills) (коммит `e5f301d`) установлен на уровне проекта: для Claude Code — `.claude/skills/threejs-*`, для Codex — `.agents/skills/threejs-*` (копии одинаковые). Точка входа — `threejs-game-director`. Это вендорный код: руками не править, обновлять копированием `skills/` из свежего клона в обе папки. Исключены из `tsc` и `oxfmt`.
+
 ## Модели субагентов
 
 - **По умолчанию** субагенты Claude работают на **Sonnet 5 с effort `xhigh`** («Sonnet Extra»). Настроено в `.claude/settings.json`: `env.CLAUDE_CODE_SUBAGENT_MODEL = claude-sonnet-5` и `modelSettings.claude-sonnet-5.effortLevel = xhigh`.
