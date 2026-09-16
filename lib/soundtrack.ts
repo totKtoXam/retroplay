@@ -1,3 +1,5 @@
+import { readMusicPrefs, writeMusicPrefs } from './user-prefs.ts';
+
 export const TRACKS = [
   {
     id: 'evening',
@@ -203,11 +205,14 @@ export type MusicState = {
 };
 
 let sharedPlayer: Soundtrack | null = null;
-let currentMusicState: MusicState = {
+const DEFAULT_MUSIC_STATE: MusicState = {
   playing: false,
   track: 'evening',
   volume: 0.25,
 };
+let currentMusicState = DEFAULT_MUSIC_STATE;
+/** Трек и громкость подтягиваются с устройства при первом обращении в браузере. */
+let musicPrefsLoaded = false;
 const musicListeners = new Set<() => void>();
 
 function notifyMusic() {
@@ -215,7 +220,29 @@ function notifyMusic() {
 }
 
 export function getMusicState(): MusicState {
+  if (!musicPrefsLoaded && typeof window !== 'undefined') {
+    musicPrefsLoaded = true;
+    currentMusicState = {
+      ...currentMusicState,
+      ...readMusicPrefs(
+        TRACKS.map((t) => t.id),
+        currentMusicState,
+      ),
+    };
+  }
   return currentMusicState;
+}
+
+/** Снимок для серверной отрисовки и гидрации: сохранённое читается только в браузере. */
+export function getServerMusicState(): MusicState {
+  return DEFAULT_MUSIC_STATE;
+}
+
+function saveMusicPrefs() {
+  writeMusicPrefs({
+    track: currentMusicState.track,
+    volume: currentMusicState.volume,
+  });
 }
 
 export function subscribeMusic(listener: () => void) {
@@ -225,10 +252,10 @@ export function subscribeMusic(listener: () => void) {
   };
 }
 
-export async function playMusic(id = currentMusicState.track) {
+export async function playMusic(id = getMusicState().track) {
   try {
     if (!sharedPlayer) sharedPlayer = new Soundtrack();
-    sharedPlayer.volume(currentMusicState.volume);
+    sharedPlayer.volume(getMusicState().volume);
     await sharedPlayer.play(id);
     currentMusicState = {
       ...currentMusicState,
@@ -236,6 +263,7 @@ export async function playMusic(id = currentMusicState.track) {
       track: id,
       error: undefined,
     };
+    saveMusicPrefs();
     notifyMusic();
   } catch {
     currentMusicState = {
@@ -255,8 +283,9 @@ export function pauseMusic() {
 
 export function setMusicVolume(v: number) {
   const vol = Math.max(0, Math.min(1, v));
-  currentMusicState = { ...currentMusicState, volume: vol };
+  currentMusicState = { ...getMusicState(), volume: vol };
   sharedPlayer?.volume(vol);
+  saveMusicPrefs();
   notifyMusic();
 }
 

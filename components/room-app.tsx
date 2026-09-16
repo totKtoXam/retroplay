@@ -76,6 +76,8 @@ import { Choice, Toggle } from './controls';
 import { Card } from './board';
 import { useResourcePack } from '../hooks/use-resource-pack';
 import { readAimModes, type WeaponAimModes } from '@/lib/aim-settings';
+import { PREF_KEYS, readChoice, readPref, writePref } from '@/lib/user-prefs';
+import { PAINTS } from '@/lib/game-items';
 import {
   ActionsPanel,
   AccessSection,
@@ -295,6 +297,14 @@ export default function RoomApp({ id }: { id: string }) {
       );
       const savedFps = Number(localStorage.getItem('jinaly-fps-limit'));
       setFpsLimit(FPS_LIMITS.includes(savedFps) ? savedFps : 60);
+      setSound(readPref(PREF_KEYS.sound) === 'true');
+      setPaintColor(
+        readChoice(
+          PREF_KEYS.paintColor,
+          PAINTS.map((p) => p.color),
+          '#bc91f5',
+        ),
+      );
     },
   });
   // Часы комнаты идут по серверному времени: и матч, и внутриигровые сутки
@@ -307,6 +317,14 @@ export default function RoomApp({ id }: { id: string }) {
   useEffect(() => {
     roomRef.current = room;
   }, [room]);
+  const changeSound = useCallback((value: boolean) => {
+    setSound(value);
+    writePref(PREF_KEYS.sound, String(value));
+  }, []);
+  const changePaintColor = useCallback((color: string) => {
+    setPaintColor(color);
+    writePref(PREF_KEYS.paintColor, color);
+  }, []);
   const beep = useCallback((frequency = 520) => {
     if (!soundRef.current) return;
     try {
@@ -1297,7 +1315,7 @@ export default function RoomApp({ id }: { id: string }) {
                 packetLoss={packetLoss}
                 now={now}
                 onGraphics={() => openSettings('graphics')}
-                onPaintColor={setPaintColor}
+                onPaintColor={changePaintColor}
                 tool={tool}
                 onTool={setTool}
                 pendingJoinRequestsCount={joinRequests.length}
@@ -2205,7 +2223,7 @@ export default function RoomApp({ id }: { id: string }) {
                 <ProfileSection
                   me={me}
                   sound={sound}
-                  onSoundChange={setSound}
+                  onSoundChange={changeSound}
                   onUpdateName={(name) => {
                     void act({ type: 'profile', name });
                     localStorage.setItem('jinaly-name', name);
@@ -2350,7 +2368,7 @@ export default function RoomApp({ id }: { id: string }) {
                     void act({ type: 'event', kind: 'hat', value: '🎩' })
                   }
                   onBuzzer={() => {
-                    setSound(true);
+                    changeSound(true);
                     void act({ type: 'event', kind: 'buzzer' });
                   }}
                   onPing={() => void act({ type: 'event', kind: 'ping' })}
@@ -2371,7 +2389,7 @@ export default function RoomApp({ id }: { id: string }) {
                   }
                   spinner={spinner}
                   sound={sound}
-                  onSoundChange={setSound}
+                  onSoundChange={changeSound}
                 />
               )}
               {settingsSection === 'export' && (

@@ -9,6 +9,7 @@ import {
 import {
   TRACKS,
   getMusicState,
+  getServerMusicState,
   subscribeMusic,
   playMusic,
   pauseMusic,
@@ -23,7 +24,7 @@ export function MusicPlayer({
   const { playing, track, volume, error } = useSyncExternalStore(
     subscribeMusic,
     getMusicState,
-    getMusicState,
+    getServerMusicState,
   );
   return (
     <div className={`music-dock ${playing ? 'is-playing' : ''}`}>

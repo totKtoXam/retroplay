@@ -29,6 +29,7 @@ import {
 import {
   TRACKS,
   getMusicState,
+  getServerMusicState,
   subscribeMusic,
   playMusic,
   pauseMusic,
@@ -69,7 +70,7 @@ export function WorldTablet(props: WorldTabletProps) {
   const music = useSyncExternalStore(
     subscribeMusic,
     getMusicState,
-    getMusicState,
+    getServerMusicState,
   );
 
   return (
