@@ -147,11 +147,12 @@ export async function POST(request: Request) {
       throw Error('Неизвестный стиль');
     s.visualStyle = p.visualStyle === 'anime' ? 'anime' : 'classic';
     // The mode decides which maps are allowed; a map from another mode is ignored.
-    s.mode = p.mode === 'battle' ? 'battle' : 'retro';
+    const mode = p.mode === 'battle' || p.mode === 'impostor' ? p.mode : 'retro';
+    s.mode = mode;
     s.map =
-      typeof p.map === 'string' && modeOfMap(p.map) === s.mode
+      typeof p.map === 'string' && modeOfMap(p.map) === mode
         ? p.map
-        : defaultMapFor(s.mode);
+        : defaultMapFor(mode);
     await db().batch([
       db()
         .prepare(

@@ -109,7 +109,8 @@ test('only the host starts, with at least four players online', () => {
   // Все за столом, и у каждого новая жизнь — клиент телепортируется.
   [...hub.members.values()].forEach((m, i) => {
     assert.equal(m.life, lives[i] + 1);
-    assert.ok(Math.hypot(m.pose.x, m.pose.z) > 3 && Math.hypot(m.pose.x, m.pose.z) < 4);
+    const d = Math.hypot(m.pose.x - getMap('ship').meeting.x, m.pose.z - getMap('ship').meeting.z);
+    assert.ok(d > 3 && d < 4);
   });
   assert.equal(act(hub, 'host', { action: 'start' }).ok, false);
 });
@@ -139,20 +140,20 @@ test('kills: only an impostor, in reach, not through walls, after the cooldown',
   const { hub, now, impostors, crew } = started(4, { killCooldownSeconds: 10 });
   const [killer] = impostors;
   const [victim, other] = crew;
-  put(hub, killer, 0, -5);
-  put(hub, victim, 1.5, -5);
+  put(hub, killer, -3, -17);
+  put(hub, victim, -1.5, -17);
   assert.equal(act(hub, killer, { action: 'kill', target: victim }, now).ok, false, 'cooldown');
   const later = now + 11_000;
   assert.equal(act(hub, other, { action: 'kill', target: victim }, later).ok, false, 'crew cannot kill');
   assert.equal(act(hub, killer, { action: 'kill', target: killer }, later).ok, false);
-  put(hub, victim, 5, -5);
+  put(hub, victim, 2.5, -17);
   assert.equal(act(hub, killer, { action: 'kill', target: victim }, later).ok, false, 'too far');
-  // Стена кафетерия (x = -8) между ними.
-  put(hub, killer, -7, 3);
-  put(hub, victim, -9, 3);
+  // Западная стена кафетерия (x = -10) между ними.
+  put(hub, killer, -9, -20);
+  put(hub, victim, -11, -20);
   assert.equal(act(hub, killer, { action: 'kill', target: victim }, later).ok, false, 'through the wall');
-  put(hub, killer, 0, -5);
-  put(hub, victim, 1.5, -5);
+  put(hub, killer, -3, -17);
+  put(hub, victim, -1.5, -17);
   assert.deepEqual(act(hub, killer, { action: 'kill', target: victim }, later), { ok: true });
   assert.equal(hub.impostor.players[victim].alive, false);
   assert.equal(hub.impostor.bodies.length, 1);
@@ -163,8 +164,8 @@ test('the dead are ghosts: living players neither see them nor learn of the deat
   const { hub, now, impostors, crew } = started(4, { killCooldownSeconds: 10 });
   const t = now + 11_000;
   for (const m of hub.members.values()) m.seen = t;
-  put(hub, impostors[0], 0, -5);
-  put(hub, crew[0], 1.5, -5);
+  put(hub, impostors[0], -3, -17);
+  put(hub, crew[0], -1.5, -17);
   act(hub, impostors[0], { action: 'kill', target: crew[0] }, t);
   const living = crew[1];
   assert.equal(publicMembers(hub, t, living).some((m) => m.id === crew[0]), false);
@@ -173,15 +174,15 @@ test('the dead are ghosts: living players neither see them nor learn of the deat
   assert.equal(impostorView(hub, crew[0]).players.find((p) => p.id === crew[0]).alive, false);
   // Призрак проходит сквозь стену кафетерия, живой — нет.
   const ghost = hub.members.get(crew[0]);
-  ghost.pose = stand(-7.5, 3);
+  ghost.pose = stand(-9.5, -20);
   ghost.lastMoveAt = t;
-  presence(hub, ghost, { pose: stand(-8.6, 3), life: ghost.life }, t + 500);
-  assert.equal(ghost.pose.x, -8.6);
+  presence(hub, ghost, { pose: stand(-10.6, -20), life: ghost.life }, t + 500);
+  assert.equal(ghost.pose.x, -10.6);
   const alive = hub.members.get(living);
-  alive.pose = stand(-7.5, 3);
+  alive.pose = stand(-9.5, -20);
   alive.lastMoveAt = t;
-  presence(hub, alive, { pose: stand(-8.6, 3), life: alive.life }, t + 500);
-  assert.equal(alive.pose.x, -7.5);
+  presence(hub, alive, { pose: stand(-10.6, -20), life: alive.life }, t + 500);
+  assert.equal(alive.pose.x, -9.5);
 });
 
 test('voice: silence while playing, everyone at meetings, ghosts only among ghosts', () => {
@@ -189,10 +190,10 @@ test('voice: silence while playing, everyone at meetings, ghosts only among ghos
   const t = now + 11_000;
   const hears = (from, to) => voiceAudience(hub, from, 'all')(to);
   assert.equal(hears(crew[0], crew[1]), false);
-  put(hub, impostors[0], 0, -5);
-  put(hub, crew[0], 1.5, -5);
+  put(hub, impostors[0], -3, -17);
+  put(hub, crew[0], -1.5, -17);
   act(hub, impostors[0], { action: 'kill', target: crew[0] }, t);
-  put(hub, crew[1], 1.5, -4);
+  put(hub, crew[1], -1.5, -15.5);
   assert.equal(act(hub, crew[1], { action: 'report', body: crew[0] }, t).ok, true);
   assert.equal(hears(crew[1], crew[2]), true);
   assert.equal(hears(crew[0], crew[1]), false, 'the dead are not heard');
@@ -210,12 +211,12 @@ test('report → discussion → voting → ejection; the dead cannot vote', () =
   const t = now + 11_000;
   const all = [...hub.members.values()];
   for (const m of all) m.seen = t;
-  put(hub, impostors[0], 0, -5);
-  put(hub, crew[0], 1.5, -5);
+  put(hub, impostors[0], -3, -17);
+  put(hub, crew[0], -1.5, -17);
   act(hub, impostors[0], { action: 'kill', target: crew[0] }, t);
   put(hub, crew[1], 20, 0);
   assert.equal(act(hub, crew[1], { action: 'report', body: crew[0] }, t).ok, false, 'too far to report');
-  put(hub, crew[1], 3, -5);
+  put(hub, crew[1], 0, -16);
   assert.equal(act(hub, crew[0], { action: 'report', body: crew[0] }, t).ok, false, 'a ghost cannot report');
   assert.deepEqual(act(hub, crew[1], { action: 'report', body: crew[0] }, t), { ok: true });
   assert.equal(hub.impostor.phase, 'meeting');
@@ -252,7 +253,7 @@ test('a tie or a skip ejects nobody and play resumes with bodies cleared', () =>
   const { hub, now, impostors, crew } = started(4, { discussionSeconds: 0 });
   const t = now + 16_000;
   for (const m of hub.members.values()) m.seen = t;
-  put(hub, crew[0], 0, 2.5);
+  put(hub, crew[0], 0, -20.5);
   assert.deepEqual(act(hub, crew[0], { action: 'meeting' }, t), { ok: true });
   assert.equal(hub.impostor.phase, 'voting', 'no discussion when it is set to zero');
   assert.equal(hub.impostor.players[crew[0]].meetingsLeft, 0);
@@ -267,15 +268,15 @@ test('a tie or a skip ejects nobody and play resumes with bodies cleared', () =>
   resolveCombat(hub, t + 6001);
   assert.equal(hub.impostor.phase, 'play');
   assert.deepEqual(hub.impostor.bodies, []);
-  put(hub, crew[0], 0, 2.5);
+  put(hub, crew[0], 0, -20.5);
   assert.equal(act(hub, crew[0], { action: 'meeting' }, t + 7000).ok, false, 'no meetings left');
 });
 
 test('emergency button: at the table, after its cooldown', () => {
   const { hub, now, crew } = started();
-  put(hub, crew[0], 0, 2.5);
+  put(hub, crew[0], 0, -20.5);
   assert.equal(act(hub, crew[0], { action: 'meeting' }, now).ok, false, 'button cooldown');
-  put(hub, crew[0], 0, 6);
+  put(hub, crew[0], 0, -17);
   assert.equal(act(hub, crew[0], { action: 'meeting' }, now + 16_000).ok, false, 'away from the table');
 });
 
@@ -309,11 +310,11 @@ test('tasks: only crew, at the console, not faster than the mini-game; all done 
 test('impostors win when they equal the living crew', () => {
   const { hub, now, impostors, crew } = started(3, { killCooldownSeconds: 10 });
   const t = now + 11_000;
-  put(hub, impostors[0], 0, -5);
-  put(hub, crew[0], 1.5, -5);
+  put(hub, impostors[0], -3, -17);
+  put(hub, crew[0], -1.5, -17);
   assert.deepEqual(act(hub, impostors[0], { action: 'kill', target: crew[0] }, t), { ok: true });
   assert.equal(hub.impostor.phase, 'play', '1 impostor vs 2 crew');
-  put(hub, crew[1], 1.5, -5);
+  put(hub, crew[1], -1.5, -17);
   assert.deepEqual(act(hub, impostors[0], { action: 'kill', target: crew[1] }, t + 10_001), { ok: true });
   assert.equal(hub.impostor.phase, 'ended');
   assert.equal(hub.impostor.winner, 'impostor');
@@ -380,4 +381,15 @@ test('seatMember starts a new life at the seat', () => {
   seatMember(hub, 'host', { x: 1, z: 2, yaw: 0.5 });
   assert.equal(m.life, 1);
   assert.deepEqual([m.pose.x, m.pose.z, m.pose.yaw], [1, 2, 0.5]);
+});
+
+test('ship: each station stands inside the room it names; the ship is indoors', () => {
+  const map = getMap('ship');
+  assert.equal(map.arena.indoor, true);
+  for (const st of map.stations) {
+    const zone = map.arena.zones.find((z) => z.name === st.room);
+    assert.ok(zone, `${st.id}: room ${st.room}`);
+    assert.ok(st.x > zone.minX && st.x < zone.maxX && st.z > zone.minZ && st.z < zone.maxZ, `${st.id} outside ${st.room}`);
+  }
+  assert.equal(new Set(map.stations.map((s) => s.id)).size, map.stations.length, 'unique ids');
 });

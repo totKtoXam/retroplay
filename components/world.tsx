@@ -743,13 +743,15 @@ export default function World(props: Props) {
       ];
     kit.update(latest.current.room.state, currentMix());
     kit.setNotes(latest.current.room.state);
-    // Погода поверх любой карты. «Под крышей» — когда над камерой есть потолок.
+    // Погода поверх любой карты. «Под крышей» — когда над камерой есть потолок или вся
+    // карта внутри помещения (корабль): там ни осадков, ни ветра.
+    const indoor = !!map.arena?.indoor;
     const weather = createWorldWeather({
       scene,
       sunlight: kit.sunlight,
-      sheltered: (at) => Number.isFinite(map.ceilingHeight(at.x, at.z, at.y - 1.6)),
+      sheltered: (at) => indoor || Number.isFinite(map.ceilingHeight(at.x, at.z, at.y - 1.6)),
     });
-    const windOn = () => latest.current.room.state.windEffects !== false;
+    const windOn = () => !indoor && latest.current.room.state.windEffects !== false;
     const cameraObstacles: T.Object3D[] = [];
     // Отладочный доступ к сцене: в dev и по ?debug=1 — чтобы разбирать визуальные баги с натуры.
     if (typeof location !== 'undefined' && location.search.includes('debug=1'))
@@ -2262,7 +2264,8 @@ export default function World(props: Props) {
         dt,
         Date.now() + clockOffset.current,
         camera,
-        latest.current.room.state,
+        // Внутри корабля погода всегда ясная: ни тумана, ни пасмурного света.
+        indoor ? { ...latest.current.room.state, weather: 'clear' } : latest.current.room.state,
         !map.arena && latest.current.room.state.interior,
       );
       // Индикатор ветра у прицела: стрелка — куда сносит относительно взгляда,

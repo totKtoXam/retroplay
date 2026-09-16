@@ -54,6 +54,8 @@ export type MapLight = { x: number; y: number; z: number; color: string; intensi
 export type TaskKind = 'wires' | 'hold' | 'calibrate' | 'code' | 'upload';
 /** A place where a crewmate does a task: the player must stand within reach of (x, z). */
 export type TaskStation = { id: string; kind: TaskKind; title: string; room: string; x: number; z: number };
+/** A named room of a map. */
+export type MapZone = Bounds & { id: string; name: string };
 /** The meeting table with the emergency button at its centre. */
 export type MeetingPoint = { x: number; z: number; /** Seat ring radius around the table. */ seats: number };
 
@@ -80,6 +82,10 @@ export type ArenaDef = {
   /** Task stations of the impostor mode. */
   stations?: TaskStation[];
   meeting?: MeetingPoint;
+  /** Named rooms, e.g. to tell a player where they are. */
+  zones?: MapZone[];
+  /** The whole map is indoors: no precipitation and no wind. */
+  indoor?: boolean;
 };
 
 export type GameMap = {

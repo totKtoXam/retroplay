@@ -6,9 +6,11 @@ import type { Person, WorldEffect } from '@/lib/model';
 import type { BotBrain } from '@/lib/bot-brain';
 import { isBotId } from '@/lib/bot-levels';
 import { impostorView, newImpostorGame, type ImpostorView } from '@/lib/impostor';
+import { getMap } from '@/lib/maps';
 import {
   balanceTeam,
   changeMap,
+  chooseSpawn,
   newMatch,
   placeIfInvalid,
   respawnAll,
@@ -23,6 +25,7 @@ import {
   publicMembers,
   resolveCombat,
   roomFromState,
+  seatMember,
   stepBots,
   syncBots,
   type HubMatch,
@@ -452,7 +455,8 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       if (placeIfInvalid(hub, m, now)) this.markDirty();
     }
     // Legacy rooms initialize once; a restored match keeps its lives, score and deadlines.
-    if (hub.room.teams && !restored) {
+    // В «Предателе» все начинают за столом собраний, а не там, где их оставила прошлая карта.
+    if ((hub.room.teams || hub.room.mode === 'impostor') && !restored) {
       respawnAll(hub, now);
       this.markDirty();
     }
@@ -477,6 +481,11 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       hub.members.set(self, fresh);
       if (balanceTeam(hub, fresh, Date.now())) this.markDirty();
       if (placeIfInvalid(hub, fresh, Date.now())) this.markDirty();
+      // Новичок «Предателя» встаёт за стол; во время партии он зритель-призрак и живым не виден.
+      if (hub.room.mode === 'impostor') {
+        seatMember(hub, self, chooseSpawn(hub, getMap(hub.room.map), self, Date.now()));
+        this.markDirty();
+      }
       return fresh;
     }
     // Hot fields live here; only the profile comes from D1.
