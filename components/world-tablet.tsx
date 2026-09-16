@@ -22,6 +22,7 @@ import {
   Sunset,
   Moon,
 } from 'lucide-react';
+import { WEATHER_LABELS, WEATHER_SETTINGS, weatherSetting } from '@/lib/weather';
 
 type WorldTabletProps = {
   room: Room;
@@ -462,6 +463,40 @@ export function WorldTablet(props: WorldTabletProps) {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            <div className="tablet-settings-section">
+              <h3>Погода и ветер</h3>
+              <div className="tablet-settings-chips">
+                {WEATHER_SETTINGS.map((id) => {
+                  const active = weatherSetting(props.room.state.weather) === id;
+                  return (
+                    <button
+                      key={id}
+                      className={`tablet-setting-chip ${active ? 'active' : ''}`}
+                      onClick={() => props.onRoomSettings?.({ weather: id })}
+                    >
+                      <span>{WEATHER_LABELS[id].icon}</span>
+                      <span>{WEATHER_LABELS[id].label}</span>
+                    </button>
+                  );
+                })}
+                <button
+                  className={`tablet-setting-chip ${props.room.state.windEffects !== false ? 'active' : ''}`}
+                  onClick={() =>
+                    props.onRoomSettings?.({
+                      windEffects: props.room.state.windEffects === false,
+                    })
+                  }
+                >
+                  <span>🌬️</span>
+                  <span>
+                    {props.room.state.windEffects !== false
+                      ? 'Ветер влияет на бой'
+                      : 'Ветер выключен'}
+                  </span>
+                </button>
               </div>
             </div>
 

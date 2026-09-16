@@ -189,3 +189,19 @@ for (const scenario of [
     assert.equal(m.positionRevision, 0, `refused frame ${frame}: ${JSON.stringify(pose)} vs ${JSON.stringify(m.pose)}`);
   }
 });
+
+test('wind: carries a running player sideways, never one without control', () => {
+  const { p, keys, run } = player({ wind: () => ({ x: 12, z: 0 }) });
+  keys.add('KeyW');
+  run(30);
+  assert.ok(p.pos.x > 0.3, `running into a side wind drifts right: ${p.pos.x.toFixed(2)}`);
+  assert.ok(Math.abs(p.pos.z + 2.4) < 0.01, 'the run itself is not slowed');
+  const still = player({ wind: () => ({ x: 40, z: 0 }) });
+  still.keys.add('KeyW');
+  still.run(30, { control: false });
+  assert.deepEqual([still.p.pos.x, still.p.pos.z], [0, 0]);
+  const off = player({ wind: () => null });
+  off.keys.add('KeyW');
+  off.run(30);
+  assert.equal(off.p.pos.x, 0);
+});

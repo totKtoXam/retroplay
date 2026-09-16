@@ -215,11 +215,13 @@ export function dressFieldWeapons(hands: T.Group, library: RealisticMaterials) {
   metal.depthTest = polymer.depthTest = false;
   const batch = geometryBatch(group);
   // Rail teeth, fasteners, heat shield, industrial pressure gauge. Existing barrel stays put.
+  // The teeth sit on the receiver rail, under the sight line (lib/weapon-sights.ts): the tool
+  // ignores depth, so a tooth at sight height would cover the dot and the front post.
   for (let i = 0; i < 10; i++)
     batch.box(
-      [0.115, 0.014, 0.017],
+      [0.115, 0.012, 0.017],
       metal,
-      [0, 0.12, -0.13 - i * 0.025],
+      [0, 0.088, -0.13 - i * 0.025],
       0.002,
     );
   for (const side of [-1, 1]) {

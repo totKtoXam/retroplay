@@ -1229,6 +1229,8 @@ export default function RoomApp({ id }: { id: string }) {
         <WorldQuickChip
           time={s.time}
           season={s.season}
+          weather={s.weather}
+          windEffects={s.windEffects}
           now={now}
           dayCycle={s.dayCycle}
           host={host}
@@ -1240,6 +1242,12 @@ export default function RoomApp({ id }: { id: string }) {
           }
           onSeasonChange={(season) =>
             void act({ type: 'room.settings', patch: { season } })
+          }
+          onWeatherChange={(weather) =>
+            void act({ type: 'room.settings', patch: { weather } })
+          }
+          onWindEffectsChange={(windEffects) =>
+            void act({ type: 'room.settings', patch: { windEffects } })
           }
           onLocked={() => flash('Облик мира меняет ведущий встречи')}
         />

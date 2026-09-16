@@ -307,6 +307,7 @@ export const MOUNTAIN: ArenaDef = {
   title: 'Горный лагерь',
   bounds: BOUNDS,
   groundColor: SNOW,
+  season: 'winter',
   outsideColor: '#c4d2de',
   boxes,
   ramps: [

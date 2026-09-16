@@ -6,6 +6,7 @@ import { isBlocked3D } from '../lib/world-collision.ts';
 import { stanceHeight, type GameMap } from '../lib/maps/types.ts';
 import { wrapAngle } from '../lib/game-camera.ts';
 import { followCameraHeading } from './world-avatar.ts';
+import { windPush } from '../lib/weather.ts';
 
 /**
  * The local player of the world engine: where the body is, how fast it falls,
@@ -30,6 +31,7 @@ export function createWorldPlayer({
   initial,
   isDead,
   onStance,
+  wind,
 }: {
   map: GameMap;
   keys: Set<string>;
@@ -38,6 +40,11 @@ export function createWorldPlayer({
   isDead: () => boolean;
   /** React `setStance`: the HUD mirrors the stance, the engine owns it. */
   onStance: (stance: 'stand' | 'sit' | 'lie') => void;
+  /**
+   * Current wind (lib/weather.ts), or null when the room turned wind effects off.
+   * Missing in tests: no wind at all.
+   */
+  wind?: () => { x: number; z: number } | null;
 }) {
   const pos = new T.Vector3(
     initial?.x ?? 0,
@@ -160,14 +167,31 @@ export function createWorldPlayer({
             : input.aimHeld
               ? 3
               : 4.8;
+    let vx = 0,
+      vz = 0;
     if (moving) {
       const len = Math.hypot(dx, dz);
       dx /= len;
       dz /= len;
-      const vx = dx * Math.cos(cameraYaw) + dz * Math.sin(cameraYaw),
-        vz = -dx * Math.sin(cameraYaw) + dz * Math.cos(cameraYaw);
-      const nx = T.MathUtils.clamp(pos.x + vx * speed * dt, map.bounds.minX, map.bounds.maxX),
-        nz = T.MathUtils.clamp(pos.z + vz * speed * dt, map.bounds.minZ, map.bounds.maxZ);
+      vx = (dx * Math.cos(cameraYaw) + dz * Math.sin(cameraYaw)) * speed;
+      vz = (-dx * Math.sin(cameraYaw) + dz * Math.cos(cameraYaw)) * speed;
+    }
+    // Wind carries the body: along with the run, and on its own only when it is strong
+    // enough to overcome the grip of standing feet (lib/weather.ts, windPush). Not while
+    // the player has no control (menus, death, the round freeze the server enforces).
+    const currentWind = input.control ? wind?.() : null;
+    if (currentWind) {
+      const push = windPush(currentWind, {
+        stance: currentStance,
+        moving,
+        airborne: pos.y - map.groundHeight(pos.x, pos.z, pos.y) > 0.08,
+      });
+      vx += push.x;
+      vz += push.z;
+    }
+    if (vx || vz) {
+      const nx = T.MathUtils.clamp(pos.x + vx * dt, map.bounds.minX, map.bounds.maxX),
+        nz = T.MathUtils.clamp(pos.z + vz * dt, map.bounds.minZ, map.bounds.maxZ);
 
       // Try X movement with step-up assist:
       const nextGroundX = map.groundHeight(nx, pos.z, pos.y);

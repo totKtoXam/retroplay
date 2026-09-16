@@ -221,7 +221,7 @@ export function createWorldRemotePlayers({
 
       const p = member.pose;
       // Погибший фонарём не светит — иначе труп продолжал бы выдавать позицию.
-      beams.get(member.id)?.set(!!p.light && !isRemoteDead, p.pitch || 0);
+      beams.get(member.id)?.set(!!p.light && !isRemoteDead, p.pitch || 0, p.tool);
       let motion = remoteMotion.get(member.id);
       if (!motion) {
         motion = {
