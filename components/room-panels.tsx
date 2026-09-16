@@ -36,6 +36,11 @@ import {
   type Round,
 } from '@/lib/model';
 import { mapsForMode, modeOf, MODES } from '@/lib/maps/catalog';
+import {
+  IMPOSTOR_DEFAULTS,
+  IMPOSTOR_LIMITS,
+  type ImpostorSettings,
+} from '@/lib/impostor-settings';
 import type { Slot } from '@/lib/loadout';
 import { TOOL_ICONS } from './tool-icons';
 import { Choice, Toggle } from './controls';
@@ -925,6 +930,9 @@ export function ModePanel({
           )}
         </>
       )}
+      {mode === 'impostor' && <ImpostorSettingsSection s={s} host={host} onSettings={onSettings} />}
+      {/* В «Предателе» не возрождаются и не стреляют: возрождение и щит там ни на что не влияют. */}
+      {mode !== 'impostor' && (
       <label className="field">
         Возрождение, секунд
         <input
@@ -944,6 +952,7 @@ export function ModePanel({
           }}
         />
       </label>
+      )}
       {/* Общий выключатель микрофонов. Заглушить всех разом нужно ровно тогда,
           когда ведущий что-то объясняет или записывает разбор, — это мера на
           минуту, поэтому она стоит рядом с правилами комнаты, а не прячется в
@@ -958,6 +967,7 @@ export function ModePanel({
       {/* Щит возрождения. Выключатель и длительность — одна настройка на двоих:
           ноль секунд и есть «щита нет», поэтому поле прячется, когда щит снят,
           и не заставляет гадать, что значит «0». */}
+      {mode !== 'impostor' && (
       <Toggle
         label="Щит возрождения"
         description="Несколько секунд неуязвимости после появления на спавне: отсчёт идёт с первого шага"
@@ -965,7 +975,8 @@ export function ModePanel({
         disabled={!host}
         onChange={(on) => onSettings({ shieldSeconds: on ? 5 : 0 })}
       />
-      {(s.shieldSeconds ?? 5) > 0 && (
+      )}
+      {mode !== 'impostor' && (s.shieldSeconds ?? 5) > 0 && (
         <label className="field">
           Щит возрождения, секунд
           <input
@@ -986,6 +997,103 @@ export function ModePanel({
           />
         </label>
       )}
+    </>
+  );
+}
+
+/** Числовые настройки «Предателя»: ключ, подпись и пояснение; пределы — IMPOSTOR_LIMITS. */
+const IMPOSTOR_NUMBER_FIELDS = [
+  [
+    'killCooldownSeconds',
+    'Перезарядка убийства, секунд',
+    'Пауза между убийствами у предателя',
+  ],
+  [
+    'tasksPerPlayer',
+    'Заданий на игрока',
+    'Экипаж побеждает, когда все задания выполнены',
+  ],
+  [
+    'discussionSeconds',
+    'Обсуждение, секунд',
+    '0 — голосование начинается сразу',
+  ],
+  ['votingSeconds', 'Голосование, секунд', 'Время на выбор, кого изгнать'],
+  [
+    'emergencyMeetings',
+    'Экстренных собраний на игрока',
+    '0 — кнопка собрания не работает',
+  ],
+] as const;
+
+/**
+ * Правила режима «Предатель». Сервер читает их при старте партии и смене фаз,
+ * поэтому правка посреди партии вступает в силу со следующей.
+ */
+function ImpostorSettingsSection({
+  s,
+  host,
+  onSettings,
+}: {
+  s: RoomState;
+  host: boolean;
+  onSettings: (patch: Record<string, unknown>) => void;
+}) {
+  const cfg = { ...IMPOSTOR_DEFAULTS, ...s.impostor };
+  const set = (patch: Partial<ImpostorSettings>) =>
+    onSettings({ impostor: patch });
+  const [minImpostors, maxImpostors] = IMPOSTOR_LIMITS.impostors;
+  const impostorOptions = [{ value: '0', label: 'Авто — по числу игроков' }];
+  for (let n = Math.max(1, minImpostors); n <= maxImpostors; n++)
+    impostorOptions.push({ value: String(n), label: String(n) });
+  return (
+    <>
+      <p className="muted">
+        Число предателей и заданий применяется со следующей партии.
+      </p>
+      <Choice
+        label="Предателей в партии"
+        value={String(cfg.impostors)}
+        disabled={!host}
+        onChange={(v) => set({ impostors: Number(v) })}
+        options={impostorOptions}
+      />
+      <div className="two-fields">
+        {IMPOSTOR_NUMBER_FIELDS.map(([key, label, hint]) => {
+          const [min, max] = IMPOSTOR_LIMITS[key];
+          return (
+            <label className="field" key={key}>
+              {label}
+              <input
+                type="number"
+                aria-label={label}
+                key={cfg[key]}
+                defaultValue={cfg[key]}
+                min={min}
+                max={max}
+                step="1"
+                disabled={!host}
+                onBlur={(e) => {
+                  const value = Number(e.target.value);
+                  if (Number.isInteger(value) && value >= min && value <= max)
+                    set({ [key]: value });
+                  else e.target.value = String(cfg[key]);
+                }}
+              />
+              <small>
+                {hint} ({min}–{max})
+              </small>
+            </label>
+          );
+        })}
+      </div>
+      <Toggle
+        label="Раскрывать изгнанного"
+        description="После голосования сообщать, был ли изгнанный предателем"
+        value={cfg.confirmEjects}
+        disabled={!host}
+        onChange={(confirmEjects) => set({ confirmEjects })}
+      />
     </>
   );
 }

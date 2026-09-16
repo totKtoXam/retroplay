@@ -11,7 +11,7 @@
 // времени задания. Убийство, репорт и кнопка собрания проверяются по расстоянию и видимости.
 import { rayCastWorldObstacle } from './world-collision.ts';
 import { getMap } from './maps/index.ts';
-import type { GameMap, TaskKind, TaskStation, SpawnPoint } from './maps/types.ts';
+import type { GameMap, MapVent, SabotageKind, SabotagePanel, TaskKind, TaskStation, SpawnPoint } from './maps/types.ts';
 import { ONLINE_MS, type Pose } from './model.ts';
 
 export type ImpostorRole = 'crew' | 'impostor';
@@ -47,6 +47,30 @@ const ENDED_MS = 12_000;
 const BUTTON_COOLDOWN_MS = 15_000;
 /** Кто не присылал ничего дольше, считается вышедшим из партии. */
 export const LEFT_MS = 45_000;
+/** Дотянуться до пульта аварии и до решётки вентиляции, м. */
+export const PANEL_RANGE = 1.8;
+export const VENT_RANGE = 1.3;
+/** Критическая авария (реактор, O2): столько времени у экипажа на ремонт. */
+export const CRITICAL_MS = 45_000;
+/** Перерыв между саботажами: после ремонта, старта партии и собрания. */
+export const SABOTAGE_COOLDOWN_MS = 30_000;
+/**
+ * Реактор чинят вдвоём: оба стабилизатора удерживают одновременно. Удержание — это
+ * повторяющиеся запросы «fix»; последний считается действующим столько времени.
+ */
+export const HOLD_MS = 1500;
+export const SABOTAGE_KINDS: readonly SabotageKind[] = ['lights', 'comms', 'reactor', 'o2'];
+export const isCritical = (kind: SabotageKind) => kind === 'reactor' || kind === 'o2';
+
+export type ImpostorSabotage = {
+  kind: SabotageKind;
+  /** Для критической аварии — когда предатели победят; 0 — без таймера. */
+  until: number;
+  /** Отремонтированные пульты (O2 — каждый чинят по разу). */
+  fixed: string[];
+  /** Кто сейчас держит пульт реактора и с какого запроса. */
+  holds: Record<string, { by: string; at: number }>;
+};
 
 export type ImpostorTask = { station: string; done: boolean };
 export type ImpostorPlayer = {
@@ -62,6 +86,8 @@ export type ImpostorPlayer = {
   killReadyAt: number;
   /** Начатое задание: у какого пульта и с какого момента. */
   working: { station: string; at: number } | null;
+  /** Предатель прячется в этой решётке вентиляции: его не видно, и он не двигается. */
+  vent: string | null;
 };
 export type ImpostorBody = { victim: string; x: number; y: number; z: number; at: number; color: string };
 export type ImpostorMeeting = {
@@ -85,7 +111,10 @@ export type ImpostorGame = {
   ejected: { id: string | null; impostor: boolean; tie: boolean } | null;
   buttonReadyAt: number;
   winner: ImpostorRole | null;
-  winReason: 'tasks' | 'ejected' | 'kills' | 'left' | null;
+  winReason: 'tasks' | 'ejected' | 'kills' | 'left' | 'sabotage' | null;
+  sabotage: ImpostorSabotage | null;
+  /** С этого момента предатели могут устроить следующую аварию. */
+  sabotageReadyAt: number;
 };
 
 /** Минимум, что нужно о члене комнаты: так модуль не тянет весь room-hub-core. */
@@ -113,6 +142,8 @@ export const newImpostorGame = (): ImpostorGame => ({
   buttonReadyAt: 0,
   winner: null,
   winReason: null,
+  sabotage: null,
+  sabotageReadyAt: 0,
 });
 
 export const isImpostorRoom = (hub: { room: { mode: string } }) => hub.room.mode === 'impostor';
@@ -219,6 +250,7 @@ export function startGame(
       meetingsLeft: s.emergencyMeetings,
       killReadyAt: now + INTRO_MS + s.killCooldownSeconds * 1000,
       working: null,
+      vent: null,
     };
   Object.assign(g, newImpostorGame(), {
     phase: 'intro',
@@ -226,6 +258,7 @@ export function startGame(
     game: g.game + 1,
     players,
     buttonReadyAt: now + INTRO_MS + BUTTON_COOLDOWN_MS,
+    sabotageReadyAt: now + INTRO_MS + SABOTAGE_COOLDOWN_MS,
   });
   for (const [id, seat] of seatsFor(map, ids)) place(id, seat);
   return OK;
@@ -240,6 +273,8 @@ export function stopGame(hub: ImpostorHub, self: string): ImpostorResult {
   hub.impostor.meeting = null;
   hub.impostor.votes = {};
   hub.impostor.bodies = [];
+  hub.impostor.sabotage = null;
+  for (const p of Object.values(hub.impostor.players)) p.vent = null;
   return OK;
 }
 
@@ -259,11 +294,17 @@ function livingPlayer(hub: ImpostorHub, id: string) {
   return { p, m };
 }
 
+/** Живой игрок не в вентиляции: из решётки нельзя ни убить, ни репортить, ни чинить. */
+function activePlayer(hub: ImpostorHub, id: string) {
+  const found = livingPlayer(hub, id);
+  return found && !found.p.vent ? found : null;
+}
+
 export function kill(hub: ImpostorHub, self: string, target: unknown, now: number): ImpostorResult {
   const g = hub.impostor;
   if (g.phase !== 'play') return fail('Сейчас нельзя');
-  const killer = livingPlayer(hub, self);
-  if (!killer || killer.p.role !== 'impostor') return fail('Убивать может только живой предатель');
+  const killer = activePlayer(hub, self);
+  if (!killer || killer.p.role !== 'impostor') return fail('Убивать может только живой предатель вне вентиляции');
   if (typeof target !== 'string') return fail('Не указана цель');
   const victim = livingPlayer(hub, target);
   if (!victim || victim.p.role === 'impostor') return fail('Эту цель нельзя');
@@ -289,7 +330,10 @@ function callMeeting(hub: ImpostorHub, meeting: ImpostorMeeting, now: number, pl
   for (const p of Object.values(g.players)) {
     if (!p.alive) p.revealed = true;
     p.working = null;
+    // Собрание вытаскивает всех из вентиляции и гасит аварию.
+    p.vent = null;
   }
+  g.sabotage = null;
   const s = hub.room.impostor;
   if (s.discussionSeconds > 0) {
     g.phase = 'meeting';
@@ -313,7 +357,7 @@ export function report(
 ): ImpostorResult {
   const g = hub.impostor;
   if (g.phase !== 'play') return fail('Сейчас нельзя');
-  const me = livingPlayer(hub, self);
+  const me = activePlayer(hub, self);
   if (!me) return fail('Репортить может только живой игрок');
   const body = g.bodies.find((b) => b.victim === victim);
   if (!body) return fail('Тела нет');
@@ -331,8 +375,9 @@ export function emergency(
 ): ImpostorResult {
   const g = hub.impostor;
   if (g.phase !== 'play') return fail('Сейчас нельзя');
-  const me = livingPlayer(hub, self);
+  const me = activePlayer(hub, self);
   if (!me) return fail('Кнопку жмёт только живой игрок');
+  if (g.sabotage && isCritical(g.sabotage.kind)) return fail('Сначала устраните аварию');
   if (me.p.meetingsLeft <= 0) return fail('Экстренные собрания кончились');
   if (g.buttonReadyAt > now) return fail('Кнопка ещё не готова');
   const meeting = getMap(hub.room.map).meeting;
@@ -418,6 +463,9 @@ export function checkWinner(g: ImpostorGame, now: number) {
   if (impostors === 0) {
     winner = 'crew';
     reason = g.ejected?.impostor ? 'ejected' : 'left';
+  } else if (g.sabotage && isCritical(g.sabotage.kind) && g.sabotage.until > 0 && now >= g.sabotage.until) {
+    winner = 'impostor';
+    reason = 'sabotage';
   } else if (impostors >= crew) {
     winner = 'impostor';
     reason = crew === 0 || Object.values(g.players).some((p) => p.role === 'crew' && !p.left && !p.alive) ? 'kills' : 'left';
@@ -431,8 +479,108 @@ export function checkWinner(g: ImpostorGame, now: number) {
   g.winner = winner;
   g.winReason = reason;
   g.meeting = null;
+  g.sabotage = null;
+  for (const p of Object.values(g.players)) p.vent = null;
   return true;
 }
+
+// ---------------------------------------------------------------- саботаж
+
+/** Предатель устраивает аварию. Одновременно — только одна, и между ними перерыв. */
+export function sabotage(hub: ImpostorHub, self: string, kind: unknown, now: number): ImpostorResult {
+  const g = hub.impostor;
+  if (g.phase !== 'play') return fail('Сейчас нельзя');
+  const me = livingPlayer(hub, self);
+  if (!me || me.p.role !== 'impostor') return fail('Саботаж устраивает только живой предатель');
+  if (!SABOTAGE_KINDS.includes(kind as SabotageKind)) return fail('Неизвестная авария');
+  const k = kind as SabotageKind;
+  if (!getMap(hub.room.map).panels.some((p) => p.sabotage === k)) return fail('На этой карте такой аварии нет');
+  if (g.sabotage) return fail('Авария уже идёт');
+  if (g.sabotageReadyAt > now) return fail('Саботаж ещё не готов');
+  g.sabotage = { kind: k, until: isCritical(k) ? now + CRITICAL_MS : 0, fixed: [], holds: {} };
+  return OK;
+}
+
+function panelOf(hub: ImpostorHub, id: unknown): SabotagePanel | undefined {
+  return getMap(hub.room.map).panels.find((p) => p.id === id);
+}
+
+/**
+ * Ремонт у пульта. Свет и связь — один пульт; O2 — каждый пульт по разу; реактор — два
+ * пульта одновременно разными игроками (клиент повторяет запрос, пока игрок держит пульт).
+ * Чинить может любой живой, в том числе предатель — для прикрытия.
+ */
+export function fix(hub: ImpostorHub, self: string, panelId: unknown, now: number): ImpostorResult {
+  const g = hub.impostor;
+  const s = g.sabotage;
+  if (g.phase !== 'play' || !s) return fail('Чинить нечего');
+  const me = activePlayer(hub, self);
+  if (!me) return fail('Чинит только живой игрок');
+  const panel = panelOf(hub, panelId);
+  if (!panel || panel.sabotage !== s.kind) return fail('Этот пульт не для этой аварии');
+  if (distance(me.m.pose, panel) > PANEL_RANGE) return fail('Подойдите к пульту');
+  const panels = getMap(hub.room.map).panels.filter((p) => p.sabotage === s.kind);
+  if (s.kind === 'reactor') {
+    s.holds[panel.id] = { by: self, at: now };
+    const holders = panels.map((p) => s.holds[p.id]).filter((h) => h && now - h.at <= HOLD_MS && livingPlayer(hub, h.by));
+    const distinct = new Set(holders.map((h) => h!.by));
+    if (holders.length < panels.length || distinct.size < panels.length) return OK;
+  } else {
+    if (!s.fixed.includes(panel.id)) s.fixed.push(panel.id);
+    if (panels.some((p) => !s.fixed.includes(p.id))) return OK;
+  }
+  g.sabotage = null;
+  g.sabotageReadyAt = now + SABOTAGE_COOLDOWN_MS;
+  return OK;
+}
+
+// ---------------------------------------------------------------- вентиляция
+
+function ventOf(hub: ImpostorHub, id: unknown): MapVent | undefined {
+  return getMap(hub.room.map).vents.find((v) => v.id === id);
+}
+
+/** Предатель залезает в решётку, у которой стоит. */
+export function enterVent(hub: ImpostorHub, self: string, ventId: unknown): ImpostorResult {
+  const g = hub.impostor;
+  if (g.phase !== 'play') return fail('Сейчас нельзя');
+  const me = activePlayer(hub, self);
+  if (!me || me.p.role !== 'impostor') return fail('В вентиляцию лезет только предатель');
+  const vent = ventOf(hub, ventId);
+  if (!vent || distance(me.m.pose, vent) > VENT_RANGE) return fail('Подойдите к решётке');
+  me.p.vent = vent.id;
+  me.p.working = null;
+  return OK;
+}
+
+/** Переползти в соседнюю решётку той же сети: игрок переносится туда, но остаётся скрытым. */
+export function moveVent(
+  hub: ImpostorHub,
+  self: string,
+  ventId: unknown,
+  place: (id: string, seat: SpawnPoint) => void,
+): ImpostorResult {
+  const g = hub.impostor;
+  if (g.phase !== 'play') return fail('Сейчас нельзя');
+  const me = livingPlayer(hub, self);
+  const from = me?.p.vent ? ventOf(hub, me.p.vent) : undefined;
+  if (!me || !from) return fail('Вы не в вентиляции');
+  const to = ventOf(hub, ventId);
+  if (!to || !from.links.includes(to.id)) return fail('Отсюда туда не пролезть');
+  me.p.vent = to.id;
+  place(self, { x: to.x, z: to.z, yaw: me.m.pose.yaw });
+  return OK;
+}
+
+export function exitVent(hub: ImpostorHub, self: string): ImpostorResult {
+  const me = livingPlayer(hub, self);
+  if (!me?.p.vent) return fail('Вы не в вентиляции');
+  me.p.vent = null;
+  return OK;
+}
+
+/** Игрок сидит в вентиляции: сервер не двигает его позу. */
+export const inVent = (g: ImpostorGame, id: string) => gameActive(g) && !!g.players[id]?.vent;
 
 function station(hub: ImpostorHub, id: unknown): TaskStation | undefined {
   return getMap(hub.room.map).stations.find((s) => s.id === id);
@@ -498,10 +646,17 @@ export function updateImpostor(
       p.left = true;
       p.revealed = true;
       p.working = null;
+      p.vent = null;
       changed = true;
     }
     // Вышедших доигрываем по правилам: во время собрания итог подводит голосование.
     if (changed && (g.phase === 'play' || g.phase === 'intro')) checkWinner(g, now);
+    // Не успели починить реактор или O2 — победа предателей.
+    const s = g.sabotage;
+    if (g.phase === 'play' && s && s.until > 0 && now >= s.until) {
+      checkWinner(g, now);
+      changed = true;
+    }
   }
   if (g.until === 0 || now < g.until) return changed;
   const s = hub.room.impostor;
@@ -525,6 +680,7 @@ export function updateImpostor(
       g.votes = {};
       g.bodies = [];
       g.buttonReadyAt = now + BUTTON_COOLDOWN_MS;
+      g.sabotageReadyAt = now + SABOTAGE_COOLDOWN_MS;
       for (const p of Object.values(g.players)) if (p.role === 'impostor') p.killReadyAt = now + s.killCooldownSeconds * 1000;
       break;
     case 'ended': {
@@ -572,6 +728,12 @@ export type ImpostorView = {
   winReason: ImpostorGame['winReason'];
   /** Роли всех — только в конце партии. */
   roles: Record<string, ImpostorRole> | null;
+  /** Идущая авария: её видят все (сирена и мигающий свет не секрет). */
+  sabotage: { kind: SabotageKind; until: number; fixed: string[]; held: string[] } | null;
+  /** Когда предатель сможет устроить следующую аварию; другим — 0. */
+  sabotageReadyAt: number;
+  /** В какой решётке сижу я сам. */
+  vent: string | null;
 };
 
 export function impostorView(hub: ImpostorHub, viewer: string): ImpostorView {
@@ -581,6 +743,10 @@ export function impostorView(hub: ImpostorHub, viewer: string): ImpostorView {
   const ended = g.phase === 'ended';
   const stations = new Map(getMap(hub.room.map).stations.map((s) => [s.id, s]));
   const confirm = hub.room.impostor.confirmEjects;
+  const s = g.sabotage;
+  const now = Date.now();
+  // Авария связи прячет списки заданий: игрок не знает, что и где ему делать.
+  const commsDown = s?.kind === 'comms';
   const ejected = g.ejected && { ...g.ejected, impostor: confirm || ended ? g.ejected.impostor : false };
   return {
     phase: g.phase,
@@ -594,11 +760,11 @@ export function impostorView(hub: ImpostorHub, viewer: string): ImpostorView {
             .filter((p) => p.role === 'impostor' && p.id !== viewer)
             .map((p) => p.id)
         : [],
-    tasks: (me?.tasks ?? []).flatMap((t) => {
+    tasks: (commsDown ? [] : (me?.tasks ?? [])).flatMap((t) => {
       const st = stations.get(t.station);
       return st ? [{ ...t, kind: st.kind, title: st.title, room: st.room, x: st.x, z: st.z }] : [];
     }),
-    progress: taskProgress(g),
+    progress: commsDown ? { done: 0, total: 0 } : taskProgress(g),
     meetingsLeft: me?.meetingsLeft ?? 0,
     killReadyAt: me?.role === 'impostor' ? me.killReadyAt : 0,
     buttonReadyAt: g.buttonReadyAt,
@@ -624,6 +790,16 @@ export function impostorView(hub: ImpostorHub, viewer: string): ImpostorView {
     winner: g.winner,
     winReason: g.winReason,
     roles: ended ? Object.fromEntries(Object.values(g.players).map((p) => [p.id, p.role])) : null,
+    sabotage: s && {
+      kind: s.kind,
+      until: s.until,
+      fixed: s.fixed,
+      held: Object.entries(s.holds)
+        .filter(([, h]) => now - h.at <= HOLD_MS)
+        .map(([panel]) => panel),
+    },
+    sabotageReadyAt: me?.role === 'impostor' ? g.sabotageReadyAt : 0,
+    vent: me?.vent ?? null,
   };
 }
 
@@ -633,7 +809,11 @@ export function impostorView(hub: ImpostorHub, viewer: string): ImpostorView {
  */
 export function visibleTo(g: ImpostorGame, viewer: string, id: string) {
   if (!gameActive(g) || viewer === id) return true;
-  return isGhost(g, viewer) || !isGhost(g, id);
+  if (isGhost(g, viewer)) return true;
+  if (isGhost(g, id)) return false;
+  // Сидящего в вентиляции видят только свои предатели.
+  if (g.players[id]?.vent) return g.players[viewer]?.role === 'impostor';
+  return true;
 }
 
 /**

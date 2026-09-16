@@ -1,4 +1,15 @@
-import type { ArenaDef, MapBox, MapCylinder, MapLight, SpawnPoint, TaskKind, TaskStation } from './types.ts';
+import type {
+  ArenaDef,
+  MapBox,
+  MapCylinder,
+  MapLight,
+  MapVent,
+  SabotageKind,
+  SabotagePanel,
+  SpawnPoint,
+  TaskKind,
+  TaskStation,
+} from './types.ts';
 
 // «Корабль» — карта режима «Предатель», по мотивам Skeld из Among Us. Четырнадцать отсеков
 // соединены коридорами в два кольца вокруг хранилища: восточное (кафетерий → оружейная →
@@ -134,6 +145,7 @@ export function wallsAround(areas: Rect[], bounds: Rect, color: string): MapBox[
 }
 
 type Side = 'n' | 's' | 'e' | 'w';
+const PANEL = '#6a2e33';
 const byId = new Map(SHIP_ROOMS.map((r) => [r.id, r]));
 
 /**
@@ -142,6 +154,17 @@ const byId = new Map(SHIP_ROOMS.map((r) => [r.id, r]));
  * координата вдоль стены.
  */
 function station(id: string, kind: TaskKind, title: string, roomId: string, side: Side, at: number) {
+  const { box, point, room } = console3d(roomId, side, at, CONSOLE);
+  return { box, station: { id, kind, title, room, ...point } satisfies TaskStation };
+}
+
+/** Пульт аварии: такой же, как пульт задания, но красный. */
+function panel(id: string, sabotage: SabotageKind, title: string, roomId: string, side: Side, at: number) {
+  const { box, point, room } = console3d(roomId, side, at, PANEL);
+  return { box, panel: { id, sabotage, title, room, ...point } satisfies SabotagePanel };
+}
+
+function console3d(roomId: string, side: Side, at: number, color: string) {
   const r = byId.get(roomId)!;
   const console = 0.45,
     point = 1.2;
@@ -155,9 +178,8 @@ function station(id: string, kind: TaskKind, title: string, roomId: string, side
           : { x: r.maxX - offset, z: at };
   const along = side === 'n' || side === 's';
   const c = pos(console);
-  const box: MapBox = { x: c.x, y: 0.55, z: c.z, w: along ? 1.2 : 0.6, h: 1.1, d: along ? 0.6 : 1.2, color: CONSOLE, solid: true };
-  const stationPoint: TaskStation = { id, kind, title, room: r.name, ...pos(point) };
-  return { box, station: stationPoint };
+  const box: MapBox = { x: c.x, y: 0.55, z: c.z, w: along ? 1.2 : 0.6, h: 1.1, d: along ? 0.6 : 1.2, color, solid: true };
+  return { box, point: pos(point), room: r.name };
 }
 
 const PLACED = [
@@ -186,6 +208,44 @@ const PLACED = [
 ];
 
 export const SHIP_STATIONS: TaskStation[] = PLACED.map((p) => p.station);
+
+const PANELS_PLACED = [
+  panel('elec-lights', 'lights', 'Восстановить свет', 'electrical', 'e', 12),
+  panel('comms-fix', 'comms', 'Перезапустить связь', 'comms', 'n', 11.5),
+  panel('reactor-top', 'reactor', 'Удерживать стабилизатор', 'reactor', 'w', -5),
+  panel('reactor-bottom', 'reactor', 'Удерживать стабилизатор', 'reactor', 's', -46),
+  panel('o2-panel', 'o2', 'Ввести код O2', 'o2', 'n', 23),
+  panel('admin-o2', 'o2', 'Ввести код O2', 'admin', 's', 15),
+];
+export const SHIP_PANELS: SabotagePanel[] = PANELS_PLACED.map((p) => p.panel);
+
+const vent = (id: string, roomId: string, x: number, z: number, links: string[]): MapVent => ({
+  id,
+  room: byId.get(roomId)?.name ?? 'Коридор',
+  x,
+  z,
+  links,
+});
+/** Вентиляция: четыре несвязанные между собой сети. */
+export const SHIP_VENTS: MapVent[] = [
+  // Запад: двигатели через реактор.
+  vent('v-reactor', 'reactor', -45, -3, ['v-upper', 'v-lower']),
+  vent('v-upper', 'upper-engine', -33, -19, ['v-reactor']),
+  vent('v-lower', 'lower-engine', -33, 17, ['v-reactor']),
+  // Центр-запад: медпункт, охрана, электрика.
+  vent('v-medbay', 'medbay', -21, -10, ['v-security', 'v-elec']),
+  vent('v-security', 'security', -28, 1, ['v-medbay', 'v-elec']),
+  vent('v-elec', 'electrical', -14, 10, ['v-medbay', 'v-security']),
+  // Восток: оружейная и щиты через навигацию.
+  vent('v-weapons', 'weapons', 31, -30, ['v-nav-top']),
+  vent('v-nav-top', 'navigation', 44, -3, ['v-weapons']),
+  vent('v-nav-bottom', 'navigation', 45, 5, ['v-shields']),
+  vent('v-shields', 'shields', 31, 26, ['v-nav-bottom']),
+  // Центр: кафетерий, коридор, администрация.
+  vent('v-cafe', 'cafeteria', 8, -16, ['v-hall', 'v-admin']),
+  vent('v-hall', 'corridor', 0, -6, ['v-cafe', 'v-admin']),
+  vent('v-admin', 'admin', 18, -2, ['v-cafe', 'v-hall']),
+];
 
 const MEETING = { x: 0, z: -23, seats: 3.4 };
 
@@ -276,6 +336,9 @@ export const SHIP: ArenaDef = {
     ...CORRIDORS.map((c) => floorDecal(c, CORRIDOR)),
     ...wallsAround([...SHIP_ROOMS, ...CORRIDORS], BOUNDS, WALL),
     ...PLACED.map((p) => p.box),
+    ...PANELS_PLACED.map((p) => p.box),
+    // Решётки вентиляции: плоские, на них можно встать.
+    ...SHIP_VENTS.map((v): MapBox => ({ x: v.x, y: 0.03, z: v.z, w: 1.1, h: 0.04, d: 0.8, color: '#3b424d' })),
     ...PROPS,
   ],
   cylinders: CYLINDERS,
@@ -283,5 +346,7 @@ export const SHIP: ArenaDef = {
   spawns: { red: SEATS, blue: SEATS },
   stations: SHIP_STATIONS,
   meeting: MEETING,
+  panels: SHIP_PANELS,
+  vents: SHIP_VENTS,
   zones: SHIP_ROOMS.map(({ id, name, minX, minZ, maxX, maxZ }) => ({ id, name, minX, minZ, maxX, maxZ })),
 };

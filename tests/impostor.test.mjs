@@ -393,3 +393,139 @@ test('ship: each station stands inside the room it names; the ship is indoors', 
   }
   assert.equal(new Set(map.stations.map((s) => s.id)).size, map.stations.length, 'unique ids');
 });
+
+// ---------------------------------------------------------------- саботаж и вентиляция
+
+const panel = (id) => getMap('ship').panels.find((p) => p.id === id);
+const ventAt = (id) => getMap('ship').vents.find((v) => v.id === id);
+
+test('sabotage: only an alive impostor, one at a time, after the cooldown', () => {
+  const { hub, now, impostors, crew } = started();
+  const t = now + 31_000;
+  assert.equal(act(hub, impostors[0], { action: 'sabotage', kind: 'lights' }, now).ok, false, 'cooldown after start');
+  assert.equal(act(hub, crew[0], { action: 'sabotage', kind: 'lights' }, t).ok, false, 'crew cannot sabotage');
+  assert.equal(act(hub, impostors[0], { action: 'sabotage', kind: 'meteor' }, t).ok, false);
+  assert.deepEqual(act(hub, impostors[0], { action: 'sabotage', kind: 'lights' }, t), { ok: true });
+  assert.equal(act(hub, impostors[0], { action: 'sabotage', kind: 'o2' }, t).ok, false, 'one at a time');
+  // Все видят аварию, но таймер у света не тикает.
+  assert.equal(impostorView(hub, crew[0]).sabotage.kind, 'lights');
+  assert.equal(impostorView(hub, crew[0]).sabotage.until, 0);
+  assert.equal(impostorView(hub, crew[0]).sabotageReadyAt, 0, 'crew does not learn the cooldown');
+  const p = panel('elec-lights');
+  put(hub, crew[0], p.x + 3, p.z);
+  assert.equal(act(hub, crew[0], { action: 'fix', panel: p.id }, t).ok, false, 'too far');
+  put(hub, crew[0], p.x, p.z);
+  assert.equal(act(hub, crew[0], { action: 'fix', panel: 'comms-fix' }, t).ok, false, 'wrong panel');
+  assert.deepEqual(act(hub, crew[0], { action: 'fix', panel: p.id }, t), { ok: true });
+  assert.equal(hub.impostor.sabotage, null);
+  assert.equal(act(hub, impostors[0], { action: 'sabotage', kind: 'comms' }, t + 1000).ok, false, 'cooldown after repair');
+});
+
+test('comms sabotage hides task lists', () => {
+  const { hub, now, impostors, crew } = started();
+  act(hub, impostors[0], { action: 'sabotage', kind: 'comms' }, now + 31_000);
+  const view = impostorView(hub, crew[0]);
+  assert.deepEqual(view.tasks, []);
+  assert.deepEqual(view.progress, { done: 0, total: 0 });
+});
+
+test('o2: both panels once each; unrepaired in time, impostors win', () => {
+  const { hub, now, impostors, crew } = started();
+  const t = now + 31_000;
+  for (const m of hub.members.values()) m.seen = t + 50_000;
+  act(hub, impostors[0], { action: 'sabotage', kind: 'o2' }, t);
+  put(hub, crew[0], 0, -20.5);
+  assert.equal(act(hub, crew[0], { action: 'meeting' }, t).ok, false, 'no button during a critical sabotage');
+  const a = panel('o2-panel');
+  put(hub, crew[0], a.x, a.z);
+  act(hub, crew[0], { action: 'fix', panel: a.id }, t + 1000);
+  assert.ok(hub.impostor.sabotage, 'one panel is not enough');
+  act(hub, crew[0], { action: 'fix', panel: a.id }, t + 1100);
+  assert.deepEqual(hub.impostor.sabotage.fixed, ['o2-panel'], 'the same panel counts once');
+  resolveCombat(hub, t + 45_001);
+  assert.equal(hub.impostor.phase, 'ended');
+  assert.equal(hub.impostor.winner, 'impostor');
+  assert.equal(hub.impostor.winReason, 'sabotage');
+});
+
+test('reactor: two different players must hold both panels at once', () => {
+  const { hub, now, impostors, crew } = started();
+  const t = now + 31_000;
+  act(hub, impostors[0], { action: 'sabotage', kind: 'reactor' }, t);
+  const top = panel('reactor-top'),
+    bottom = panel('reactor-bottom');
+  put(hub, crew[0], top.x, top.z);
+  put(hub, crew[1], bottom.x, bottom.z);
+  act(hub, crew[0], { action: 'fix', panel: top.id }, t + 1000);
+  act(hub, crew[1], { action: 'fix', panel: bottom.id }, t + 4000);
+  assert.ok(hub.impostor.sabotage, 'holds far apart in time do not count');
+  put(hub, crew[0], bottom.x, bottom.z);
+  act(hub, crew[0], { action: 'fix', panel: bottom.id }, t + 4100);
+  put(hub, crew[0], top.x, top.z);
+  act(hub, crew[0], { action: 'fix', panel: top.id }, t + 4200);
+  assert.ok(hub.impostor.sabotage, 'one player cannot hold both');
+  act(hub, crew[1], { action: 'fix', panel: bottom.id }, t + 4300);
+  assert.equal(hub.impostor.sabotage, null);
+});
+
+test('a meeting clears the sabotage and pulls everyone out of vents', () => {
+  const { hub, now, impostors, crew } = started();
+  const t = now + 31_000;
+  act(hub, impostors[0], { action: 'sabotage', kind: 'lights' }, t);
+  const v = ventAt('v-cafe');
+  put(hub, impostors[0], v.x, v.z);
+  assert.deepEqual(act(hub, impostors[0], { action: 'vent.enter', vent: v.id }, t), { ok: true });
+  put(hub, crew[0], 0, -20.5);
+  assert.deepEqual(act(hub, crew[0], { action: 'meeting' }, t), { ok: true });
+  assert.equal(hub.impostor.sabotage, null);
+  assert.equal(hub.impostor.players[impostors[0]].vent, null);
+});
+
+test('vents: impostors hide, crawl along links, cannot act or move from inside', () => {
+  const { hub, now, impostors, crew } = started(4, { killCooldownSeconds: 10 });
+  const t = now + 11_000;
+  for (const m of hub.members.values()) m.seen = t;
+  const imp = impostors[0];
+  const cafe = ventAt('v-cafe');
+  put(hub, crew[0], cafe.x, cafe.z);
+  assert.equal(act(hub, crew[0], { action: 'vent.enter', vent: cafe.id }, t).ok, false, 'crew cannot vent');
+  put(hub, imp, cafe.x + 3, cafe.z);
+  assert.equal(act(hub, imp, { action: 'vent.enter', vent: cafe.id }, t).ok, false, 'too far');
+  put(hub, imp, cafe.x, cafe.z);
+  put(hub, crew[0], cafe.x + 1, cafe.z);
+  assert.deepEqual(act(hub, imp, { action: 'vent.enter', vent: cafe.id }, t), { ok: true });
+  // Живые не видят сидящего в решётке.
+  assert.equal(publicMembers(hub, t, crew[1]).some((m) => m.id === imp), false);
+  assert.equal(act(hub, imp, { action: 'kill', target: crew[0] }, t).ok, false, 'no kill from a vent');
+  // Шаги из решётки сервер не принимает.
+  const m = hub.members.get(imp);
+  m.lastMoveAt = t;
+  presence(hub, m, { pose: stand(cafe.x + 1, cafe.z), life: m.life }, t + 500);
+  assert.equal(m.pose.x, cafe.x);
+  assert.equal(act(hub, imp, { action: 'vent.move', vent: 'v-reactor' }, t).ok, false, 'not linked');
+  const life = m.life;
+  assert.deepEqual(act(hub, imp, { action: 'vent.move', vent: 'v-admin' }, t), { ok: true });
+  const admin = ventAt('v-admin');
+  assert.deepEqual([m.pose.x, m.pose.z, m.life], [admin.x, admin.z, life + 1], 'moved with a new life');
+  assert.deepEqual(act(hub, imp, { action: 'vent.exit' }, t), { ok: true });
+  assert.equal(publicMembers(hub, t, crew[1]).some((x) => x.id === imp), true);
+  assert.equal(impostorView(hub, imp).vent, null);
+});
+
+test('ship: sabotage panels and vents are free, reachable, and vent links are symmetric', () => {
+  const map = getMap('ship');
+  const from = seatsFor(map, ['a']).get('a');
+  for (const kind of ['lights', 'comms', 'reactor', 'o2'])
+    assert.ok(map.panels.some((p) => p.sabotage === kind), `${kind} has a panel`);
+  assert.equal(map.panels.filter((p) => p.sabotage === 'reactor').length, 2);
+  for (const p of [...map.panels, ...map.vents]) {
+    assert.equal(isBlocked3D(p.x, p.z, 0, 0.32, 1.8, map.colliders), false, `${p.id} blocked`);
+    assert.ok(reachable(map, from, p), `${p.id} unreachable`);
+  }
+  const ids = new Set(map.vents.map((v) => v.id));
+  for (const v of map.vents)
+    for (const link of v.links) {
+      assert.ok(ids.has(link), `${v.id} -> ${link}`);
+      assert.ok(map.vents.find((x) => x.id === link).links.includes(v.id), `${link} <-> ${v.id}`);
+    }
+});

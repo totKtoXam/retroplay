@@ -33,6 +33,12 @@ import {
   finishTask,
   gameActive,
   hearsVoice,
+  enterVent,
+  exitVent,
+  fix,
+  inVent,
+  moveVent,
+  sabotage,
   IMPOSTOR_DEFAULTS,
   IMPOSTOR_LIMITS,
   isGhost,
@@ -425,8 +431,11 @@ export function presence(
   op: { pose?: unknown; cursor?: unknown; ping?: unknown; life?: unknown },
   now: number,
 ) {
-  const ghost = state.room.mode === 'impostor' && isGhost(state.impostor, m.id);
-  applyPresence(m, op, now, getMap(state.room.map), isFrozen(state, now), state.room.shieldSeconds * 1000, ghost);
+  const impostor = state.room.mode === 'impostor';
+  const ghost = impostor && isGhost(state.impostor, m.id);
+  // В вентиляции игрок стоит на месте решётки: поворот принимается, шаги — нет.
+  const frozen = isFrozen(state, now) || (impostor && inVent(state.impostor, m.id));
+  applyPresence(m, op, now, getMap(state.room.map), frozen, state.room.shieldSeconds * 1000, ghost);
 }
 
 export type FireResult = {
@@ -1108,6 +1117,16 @@ export function impostorAction(state: HubState, self: string, op: Record<string,
       return startTask(state, self, op.station, now);
     case 'task.done':
       return finishTask(state, self, op.station, now);
+    case 'sabotage':
+      return sabotage(state, self, op.kind, now);
+    case 'fix':
+      return fix(state, self, op.panel, now);
+    case 'vent.enter':
+      return enterVent(state, self, op.vent);
+    case 'vent.move':
+      return moveVent(state, self, op.vent, place);
+    case 'vent.exit':
+      return exitVent(state, self);
     default:
       return { ok: false, error: 'Неизвестное действие' };
   }

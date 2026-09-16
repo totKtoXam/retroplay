@@ -54,6 +54,15 @@ export type MapLight = { x: number; y: number; z: number; color: string; intensi
 export type TaskKind = 'wires' | 'hold' | 'calibrate' | 'code' | 'upload';
 /** A place where a crewmate does a task: the player must stand within reach of (x, z). */
 export type TaskStation = { id: string; kind: TaskKind; title: string; room: string; x: number; z: number };
+/**
+ * Sabotage of the impostor mode: `lights` cuts the crew's vision, `comms` hides task lists,
+ * `reactor` and `o2` are critical — unrepaired in time, they win the game for the impostors.
+ */
+export type SabotageKind = 'lights' | 'comms' | 'reactor' | 'o2';
+/** A panel where a sabotage is repaired; a kind may need several panels. */
+export type SabotagePanel = { id: string; sabotage: SabotageKind; title: string; room: string; x: number; z: number };
+/** A vent: impostors hide in it and crawl to the linked vents. Links are symmetric. */
+export type MapVent = { id: string; room: string; x: number; z: number; links: string[] };
 /** A named room of a map. */
 export type MapZone = Bounds & { id: string; name: string };
 /** The meeting table with the emergency button at its centre. */
@@ -86,6 +95,9 @@ export type ArenaDef = {
   zones?: MapZone[];
   /** The whole map is indoors: no precipitation and no wind. */
   indoor?: boolean;
+  /** Sabotage repair panels of the impostor mode. */
+  panels?: SabotagePanel[];
+  vents?: MapVent[];
 };
 
 export type GameMap = {
@@ -103,6 +115,8 @@ export type GameMap = {
   /** Task stations of the impostor mode; empty on other maps. */
   stations: TaskStation[];
   meeting?: MeetingPoint;
+  panels: SabotagePanel[];
+  vents: MapVent[];
 };
 
 const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
@@ -183,5 +197,7 @@ export function buildArena(def: ArenaDef): GameMap {
     arena: def,
     stations: def.stations ?? [],
     meeting: def.meeting,
+    panels: def.panels ?? [],
+    vents: def.vents ?? [],
   };
 }
