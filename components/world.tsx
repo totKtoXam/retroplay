@@ -51,6 +51,8 @@ import {
   type DayMix,
 } from '@/lib/day-cycle';
 import { createWorldPlayer } from './world-player';
+import { createWorldWeather } from './world-weather';
+import { windDrift, windLevel, windRelative, WIND_DRIFT } from '@/lib/weather';
 import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
@@ -282,6 +284,13 @@ export default function World(props: Props) {
   useEffect(() => {
     latest.current = props;
   }, [props]);
+  // Погоде и ветру нужны серверные часы каждый кадр, а `props.now` приходит раз в
+  // секунду. Держим поправку к локальным часам и считаем время сами.
+  const clockOffset = useRef(0);
+  useEffect(() => {
+    clockOffset.current = props.now - Date.now();
+  }, [props.now]);
+  const windIndicator = useRef<HTMLDivElement>(null);
   const [contextWheel, setContextWheel] = useState(false);
   const [confettiStyle, setConfettiStyle] = useState('classic');
   const [grenadeStyle, setGrenadeStyle] = useState('pinata');
@@ -723,6 +732,13 @@ export default function World(props: Props) {
       ];
     kit.update(latest.current.room.state, currentMix());
     kit.setNotes(latest.current.room.state);
+    // Погода поверх любой карты. «Под крышей» — когда над камерой есть потолок.
+    const weather = createWorldWeather({
+      scene,
+      sunlight: kit.sunlight,
+      sheltered: (at) => Number.isFinite(map.ceilingHeight(at.x, at.z, at.y - 1.6)),
+    });
+    const windOn = () => latest.current.room.state.windEffects !== false;
     const cameraObstacles: T.Object3D[] = [];
     // Отладочный доступ к сцене: в dev и по ?debug=1 — чтобы разбирать визуальные баги с натуры.
     if (typeof location !== 'undefined' && location.search.includes('debug=1'))
@@ -859,6 +875,7 @@ export default function World(props: Props) {
       // not read it before its initializer has run.
       isDead: () => isDead(),
       onStance: setStance,
+      wind: () => (windOn() ? weather.wind : null),
     });
     const { pos } = player;
     const vfx = createWorldVfx({ scene, quality: props.quality, camera });
@@ -1121,6 +1138,25 @@ export default function World(props: Props) {
       for (const o of gatherRemoteAvatarMeshes())
         if (blocksProjectile(o)) targets.push(o);
       const maxDistance = tool === 'sniper' ? 75 : 65;
+      // Ветер сносит снаряд: сначала узнаём, как далеко цель по прицелу, затем
+      // поворачиваем луч к точке, смещённой ветром на этой дистанции. Сервер
+      // проверяет попадание по отрезку до `target`, поэтому снос у всех один.
+      if (windOn() && WIND_DRIFT[tool]) {
+        const aimed = ray
+          .intersectObjects(targets, false)
+          .find(
+            (h) =>
+              h.distance < maxDistance &&
+              h.distance > 0.08 &&
+              blocksProjectile(h.object, h.face?.materialIndex),
+          );
+        const distance = aimed ? aimed.distance : tool === 'sniper' ? 65 : 35;
+        const drift = windDrift(tool, weather.wind, distance);
+        const aimPoint = ray.ray.at(distance, new T.Vector3());
+        aimPoint.x += drift.x;
+        aimPoint.z += drift.z;
+        ray.ray.direction.copy(aimPoint.sub(ray.ray.origin).normalize());
+      }
       const hit = ray
         .intersectObjects(targets, false)
         .find(
@@ -1388,6 +1424,7 @@ export default function World(props: Props) {
       camera.aspect = width / Math.max(height, 1);
       camera.updateProjectionMatrix();
       composer?.setSize(width, Math.max(height, 1));
+      weather.resize(Math.max(height, 1) * renderer.getPixelRatio(), camera.fov);
       fxaa.uniforms.resolution.value.set(1 / (width * renderer.getPixelRatio()), 1 / (Math.max(height, 1) * renderer.getPixelRatio()));
     };
     const ro = new ResizeObserver(resize);
@@ -1820,6 +1857,7 @@ export default function World(props: Props) {
     let positionRevision = latest.current.room.members.find((m) => m.id === latest.current.room.self)?.positionRevision ?? 0;
     let nextFrame = 0;
     let appliedGraphics = '';
+    let smoothExposure = renderer.toneMappingExposure;
     const animate = (now: number) => {
       raf = requestAnimationFrame(animate);
       const frameInterval = 1000 / latest.current.fpsLimit;
@@ -2171,6 +2209,29 @@ export default function World(props: Props) {
       }
       kit.clouds.position.x = Math.sin(now * 0.000015) * 2;
       kit.animate(now / 1000);
+      weather.update(
+        dt,
+        Date.now() + clockOffset.current,
+        camera,
+        latest.current.room.state,
+        !map.arena && latest.current.room.state.interior,
+      );
+      // Индикатор ветра у прицела: стрелка — куда сносит относительно взгляда,
+      // число — скорость. Пишем прямо в DOM: React-рендер каждый кадр не нужен.
+      const indicator = windIndicator.current;
+      if (indicator) {
+        const show = windOn() && !isDead() && !latest.current.blocked;
+        indicator.hidden = !show;
+        if (show) {
+          const wind = weather.wind;
+          const relative = windRelative(wind, player.cameraYaw);
+          indicator.style.setProperty('--wind-angle', `${relative.angle}rad`);
+          indicator.dataset.level = String(windLevel(wind.speed));
+          const label = indicator.lastElementChild as HTMLElement | null;
+          const text = `${wind.speed.toFixed(1)} м/с`;
+          if (label && label.textContent !== text) label.textContent = text;
+        }
+      }
       // Keyed on live remote avatars so the pack re-syncs (and releases removed actors) on add/remove.
       const custom = graphicsRef.current ?? (visuals.id === 'urban-realism' ? GRAPHICS_PRESETS.high : null);
       const graphicsKey = JSON.stringify([custom, visuals.id]);
@@ -2199,8 +2260,10 @@ export default function World(props: Props) {
       }
       const meteredExposure = visuals.update(dt, camera, latest.current.room.state, remotePlayers.remoteKey, currentPhase());
       remotePlayers.disposeRetired();
-      const desiredExposure = (meteredExposure ?? defaultExposure) * (custom?.exposure ?? 1);
-      renderer.toneMappingExposure = T.MathUtils.damp(renderer.toneMappingExposure, desiredExposure, 1.6, dt);
+      const desiredExposure = (meteredExposure ?? defaultExposure) * (custom?.exposure ?? 1) * weather.exposure;
+      // Молния — вспышка поверх сглаженной экспозиции: сглаживание растянуло бы её в зарево.
+      smoothExposure = T.MathUtils.damp(smoothExposure, desiredExposure, 1.6, dt);
+      renderer.toneMappingExposure = smoothExposure * weather.flash;
       optics.enabled = visuals.id === 'realistic-bodycam';
       optics.uniforms.time.value = now / 1000;
       fxaa.enabled = custom?.antialias ?? false;
@@ -2251,6 +2314,7 @@ export default function World(props: Props) {
       flashlight.dispose();
       localBeam.dispose();
       projectiles.dispose();
+      weather.dispose();
       vfx.dispose();
       trajectoryGeo.dispose();
       trajectoryMat.dispose();
@@ -2380,6 +2444,10 @@ export default function World(props: Props) {
       className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''}`}
     >
       <div ref={mount} className="world-canvas" data-visual-pack={packStatus === 'ready' ? resourcePack : 'default'} />
+      <div ref={windIndicator} className="wind-indicator" hidden aria-label="Ветер" title="Ветер: куда сносит пули и игрока">
+        <span className="wind-indicator-arrow" aria-hidden="true" />
+        <b />
+      </div>
       {packStatus === 'ready' && resourcePack === 'realistic-bodycam' && <div className="field-camera-mark" aria-hidden="true"><span>JNL / FIELD 01</span><span>● LIVE VIEW · {perspective === 'first' ? 'FPP' : 'TPP'}</span></div>}
       {packStatus === 'loading' && <output className="pack-status">Подготовка визуального пакета…</output>}
       {packStatus === 'error' && <div role="alert" className="pack-status">Пакет не загрузился. Игра продолжается с Default.</div>}

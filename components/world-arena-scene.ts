@@ -6,6 +6,7 @@ import { createAvatar, setAvatarStyle } from './world-avatar';
 import { createSurfaceLibrary } from './world-cinematic';
 import type { WorldKit } from './world-map-scene';
 import { mixValue, type DayMix, type TimeOfDay } from '@/lib/day-cycle';
+import { seasonColor } from '@/lib/season-colors';
 
 /** Те же значения, что стояли в прежних условиях по `s.time`, но по фазам. */
 const ARENA_SKY_TOP: Record<TimeOfDay, string> = { dawn: '#999dcc', day: '#79b8ed', sunset: '#707cc0', night: '#111832' };
@@ -164,7 +165,31 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     sunlight.position.set(cx - 30, mixValue(ARENA_SUN_HEIGHT, m), cz - 24);
     sunlight.shadow.needsUpdate = true;
   };
-  const update = (_s: RoomState, m: DayMix) => setDayMix(m);
+  // Времена года: карта нарисована в своём сезоне (`def.season`, по умолчанию
+  // лето), остальные сезоны перекрашивают её материалы от исходных цветов.
+  // Раньше арена сезон просто игнорировала, и переключатель работал только в хабе.
+  const groundColors = new Set([def.groundColor, def.outsideColor ?? '#6f7f63']);
+  let appliedSeason = '';
+  const applySeason = (season: string) => {
+    if (season === appliedSeason) return;
+    appliedSeason = season;
+    const native = def.season ?? 'summer';
+    for (const [color, m] of mats)
+      m.color.set(seasonColor(color, season, native, groundColors.has(color) ? 'ground' : 'surface'));
+    (def.water ?? []).forEach((w, i) => {
+      const m = waters[i]?.material as T.MeshStandardMaterial | undefined;
+      if (!m) return;
+      m.color.set(seasonColor(w.color ?? '#3f7f96', season, native, 'water'));
+      // Зимой вода на летней карте — лёд: матовый и без металлического блеска.
+      const frozen = season === 'winter' && native !== 'winter';
+      m.roughness = frozen ? 0.55 : 0.2;
+      m.metalness = frozen ? 0.1 : 0.4;
+    });
+  };
+  const update = (s: RoomState, m: DayMix) => {
+    applySeason(s.season);
+    setDayMix(m);
+  };
   const avatarFactory = (color: string) => {
     const avatar = createAvatar(color);
     avatar.name = 'player-avatar';

@@ -584,3 +584,77 @@
   border-radius: 3px;
   background: rgba(15, 23, 42, 0.7);
 }
+
+/*
+ * Индикатор ветра под прицелом (components/world.tsx). Стрелка показывает, куда
+ * ветер сносит пули относительно взгляда: вверх — попутный, вправо — сносит
+ * вправо. Цвет растёт вместе с силой ветра. Выше оптики снайперки: именно при
+ * дальнем выстреле снос важнее всего.
+ */
+.wind-indicator {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 34px);
+  transform: translateX(-50%);
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px 2px 4px;
+  border-radius: 999px;
+  background: #0b111c59;
+  color: #f2f6fb;
+  font: 600 10px/1.2 system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px #0008;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.78;
+  --wind-color: #cfe3f5;
+}
+.wind-indicator[hidden] {
+  display: none;
+}
+.wind-indicator[data-level='0'] {
+  opacity: 0.45;
+}
+.wind-indicator[data-level='2'] {
+  --wind-color: #ffe08a;
+}
+.wind-indicator[data-level='3'] {
+  --wind-color: #ffa65c;
+}
+.wind-indicator[data-level='4'] {
+  --wind-color: #ff6b5c;
+  opacity: 0.92;
+}
+.wind-indicator b {
+  font-weight: 600;
+  color: var(--wind-color);
+  font-variant-numeric: tabular-nums;
+}
+.wind-indicator-arrow {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  transform: rotate(var(--wind-angle, 0rad));
+}
+.wind-indicator-arrow::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  width: 2px;
+  height: 9px;
+  border-radius: 1px;
+  background: var(--wind-color);
+}
+.wind-indicator-arrow::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 6px solid var(--wind-color);
+}
