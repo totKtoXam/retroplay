@@ -40,6 +40,7 @@ import { createWorldVfx } from './world-vfx';
 import { createWorldProjectiles } from './world-projectiles';
 import { createWorldRemotePlayers } from './world-remote-players';
 import {
+  avatarMuzzle,
   createFlashlightBeam,
   createPlayerFlashlight,
 } from './world-flashlight';
@@ -327,6 +328,10 @@ export default function World(props: Props) {
     reset: () => void;
     orbit: (delta: number) => void;
     shadow: () => void;
+    /** Перестроить сцену под настройки комнаты (тема, стиль, сезон…). */
+    restyle: (state: RoomState) => void;
+    /** Свет, небо и экспозиция по ходу суток. */
+    setDayMix: (mix: DayMix) => void;
     capture: () => void;
     pause: () => void;
     closeInventory: (resume?: boolean) => void;
@@ -742,7 +747,7 @@ export default function World(props: Props) {
     const cameraObstacles: T.Object3D[] = [];
     // Отладочный доступ к сцене: в dev и по ?debug=1 — чтобы разбирать визуальные баги с натуры.
     if (typeof location !== 'undefined' && location.search.includes('debug=1'))
-      (window as unknown as { __world?: unknown }).__world = { scene, camera };
+      (window as unknown as { __world?: unknown }).__world = { scene, camera, renderer };
     scene.updateMatrixWorld(true);
     scene.traverse((o) => {
       if (blocksCamera(o)) {
@@ -752,8 +757,10 @@ export default function World(props: Props) {
     });
     scene.add(camera);
     const hands = createFirstPersonHands(camera);
-    // Свой фонарик висит на камере: светит туда, куда смотрит игрок.
-    const flashlight = createPlayerFlashlight(camera);
+    // Свой фонарик светит от дула туда, куда смотрит игрок (кадр ставит его ниже).
+    const flashlight = createPlayerFlashlight(scene);
+    const flashlightOrigin = new T.Vector3(),
+      flashlightDirection = new T.Vector3();
     let composer: EffectComposer | undefined,
       bloom: UnrealBloomPass | undefined;
     if (isCinematic || isBalanced) {
@@ -776,13 +783,28 @@ export default function World(props: Props) {
     composer?.addPass(fxaa);
     const optics = createFieldOptics();
     composer?.addPass(optics);
-    const defaultExposure = renderer.toneMappingExposure;
+    /**
+     * Экспозиция, которую задаёт сама сцена: кинематографичное небо меняет её
+     * по ходу суток. Цикл рендера плавно ведёт к ней экспозицию кадра. Раньше
+     * здесь был снимок на момент сборки сцены: раз в секунду сутки ставили
+     * новую экспозицию, а цикл рендера снова тянул её к устаревшей — яркость
+     * пульсировала, и свет солнца мигал.
+     */
+    let sceneExposure = renderer.toneMappingExposure;
+    /** Применить свет сцены, не дёргая экспозицию кадра: к новой цели её доведёт цикл рендера. */
+    const lightScene = (apply: () => void) => {
+      const shown = renderer.toneMappingExposure;
+      renderer.toneMappingExposure = sceneExposure;
+      apply();
+      sceneExposure = renderer.toneMappingExposure;
+      renderer.toneMappingExposure = shown;
+    };
     // Forward reference: `visuals.select` can call `restore` synchronously
     // (before the shot-target cache further below is defined), so route
     // through a reassignable hook instead of closing over `rebuildSceneryTargets` directly.
     let refreshSceneryTargets = () => {};
     const visuals = createVisualProvider({ scene, hands: hands.group, quality: props.quality, stations: kit.stations, renderer, graphics: () => graphicsRef.current,
-      restore: () => { kit.update(latest.current.room.state, currentMix()); renderer.toneMappingExposure = defaultExposure; refreshSceneryTargets(); },
+      restore: () => { lightScene(() => kit.update(latest.current.room.state, currentMix())); renderer.toneMappingExposure = sceneExposure; refreshSceneryTargets(); },
       status: setPackStatus,
     });
     // Resource packs dress the hub around its board stations; battle maps keep their own look.
@@ -800,6 +822,7 @@ export default function World(props: Props) {
     // аватаром (`avatar.visible` ниже) и не светит в камеру.
     const localBeam = createFlashlightBeam();
     avatar.add(localBeam.group);
+    const avatarGun = avatar.getObjectByName('gun');
     // Attach custom skins & bandana to local avatar
     const localSkinResult = attachCustomSkins(avatar);
     const localBandanaMat = localSkinResult.bandanaMat;
@@ -1359,6 +1382,15 @@ export default function World(props: Props) {
     };
     engine.current = {
       visuals,
+      restyle: (state) => {
+        lightScene(() => kit.update(state, dayMix(state, latest.current.now)));
+        visuals.invalidate();
+      },
+      setDayMix: (mix) => {
+        lightScene(() => kit.setDayMix(mix));
+        // Пакет ставит свой свет поверх базового, а сутки его только что сбросили.
+        visuals.relight();
+      },
       capture,
       player,
       closeInventory: (resume = true) => {
@@ -2169,7 +2201,18 @@ export default function World(props: Props) {
       }
       // Луч на своём аватаре идёт за взглядом: его видят остальные, значит и
       // направление должно совпадать с тем, куда игрок смотрит.
-      localBeam.set(flashlightOn && !isDead(), player.pitch);
+      const heldTool = GAME_TOOLS[latest.current.tool]?.id || 'pointer';
+      localBeam.set(flashlightOn && !isDead(), player.pitch, heldTool);
+      if (flashlightOn) {
+        // Свет — от дула того оружия, что видно на экране: в первом лице это
+        // оружие в руках, в третьем — оружие аватара.
+        if (mode === 'first') {
+          hands.group.updateWorldMatrix(true, false);
+          flashlightOrigin.copy(hands.muzzle(heldTool));
+        } else if (avatarGun) avatarMuzzle(avatarGun, heldTool, flashlightOrigin);
+        else avatar.localToWorld(flashlightOrigin.set(0.2, 1.5, -0.12));
+        flashlight.aim(flashlightOrigin, camera.getWorldDirection(flashlightDirection));
+      }
       remotePlayers.update(now, dt);
       projectiles.update(now, player.stance);
       vfx.update(now, dt);
@@ -2260,7 +2303,7 @@ export default function World(props: Props) {
       }
       const meteredExposure = visuals.update(dt, camera, latest.current.room.state, remotePlayers.remoteKey, currentPhase());
       remotePlayers.disposeRetired();
-      const desiredExposure = (meteredExposure ?? defaultExposure) * (custom?.exposure ?? 1) * weather.exposure;
+      const desiredExposure = (meteredExposure ?? sceneExposure) * (custom?.exposure ?? 1) * weather.exposure;
       // Молния — вспышка поверх сглаженной экспозиции: сглаживание растянуло бы её в зарево.
       smoothExposure = T.MathUtils.damp(smoothExposure, desiredExposure, 1.6, dt);
       renderer.toneMappingExposure = smoothExposure * weather.flash;
@@ -2328,9 +2371,7 @@ export default function World(props: Props) {
     };
   }, [props.quality, openTabletInWorld, closeTabletInWorld, mapId]);
   useEffect(() => {
-    const state = latest.current.room.state;
-    engine.current?.kit.update(state, dayMix(state, latest.current.now));
-    engine.current?.visuals.invalidate();
+    engine.current?.restyle(latest.current.room.state);
     engine.current?.shadow();
     engine.current?.refreshTargets();
   }, [
@@ -2351,7 +2392,7 @@ export default function World(props: Props) {
     const mix = dayMix(props.room.state, props.now);
     if (appliedMix.current && sameMix(mix, appliedMix.current)) return;
     appliedMix.current = mix;
-    engine.current?.kit.setDayMix(mix);
+    engine.current?.setDayMix(mix);
   }, [props.now, props.room.state]);
   useEffect(() => {
     engine.current?.kit.setNotes(latest.current.room.state);
