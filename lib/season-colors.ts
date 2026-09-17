@@ -40,6 +40,9 @@ function toHsl([r, g, b]: Rgb): Hsl {
   return [h * 360, s, l];
 }
 
+/** Тон 0…360, насыщенность и светлота 0…1 — для классификации цветов вне этого модуля. */
+export const hexToHsl = (hex: string): Hsl => toHsl(parse(hex));
+
 function fromHsl([h, s, l]: Hsl): Rgb {
   const hue = (((h % 360) + 360) % 360) / 360;
   if (s === 0) return [l, l, l];
