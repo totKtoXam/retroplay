@@ -1,6 +1,7 @@
 import * as T from 'three';
 import type { RoomState } from '@/lib/model';
 import { OPEN_VISIBILITY, weatherLook, windFromLook, type WeatherLook, type Wind } from '@/lib/weather';
+import { roofAt, type RoofMap } from '@/lib/weather-shelter';
 
 /**
  * Погода в 3D-мире: дождь, снег, метель, град и пыль вокруг камеры, туман,
@@ -12,7 +13,10 @@ import { OPEN_VISIBILITY, weatherLook, windFromLook, type WeatherLook, type Wind
  * пересчитывает их только тогда, когда их переписал кто-то другой (смена фазы
  * суток, пакет). Иначе множители погоды накладывались бы сами на себя каждый кадр.
  *
- * Осадки — буферы частиц в коробке вокруг камеры. Всё движение считает шейдер:
+ * Осадки — буферы частиц в коробке вокруг камеры. Крыши берутся из карты
+ * укрытий (lib/weather-shelter.ts): она лежит текстурой высот, и шейдер прячет
+ * каждую частицу ниже перекрытия над ней — дождь не идёт внутри домов, а из
+ * дома виден за окном. Всё движение считает шейдер:
  * CPU лишь копит смещение от ветра и падения, поэтому даже буран в десятки тысяч
  * снежинок не нагружает кадр. Плотность уровня — доля частиц, которую шейдер
  * оставляет видимой.
@@ -37,6 +41,8 @@ uniform float uPointScale;
 uniform float uLayer;
 uniform float uGround;
 uniform float uLayerHeight;
+uniform sampler2D uRoof;
+uniform vec4 uRoofRect;
 attribute float aTail;
 attribute float aSeed;
 varying float vAlpha;
@@ -53,7 +59,11 @@ void main() {
   }
   world -= uStreak * aTail;
   float edge = 1.0 - smoothstep(uBox.x * 0.32, uBox.x * 0.5, length(rel.xz));
-  vAlpha = edge * step(aSeed, uDensity);
+  // Перекрытие над частицей: ниже его низа частица под крышей и не видна.
+  vec2 roofUv = (world.xz - uRoofRect.xy) / uRoofRect.zw;
+  float inside = step(0.0, roofUv.x) * step(roofUv.x, 1.0) * step(0.0, roofUv.y) * step(roofUv.y, 1.0);
+  float roof = mix(-1000.0, texture2D(uRoof, clamp(roofUv, 0.0, 1.0)).r, inside);
+  vAlpha = edge * step(aSeed, uDensity) * step(roof, world.y);
   vec4 mv = viewMatrix * vec4(world, 1.0);
   gl_Position = projectionMatrix * mv;
   gl_PointSize = clamp(uSize * (0.6 + 0.8 * fract(aSeed * 13.7)) * uPointScale / max(0.1, -mv.z), 1.5, uMaxSize);
@@ -120,8 +130,17 @@ type LayerOptions = {
   ground?: boolean;
 };
 
+/** Карта крыш текстурой: одна клетка — один тексель с высотой перекрытия. */
+function roofTexture(roof: RoofMap) {
+  const texture = new T.DataTexture(roof.heights, roof.cols, roof.rows, T.RedFormat, T.FloatType);
+  texture.magFilter = T.NearestFilter;
+  texture.minFilter = T.NearestFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 /** Один слой осадков: буфер частиц, его смещение и материал. */
-function createLayer(group: T.Group, o: LayerOptions) {
+function createLayer(group: T.Group, o: LayerOptions, roof: T.DataTexture, rect: T.Vector4) {
   const uniforms = {
     uOffset: { value: new T.Vector3() },
     uCenter: { value: new T.Vector3() },
@@ -136,6 +155,8 @@ function createLayer(group: T.Group, o: LayerOptions) {
     uLayer: { value: o.ground ? 1 : 0 },
     uGround: { value: 0 },
     uLayerHeight: { value: 1 },
+    uRoof: { value: roof },
+    uRoofRect: { value: rect },
     uColor: { value: new T.Color(o.color) },
     uOpacity: { value: o.opacity },
     uSoft: { value: o.soft ?? 1 },
@@ -183,12 +204,12 @@ const damp = (from: number, to: number, lambda: number, dt: number) => to + (fro
 export function createWorldWeather({
   scene,
   sunlight,
-  sheltered,
+  roof,
 }: {
   scene: T.Scene;
   sunlight: T.DirectionalLight;
-  /** Над камерой крыша: осадки внутри не идут. */
-  sheltered: (at: T.Vector3) => boolean;
+  /** Где над головой перекрытия (lib/weather-shelter.ts). */
+  roof: RoofMap;
 }) {
   const group = new T.Group();
   group.name = 'weather';
@@ -197,18 +218,14 @@ export function createWorldWeather({
   group.userData.cameraCollision = 'ignore';
   scene.add(group);
 
-  const rain = createLayer(group, { count: 16000, lines: true, color: '#b9c6d2', opacity: 0.34 });
-  const snow = createLayer(group, { count: 30000, color: '#f4f8fc', opacity: 0.9, size: 0.055, sway: 1 });
-  const drift = createLayer(group, {
-    count: 26000,
-    color: '#f2f6fa',
-    opacity: 0.75,
-    size: 0.04,
-    sway: 1,
-    ground: true,
-  });
-  const hail = createLayer(group, { count: 5000, color: '#e6eef3', opacity: 0.95, size: 0.03, maxSize: 40, soft: 0 });
-  const dust = createLayer(group, { count: 22000, color: '#b99b6c', opacity: 0.55, size: 0.035, sway: 1.4 });
+  const roofMap = roofTexture(roof);
+  const roofRect = new T.Vector4(roof.minX, roof.minZ, roof.cols * roof.cell, roof.rows * roof.cell);
+  const layer = (o: LayerOptions) => createLayer(group, o, roofMap, roofRect);
+  const rain = layer({ count: 16000, lines: true, color: '#b9c6d2', opacity: 0.34 });
+  const snow = layer({ count: 30000, color: '#f4f8fc', opacity: 0.9, size: 0.055, sway: 1 });
+  const drift = layer({ count: 26000, color: '#f2f6fa', opacity: 0.75, size: 0.04, sway: 1, ground: true });
+  const hail = layer({ count: 5000, color: '#e6eef3', opacity: 0.95, size: 0.03, maxSize: 40, soft: 0 });
+  const dust = layer({ count: 22000, color: '#b99b6c', opacity: 0.55, size: 0.035, sway: 1.4 });
   const layers = [rain, snow, drift, hail, dust];
 
   const domeMaterial = new T.MeshBasicMaterial({
@@ -320,9 +337,16 @@ export function createWorldWeather({
       wind = windFromLook(l, now);
       time += dt;
 
-      shelter = damp(shelter, interior || sheltered(camera.position) ? 1 : 0, 5, dt);
-      const open = 1 - shelter;
-      const brightness = applyAtmosphere(l);
+      // Осадки режет по крышам шейдер; целиком погода пропадает только в интерьере хаба.
+      const open = interior ? 0 : 1;
+      // Под крышей туман и пыль реже, чем на улице: воздух в доме не метёт.
+      const indoors = interior || camera.position.y < roofAt(roof, camera.position.x, camera.position.z);
+      shelter = damp(shelter, indoors ? 1 : 0, 3, dt);
+      const brightness = applyAtmosphere(
+        shelter > 0.001
+          ? { ...l, visibility: 1 / (1 / l.visibility + (1 / OPEN_VISIBILITY - 1 / l.visibility) * shelter * 0.7) }
+          : l,
+      );
       const center = camera.position;
 
       // Дождь: скорость падения + ветер, капля вытянута вдоль своей скорости.
@@ -362,7 +386,7 @@ export function createWorldWeather({
         if (flicker <= 0) flash = Math.max(flash, 0.7);
       }
       // Молнии — пуассоновский поток с частотой по шкале LAL.
-      if (l.lightningPerMinute > 0.05 && open > 0.3) {
+      if (l.lightningPerMinute > 0.05 && open > 0) {
         nextFlash -= dt;
         if (nextFlash <= 0) {
           flash = 1;
@@ -379,7 +403,8 @@ export function createWorldWeather({
     },
     dispose() {
       group.removeFromParent();
-      layers.forEach((layer) => layer.dispose());
+      layers.forEach((item) => item.dispose());
+      roofMap.dispose();
       dome.geometry.dispose();
       domeMaterial.dispose();
       // Вернуть туману и солнцу то, что было до погоды.

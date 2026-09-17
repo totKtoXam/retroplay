@@ -219,3 +219,44 @@ test('ручные уровни: частичный патч, возврат к 
     assert.throws(() => run(s1, { type: 'room.settings', patch: { weatherTuning: bad } }), JSON.stringify(bad));
   assert.throws(() => run(s1, { type: 'room.settings', patch: { weatherTuning: { fog: 1 } } }, 'guest'));
 });
+
+test('крыши: под перекрытием осадков и сноса нет, на улице есть', async () => {
+  const { buildArena, perimeterWalls } = await import('../lib/maps/types.ts');
+  const { getMap } = await import('../lib/maps/index.ts');
+  const { buildRoofMap, openShare, OPEN_SKY, roofAt, underRoof } = await import('../lib/weather-shelter.ts');
+  const bounds = { minX: -10, maxX: 10, minZ: -10, maxZ: 10 };
+  const map = buildArena({
+    id: 'roof-test',
+    title: 'roof-test',
+    bounds,
+    groundColor: '#000',
+    boxes: [
+      ...perimeterWalls(bounds),
+      // Дом x 0..6, z 0..6: стена от земли и крыша-плита на высоте 3 м.
+      { x: 3, y: 1.5, z: 0.1, w: 6, h: 3, d: 0.2, color: '#000', solid: true },
+      { x: 3, y: 3.1, z: 3, w: 6, h: 0.2, d: 6, color: '#000', floor: true },
+      // Навес x -8..-6 на 2 м и ящик на земле рядом.
+      { x: -7, y: 2.1, z: -7, w: 2, h: 0.2, d: 2, color: '#000', solid: true },
+      { x: -3, y: 0.5, z: -3, w: 1, h: 1, d: 1, color: '#000', solid: true },
+    ],
+    spawns: { red: [{ x: 0, z: 8 }], blue: [{ x: 0, z: -8 }] },
+  });
+  const roof = buildRoofMap(map);
+  assert.ok(Math.abs(roofAt(roof, 3, 3) - 3) < 1e-6, 'в доме перекрытие на 3 м');
+  assert.ok(underRoof(roof, 3, 1, 3), 'дождь внутри дома скрыт');
+  assert.ok(!underRoof(roof, 3, 3.5, 3), 'а на крыше идёт');
+  assert.equal(roofAt(roof, -7, -7), 2, 'навес');
+  assert.equal(roofAt(roof, -3, -3), OPEN_SKY, 'ящик на земле не крыша');
+  assert.equal(roofAt(roof, -5, 5), OPEN_SKY, 'двор открыт');
+  // Выстрел из дома наружу сносит только на уличной половине пути.
+  const share = openShare(roof, [3, 1.5, 3], [3, 1.5, -3]);
+  assert.ok(share > 0.4 && share < 0.6, `доля открытого пути ${share}`);
+  assert.equal(openShare(roof, [-5, 1.5, 5], [-5, 1.5, -5]), 1);
+  // Настоящие карты: комната особняка под крышей, хаб — площадь открыта, корпус под крышей.
+  const mansion = buildRoofMap(getMap('mansion'));
+  assert.ok(underRoof(mansion, -22.4, 1, -7.6));
+  assert.ok(!underRoof(mansion, 0, 1, 0));
+  const hub = buildRoofMap(getMap('hub'));
+  assert.ok(underRoof(hub, 0, 1, -18));
+  assert.ok(!underRoof(hub, 0, 1, 4));
+});
