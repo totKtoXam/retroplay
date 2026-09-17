@@ -260,3 +260,39 @@ test('крыши: под перекрытием осадков и сноса н�
   assert.ok(underRoof(hub, 0, 1, -18));
   assert.ok(!underRoof(hub, 0, 1, 4));
 });
+
+test('«Туман: нет» убирает и дымку от осадков, «авто» её оставляет', () => {
+  for (const weather of ['blizzard', 'storm', 'snow', 'dust', 'fog']) {
+    assert.equal(weatherLook({ weather, weatherTuning: { fog: 0 } }, T0).visibility, OPEN_VISIBILITY, weather);
+  }
+  assert.ok(weatherLook({ weather: 'blizzard' }, T0).visibility < 60, 'без ручного тумана метель урезает видимость');
+  // Ручной уровень задаёт видимость ровно по шкале тумана, даже в пыльную бурю.
+  assert.equal(weatherLook({ weather: 'dust', weatherTuning: { fog: 1 } }, T0).visibility, SCALES.fogVisibility[1]);
+});
+
+test('частота смены погоды «авто»: слот, переход и валидация', async () => {
+  const { autoWeather: pick, nextWeatherChangeIn, weatherTiming, WEATHER_PERIODS } = await import('../lib/weather.ts');
+  assert.deepEqual(weatherTiming({}), { slot: WEATHER_SLOT_MS, transition: WEATHER_TRANSITION_MS }, 'по умолчанию 4 минуты');
+  assert.deepEqual(weatherTiming({ weatherPeriod: 1 }), { slot: 60_000, transition: 15_000 }, 'переход — четверть короткого слота');
+  assert.deepEqual(weatherTiming({ weatherPeriod: 60 }), { slot: 3_600_000, transition: WEATHER_TRANSITION_MS });
+  assert.equal(weatherTiming({ weatherPeriod: 7 }).slot, WEATHER_SLOT_MS, 'чужое значение — по умолчанию');
+  // Погода держится ровно период: в середине часового слота та же, что в его начале.
+  const hour = { weather: 'auto', season: 'autumn', weatherPeriod: 60 };
+  const start = Math.ceil(T0 / 3_600_000) * 3_600_000;
+  const at = (t) => weatherMix(hour, t);
+  assert.equal(at(start + 60_000).to, at(start + 59 * 60_000).to);
+  assert.equal(at(start + 60_000).to, pick('autumn', start / 3_600_000));
+  assert.equal(nextWeatherChangeIn(hour, start + 10 * 60_000), 50 * 60_000);
+  // Каждую минуту погода может смениться, и за час их хотя бы несколько разных.
+  const minute = { weather: 'auto', season: 'autumn', weatherPeriod: 1 };
+  const kinds = new Set();
+  for (let m = 0; m < 60; m++) kinds.add(weatherMix(minute, start + m * 60_000 + 30_000).to);
+  assert.ok(kinds.size >= 3);
+
+  const s0 = initialState('Погода');
+  for (const minutes of WEATHER_PERIODS)
+    assert.equal(run(s0, { type: 'room.settings', patch: { weatherPeriod: minutes } }).weatherPeriod, minutes);
+  for (const bad of [0, 3, -1, '4', null])
+    assert.throws(() => run(s0, { type: 'room.settings', patch: { weatherPeriod: bad } }), String(bad));
+  assert.throws(() => run(s0, { type: 'room.settings', patch: { weatherPeriod: 8 } }, 'guest'));
+});

@@ -4134,17 +4134,51 @@ h1 > span {
   font-size: 10px;
 }
 .monitor-table-wrap {
-  max-height: 320px;
-  overflow-y: auto;
+  --monitor-cols: 1fr 64px 56px;
+}
+.monitor-table-wrap.is-battle {
+  --monitor-cols: 1fr 64px 30px 30px 30px 50px 56px;
+}
+/* Имя и роль в одну строку, кнопки поменьше: так строка заметно ниже и табло
+   на 20+ игроков помещается в экран без прокрутки. */
+.monitor-table-row .user-name-box {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.monitor-table-row .name-text {
+  flex-shrink: 0;
+  max-width: 65%;
+}
+.monitor-table-row .role-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.monitor-table-row .side-swap,
+.monitor-table-row .voice-mute {
+  width: 20px;
+  height: 20px;
+}
+.monitor-table-row .mini-avatar {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+}
+/* Без прокрутки: список игроков виден целиком, строки для этого компактные. */
+.monitor-table-wrap {
+  overflow: hidden;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 .monitor-table-header {
   display: grid;
-  grid-template-columns: 1fr 64px 44px 30px 30px 30px 50px 56px;
+  grid-template-columns: var(--monitor-cols);
+  column-gap: 6px;
   align-items: center;
-  padding: 7px 10px;
+  padding: 5px 10px;
   font-size: 10px;
   font-weight: 700;
   color: #64748b;
@@ -4158,9 +4192,10 @@ h1 > span {
 }
 .monitor-table-row {
   display: grid;
-  grid-template-columns: 1fr 64px 44px 30px 30px 30px 50px 56px;
+  grid-template-columns: var(--monitor-cols);
+  column-gap: 6px;
   align-items: center;
-  padding: 6px 10px;
+  padding: 3px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   font-size: 12px;
   transition: background 0.12s ease;
@@ -4172,9 +4207,10 @@ h1 > span {
    раундов и сумма K/D/A по команде в тех же колонках, что у игроков. */
 .monitor-team-header {
   display: grid;
-  grid-template-columns: 1fr 64px 44px 30px 30px 30px 50px 56px;
+  grid-template-columns: var(--monitor-cols);
+  column-gap: 6px;
   align-items: center;
-  padding: 6px 10px 6px 7px;
+  padding: 4px 10px 4px 7px;
   border-left: 3px solid #64748b;
   background: rgba(255, 255, 255, 0.05);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -4260,13 +4296,6 @@ h1 > span {
   font-variant-numeric: tabular-nums;
   text-align: center;
   font-size: 12px;
-}
-.col-hp {
-  font-weight: 700;
-  color: #e2e8f0;
-}
-.col-hp.is-dead {
-  color: #ef4444;
 }
 .col-k {
   color: #7fe0b8;
@@ -6616,6 +6645,22 @@ body.item-wheel-open [data-slot='dialog-overlay'] {
   color: var(--jin-text-muted);
   font-size: 11px;
   cursor: pointer;
+}
+/* Частота смены погоды стоит сразу под выбором погоды, отдельно от уровней. */
+.weather-period {
+  margin-top: 2px;
+}
+.tablet-weather-period {
+  max-width: 420px;
+  margin-top: 12px;
+  grid-template-columns: 120px minmax(0, 1fr);
+  color: #e2e8f0;
+  font-size: 12.5px;
+}
+.tablet-weather-period select {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(30, 41, 59, 0.7);
+  color: #e2e8f0;
 }
 /* В планшете та же настройка в две колонки: места там больше. */
 .tablet-weather-tuning {

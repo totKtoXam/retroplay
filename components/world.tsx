@@ -54,7 +54,8 @@ import {
 import { createWorldPlayer } from './world-player';
 import { createWorldWeather } from './world-weather';
 import { buildRoofMap, openShare, underRoof } from '@/lib/weather-shelter';
-import { beaufort, windDrift, windLevel, windRelative, WIND_DRIFT } from '@/lib/weather';
+import { beaufort, weatherLook, windDrift, windLevel, windRelative, WIND_DRIFT } from '@/lib/weather';
+import { footstepSurface } from '@/lib/footsteps';
 import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
@@ -919,7 +920,19 @@ export default function World(props: Props) {
       skipNextMove = false;
     // В «Предателе» фонарик — единственный предмет в руках, и на тёмном корабле он включён сразу.
     if (modeOf(latest.current.room.state) === 'impostor') flashlightOn = flashlight.toggle();
-    const footsteps = createFootsteps();
+    const footsteps = createFootsteps({
+      surfaceAt: (x, y, z) => {
+        const state = latest.current.room.state;
+        const sheltered = indoor || underRoof(roof, x, y + 1, z);
+        const look = sheltered ? null : weatherLook(state, Date.now() + clockOffset.current);
+        return footstepSurface(
+          { map, season: state.season, sheltered, rain: look?.rain ?? 0, snow: look?.snow ?? 0 },
+          x,
+          y,
+          z,
+        );
+      },
+    });
     let grenadeAiming = false;
     let continuousShots = 0;
     const keys = new Set<string>(),
@@ -2301,41 +2314,47 @@ export default function World(props: Props) {
         flashlight.aim(flashlightOrigin, camera.getWorldDirection(flashlightDirection));
       }
       remotePlayers.update(now, dt);
-      // Шаги слышно в «Предателе»: там на слух узнают, что кто-то идёт за поворотом. Призраки
-      // парят беззвучно — и сам призрак, и чужие (их видят только другие призраки).
+      // Шаги во всех режимах: в бою и в «Предателе» на слух узнают, что кто-то идёт за
+      // поворотом. Призраки «Предателя» парят беззвучно — и сам призрак, и чужие (их видят
+      // только другие призраки); павшие в бою тоже не шагают. В хабе шаги тише.
       {
-        const impostorView = latest.current.room.impostor;
-        if (modeOf(latest.current.room.state) === 'impostor') {
-          const partyGhost = (id: string) => {
-            if (!inGame(impostorView)) return false;
-            const p = impostorView.players.find((x) => x.id === id);
-            return !p || !p.alive;
-          };
-          const others = [];
-          for (const m of latest.current.room.members) {
-            if (m.id === latest.current.room.self || partyGhost(m.id)) continue;
-            const avatarOf = remoteAvatars.get(m.id);
-            if (!avatarOf) continue;
-            const at = avatarOf.position;
-            others.push({
-              id: m.id,
-              x: at.x,
-              z: at.z,
-              speed: m.pose.moving ? (m.pose.speed ?? 3.4) : 0,
-              occluded: !!rayCastWorldObstacle([pos.x, pos.y + 1.5, pos.z], [at.x, at.y + 1.2, at.z], map.colliders)?.hit,
-            });
-          }
-          footsteps.update(
-            {
-              x: pos.x,
-              z: pos.z,
-              yaw: player.cameraYaw,
-              speed: moving ? speed : 0,
-              grounded: Math.abs(pos.y - groundY) < 0.15 && !amGhost(impostorView),
-            },
-            others,
-          );
+        const room = latest.current.room;
+        const impostorView = room.impostor;
+        const partyGhost = (id: string) => {
+          if (!inGame(impostorView)) return false;
+          const p = impostorView.players.find((x) => x.id === id);
+          return !p || !p.alive;
+        };
+        const others = [];
+        for (const m of room.members) {
+          if (m.id === room.self || m.hp === 0 || partyGhost(m.id)) continue;
+          const avatarOf = remoteAvatars.get(m.id);
+          if (!avatarOf) continue;
+          const at = avatarOf.position;
+          // Луч до стены считаем только для слышимых: дальние шаги всё равно отбрасываются.
+          const near = Math.hypot(at.x - pos.x, at.z - pos.z) <= 16;
+          others.push({
+            id: m.id,
+            x: at.x,
+            y: at.y,
+            z: at.z,
+            speed: m.pose.moving ? (m.pose.speed ?? 3.4) : 0,
+            occluded:
+              near && !!rayCastWorldObstacle([pos.x, pos.y + 1.5, pos.z], [at.x, at.y + 1.2, at.z], map.colliders)?.hit,
+          });
         }
+        footsteps.update(
+          {
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+            yaw: player.cameraYaw,
+            speed: moving ? speed : 0,
+            grounded: Math.abs(pos.y - groundY) < 0.15 && !amGhost(impostorView) && !isDead(),
+          },
+          others,
+          modeOf(room.state) === 'retro' ? 0.5 : 1,
+        );
       }
       projectiles.update(now, player.stance);
       vfx.update(now, dt);

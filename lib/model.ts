@@ -27,6 +27,7 @@ import {
 import {
   tuningLevel,
   WEATHER_PARAMS,
+  WEATHER_PERIODS,
   WEATHER_SETTINGS,
   type WeatherTuning,
 } from './weather.ts';
@@ -372,6 +373,8 @@ export type RoomState = {
    * берётся из погоды.
    */
   weatherTuning?: WeatherTuning;
+  /** Как часто меняется погода «авто», минуты (lib/weather.ts). Нет поля — 4 минуты. */
+  weatherPeriod?: number;
   /**
    * Ветер сносит игроков и пули, а у прицела виден его индикатор. Выключает
    * ведущий: это правило боя для всех, а не личная настройка. Нет поля — включено.
@@ -762,6 +765,11 @@ export function applyOperation(
     if ('weather' in p) s.weather = oneOf(p.weather, [...WEATHER_SETTINGS]);
     // Уровни погоды приходят частичным патчем: null у параметра возвращает его
     // к погоде, null целиком сбрасывает все ручные уровни.
+    if ('weatherPeriod' in p) {
+      if (!WEATHER_PERIODS.includes(p.weatherPeriod as (typeof WEATHER_PERIODS)[number]))
+        throw Error('Недопустимая частота смены погоды');
+      s.weatherPeriod = p.weatherPeriod as number;
+    }
     if ('weatherTuning' in p) {
       const patch = p.weatherTuning;
       if (patch === null) delete s.weatherTuning;
