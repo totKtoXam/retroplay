@@ -157,6 +157,10 @@ test('kills: only an impostor, in reach, not through walls, after the cooldown',
   assert.deepEqual(act(hub, killer, { action: 'kill', target: victim }, later), { ok: true });
   assert.equal(hub.impostor.players[victim].alive, false);
   assert.equal(hub.impostor.bodies.length, 1);
+  // Кто убил — знает только сама жертва; убийца и остальные этого поля не получают.
+  assert.equal(impostorView(hub, victim).killedBy, killer);
+  assert.equal(impostorView(hub, other).killedBy, null);
+  assert.equal(impostorView(hub, killer).killedBy, null);
   assert.equal(act(hub, killer, { action: 'kill', target: other }, later + 100).ok, false, 'cooldown again');
 });
 

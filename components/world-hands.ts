@@ -550,6 +550,36 @@ export function createFirstPersonHands(camera: T.Camera) {
       o.renderOrder = 1001;
     }
   });
+  // Фонарик (режим «Предатель»): корпус, головка с отражателем и линза. Луч и свет рисует
+  // world-flashlight.ts из точки линзы — `muzzle('flashlight')`.
+  const torch = new T.Group();
+  group.add(torch);
+  const torchBody = new T.Mesh(new T.CylinderGeometry(0.019, 0.022, 0.2, 16), grip);
+  torchBody.rotation.x = Math.PI / 2;
+  torch.add(torchBody);
+  const torchHead = new T.Mesh(new T.CylinderGeometry(0.036, 0.024, 0.06, 20), metal);
+  torchHead.rotation.x = Math.PI / 2;
+  torchHead.position.z = -0.12;
+  torch.add(torchHead);
+  const torchLens = new T.Mesh(
+    new T.CircleGeometry(0.031, 20),
+    new T.MeshBasicMaterial({ color: '#fff6d8', depthTest: false }),
+  );
+  torchLens.position.z = -0.151;
+  torchLens.rotation.y = Math.PI;
+  torch.add(torchLens);
+  const torchButton = new T.Mesh(new T.BoxGeometry(0.012, 0.008, 0.024), polymer);
+  torchButton.position.set(0, 0.022, -0.01);
+  torch.add(torchButton);
+  torch.position.set(0.02, -0.03, -0.2);
+  torch.rotation.x = 0.06;
+  torch.traverse((o) => {
+    if (o instanceof T.Mesh) {
+      o.renderOrder = 1001;
+      o.raycast = () => {};
+    }
+  });
+
   const muzzleScratch = new T.Vector3();
   return {
     group,
@@ -559,6 +589,10 @@ export function createFirstPersonHands(camera: T.Camera) {
      * — в воздухе перед дулом.
      */
     muzzle(tool: string) {
+      if (tool === 'flashlight') {
+        torchLens.updateWorldMatrix(true, false);
+        return torchLens.getWorldPosition(new T.Vector3());
+      }
       const spec = WEAPON_SIGHTS[tool];
       muzzleScratch.set(
         spec ? spec.muzzle[0] : 0,
@@ -605,6 +639,7 @@ export function createFirstPersonHands(camera: T.Camera) {
       likeBlaster.visible = tool === 'like';
       tablet.visible = tool === 'pointer';
       stickyPad.visible = tool === 'sticky';
+      torch.visible = tool === 'flashlight';
       if (lastTool !== tool) {
         lastTool = tool;
         equip = 1;
@@ -681,7 +716,8 @@ export function createFirstPersonHands(camera: T.Camera) {
       }
 
       grenade.visible = tool === 'grenade';
-      grenadeHands.visible = grenade.visible;
+      // Те же кисти держат и фонарик.
+      grenadeHands.visible = grenade.visible || torch.visible;
       if (grenade.visible) setGrenadeStyle(grenade, variant, true);
       if (tool === 'sticky') {
         (padTopNote.material as T.MeshBasicMaterial).color.set(
@@ -715,7 +751,7 @@ export function createFirstPersonHands(camera: T.Camera) {
        * прицельных приспособлений держатся по-прежнему.
        */
       const sight = WEAPON_SIGHTS[tool];
-      const isItem = tool === 'pointer' || tool === 'sticky';
+      const isItem = tool === 'pointer' || tool === 'sticky' || tool === 'flashlight';
       const hipX = isItem ? 0.08 : HIP_HOLD.x;
       const aimX = sight ? 0 : hipX;
       const aimY = sight ? -sight.y : -0.115;

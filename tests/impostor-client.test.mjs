@@ -48,6 +48,7 @@ const view = (over = {}) => ({
   sabotage: null,
   sabotageReadyAt: 0,
   vent: null,
+  killedBy: null,
   ...over,
 });
 

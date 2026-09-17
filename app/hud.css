@@ -527,6 +527,11 @@
     width: 116px !important;
     height: 116px !important;
   }
+  /* Крупный план «Предателя» на узком экране всё же меньше обычного крупного. */
+  .world-container .hud-minimap.is-large:not(.is-expanded) canvas {
+    width: 170px !important;
+    height: 170px !important;
+  }
 }
 @media (max-width: 680px) {
   .world-container .hud-minimap {

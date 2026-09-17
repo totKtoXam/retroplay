@@ -149,6 +149,7 @@ export const GAME_TOOLS = [
   { id: 'grenade', label: 'Пиньято', key: '3' },
   { id: 'sniper', label: 'Снайперка', key: '4' },
   { id: 'like', label: 'Лайкомёт', key: '7' },
+  { id: 'flashlight', label: 'Фонарик', key: '1' },
 ];
 export const TOOL_HINTS: Record<string, string> = {
   paint: 'ЛКМ — выстрел краской · ПКМ — точный прицел',
@@ -164,6 +165,7 @@ export const TOOL_HINTS: Record<string, string> = {
   action: 'ЛКМ по доске — создать задачу',
   pointer: 'ЛКМ или E — заглянуть в планшет и открыть доску',
   like: 'ЛКМ — выстрел лайком · попадание в стикер на доске добавляет +1 голос',
+  flashlight: 'ЛКМ или F — включить или выключить фонарик',
   text: 'Текстовый блок на доске',
   image: 'Изображение или ссылка',
 };

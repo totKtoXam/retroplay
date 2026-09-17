@@ -28,7 +28,7 @@ const TABS: { id: Tab; title: string }[] = [
 // ---------------------------------------------------------------- рисунки
 
 /** Член экипажа: скафандр с визором и ранцем. */
-function Crewmate({ color, knife = false, ghost = false, size = 72 }: { color: string; knife?: boolean; ghost?: boolean; size?: number }) {
+export function Crewmate({ color, knife = false, ghost = false, size = 72 }: { color: string; knife?: boolean; ghost?: boolean; size?: number }) {
   return (
     <svg viewBox="0 0 64 72" width={size} height={size * (72 / 64)} aria-hidden="true" opacity={ghost ? 0.45 : 1}>
       <rect x="8" y="24" width="10" height="26" rx="4" fill={color} stroke="#0b0f18" strokeWidth="2.5" />

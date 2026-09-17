@@ -60,7 +60,8 @@ import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { slotsFor, slotForDigit, cycleSlot } from '@/lib/loadout';
 import { modeOf } from '@/lib/maps/catalog';
-import { amGhost, impostorFrozen, inVentNow, minimapShows, visionRadius } from '@/lib/impostor-client';
+import { amGhost, impostorFrozen, inGame, inVentNow, minimapShows, visionRadius } from '@/lib/impostor-client';
+import { createFootsteps } from './world-footsteps';
 import { rayCastWorldObstacle } from '@/lib/world-collision';
 import { CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import { WeaponPrediction } from '@/lib/weapon-prediction';
@@ -95,6 +96,7 @@ import {
   StickyNote,
   X,
   Heart,
+  Flashlight,
   Bell,
 } from 'lucide-react';
 
@@ -246,6 +248,7 @@ function getSlotIcon(slotIndex: number) {
   if (slotIndex === 2) return StickyNote;
   if (slotIndex === 9) return Tablet;
   if (slotIndex === 12) return Heart;
+  if (slotIndex === 13) return Flashlight;
   return Crosshair;
 }
 
@@ -914,6 +917,9 @@ export default function World(props: Props) {
       dragLook = false,
       // Первое движение после захвата мыши браузер отдаёт скачком.
       skipNextMove = false;
+    // В «Предателе» фонарик — единственный предмет в руках, и на тёмном корабле он включён сразу.
+    if (modeOf(latest.current.room.state) === 'impostor') flashlightOn = flashlight.toggle();
+    const footsteps = createFootsteps();
     let grenadeAiming = false;
     let continuousShots = 0;
     const keys = new Set<string>(),
@@ -1430,6 +1436,8 @@ export default function World(props: Props) {
       }
     };
     const capture = () => {
+      // Клик по миру — жест игрока: теперь браузер разрешит звук шагов.
+      footsteps.resume();
       if (latest.current.blocked || document.pointerLockElement === canvas)
         return;
       canvas.focus();
@@ -1878,6 +1886,9 @@ export default function World(props: Props) {
           t === 'like'
         ) {
           shoot();
+        } else if (t === 'flashlight') {
+          flashlightOn = flashlight.toggle();
+          localBeam.set(flashlightOn && !isDead(), player.pitch);
         } else if (t === 'pointer') {
           // В «Предателе» планшет — пустые руки: доска ретро в этом режиме не нужна.
           if (modeOf(latest.current.room.state) === 'impostor') return;
@@ -2293,6 +2304,42 @@ export default function World(props: Props) {
         flashlight.aim(flashlightOrigin, camera.getWorldDirection(flashlightDirection));
       }
       remotePlayers.update(now, dt);
+      // Шаги слышно в «Предателе»: там на слух узнают, что кто-то идёт за поворотом. Призраки
+      // парят беззвучно — и сам призрак, и чужие (их видят только другие призраки).
+      {
+        const impostorView = latest.current.room.impostor;
+        if (modeOf(latest.current.room.state) === 'impostor') {
+          const partyGhost = (id: string) => {
+            if (!inGame(impostorView)) return false;
+            const p = impostorView.players.find((x) => x.id === id);
+            return !p || !p.alive;
+          };
+          const others = [];
+          for (const m of latest.current.room.members) {
+            if (m.id === latest.current.room.self || partyGhost(m.id)) continue;
+            const avatarOf = remoteAvatars.get(m.id);
+            if (!avatarOf) continue;
+            const at = avatarOf.position;
+            others.push({
+              id: m.id,
+              x: at.x,
+              z: at.z,
+              speed: m.pose.moving ? (m.pose.speed ?? 3.4) : 0,
+              occluded: !!rayCastWorldObstacle([pos.x, pos.y + 1.5, pos.z], [at.x, at.y + 1.2, at.z], map.colliders)?.hit,
+            });
+          }
+          footsteps.update(
+            {
+              x: pos.x,
+              z: pos.z,
+              yaw: player.cameraYaw,
+              speed: moving ? speed : 0,
+              grounded: Math.abs(pos.y - groundY) < 0.15 && !amGhost(impostorView),
+            },
+            others,
+          );
+        }
+      }
       projectiles.update(now, player.stance);
       vfx.update(now, dt);
       if (now - poseAt > 120) {
@@ -2458,6 +2505,7 @@ export default function World(props: Props) {
       });
       weaponDisposed = true;
       flashlight.dispose();
+      footsteps.dispose();
       localBeam.dispose();
       projectiles.dispose();
       weather.dispose();
@@ -2670,7 +2718,14 @@ export default function World(props: Props) {
           reloading={reloading}
         />
       )}
-      <WorldMinimap map={minimapMap} read={readMinimap} expanded={mapExpanded} />
+      {/* В «Предателе» план крупнее и с названиями отсеков: по ним договариваются на собраниях. */}
+      <WorldMinimap
+        map={minimapMap}
+        read={readMinimap}
+        expanded={mapExpanded}
+        size={gameMode === 'impostor' ? 250 : undefined}
+        labels={gameMode === 'impostor'}
+      />
       <div className="equipped-card">
         <span className="weapon-number">{currentSlot?.key ?? '—'}</span>
         <div>

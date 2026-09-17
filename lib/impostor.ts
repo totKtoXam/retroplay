@@ -88,6 +88,8 @@ export type ImpostorPlayer = {
   working: { station: string; at: number } | null;
   /** Предатель прячется в этой решётке вентиляции: его не видно, и он не двигается. */
   vent: string | null;
+  /** Кто убил (только для сцены смерти у самой жертвы — она уже призрак и говорит лишь с призраками). */
+  killedBy?: string | null;
 };
 export type ImpostorBody = { victim: string; x: number; y: number; z: number; at: number; color: string };
 export type ImpostorMeeting = {
@@ -314,6 +316,7 @@ export function kill(hub: ImpostorHub, self: string, target: unknown, now: numbe
     return fail('Слишком далеко');
   victim.p.alive = false;
   victim.p.working = null;
+  victim.p.killedBy = self;
   const { x, y, z } = victim.m.pose;
   g.bodies.push({ victim: target, x, y, z, at: now, color: victim.m.color ?? '#c0392b' });
   killer.p.killReadyAt = now + hub.room.impostor.killCooldownSeconds * 1000;
@@ -734,6 +737,11 @@ export type ImpostorView = {
   sabotageReadyAt: number;
   /** В какой решётке сижу я сам. */
   vent: string | null;
+  /**
+   * Кто меня убил — только мне самому и только после смерти: живым это знать нельзя, а призрак
+   * говорит лишь с призраками. null — жив, изгнан или вышел.
+   */
+  killedBy: string | null;
 };
 
 export function impostorView(hub: ImpostorHub, viewer: string): ImpostorView {
@@ -800,6 +808,7 @@ export function impostorView(hub: ImpostorHub, viewer: string): ImpostorView {
     },
     sabotageReadyAt: me?.role === 'impostor' ? g.sabotageReadyAt : 0,
     vent: me?.vent ?? null,
+    killedBy: me && !me.alive ? (me.killedBy ?? null) : null,
   };
 }
 
