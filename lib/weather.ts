@@ -109,10 +109,11 @@ export const WEATHER_PARAM_INFO: Record<WeatherParam, ParamInfo> = {
   },
   fog: {
     label: 'Туман',
-    scale: 'международный код видимости; в игре дистанции сжаты',
+    scale:
+      'международный код видимости; в игре дистанции сжаты. Ручной уровень задаёт всю видимость — дымка от дождя, снега и пыли её не урезает',
     min: 0,
     levels: [
-      ['Нет', 'без тумана'],
+      ['Нет', 'без тумана и дымки'],
       ['Слабый', 'видимость 500–1000 м (код 3)'],
       ['Умеренный', 'видимость 200–500 м (код 2)'],
       ['Густой', 'видимость 50–200 м (код 1)'],
@@ -228,11 +229,42 @@ export const WEATHER_PRESETS: Record<WeatherKind, WeatherLevels> = {
 };
 
 /** Того минимума из состояния комнаты, что нужен расчёту. */
-export type WeatherSource = { weather?: string; season?: string; weatherTuning?: WeatherTuning | null };
+export type WeatherSource = {
+  weather?: string;
+  season?: string;
+  weatherTuning?: WeatherTuning | null;
+  /** Как часто меняется погода «авто», минуты (WEATHER_PERIODS). */
+  weatherPeriod?: number;
+};
 
-/** В режиме «авто» погода держится 4 минуты и 45 секунд перетекает в следующую. */
+/** По умолчанию погода «авто» держится 4 минуты и 45 секунд перетекает в следующую. */
 export const WEATHER_SLOT_MS = 4 * 60_000;
 export const WEATHER_TRANSITION_MS = 45_000;
+/** Из чего выбирает ведущий: как часто меняется погода «авто», минуты. */
+export const WEATHER_PERIODS = [1, 2, 4, 8, 15, 30, 60] as const;
+export const DEFAULT_WEATHER_PERIOD = 4;
+
+export const weatherPeriod = (value: unknown): number =>
+  WEATHER_PERIODS.includes(value as (typeof WEATHER_PERIODS)[number]) ? (value as number) : DEFAULT_WEATHER_PERIOD;
+
+/** Подпись периода: «1 мин», «1 ч». */
+export const periodLabel = (minutes: number) => (minutes >= 60 ? `${minutes / 60} ч` : `${minutes} мин`);
+
+/**
+ * Длина слота и перехода погоды «авто», мс. Переход — четверть слота, но не
+ * дольше 45 секунд: при смене раз в минуту погода не может перетекать 45 секунд
+ * из 60 и почти не стоять на месте.
+ */
+export function weatherTiming(s: WeatherSource) {
+  const slot = weatherPeriod(s.weatherPeriod) * 60_000;
+  return { slot, transition: Math.min(WEATHER_TRANSITION_MS, slot / 4) };
+}
+
+/** Сколько мс до следующей смены погоды «авто». */
+export function nextWeatherChangeIn(s: WeatherSource, now: number): number {
+  const { slot } = weatherTiming(s);
+  return slot - (((now % slot) + slot) % slot);
+}
 
 export const weatherSetting = (value: unknown): WeatherSetting =>
   WEATHER_SETTINGS.includes(value as WeatherSetting) ? (value as WeatherSetting) : 'clear';
@@ -284,13 +316,14 @@ export type WeatherMix = { from: WeatherKind; to: WeatherKind; blend: number };
 export function weatherMix(s: WeatherSource, now: number): WeatherMix {
   const setting = weatherSetting(s.weather);
   if (setting !== 'auto') return { from: setting, to: setting, blend: 0 };
-  const slot = Math.floor(now / WEATHER_SLOT_MS);
+  const timing = weatherTiming(s);
+  const slot = Math.floor(now / timing.slot);
   const current = autoWeather(s.season, slot);
-  const into = now - slot * WEATHER_SLOT_MS;
-  if (into >= WEATHER_TRANSITION_MS) return { from: current, to: current, blend: 0 };
+  const into = now - slot * timing.slot;
+  if (into >= timing.transition) return { from: current, to: current, blend: 0 };
   const previous = autoWeather(s.season, slot - 1);
   if (previous === current) return { from: current, to: current, blend: 0 };
-  const t = into / WEATHER_TRANSITION_MS;
+  const t = into / timing.transition;
   return { from: previous, to: current, blend: t * t * (3 - 2 * t) };
 }
 
@@ -386,17 +419,25 @@ export type WeatherLook = {
   directionSpread: number;
 };
 
-export function lookFromLevels(v: WeatherLevels): WeatherLook {
+/**
+ * `fogFixed` — ведущий выставил туман вручную. Тогда именно этот уровень задаёт
+ * видимость целиком, и дымка от дождя, снега, метели и пыли её не урезает:
+ * иначе «Туман: нет» в метель оставлял бы видимость в 22 м и выглядел сломанным.
+ */
+export function lookFromLevels(v: WeatherLevels, fogFixed = false): WeatherLook {
   const overcast = levelValue(SCALES.oktas, v.clouds) / 8;
   const rain = levelValue(SCALES.rainDensity, v.rain);
   const dust = levelValue(SCALES.dustDensity, v.dust);
-  const visibility = Math.min(
-    levelValue(SCALES.fogVisibility, v.fog),
-    levelValue(SCALES.rainVisibility, v.rain),
-    levelValue(SCALES.snowVisibility, v.snow),
-    levelValue(SCALES.blizzardVisibility, v.blizzard),
-    levelValue(SCALES.dustVisibility, v.dust),
-  );
+  const fogVisibility = levelValue(SCALES.fogVisibility, v.fog);
+  const visibility = fogFixed
+    ? fogVisibility
+    : Math.min(
+        fogVisibility,
+        levelValue(SCALES.rainVisibility, v.rain),
+        levelValue(SCALES.snowVisibility, v.snow),
+        levelValue(SCALES.blizzardVisibility, v.blizzard),
+        levelValue(SCALES.dustVisibility, v.dust),
+      );
   // Чем ближе видимость, тем меньше прямого солнца доходит до земли.
   const murk = 1 - Math.min(1, visibility / 160);
   return {
@@ -419,7 +460,8 @@ export function lookFromLevels(v: WeatherLevels): WeatherLook {
   };
 }
 
-export const weatherLook = (s: WeatherSource, now: number): WeatherLook => lookFromLevels(weatherLevels(s, now));
+export const weatherLook = (s: WeatherSource, now: number): WeatherLook =>
+  lookFromLevels(weatherLevels(s, now), tuningLevel('fog', s.weatherTuning?.fog) !== null);
 
 /**
  * Ветер: вектор (x, z) — куда дует, м/с по горизонтали. Направление медленно
