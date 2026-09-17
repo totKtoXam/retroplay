@@ -4134,7 +4134,7 @@ h1 > span {
   font-size: 10px;
 }
 .monitor-table-wrap {
-  max-height: 270px;
+  max-height: 320px;
   overflow-y: auto;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.2);
@@ -4167,6 +4167,48 @@ h1 > span {
 }
 .monitor-table-row:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+/* Заголовок стороны в табло командного боя: цветная полоса слева, счёт
+   раундов и сумма K/D/A по команде в тех же колонках, что у игроков. */
+.monitor-team-header {
+  display: grid;
+  grid-template-columns: 1fr 64px 44px 30px 30px 30px 50px 56px;
+  align-items: center;
+  padding: 6px 10px 6px 7px;
+  border-left: 3px solid #64748b;
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+}
+.monitor-team-header strong {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #cbd5e1;
+}
+.monitor-team-header small {
+  font-size: 10px;
+  color: #94a3b8;
+}
+.monitor-team-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  color: #f8fafc;
+}
+.monitor-team-header.team-red {
+  border-left-color: #ff5d52;
+  background: rgba(255, 93, 82, 0.12);
+}
+.monitor-team-header.team-red strong {
+  color: #ff8f8a;
+}
+.monitor-team-header.team-blue {
+  border-left-color: #5aa9ff;
+  background: rgba(90, 169, 255, 0.12);
+}
+.monitor-team-header.team-blue strong {
+  color: #8fbcff;
 }
 .col-user {
   display: flex;
