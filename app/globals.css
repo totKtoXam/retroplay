@@ -4134,17 +4134,51 @@ h1 > span {
   font-size: 10px;
 }
 .monitor-table-wrap {
-  max-height: 270px;
-  overflow-y: auto;
+  --monitor-cols: 1fr 64px 56px;
+}
+.monitor-table-wrap.is-battle {
+  --monitor-cols: 1fr 64px 30px 30px 30px 50px 56px;
+}
+/* Имя и роль в одну строку, кнопки поменьше: так строка заметно ниже и табло
+   на 20+ игроков помещается в экран без прокрутки. */
+.monitor-table-row .user-name-box {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.monitor-table-row .name-text {
+  flex-shrink: 0;
+  max-width: 65%;
+}
+.monitor-table-row .role-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.monitor-table-row .side-swap,
+.monitor-table-row .voice-mute {
+  width: 20px;
+  height: 20px;
+}
+.monitor-table-row .mini-avatar {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+}
+/* Без прокрутки: список игроков виден целиком, строки для этого компактные. */
+.monitor-table-wrap {
+  overflow: hidden;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 .monitor-table-header {
   display: grid;
-  grid-template-columns: 1fr 64px 44px 30px 30px 30px 50px 56px;
+  grid-template-columns: var(--monitor-cols);
+  column-gap: 6px;
   align-items: center;
-  padding: 7px 10px;
+  padding: 5px 10px;
   font-size: 10px;
   font-weight: 700;
   color: #64748b;
@@ -4158,15 +4192,59 @@ h1 > span {
 }
 .monitor-table-row {
   display: grid;
-  grid-template-columns: 1fr 64px 44px 30px 30px 30px 50px 56px;
+  grid-template-columns: var(--monitor-cols);
+  column-gap: 6px;
   align-items: center;
-  padding: 6px 10px;
+  padding: 3px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   font-size: 12px;
   transition: background 0.12s ease;
 }
 .monitor-table-row:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+/* Заголовок стороны в табло командного боя: цветная полоса слева, счёт
+   раундов и сумма K/D/A по команде в тех же колонках, что у игроков. */
+.monitor-team-header {
+  display: grid;
+  grid-template-columns: var(--monitor-cols);
+  column-gap: 6px;
+  align-items: center;
+  padding: 4px 10px 4px 7px;
+  border-left: 3px solid #64748b;
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+}
+.monitor-team-header strong {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #cbd5e1;
+}
+.monitor-team-header small {
+  font-size: 10px;
+  color: #94a3b8;
+}
+.monitor-team-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  color: #f8fafc;
+}
+.monitor-team-header.team-red {
+  border-left-color: #ff5d52;
+  background: rgba(255, 93, 82, 0.12);
+}
+.monitor-team-header.team-red strong {
+  color: #ff8f8a;
+}
+.monitor-team-header.team-blue {
+  border-left-color: #5aa9ff;
+  background: rgba(90, 169, 255, 0.12);
+}
+.monitor-team-header.team-blue strong {
+  color: #8fbcff;
 }
 .col-user {
   display: flex;
@@ -4218,13 +4296,6 @@ h1 > span {
   font-variant-numeric: tabular-nums;
   text-align: center;
   font-size: 12px;
-}
-.col-hp {
-  font-weight: 700;
-  color: #e2e8f0;
-}
-.col-hp.is-dead {
-  color: #ef4444;
 }
 .col-k {
   color: #7fe0b8;
@@ -5564,6 +5635,15 @@ h1 > span {
   font: 400 10px/1.4 system-ui, sans-serif;
   color: var(--hud-dim);
   letter-spacing: 0.4px;
+}
+.match-bar .clock .series b {
+  font: 600 11px/1.4 ui-monospace, monospace;
+}
+.match-bar .clock .series .red {
+  color: var(--team-red);
+}
+.match-bar .clock .series .blue {
+  color: var(--team-blue);
 }
 .pips {
   display: flex;

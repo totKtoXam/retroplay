@@ -4,6 +4,7 @@ import {
   applyOperation,
   publicState,
   kdaRatio,
+  monitorGroups,
 } from '../lib/model.ts';
 let passed = 0;
 function test(name, fn) {
@@ -174,4 +175,22 @@ test('KDA ratio counts assists and never divides by zero', () => {
     { name: 'c', kills: 2, deaths: 1, assists: 1 },
   ].sort((x, y) => kdaRatio(y) - kdaRatio(x));
   assert.deepEqual(board.map((p) => p.name), ['b', 'c', 'a']);
+});
+
+test('Табло командного боя делится на стороны с суммой K/D/A', () => {
+  const board = [
+    { name: 'a', team: 'blue', kills: 5, deaths: 1, assists: 1 },
+    { name: 'b', team: 'red', kills: 3, deaths: 2, assists: 0 },
+    { name: 'c', kills: 0, deaths: 0, assists: 0 },
+    { name: 'd', team: 'blue', kills: 1, deaths: 4 },
+  ];
+  const groups = monitorGroups(board, true);
+  assert.deepEqual(groups.map((g) => g.team), ['red', 'blue', 'none']);
+  assert.deepEqual(groups[1].members.map((p) => p.name), ['a', 'd']);
+  assert.deepEqual([groups[1].kills, groups[1].deaths, groups[1].assists], [6, 5, 1]);
+  // Пустая сторона остаётся на табло: видно, что в команде никого нет.
+  assert.equal(monitorGroups([board[0]], true)[0].members.length, 0);
+  // Ретро и бой без розданных сторон — одна группа без заголовка.
+  assert.equal(monitorGroups(board, false).length, 1);
+  assert.equal(monitorGroups([board[2]], true)[0].team, undefined);
 });

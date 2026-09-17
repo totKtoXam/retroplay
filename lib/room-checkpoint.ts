@@ -31,7 +31,8 @@ export function restoreCheckpoint(roomId: string, hub: HubState, data: string): 
   if (checkpointRoom(data) !== roomId) throw Error('Room checkpoint identity mismatch');
   const saved = JSON.parse(data) as Checkpoint;
   if (saved.map !== hub.room.map || saved.teams !== hub.room.teams) return false;
-  hub.match = saved.match;
+  // В чекпоинтах до счёта за игру поля wins нет.
+  hub.match = { ...saved.match, wins: saved.match.wins ?? { red: 0, blue: 0 } };
   hub.effects = saved.effects;
   hub.seq = saved.seq;
   if (saved.impostor) hub.impostor = saved.impostor;

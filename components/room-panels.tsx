@@ -715,6 +715,19 @@ export function MatchBar({
       <span className="clock">
         {clock}
         {match.phase === 'intermission' && <small>перерыв</small>}
+        {match.wins && (
+          <small
+            className="series"
+            title={
+              match.mode === 'rounds'
+                ? 'Выиграно матчей за игру'
+                : 'Выиграно раундов за игру (раунд — бой до лимита убийств или времени)'
+            }
+          >
+            {match.mode === 'rounds' ? 'матчи' : 'раунды'} <b className="red">{match.wins.red}</b>:
+            <b className="blue">{match.wins.blue}</b>
+          </small>
+        )}
         {match.phase === 'ended' && (
           <small>
             {match.winner === 'draw'

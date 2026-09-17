@@ -11,7 +11,7 @@ function state() {
 }
 test('JSON restart preserves match, lives, magazine, revision and reload deadline', () => {
   const source = state(), m = source.members.get('a');
-  source.match = { mode: 'rounds', score: { red: 3, blue: 2 }, round: 6, phase: 'intermission', until: 9000 };
+  source.match = { mode: 'rounds', score: { red: 3, blue: 2 }, round: 6, phase: 'intermission', until: 9000, wins: { red: 2, blue: 1 } };
   m.kills = 4; m.hp = 0; m.respawnAt = 8000;
   memberWeapon(m).magazine.fire('paint', 2000);
   memberWeapon(m).magazine.reload('paint', 2500);

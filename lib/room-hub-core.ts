@@ -81,7 +81,7 @@ const ENDED_MS = 12_000;
 /** Server-side body radius: below the client's 0.32 so rounded poses near walls still pass. */
 const BODY_RADIUS = 0.25;
 const EFFECT_KINDS = ['paint', 'confetti', 'grenade', 'sniper', 'like'];
-const TOOLS = ['paint', 'confetti', 'grenade', 'sniper', 'pointer', 'other'];
+const TOOLS = ['paint', 'confetti', 'grenade', 'sniper', 'pointer', 'flashlight', 'other'];
 
 export type Cursor = { x: number; y: number; mode: 'board' | '3d' };
 export type HubMember = {
@@ -165,6 +165,8 @@ export type HubMatch = {
   /** When the current phase ends (0: no timer). */
   until: number;
   winner?: Team | 'draw';
+  /** Выигранные матчи за игру: переживают новый матч, обнуляются со сменой карты или режима. */
+  wins: { red: number; blue: number };
 };
 export type HubState = {
   room: HubRoom;
@@ -611,12 +613,13 @@ export function setTeam(state: HubState, self: string, team: Team, now: number) 
   return true;
 }
 
-export function newMatch(room: HubRoom, now: number): HubMatch {
+export function newMatch(room: HubRoom, now: number, wins = { red: 0, blue: 0 }): HubMatch {
   // Раунды начинаются с подготовки; в бою с возрождением ждать нечего.
   const rounds = room.matchMode === 'rounds';
   return {
     mode: room.matchMode,
     score: { red: 0, blue: 0 },
+    wins: { ...wins },
     round: 1,
     phase: rounds ? 'freeze' : 'live',
     until: rounds
@@ -658,6 +661,7 @@ function endMatch(state: HubState, now: number) {
   match.phase = 'ended';
   match.winner =
     match.score.red === match.score.blue ? 'draw' : match.score.red > match.score.blue ? 'red' : 'blue';
+  if (match.winner !== 'draw') match.wins[match.winner] += 1;
   match.until = now + ENDED_MS;
 }
 
@@ -709,7 +713,7 @@ export function updateMatch(state: HubState, now: number) {
     match.phase = 'freeze';
     match.until = now + FREEZE_MS;
   } else {
-    state.match = newMatch(room, now);
+    state.match = newMatch(room, now, match.wins);
   }
   respawnAll(state, now);
   return true;

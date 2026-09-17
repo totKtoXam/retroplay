@@ -441,6 +441,8 @@ export type Match = {
   /** When the current phase ends (0: no timer). */
   until: number;
   winner?: 'red' | 'blue' | 'draw';
+  /** Выигранные матчи за игру (с последней смены карты или режима). */
+  wins?: { red: number; blue: number };
 };
 export type Room = {
   id: string;
@@ -1154,6 +1156,36 @@ export function kdaRatio(p: {
   assists?: number;
 }) {
   return ((p.kills ?? 0) + (p.assists ?? 0)) / Math.max(1, p.deaths ?? 0);
+}
+/**
+ * Группы табло по Tab. В командном бою игроки делятся на красных и синих с
+ * суммой K/D/A по стороне; порядок внутри группы сохраняется (табло уже
+ * отсортировано по KDA). Кто ещё не выбрал сторону, идёт отдельной группой в
+ * конце. Вне боя или пока стороны не розданы — одна группа без заголовка.
+ */
+export function monitorGroups<
+  T extends { team?: string; kills?: number; deaths?: number; assists?: number },
+>(members: T[], battle: boolean) {
+  const total = (list: T[], key: 'kills' | 'deaths' | 'assists') =>
+    list.reduce((sum, m) => sum + (m[key] ?? 0), 0);
+  const group = (team: string | undefined, label: string, list: T[]) => ({
+    team,
+    label,
+    members: list,
+    kills: total(list, 'kills'),
+    deaths: total(list, 'deaths'),
+    assists: total(list, 'assists'),
+  });
+  if (!battle || !members.some((m) => m.team === 'red' || m.team === 'blue'))
+    return [group(undefined, '', members)];
+  const red = members.filter((m) => m.team === 'red');
+  const blue = members.filter((m) => m.team === 'blue');
+  const rest = members.filter((m) => m.team !== 'red' && m.team !== 'blue');
+  return [
+    group('red', 'Красные', red),
+    group('blue', 'Синие', blue),
+    ...(rest.length ? [group('none', 'Без команды', rest)] : []),
+  ];
 }
 export function voteCount(s: RoomState, id: string) {
   return Object.values(s.rounds.at(-1)?.votes || {}).reduce(
