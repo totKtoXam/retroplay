@@ -483,19 +483,20 @@ export function createArenaMaterials() {
     },
 
     /**
-     * Вода: полупрозрачная, почти зеркальная, рябь из двух слоёв нормалей, бегущих в разные
-     * стороны, — одна текстура, смещённая по-разному, не даёт заметного повтора.
+     * Вода: почти зеркальная, рябь из двух слоёв нормалей, бегущих в разные стороны, — одна
+     * текстура, смещённая по-разному, не даёт заметного повтора.
+     *
+     * Непрозрачная намеренно. Оружие в руках рисуется без теста глубины (components/world-hands.ts)
+     * и потому глубину не пишет, а прозрачные материалы three.js рисует после всех непрозрачных —
+     * полупрозрачная вода ложилась поверх ствола.
      */
     water(color: string) {
       const m = new T.MeshStandardMaterial({
         color,
         roughness: 0.06,
         metalness: 0.15,
-        transparent: true,
-        opacity: 0.82,
         normalMap: ripples,
         normalScale: new T.Vector2(0.45, 0.45),
-        depthWrite: false,
       });
       m.onBeforeCompile = (shader) => {
         shader.uniforms.uWaterTime = waterTime;
@@ -520,14 +521,11 @@ export function createArenaMaterials() {
       waterTime.value = seconds;
     },
 
-    /** Лёд вместо воды: матовый, непрозрачный и неподвижный. */
-    setFrozen(frozen: boolean) {
-      for (const m of waters) {
-        m.roughness = frozen ? 0.55 : 0.06;
-        m.metalness = frozen ? 0.05 : 0.15;
-        m.opacity = frozen ? 1 : 0.82;
-        m.normalScale.setScalar(frozen ? 0.08 : 0.45);
-      }
+    /** Лёд вместо воды (для материала из `water`): матовый и неподвижный. */
+    setFrozen(m: T.MeshStandardMaterial, frozen: boolean) {
+      m.roughness = frozen ? 0.55 : 0.06;
+      m.metalness = frozen ? 0.05 : 0.15;
+      m.normalScale.setScalar(frozen ? 0.08 : 0.45);
     },
 
     dispose() {
