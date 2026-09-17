@@ -23,6 +23,7 @@ import {
 } from '@/lib/impostor-client';
 import type { ImpostorReply } from './use-room-sync';
 import { TASK_GAMES } from './impostor-tasks';
+import ImpostorRules from './impostor-rules';
 
 type Props = {
   room: Room;
@@ -95,6 +96,7 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
   const [saving, setSaving] = useState(false);
   const [repair, setRepair] = useState<SabotagePanel | null>(null);
   const [sabotageMenu, setSabotageMenu] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   // Кадр обновления: подсказки «рядом пульт / тело / цель» зависят от позы, а она в ref.
   const phaseRef = useRef(room.impostor?.phase);
   const sabotageRef = useRef(room.impostor?.sabotage?.kind);
@@ -143,7 +145,7 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
   const openGame = phase === 'play' ? task : null;
   const openRepair = phase === 'play' && repair && view?.sabotage?.kind === repair.sabotage ? repair : null;
   const openMenu = phase === 'play' && sabotageMenu;
-  const needsCursor = !!openGame || !!openRepair || openMenu || !!myVent || meeting || phase === 'ended';
+  const needsCursor = rulesOpen || !!openGame || !!openRepair || openMenu || !!myVent || meeting || phase === 'ended';
   useEffect(() => {
     onBlocked(needsCursor);
     if (needsCursor && document.pointerLockElement) document.exitPointerLock();
@@ -214,6 +216,14 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      // Пока открыты правила, клавиши действий не срабатывают — но и миру не достаются.
+      if (rulesOpen) {
+        if (['KeyE', 'KeyR', 'KeyQ', 'KeyB'].includes(e.code)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+        return;
+      }
       if (e.code === 'Escape' && (task || repair || sabotageMenu)) {
         setTask(null);
         setRepair(null);
@@ -237,11 +247,40 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [active, task, repair, sabotageMenu]);
+  }, [active, task, repair, sabotageMenu, rulesOpen]);
+
+  // I — правила режима в любой фазе, и в лобби тоже. В этом режиме снаряжения нет, поэтому клавиша
+  // забирается у мира целиком.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      if (e.code === 'KeyI' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (!e.repeat) setRulesOpen((open) => !open);
+      } else if (e.code === 'Escape' && rulesOpen) {
+        e.stopImmediatePropagation();
+        setRulesOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [rulesOpen]);
 
   const nameOf = (id: string) => view?.players.find((p) => p.id === id)?.name ?? 'Игрок';
 
   if (!view) return null;
+
+  const rules = rulesOpen && (
+    <ImpostorRules
+      map={map}
+      settings={room.state.impostor}
+      role={inGame(view) ? view.role : null}
+      me={pose.current ? { x: pose.current.x, z: pose.current.z } : null}
+      onClose={() => setRulesOpen(false)}
+    />
+  );
 
   // ---- Лобби ----
   if (phase === 'lobby') {
@@ -260,7 +299,11 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
           ) : (
             <span className="impostor-muted">Ждём, пока ведущий начнёт партию</span>
           )}
+          <button className="impostor-rules-button" onClick={() => setRulesOpen(true)}>
+            Правила <kbd>I</kbd>
+          </button>
         </div>
+        {rules}
         {toast && <div className="impostor-toast">{toast}</div>}
       </div>
     );
@@ -291,6 +334,9 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
         <div className="impostor-tasks">
           <div className={`impostor-role ${impostor ? 'is-impostor' : ''}`}>
             {ghost ? 'Вы призрак' : impostor ? 'Предатель' : view.role ? 'Экипаж' : 'Зритель'}
+            <button className="impostor-rules-link" onClick={() => setRulesOpen(true)}>
+              правила · I
+            </button>
           </div>
           <div className="impostor-progress" title="Общий прогресс заданий экипажа">
             <span style={{ width: `${view.progress.total ? (view.progress.done / view.progress.total) * 100 : 0}%` }} />
@@ -607,6 +653,7 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
         </div>
       )}
 
+      {rules}
       {toast && <div className="impostor-toast">{toast}</div>}
     </div>
   );
