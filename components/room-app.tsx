@@ -1607,11 +1607,12 @@ export default function RoomApp({ id }: { id: string }) {
                 <small>в сети</small>
               </div>
             </div>
-            <div className="monitor-table-wrap">
+            <div
+              className={`monitor-table-wrap ${gameMode === 'battle' ? 'is-battle' : ''}`}
+            >
               <div className="monitor-table-header">
                 <span className="col-user">УЧАСТНИК</span>
                 <span className="col-status">СТАТУС</span>
-                <span className="col-num">HP</span>
                 {gameMode === 'battle' && (
                   <>
                     <span className="col-num col-k">K</span>
@@ -1650,7 +1651,6 @@ export default function RoomApp({ id }: { id: string }) {
                         <small>{group.members.length}</small>
                       </span>
                       <span className="col-status" />
-                      <span className="col-num" />
                       <span className="col-num col-k">{group.kills}</span>
                       <span className="col-num col-d">{group.deaths}</span>
                       <span className="col-num col-a">{group.assists}</span>
@@ -1750,13 +1750,6 @@ export default function RoomApp({ id }: { id: string }) {
                       }`}
                     >
                       {isOnline(m.lastSeen, now) ? 'в сети' : 'отошёл'}
-                    </span>
-                    <span
-                      className={`col-num col-hp ${
-                        m.hp === 0 ? 'is-dead' : ''
-                      }`}
-                    >
-                      {m.hp ?? 100}
                     </span>
                     {gameMode === 'battle' && (
                       <>
