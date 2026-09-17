@@ -13,6 +13,25 @@ export type Team = 'red' | 'blue';
 export type SpawnPoint = { x: number; z: number; y?: number; yaw?: number };
 export type Bounds = { minX: number; maxX: number; minZ: number; maxZ: number };
 
+/**
+ * What a surface is made of: picks the texture in the scene (components/world-arena-materials.ts)
+ * and the footstep sound (lib/footsteps.ts). Missing means the generic stone-like detail.
+ */
+export type SurfaceMaterial =
+  | 'plaster'
+  | 'wallpaper'
+  | 'wood'
+  | 'parquet'
+  | 'tile'
+  | 'checker'
+  | 'marble'
+  | 'carpet'
+  | 'fabric'
+  | 'leather'
+  | 'metal'
+  | 'brick'
+  | 'books';
+
 /** Axis-aligned box given by its centre (x, y, z) and size (w along x, h along y, d along z). */
 export type MapBox = {
   x: number;
@@ -22,6 +41,7 @@ export type MapBox = {
   h: number;
   d: number;
   color: string;
+  material?: SurfaceMaterial;
   /** Blocks movement and shots (walls, furniture, hedges). */
   solid?: boolean;
   /** Walkable top surface (floor slab, balcony); its underside is a ceiling. */
@@ -46,9 +66,17 @@ export type MapCylinder = {
   /** Blocks as its bounding box. */
   solid?: boolean;
   sides?: number;
+  material?: SurfaceMaterial;
 };
+/**
+ * A fountain: water arcs from a jet at (x, jetY, z) into a bowl of radius `bowlR` at `bowlY`,
+ * spills over its rim and falls into the pool below. Scene only — the pedestal, bowl and pool
+ * are ordinary cylinders, boxes and water.
+ */
+export type MapFountain = { x: number; z: number; jetY: number; bowlY: number; bowlR: number; poolY: number };
 export type MapSphere = { x: number; y: number; z: number; r: number; color: string };
-export type MapWater = Bounds & { y: number; color?: string };
+/** Still water at height `y`; with `round` it is the disc inscribed in the bounds (a fountain bowl). */
+export type MapWater = Bounds & { y: number; color?: string; round?: boolean };
 export type MapLight = { x: number; y: number; z: number; color: string; intensity: number; distance: number };
 /** Kind of mini-game at a task station (режим «Предатель», lib/impostor.ts). */
 export type TaskKind = 'wires' | 'hold' | 'calibrate' | 'code' | 'upload';
@@ -86,6 +114,13 @@ export type ArenaDef = {
   cylinders?: MapCylinder[];
   spheres?: MapSphere[];
   water?: MapWater[];
+  /**
+   * Scene-only detail: furniture legs, cushions, frames, lamps, ceilings. Never collides, never
+   * counts as a roof or a floor, never shortens the camera boom.
+   */
+  decor?: MapBox[];
+  decorCylinders?: MapCylinder[];
+  fountains?: MapFountain[];
   lights?: MapLight[];
   spawns: Record<Team, SpawnPoint[]>;
   /** Task stations of the impostor mode. */

@@ -1,9 +1,10 @@
 import * as T from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { RoomState } from '@/lib/model';
-import type { ArenaDef, GameMap } from '@/lib/maps/types';
+import type { ArenaDef, GameMap, MapFountain, SurfaceMaterial } from '@/lib/maps/types';
 import { createAvatar, setAvatarStyle } from './world-avatar';
 import { createSurfaceLibrary } from './world-cinematic';
+import { createArenaMaterials } from './world-arena-materials';
 import type { WorldKit } from './world-map-scene';
 import { mixValue, type DayMix, type TimeOfDay } from '@/lib/day-cycle';
 import { seasonColor } from '@/lib/season-colors';
@@ -26,22 +27,40 @@ const ARENA_SUN_HEIGHT: Record<TimeOfDay, number> = { dawn: 36, day: 36, sunset:
 export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
   const def = map.arena;
   const surfaces = createSurfaceLibrary();
+  const arenaMaterials = createArenaMaterials();
   const scene = new T.Scene();
   const statics = new T.Group();
   scene.add(statics);
-  const mats = new Map<string, T.MeshStandardMaterial>();
-  const material = (color: string) => {
-    let m = mats.get(color);
+  // Мелкие детали (ножки, подушки, рамы, люстры) камеру не отодвигают: иначе вид от третьего
+  // лица дёргался бы о каждый стул.
+  const decor = new T.Group();
+  decor.userData.noCameraCollision = true;
+  scene.add(decor);
+  /** Материал по цвету и виду поверхности; `color` хранится отдельно для сезонной перекраски. */
+  const mats = new Map<string, { color: string; kind?: SurfaceMaterial; material: T.MeshStandardMaterial }>();
+  const kindOf = new Map<T.Material, SurfaceMaterial | undefined>();
+  const material = (color: string, kind?: SurfaceMaterial) => {
+    const key = `${color}|${kind ?? ''}`;
+    let m = mats.get(key);
     if (!m) {
-      m = surfaces.material(color);
-      mats.set(color, m);
+      m = { color, kind, material: kind ? arenaMaterials.material(color, kind) : surfaces.material(color) };
+      mats.set(key, m);
+      kindOf.set(m.material, kind);
     }
-    return m;
+    return m.material;
   };
-  const add = (geo: T.BufferGeometry, color: string, x: number, y: number, z: number) => {
-    const m = new T.Mesh(geo, material(color));
+  const add = (
+    geo: T.BufferGeometry,
+    color: string,
+    x: number,
+    y: number,
+    z: number,
+    kind?: SurfaceMaterial,
+    group: T.Group = statics,
+  ) => {
+    const m = new T.Mesh(geo, material(color, kind));
     m.position.set(x, y, z);
-    statics.add(m);
+    group.add(m);
     return m;
   };
   const { minX, maxX, minZ, maxZ } = def.bounds;
@@ -84,7 +103,10 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
   // Ground inside the walls and a wider backdrop outside them.
   add(new T.BoxGeometry(maxX - minX, 0.2, maxZ - minZ), def.groundColor, cx, -0.1, cz);
   add(new T.BoxGeometry(span + 200, 0.2, span + 200), def.outsideColor ?? '#6f7f63', cx, -0.14, cz);
-  for (const b of def.boxes) add(new T.BoxGeometry(b.w, b.h, b.d), b.color, b.x, b.y, b.z);
+  for (const b of def.boxes) add(new T.BoxGeometry(b.w, b.h, b.d), b.color, b.x, b.y, b.z, b.material);
+  for (const b of def.decor ?? []) add(new T.BoxGeometry(b.w, b.h, b.d), b.color, b.x, b.y, b.z, b.material, decor);
+  for (const c of def.decorCylinders ?? [])
+    add(new T.CylinderGeometry(c.r, c.r, c.h, c.sides ?? 16), c.color, c.x, c.y, c.z, c.material, decor);
   for (const r of def.ramps ?? []) {
     const run = r.to - r.from,
       rise = r.y1 - r.y0,
@@ -98,14 +120,19 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     }
   }
   for (const c of def.cylinders ?? [])
-    add(new T.CylinderGeometry(c.r, c.r, c.h, c.sides ?? 16), c.color, c.x, c.y, c.z);
+    add(new T.CylinderGeometry(c.r, c.r, c.h, c.sides ?? 16), c.color, c.x, c.y, c.z, c.material);
   for (const s of def.spheres ?? []) add(new T.IcosahedronGeometry(s.r, 1), s.color, s.x, s.y, s.z);
   const waters: T.Mesh[] = [];
   for (const w of def.water ?? []) {
-    const water = new T.Mesh(
-      new T.PlaneGeometry(w.maxX - w.minX, w.maxZ - w.minZ),
-      new T.MeshStandardMaterial({ color: w.color ?? '#3f7f96', roughness: 0.2, metalness: 0.4 }),
-    );
+    const plane = w.round
+      ? new T.CircleGeometry(Math.min(w.maxX - w.minX, w.maxZ - w.minZ) / 2, 40)
+      : new T.PlaneGeometry(w.maxX - w.minX, w.maxZ - w.minZ);
+    // Рябь в метрах мира: на большом пруду и в маленькой чаше волны одного размера.
+    const uv = plane.getAttribute('uv');
+    for (let i = 0; i < uv.count; i++)
+      uv.setXY(i, (uv.getX(i) * (w.maxX - w.minX)) / 3, (uv.getY(i) * (w.maxZ - w.minZ)) / 3);
+    const water = new T.Mesh(plane, arenaMaterials.water(w.color ?? '#3f7f96'));
+    water.renderOrder = 1;
     water.rotation.x = -Math.PI / 2;
     water.position.set((w.minX + w.maxX) / 2, w.y, (w.minZ + w.maxZ) / 2);
     water.receiveShadow = true;
@@ -118,29 +145,38 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     scene.add(light);
   }
 
-  // Merge static meshes by material.
-  statics.updateMatrixWorld(true);
-  const buckets = new Map<T.Material, T.BufferGeometry[]>();
-  // A copy: meshes are removed from `statics` while iterating.
-  for (const o of statics.children.slice()) {
-    if (!(o instanceof T.Mesh) || Array.isArray(o.material)) continue;
-    const geo = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()).applyMatrix4(o.matrixWorld);
-    const list = buckets.get(o.material) ?? [];
-    list.push(geo);
-    buckets.set(o.material, list);
-    o.removeFromParent();
-    o.geometry.dispose();
-  }
-  for (const [mat, geos] of buckets) {
-    const merged = mergeGeometries(geos);
-    geos.forEach((g) => g.dispose());
-    if (!merged) continue;
-    surfaces.projectUV(merged);
-    const mesh = new T.Mesh(merged, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    statics.add(mesh);
-  }
+  const fountains = (def.fountains ?? []).map((f) => createFountainSpray(f));
+  fountains.forEach((f) => scene.add(f.points));
+
+  // Merge static meshes by material, separately for solid geometry and decor.
+  const mergeGroup = (group: T.Group) => {
+    group.updateMatrixWorld(true);
+    const buckets = new Map<T.Material, T.BufferGeometry[]>();
+    // A copy: meshes are removed from the group while iterating.
+    for (const o of group.children.slice()) {
+      if (!(o instanceof T.Mesh) || Array.isArray(o.material)) continue;
+      const geo = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()).applyMatrix4(o.matrixWorld);
+      const list = buckets.get(o.material) ?? [];
+      list.push(geo);
+      buckets.set(o.material, list);
+      o.removeFromParent();
+      o.geometry.dispose();
+    }
+    for (const [mat, geos] of buckets) {
+      const merged = mergeGeometries(geos);
+      geos.forEach((g) => g.dispose());
+      if (!merged) continue;
+      const kind = kindOf.get(mat);
+      if (kind) arenaMaterials.projectUV(merged, kind);
+      else surfaces.projectUV(merged);
+      const mesh = new T.Mesh(merged, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+  };
+  mergeGroup(statics);
+  mergeGroup(decor);
 
   // Боевая карта живёт по тем же суткам, что и хаб: свет строится смесью двух
   // соседних фаз, чтобы ночь наступала плавно, а не рывком (lib/day-cycle.ts).
@@ -181,17 +217,16 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     if (season === appliedSeason) return;
     appliedSeason = season;
     const native = def.season ?? 'summer';
-    for (const [color, m] of mats)
+    for (const { color, material: m } of mats.values())
       m.color.set(seasonColor(color, season, native, groundColors.has(color) ? 'ground' : 'surface'));
+    // Зимой вода на летней карте — лёд: матовый, неподвижный, и фонтан не бьёт.
+    const frozen = season === 'winter' && native !== 'winter';
     (def.water ?? []).forEach((w, i) => {
       const m = waters[i]?.material as T.MeshStandardMaterial | undefined;
-      if (!m) return;
-      m.color.set(seasonColor(w.color ?? '#3f7f96', season, native, 'water'));
-      // Зимой вода на летней карте — лёд: матовый и без металлического блеска.
-      const frozen = season === 'winter' && native !== 'winter';
-      m.roughness = frozen ? 0.55 : 0.2;
-      m.metalness = frozen ? 0.1 : 0.4;
+      m?.color.set(seasonColor(w.color ?? '#3f7f96', season, native, 'water'));
     });
+    arenaMaterials.setFrozen(frozen);
+    fountains.forEach((f) => (f.points.visible = !frozen));
   };
   const update = (s: RoomState, m: DayMix) => {
     applySeason(s.season);
@@ -214,13 +249,105 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     setNotes: () => {},
     clouds: new T.Group(),
     sunlight,
-    animate: () => {},
+    animate: (seconds: number) => {
+      arenaMaterials.animate(seconds);
+      fountains.forEach((f) => f.animate(seconds));
+    },
     dispose: () => {
       surfaces.dispose();
-      waters.forEach((w) => {
-        w.geometry.dispose();
-        (w.material as T.Material).dispose();
-      });
+      arenaMaterials.dispose();
+      waters.forEach((w) => w.geometry.dispose());
+      fountains.forEach((f) => f.dispose());
+    },
+  };
+}
+
+/**
+ * Струи фонтана — частицы, чей путь целиком считает шейдер: из сопла вверх и дугой в чашу,
+ * и завесой с края чаши в бассейн. Каждая частица живёт по кругу со своей фазой, так что поток
+ * непрерывен, а на CPU каждый кадр меняется только время.
+ */
+function createFountainSpray(f: MapFountain) {
+  const JET = 600,
+    CURTAIN = 2200;
+  const count = JET + CURTAIN;
+  const seeds = new Float32Array(count * 4);
+  let seed = 7331;
+  const rand = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  for (let i = 0; i < count; i++) {
+    seeds[i * 4] = rand() * Math.PI * 2; // направление
+    seeds[i * 4 + 1] = rand(); // разброс скорости
+    seeds[i * 4 + 2] = rand(); // фаза
+    seeds[i * 4 + 3] = i < JET ? 0 : 1; // струя или завеса
+  }
+  const geometry = new T.BufferGeometry();
+  geometry.setAttribute('position', new T.BufferAttribute(new Float32Array(count * 3), 3));
+  geometry.setAttribute('aSeed', new T.BufferAttribute(seeds, 4));
+  // Частицы двигает шейдер: рамка должна покрывать весь фонтан, иначе его отсечёт камера.
+  geometry.boundingSphere = new T.Sphere(new T.Vector3(f.x, (f.jetY + f.poolY) / 2 + 0.5, f.z), f.bowlR + 2.5);
+  const material = new T.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: {
+      uTime: { value: 0 },
+      uOrigin: { value: new T.Vector3(f.x, f.jetY, f.z) },
+      uBowl: { value: new T.Vector3(f.bowlY, f.bowlR, f.poolY) },
+    },
+    vertexShader: /* glsl */ `
+      attribute vec4 aSeed;
+      uniform float uTime;
+      uniform vec3 uOrigin;
+      uniform vec3 uBowl;
+      varying float vAlpha;
+      const float G = 9.8;
+      void main() {
+        vec2 dir = vec2(cos(aSeed.x), sin(aSeed.x));
+        vec3 p;
+        float life;
+        if (aSeed.w < 0.5) {
+          // Струя: вверх на 0,6–0,9 м и дугой вниз, в 45–85 % радиуса чаши.
+          float vy = 3.4 + aSeed.y * 0.8;
+          float drop = uOrigin.y - uBowl.x;
+          float flight = (vy + sqrt(vy * vy + 2.0 * G * drop)) / G;
+          float land = uBowl.y * (0.45 + aSeed.y * 0.4);
+          life = fract(uTime / flight + aSeed.z);
+          float t = life * flight;
+          p = vec3(uOrigin.x + dir.x * land * life, uOrigin.y + vy * t - 0.5 * G * t * t, uOrigin.z + dir.y * land * life);
+        } else {
+          // Завеса: вода переливается через край чаши и падает в бассейн.
+          float flight = sqrt(2.0 * (uBowl.x - uBowl.z) / G);
+          life = fract(uTime / flight + aSeed.z);
+          float t = life * flight;
+          float r = uBowl.y + 0.04 + (0.18 + aSeed.y * 0.22) * t;
+          p = vec3(uOrigin.x + dir.x * r, uBowl.x - 0.5 * G * t * t, uOrigin.z + dir.y * r);
+        }
+        vAlpha = smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.85, 1.0, life));
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = (aSeed.w < 0.5 ? 26.0 : 24.0) / -mv.z;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */ `
+      varying float vAlpha;
+      void main() {
+        vec2 c = gl_PointCoord - 0.5;
+        float d = dot(c, c);
+        if (d > 0.25) discard;
+        gl_FragColor = vec4(0.86, 0.94, 1.0, vAlpha * 0.7 * (1.0 - d * 4.0));
+      }`,
+  });
+  const points = new T.Points(geometry, material);
+  points.userData.noCameraCollision = true;
+  return {
+    points,
+    animate(seconds: number) {
+      material.uniforms.uTime.value = seconds;
+    },
+    dispose() {
+      geometry.dispose();
+      material.dispose();
     },
   };
 }

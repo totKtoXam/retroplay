@@ -7,7 +7,7 @@
 // того, на чём стоит игрок: зелень — трава, коричневое — дерево, снег — снег. Цвет берётся уже
 // перекрашенным под текущий сезон, так что летний луг на зимней карте хрустит снегом.
 
-import { rampHeight, type GameMap, type MapBox } from './maps/types.ts';
+import { rampHeight, type GameMap, type MapBox, type SurfaceMaterial } from './maps/types.ts';
 import {
   hexToHsl,
   isSnowy,
@@ -34,6 +34,23 @@ export const footstepUrl = (surface: FootstepSurface) =>
 
 /** Тонкая плита не выше этого, м, — ковёр или дорожка, а не стол и не ящик. */
 const RUG_HEIGHT = 0.15;
+
+/** Звук шагов для вида поверхности, заданного на карте явно. */
+const SURFACE_OF_MATERIAL: Record<SurfaceMaterial, FootstepSurface> = {
+  plaster: 'stone',
+  wallpaper: 'stone',
+  wood: 'wood',
+  parquet: 'wood',
+  tile: 'tile',
+  checker: 'tile',
+  marble: 'tile',
+  carpet: 'carpet',
+  fabric: 'carpet',
+  leather: 'carpet',
+  metal: 'metal',
+  brick: 'stone',
+  books: 'wood',
+};
 
 /** Поверхность по цвету материала. `thin` — плоская плита на полу. */
 export function surfaceOfColor(hex: string, thin = false): FootstepSurface {
@@ -117,7 +134,8 @@ export function footstepSurface(
         z <= r.maxZ &&
         Math.abs(rampHeight(r, x, z) - y) < 0.3,
     );
-    if (box)
+    if (box?.material) surface = SURFACE_OF_MATERIAL[box.material];
+    else if (box)
       surface = surfaceOfColor(
         paint(box.color, 'surface'),
         box.h <= RUG_HEIGHT,

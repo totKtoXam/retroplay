@@ -106,3 +106,44 @@ test('the second-floor end rooms have windows toward the fountain and to the sid
   assert.equal(reachable(map, red, { x: -10, z: -14.4, y: 3.6 }), true, 'north-east room');
   assert.equal(reachable(map, red, { x: -10, z: 10, y: 3.6 }), true, 'south-east room');
 });
+
+test('the furnished house: every room is still reachable and has a real floor', async () => {
+  const { footstepSurface } = await import('../lib/footsteps.ts');
+  const surface = (p) =>
+    footstepSurface({ map, season: 'summer', sheltered: true, rain: 0, snow: 0 }, p.x, p.y ?? 0.03, p.z);
+  const red = map.spawns.red[0];
+  const rooms = [
+    ['dining room', { x: -17, z: -14 }],
+    ['kitchen', { x: -23.8, z: 2.8 }],
+    ['drawing room', { x: -16.5, z: 10.8 }],
+    ['foyer', { x: -8.6, z: 6.4 }],
+    ['library', { x: -11.6, z: -13.4 }],
+    ['music room', { x: -12, z: 9.0 }],
+    ['master bedroom', { x: -20, z: -13.4, y: 3.6 }],
+    ['study', { x: -21.5, z: -9.4, y: 3.6 }],
+    ['sitting room', { x: -23.5, z: 2.4, y: 3.6 }],
+    ['guest bedroom', { x: -24, z: 11, y: 3.6 }],
+  ];
+  for (const [name, p] of /** @type {[string, { x: number; z: number; y?: number }][]} */ (rooms)) {
+    assert.equal(reachable(map, red, p), true, `${name} reachable`);
+    assert.notEqual(surface(p), 'grass', `${name} has a floor, not the lawn`);
+  }
+  assert.equal(surface({ x: -23.8, z: 2.8 }), 'tile', 'kitchen tiles');
+  assert.equal(surface({ x: -20.9, z: -11.95 + 1.6 }), 'carpet', 'the dining-room rug');
+  // Furniture is detail, not a maze: decor never collides, and the spawns stay clear.
+  assert.ok(arena.decor.length > 50 && arena.boxes.length < 500);
+  for (const s of map.spawns.red)
+    assert.equal(isBlocked3D(s.x, s.z, 0, 0.32, 1.8, map.colliders), false, `red spawn ${s.x}, ${s.z} is clear`);
+});
+
+test('the fountain holds water: a brimming bowl over the pool, with a jet', () => {
+  const [fountain] = arena.fountains;
+  const [pool, bowl] = arena.water;
+  assert.ok(fountain && bowl?.round, 'a round bowl of water');
+  assert.ok(Math.abs(fountain.bowlY - bowl.y) < 1e-9 && Math.abs(fountain.poolY - pool.y) < 1e-9);
+  assert.ok(fountain.jetY > fountain.bowlY && fountain.bowlY > fountain.poolY);
+  // The bowl sits inside the pool, centred on the pedestal.
+  const pedestal = arena.cylinders[0];
+  assert.equal((bowl.minX + bowl.maxX) / 2, pedestal.x);
+  assert.ok(bowl.minX > pool.minX && bowl.maxX < pool.maxX && bowl.minZ > pool.minZ && bowl.maxZ < pool.maxZ);
+});
