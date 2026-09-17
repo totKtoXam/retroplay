@@ -24,7 +24,12 @@ import {
   type BotLevel,
   type BotSpec,
 } from './bot-levels.ts';
-import { WEATHER_SETTINGS } from './weather.ts';
+import {
+  tuningLevel,
+  WEATHER_PARAMS,
+  WEATHER_SETTINGS,
+  type WeatherTuning,
+} from './weather.ts';
 
 export const ZONES = [
   {
@@ -361,6 +366,12 @@ export type RoomState = {
    * серверных часах. У комнат, созданных до погоды, поля нет, и там ясно.
    */
   weather?: string;
+  /**
+   * Ручные уровни параметров погоды поверх выбранной (lib/weather.ts):
+   * ветер по Бофорту, туман по коду видимости и т. д. Нет ключа — уровень
+   * берётся из погоды.
+   */
+  weatherTuning?: WeatherTuning;
   /**
    * Ветер сносит игроков и пули, а у прицела виден его индикатор. Выключает
    * ведущий: это правило боя для всех, а не личная настройка. Нет поля — включено.
@@ -747,6 +758,29 @@ export function applyOperation(
     if ('season' in p)
       s.season = oneOf(p.season, ['spring', 'summer', 'autumn', 'winter']);
     if ('weather' in p) s.weather = oneOf(p.weather, [...WEATHER_SETTINGS]);
+    // Уровни погоды приходят частичным патчем: null у параметра возвращает его
+    // к погоде, null целиком сбрасывает все ручные уровни.
+    if ('weatherTuning' in p) {
+      const patch = p.weatherTuning;
+      if (patch === null) delete s.weatherTuning;
+      else {
+        if (typeof patch !== 'object' || Array.isArray(patch)) throw Error('Недопустимые уровни погоды');
+        const next: WeatherTuning = { ...s.weatherTuning };
+        for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
+          const param = WEATHER_PARAMS.find((k) => k === key);
+          if (!param) throw Error('Неизвестный параметр погоды');
+          if (value === null) {
+            delete next[param];
+            continue;
+          }
+          const level = tuningLevel(param, value);
+          if (level === null) throw Error('Недопустимый уровень погоды');
+          next[param] = level;
+        }
+        if (Object.keys(next).length) s.weatherTuning = next;
+        else delete s.weatherTuning;
+      }
+    }
     // Идущие сутки и ручной выбор времени — один переключатель на двоих.
     // Включение цикла подхватывает ту фазу, что сейчас на экране, а остановка
     // фиксирует её же: мир не должен прыгать в другое время суток от нажатия

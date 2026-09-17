@@ -53,7 +53,7 @@ import {
 } from '@/lib/day-cycle';
 import { createWorldPlayer } from './world-player';
 import { createWorldWeather } from './world-weather';
-import { windDrift, windLevel, windRelative, WIND_DRIFT } from '@/lib/weather';
+import { beaufort, windDrift, windLevel, windRelative, WIND_DRIFT } from '@/lib/weather';
 import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
@@ -2376,8 +2376,11 @@ export default function World(props: Props) {
         Date.now() + clockOffset.current,
         camera,
         // Внутри корабля погода всегда ясная: ни тумана, ни пасмурного света.
-        indoor ? { ...latest.current.room.state, weather: 'clear' } : latest.current.room.state,
+        indoor
+          ? { ...latest.current.room.state, weather: 'clear', weatherTuning: undefined }
+          : latest.current.room.state,
         !map.arena && latest.current.room.state.interior,
+        pos.y,
       );
       // Обзор «Предателя» — туман на радиусе видимости. Исходные границы тумана карты
       // запоминаем один раз, чтобы вернуть их, когда ограничение снимется.
@@ -2411,7 +2414,7 @@ export default function World(props: Props) {
           indicator.style.setProperty('--wind-angle', `${relative.angle}rad`);
           indicator.dataset.level = String(windLevel(wind.speed));
           const label = indicator.lastElementChild as HTMLElement | null;
-          const text = `${wind.speed.toFixed(1)} м/с`;
+          const text = `${wind.speed.toFixed(1)} м/с · ${beaufort(wind.speed)} б.`;
           if (label && label.textContent !== text) label.textContent = text;
         }
       }
@@ -2626,7 +2629,7 @@ export default function World(props: Props) {
       className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''}`}
     >
       <div ref={mount} className="world-canvas" data-visual-pack={packStatus === 'ready' ? resourcePack : 'default'} />
-      <div ref={windIndicator} className="wind-indicator" hidden aria-label="Ветер" title="Ветер: куда сносит пули и игрока">
+      <div ref={windIndicator} className="wind-indicator" hidden aria-label="Ветер" title="Ветер: куда сносит пули и игрока, скорость и балл по шкале Бофорта">
         <span className="wind-indicator-arrow" aria-hidden="true" />
         <b />
       </div>

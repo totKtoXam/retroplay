@@ -6510,6 +6510,82 @@ body.item-wheel-open [data-slot='dialog-overlay'] {
   color: var(--jin-accent-hover);
   font-weight: 600;
 }
+/* С тонкой настройкой погоды поповер выше экрана ноутбука — листается сам. */
+.world-chip-pop {
+  max-height: min(78vh, 720px);
+  overflow-y: auto;
+}
+/* Уровни погоды подписаны длинно («Очень густой — видимость меньше 50 м»): при
+   раскрытой настройке поповер шире, но не шире экрана телефона. */
+.world-chip-pop:has(.world-chip-tuning[open]) {
+  width: min(340px, calc(100vw - 24px));
+}
+.world-chip-tuning summary {
+  cursor: pointer;
+  padding: 6px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--jin-text-muted);
+}
+.world-chip-tuning[open] summary {
+  color: var(--jin-text);
+}
+.weather-tuning {
+  display: grid;
+  gap: 5px;
+}
+.weather-tuning-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--jin-text);
+}
+.weather-tuning-row select {
+  min-width: 0;
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--jin-border);
+  border-radius: 7px;
+  background: var(--jin-surface);
+  color: var(--jin-text);
+  font: inherit;
+  text-overflow: ellipsis;
+}
+.weather-tuning-row select:disabled {
+  opacity: 0.6;
+}
+.weather-tuning-reset {
+  justify-self: start;
+  padding: 4px 8px;
+  border: 1px solid var(--jin-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--jin-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+/* В планшете та же настройка в две колонки: места там больше. */
+.tablet-weather-tuning {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  margin-top: 12px;
+  column-gap: 16px;
+}
+.tablet-weather-tuning .weather-tuning-row {
+  grid-template-columns: 96px minmax(0, 1fr);
+  color: #e2e8f0;
+  font-size: 12.5px;
+}
+.tablet-weather-tuning .weather-tuning-row select {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(30, 41, 59, 0.7);
+  color: #e2e8f0;
+}
+.tablet-weather-tuning .weather-tuning-reset {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+}
 .world-chip-locked {
   display: flex;
   align-items: center;
