@@ -5565,6 +5565,15 @@ h1 > span {
   color: var(--hud-dim);
   letter-spacing: 0.4px;
 }
+.match-bar .clock .series b {
+  font: 600 11px/1.4 ui-monospace, monospace;
+}
+.match-bar .clock .series .red {
+  color: var(--team-red);
+}
+.match-bar .clock .series .blue {
+  color: var(--team-blue);
+}
 .pips {
   display: flex;
   gap: 3px;

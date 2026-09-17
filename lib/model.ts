@@ -441,6 +441,8 @@ export type Match = {
   /** When the current phase ends (0: no timer). */
   until: number;
   winner?: 'red' | 'blue' | 'draw';
+  /** Выигранные матчи за игру (с последней смены карты или режима). */
+  wins?: { red: number; blue: number };
 };
 export type Room = {
   id: string;

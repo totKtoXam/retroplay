@@ -397,6 +397,24 @@ test('deathmatch ends on the kill limit and a new one starts after the result', 
   assert.deepEqual([h.match.phase, h.match.score], ['live', { red: 0, blue: 0 }]);
 });
 
+test('счёт за игру: победы копятся между матчами, ничья не в счёт, смена режима обнуляет', () => {
+  const h = battle(member('a', { team: 'red' }));
+  h.room.killLimit = 2;
+  h.match = newMatch(h.room, T);
+  h.match.score.blue = 2;
+  updateMatch(h, T + 10);
+  updateMatch(h, h.match.until + 1);
+  assert.deepEqual([h.match.score, h.match.wins], [{ red: 0, blue: 0 }, { red: 0, blue: 1 }]);
+  h.room.killLimit = 0;
+  h.room.matchMinutes = 1;
+  h.match = newMatch(h.room, T, h.match.wins);
+  updateMatch(h, h.match.until + 1);
+  assert.deepEqual([h.match.winner, h.match.wins], ['draw', { red: 0, blue: 1 }]);
+  h.room.matchMode = 'rounds';
+  updateMatch(h, h.match.until + 1);
+  assert.deepEqual(h.match.wins, { red: 0, blue: 0 });
+});
+
 test('rounds: the dead wait for the next round and the surviving team takes it', () => {
   const h = battle(member('a', { team: 'red' }), member('v', { team: 'blue', pose: stand(0, 0) }));
   h.room.matchMode = 'rounds';
