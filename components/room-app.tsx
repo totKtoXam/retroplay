@@ -1284,6 +1284,7 @@ export default function RoomApp({ id }: { id: string }) {
           season={s.season}
           weather={s.weather}
           weatherTuning={s.weatherTuning}
+          weatherPeriod={s.weatherPeriod}
           windEffects={s.windEffects}
           now={now}
           dayCycle={s.dayCycle}
@@ -1299,6 +1300,9 @@ export default function RoomApp({ id }: { id: string }) {
           }
           onWeatherChange={(weather) =>
             void act({ type: 'room.settings', patch: { weather } })
+          }
+          onWeatherPeriodChange={(weatherPeriod) =>
+            void act({ type: 'room.settings', patch: { weatherPeriod } })
           }
           onWeatherTuningChange={(weatherTuning) =>
             void act({ type: 'room.settings', patch: { weatherTuning } })

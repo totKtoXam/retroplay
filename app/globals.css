@@ -6617,6 +6617,22 @@ body.item-wheel-open [data-slot='dialog-overlay'] {
   font-size: 11px;
   cursor: pointer;
 }
+/* Частота смены погоды стоит сразу под выбором погоды, отдельно от уровней. */
+.weather-period {
+  margin-top: 2px;
+}
+.tablet-weather-period {
+  max-width: 420px;
+  margin-top: 12px;
+  grid-template-columns: 120px minmax(0, 1fr);
+  color: #e2e8f0;
+  font-size: 12.5px;
+}
+.tablet-weather-period select {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(30, 41, 59, 0.7);
+  color: #e2e8f0;
+}
 /* В планшете та же настройка в две колонки: места там больше. */
 .tablet-weather-tuning {
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
