@@ -140,10 +140,12 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     for (let i = 0; i < uv.count; i++)
       uv.setXY(i, (uv.getX(i) * (w.maxX - w.minX)) / 3, (uv.getY(i) * (w.maxZ - w.minZ)) / 3);
     const water = new T.Mesh(plane, arenaMaterials.water(w.color ?? '#3f7f96'));
-    water.renderOrder = 1;
     water.rotation.x = -Math.PI / 2;
     water.position.set((w.minX + w.maxX) / 2, w.y, (w.minZ + w.maxZ) / 2);
     water.receiveShadow = true;
+    // Ресурс-паки и аниме-стиль перекрашивают непрозрачные материалы без текстуры — вода
+    // потеряла бы рябь. Её вид карта задаёт сама.
+    water.userData.presentationOnly = true;
     scene.add(water);
     waters.push(water);
   }
@@ -301,9 +303,9 @@ function createFountainSpray(f: MapFountain) {
   geometry.setAttribute('aSeed', new T.BufferAttribute(seeds, 4));
   // Частицы двигает шейдер: рамка должна покрывать весь фонтан, иначе его отсечёт камера.
   geometry.boundingSphere = new T.Sphere(new T.Vector3(f.x, (f.jetY + f.poolY) / 2 + 0.5, f.z), f.bowlR + 2.5);
+  // Непрозрачные капли с отсечением по кругу, а не мягкая прозрачность: прозрачное рисуется
+  // после оружия в руках и легло бы поверх ствола (см. `water` в world-arena-materials.ts).
   const material = new T.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
     uniforms: {
       uTime: { value: 0 },
       uOrigin: { value: new T.Vector3(f.x, f.jetY, f.z) },
@@ -347,12 +349,14 @@ function createFountainSpray(f: MapFountain) {
       void main() {
         vec2 c = gl_PointCoord - 0.5;
         float d = dot(c, c);
-        if (d > 0.25) discard;
-        gl_FragColor = vec4(0.86, 0.94, 1.0, vAlpha * 0.7 * (1.0 - d * 4.0));
+        // Край капли и её рождение/исчезновение — сужением круга вместо прозрачности.
+        if (d > 0.25 * vAlpha) discard;
+        gl_FragColor = vec4(mix(vec3(0.86, 0.94, 1.0), vec3(0.62, 0.78, 0.9), d * 4.0), 1.0);
       }`,
   });
   const points = new T.Points(geometry, material);
   points.userData.noCameraCollision = true;
+  points.userData.presentationOnly = true;
   return {
     points,
     animate(seconds: number) {
