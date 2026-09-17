@@ -51,11 +51,26 @@ function projection(map: GameMap, px: number, dpr: number) {
 type Projection = ReturnType<typeof projection>;
 
 /**
+ * Короткое название отсека для угловой плашки: «Нижний двигатель» → «Ниж. двиг.»,
+ * «Администрация» → «Админ.». На развёрнутом плане места хватает на полное.
+ */
+export function shortZoneName(name: string) {
+  const words = name.split(' ');
+  if (words.length > 1) return words.map((w) => (w.length > 5 ? w.slice(0, 4) + '.' : w)).join(' ');
+  return name.length > 9 ? name.slice(0, 5) + '.' : name;
+}
+
+/**
  * Статический слой: всё, что не двигается, рисуется один раз в отдельный холст
  * и дальше только копируется. Иначе каждый кадр перерисовывал бы сотни
  * прямоугольников поверх сцены, которая и так занимает кадр целиком.
  */
-function drawStatic(map: GameMap, px: number, p: Projection): HTMLCanvasElement {
+function drawStatic(
+  map: GameMap,
+  px: number,
+  p: Projection,
+  labels: { font: number; short: boolean } | null,
+): HTMLCanvasElement {
   const layer = document.createElement('canvas');
   layer.width = px;
   layer.height = px;
@@ -98,6 +113,23 @@ function drawStatic(map: GameMap, px: number, p: Projection): HTMLCanvasElement 
         c.y + c.h / 2 >= HIGH_Y ? COLORS.high : COLORS.wall,
       );
     }
+    // Названия отсеков — поверх стен, по центру отсека, с тёмной обводкой для читаемости.
+    if (labels && arena.zones?.length) {
+      ctx.font = `600 ${labels.font}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = Math.max(2, labels.font / 3.5);
+      ctx.strokeStyle = 'rgba(8, 13, 25, 0.9)';
+      ctx.fillStyle = 'rgba(241, 245, 251, 0.95)';
+      for (const z of arena.zones) {
+        const text = labels.short ? shortZoneName(z.name) : z.name;
+        const x = p.toX((z.minX + z.maxX) / 2),
+          y = p.toZ((z.minZ + z.maxZ) / 2);
+        ctx.strokeText(text, x, y);
+        ctx.fillText(text, x, y);
+      }
+    }
   } else {
     // Хаб описан не ареной, а готовыми коллайдерами — рисуем их.
     for (const c of map.colliders)
@@ -126,6 +158,10 @@ export function WorldMinimap(props: {
   read: () => MinimapFrame | null;
   /** Развёрнутый план по M. */
   expanded?: boolean;
+  /** Сторона угловой плашки, CSS-пиксели (по умолчанию SIZE). */
+  size?: number;
+  /** Подписывать отсеки карты (у карт с `zones`). */
+  labels?: boolean;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   // Кадр берёт свежий `read` через ref, чтобы смена коллбэка не перезапускала
@@ -151,14 +187,19 @@ export function WorldMinimap(props: {
     const setup = () => {
       const side = props.expanded
         ? Math.max(260, Math.min(EXPANDED_MAX, Math.min(window.innerWidth, window.innerHeight) - 96))
-        : SIZE;
+        : (props.size ?? SIZE);
       px = Math.round(side * dpr);
       el.width = px;
       el.height = px;
       el.style.width = `${side}px`;
       el.style.height = `${side}px`;
       p = projection(props.map, px, dpr);
-      statics = drawStatic(props.map, px, p);
+      statics = drawStatic(
+        props.map,
+        px,
+        p,
+        props.labels ? { font: Math.round((props.expanded ? 13 : 9) * dpr), short: !props.expanded } : null,
+      );
     };
     setup();
     const onResize = () => setup();
@@ -172,7 +213,8 @@ export function WorldMinimap(props: {
       ctx.clearRect(0, 0, px, px);
       ctx.drawImage(statics, 0, 0);
       if (!data) return;
-      const unit = px / (SIZE * dpr);
+      // Отметки и стрелка — одного размера на экране при любой стороне плашки.
+      const unit = props.expanded ? px / (SIZE * dpr) : 1;
       for (const blip of data.blips) {
         const r = (blip.enemy ? 3.6 : 3) * dpr * unit;
         ctx.globalAlpha = blip.dead ? 0.3 : (blip.fresh ?? 1);
@@ -215,10 +257,13 @@ export function WorldMinimap(props: {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
     };
-  }, [props.map, props.expanded]);
+  }, [props.map, props.expanded, props.size, props.labels]);
 
   return (
-    <div className={`hud-minimap ${props.expanded ? 'is-expanded' : ''}`} aria-hidden="true">
+    <div
+      className={`hud-minimap${props.expanded ? ' is-expanded' : ''}${props.size ? ' is-large' : ''}`}
+      aria-hidden="true"
+    >
       <canvas ref={canvas} />
       {props.expanded && (
         <figcaption className="hud-minimap-caption">

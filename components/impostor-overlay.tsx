@@ -24,6 +24,7 @@ import {
 import type { ImpostorReply } from './use-room-sync';
 import { TASK_GAMES } from './impostor-tasks';
 import ImpostorRules from './impostor-rules';
+import ImpostorDeath from './impostor-death';
 
 type Props = {
   room: Room;
@@ -97,12 +98,19 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
   const [repair, setRepair] = useState<SabotagePanel | null>(null);
   const [sabotageMenu, setSabotageMenu] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  /** Сцена смерти: цвета жертвы и убийцы; null — не показываем. */
+  const [death, setDeath] = useState<{ me: string; killer: string } | null>(null);
+  const viewRef = useRef(room.impostor);
+  const selfRef = useRef(room.self);
+  const wasAlive = useRef(false);
   // Кадр обновления: подсказки «рядом пульт / тело / цель» зависят от позы, а она в ref.
   const phaseRef = useRef(room.impostor?.phase);
   const sabotageRef = useRef(room.impostor?.sabotage?.kind);
   useEffect(() => {
     phaseRef.current = room.impostor?.phase;
     sabotageRef.current = room.impostor?.sabotage?.kind;
+    viewRef.current = room.impostor;
+    selfRef.current = room.self;
   });
   useEffect(() => {
     const timer = setInterval(() => {
@@ -113,10 +121,19 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
         setSabotageMenu(false);
       }
       setRepair((r) => (r && (phaseRef.current !== 'play' || sabotageRef.current !== r.sabotage) ? null : r));
+      // Был жив, а в игре (не на собрании — там изгоняют, это другой экран) стал мёртв: убили.
+      const v = viewRef.current;
+      const alive = !!v && !!v.role && v.alive;
+      if (wasAlive.current && !alive && v?.phase === 'play' && v.role) {
+        const color = (id: string | null) => v.players.find((p) => p.id === id)?.color;
+        setDeath({ me: color(selfRef.current) ?? '#3e8ef7', killer: color(v.killedBy) ?? '#e5484d' });
+      }
+      wasAlive.current = alive;
     }, 200);
     return () => clearInterval(timer);
   }, [serverNow]);
 
+  const closeDeath = useCallback(() => setDeath(null), []);
   const flash = useCallback((text: string) => {
     setToast(text);
     setTimeout(() => setToast((t) => (t === text ? '' : t)), 2500);
@@ -145,7 +162,7 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
   const openGame = phase === 'play' ? task : null;
   const openRepair = phase === 'play' && repair && view?.sabotage?.kind === repair.sabotage ? repair : null;
   const openMenu = phase === 'play' && sabotageMenu;
-  const needsCursor = rulesOpen || !!openGame || !!openRepair || openMenu || !!myVent || meeting || phase === 'ended';
+  const needsCursor = !!death || rulesOpen || !!openGame || !!openRepair || openMenu || !!myVent || meeting || phase === 'ended';
   useEffect(() => {
     onBlocked(needsCursor);
     if (needsCursor && document.pointerLockElement) document.exitPointerLock();
@@ -654,6 +671,7 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
       )}
 
       {rules}
+      {death && <ImpostorDeath myColor={death.me} killerColor={death.killer} onDone={closeDeath} />}
       {toast && <div className="impostor-toast">{toast}</div>}
     </div>
   );
