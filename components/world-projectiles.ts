@@ -12,6 +12,7 @@ import {
 } from './party-geometry';
 import { avatarShoot } from './world-avatar';
 import type { createWorldVfx } from './world-vfx';
+import { createMaterialPool, type MaterialPool } from './material-pool';
 
 type Flight = {
   mesh: T.Object3D;
@@ -78,6 +79,25 @@ export function createWorldProjectiles({
   const seen = new Map<string, number>();
   const SEEN_TTL_MS = 25_000;
   const paintGeo = new T.SphereGeometry(0.105, 7, 5);
+  // Материалы шариков и сердечек переиспользуются: см. material-pool.ts.
+  const ballMaterials = createMaterialPool(() => new T.MeshBasicMaterial());
+  const heartMaterials = createMaterialPool(
+    () => new T.MeshBasicMaterial({ color: '#ff647c', side: T.DoubleSide }),
+  );
+  const pooled = <M extends T.Material>(
+    geometry: T.BufferGeometry,
+    pool: MaterialPool<M>,
+  ) => {
+    const mesh = new T.Mesh(geometry, pool.acquire());
+    mesh.userData.materialPool = pool;
+    return mesh;
+  };
+  /** Шарик краски или дробина; геометрией снаряд не владеет — она общая. */
+  const ball = (color: string, geometry: T.BufferGeometry = paintGeo) => {
+    const mesh = pooled(geometry, ballMaterials);
+    mesh.material.color.set(color);
+    return mesh;
+  };
   const spawn = (e: WorldEffect) => {
     if (
       e.kind === 'kill' ||
@@ -99,22 +119,19 @@ export function createWorldProjectiles({
     const start = new T.Vector3(...e.origin),
       target = new T.Vector3(...e.target),
       normal = new T.Vector3(...e.normal).normalize();
-    const ball =
+    const projectile =
       e.kind === 'grenade'
         ? makeGrenade(e.color, e.variant)
         : e.kind === 'sniper'
           ? makeFireworkRocket(e.color)
           : e.kind === 'like'
-            ? new T.Mesh(
-                partyGeometry('hearts'),
-                new T.MeshBasicMaterial({ color: '#ff647c', side: T.DoubleSide }),
-              )
-            : new T.Mesh(paintGeo, new T.MeshBasicMaterial({ color: e.color }));
-    ball.position.copy(start);
-    ball.userData.transientProjectile = true;
-    scene.add(ball);
+            ? pooled(partyGeometry('hearts'), heartMaterials)
+            : ball(e.color);
+    projectile.position.copy(start);
+    projectile.userData.transientProjectile = true;
+    scene.add(projectile);
     flights.push({
-      mesh: ball,
+      mesh: projectile,
       origin: start,
       target,
       normal,
@@ -319,7 +336,9 @@ export function createWorldProjectiles({
         f.mesh.removeFromParent();
         f.mesh.traverse((o) => {
           if (o instanceof T.Mesh) {
-            (o.material as T.Material).dispose();
+            const pool = o.userData.materialPool as MaterialPool<T.Material> | undefined;
+            if (pool) pool.release(o.material as T.Material);
+            else (o.material as T.Material).dispose();
             if (
               f.kind === 'grenade' ||
               f.kind === 'sniper' ||
@@ -334,6 +353,8 @@ export function createWorldProjectiles({
   };
   const dispose = () => {
     paintGeo.dispose();
+    ballMaterials.dispose();
+    heartMaterials.dispose();
   };
-  return { flights, spawn, update, dispose };
+  return { flights, spawn, update, dispose, ball };
 }

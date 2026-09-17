@@ -78,3 +78,31 @@ test('the service tunnel links the blue corridor to the yard behind the house', 
   assert.equal(isBlocked3D(0, -21.8, 0, 0.32, 1.8, map.colliders), true, 'its south wall');
   assert.equal(map.groundHeight(TUNNEL_MID.x, TUNNEL_MID.z, 0), 0, 'the tunnel floor is the ground');
 });
+
+test('the second-floor end rooms have windows toward the fountain and to the sides', () => {
+  /** A solid collider at the point: a wall, or nothing in a window opening. */
+  const solidAt = (x, y, z) =>
+    map.colliders.some((c) => x >= c.minX && x <= c.maxX && y >= c.minY && y <= c.maxY && z >= c.minZ && z <= c.maxZ);
+  const WINDOW_Y = 5.2; // between the second-floor sill (4.6) and lintel (5.8)
+  const FOUNTAIN = arena.cylinders[0];
+  for (const [name, x, z] of [
+    ['north-east room, east (fountain)', -7, -13.8],
+    ['north-east room, north side', -8.9, -16.6],
+    ['south-east room, east (fountain)', -7, 9.85],
+    ['south-east room, south side', -8.9, 12],
+  ]) {
+    assert.equal(solidAt(x, WINDOW_Y, z), false, `${name}: open window`);
+    assert.equal(solidAt(x, 4.2, z), true, `${name}: wall under the sill`);
+    assert.equal(solidAt(x, 6.1, z), true, `${name}: wall over the lintel`);
+  }
+  // The east windows face the fountain: it lies further east, and nothing but garden between.
+  assert.ok(FOUNTAIN.x > -7);
+  // The ground floor below keeps its door and window, and the walls between windows stay solid.
+  assert.equal(solidAt(-7, 1.2, 9.85), false, 'south-east room door below');
+  assert.equal(solidAt(-7, WINDOW_Y, -15.6), true, 'wall beside the north-east window');
+  assert.equal(solidAt(-10.4, WINDOW_Y, -16.6), true, 'wall between the two north windows');
+  // The rooms are still reachable up the stairs.
+  const red = map.spawns.red[0];
+  assert.equal(reachable(map, red, { x: -10, z: -14.4, y: 3.6 }), true, 'north-east room');
+  assert.equal(reachable(map, red, { x: -10, z: 10, y: 3.6 }), true, 'south-east room');
+});

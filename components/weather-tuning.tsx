@@ -3,10 +3,66 @@
 import {
   WEATHER_PARAM_INFO,
   WEATHER_PARAMS,
+  nextWeatherChangeIn,
+  periodLabel,
+  WEATHER_PERIODS,
   weatherLevels,
+  weatherPeriod,
+  weatherSetting,
   type WeatherParam,
   type WeatherTuning,
 } from '@/lib/weather';
+
+/**
+ * Как часто меняется погода «авто». Для ручной погоды не нужна, поэтому тогда
+ * выключена, а не спрятана: ведущий видит, что такая настройка есть.
+ */
+export function WeatherPeriodSelect({
+  weather,
+  season,
+  period,
+  now,
+  host,
+  onChange,
+  className = '',
+}: {
+  weather?: string;
+  season: string;
+  period?: number;
+  /** Серверное время: по нему считается, когда следующая смена. */
+  now: number;
+  host: boolean;
+  onChange: (minutes: number) => void;
+  className?: string;
+}) {
+  const auto = weatherSetting(weather) === 'auto';
+  const left = Math.ceil(nextWeatherChangeIn({ weather, season, weatherPeriod: period }, now) / 1000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const clock =
+    left >= 3600
+      ? `${Math.floor(left / 3600)}:${pad(Math.floor(left / 60) % 60)}:${pad(left % 60)}`
+      : `${Math.floor(left / 60)}:${pad(left % 60)}`;
+  return (
+    <label
+      className={`weather-tuning-row weather-period ${className}`}
+      title={auto ? 'Как часто погода «Авто» сменяется следующей' : 'Работает только в режиме погоды «Авто»'}
+    >
+      <span>Смена погоды</span>
+      <select
+        value={weatherPeriod(period)}
+        disabled={!host || !auto}
+        onChange={(e) => onChange(Number(e.target.value))}
+      >
+        {WEATHER_PERIODS.map((m) => (
+          <option key={m} value={m}>
+            раз в {periodLabel(m)}
+            {auto && m === weatherPeriod(period) ? ` · через ${clock}` : ''}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 /**
  * Тонкая настройка погоды: по строке на параметр (ветер, туман, дождь…).
@@ -18,6 +74,7 @@ import {
 export function WeatherTuningPanel({
   weather,
   season,
+  period,
   tuning,
   now,
   host,
@@ -26,6 +83,7 @@ export function WeatherTuningPanel({
 }: {
   weather?: string;
   season: string;
+  period?: number;
   tuning?: WeatherTuning;
   /** Серверное время: по нему видно, какой уровень сейчас даёт «Авто». */
   now: number;
@@ -35,7 +93,7 @@ export function WeatherTuningPanel({
   className?: string;
 }) {
   // Что дала бы погода без ручных уровней — для подписи пункта «Авто».
-  const auto = weatherLevels({ weather, season }, now);
+  const auto = weatherLevels({ weather, season, weatherPeriod: period }, now);
   const tuned = WEATHER_PARAMS.filter((p) => tuning?.[p] !== undefined).length;
   return (
     <div className={`weather-tuning ${className}`}>

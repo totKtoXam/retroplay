@@ -16,7 +16,7 @@ import {
   type WeatherParam,
   type WeatherTuning,
 } from '@/lib/weather';
-import { WeatherTuningPanel } from './weather-tuning';
+import { WeatherPeriodSelect, WeatherTuningPanel } from './weather-tuning';
 
 /**
  * Время суток, время года и погода прямо в шапке комнаты.
@@ -46,6 +46,7 @@ export function WorldQuickChip({
   season,
   weather,
   weatherTuning,
+  weatherPeriod,
   windEffects,
   now,
   dayCycle,
@@ -54,6 +55,7 @@ export function WorldQuickChip({
   onSeasonChange,
   onWeatherChange,
   onWeatherTuningChange,
+  onWeatherPeriodChange,
   onWindEffectsChange,
   onDayCycleChange,
   onLocked,
@@ -62,6 +64,7 @@ export function WorldQuickChip({
   season: string;
   weather?: string;
   weatherTuning?: WeatherTuning;
+  weatherPeriod?: number;
   windEffects?: boolean;
   /** Серверное время: по нему считается фаза идущих суток. */
   now: number;
@@ -70,6 +73,7 @@ export function WorldQuickChip({
   onTimeChange: (time: string) => void;
   onSeasonChange: (season: string) => void;
   onWeatherChange: (weather: string) => void;
+  onWeatherPeriodChange: (minutes: number) => void;
   onWeatherTuningChange: (patch: Partial<Record<WeatherParam, number | null>> | null) => void;
   onWindEffectsChange: (on: boolean) => void;
   onDayCycleChange: (running: boolean) => void;
@@ -84,7 +88,7 @@ export function WorldQuickChip({
   const running = moment.running;
   const setting = weatherSetting(weather);
   // В режиме «авто» значок показывает ту погоду, что сейчас идёт.
-  const nowWeather = WEATHER_LABELS[currentWeather(weatherMix({ weather, season }, now))];
+  const nowWeather = WEATHER_LABELS[currentWeather(weatherMix({ weather, season, weatherPeriod }, now))];
   const windOn = windEffects !== false;
   return (
     <Popover>
@@ -162,6 +166,14 @@ export function WorldQuickChip({
             </button>
           ))}
         </div>
+        <WeatherPeriodSelect
+          weather={weather}
+          season={season}
+          period={weatherPeriod}
+          now={now}
+          host={host}
+          onChange={onWeatherPeriodChange}
+        />
         {/* Ветер зависит от погоды и сносит игроков и пули. Это правило боя для
             всех, поэтому выключает его ведущий, как и остальной облик мира. */}
         <button
@@ -177,6 +189,7 @@ export function WorldQuickChip({
           <WeatherTuningPanel
             weather={weather}
             season={season}
+            period={weatherPeriod}
             tuning={weatherTuning}
             now={now}
             host={host}

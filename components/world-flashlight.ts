@@ -34,6 +34,7 @@ const AVATAR_MUZZLE: Record<string, [number, number, number]> = {
   paint: [0, 0.18, -0.37],
   confetti: [0, 0.17, -0.39],
   sniper: [0, 0.17, -0.75],
+  flashlight: [0, 0.08, -0.31],
 };
 const AVATAR_HAND: [number, number, number] = [0, 0.05, -0.08];
 const muzzleScratch = new T.Vector3();

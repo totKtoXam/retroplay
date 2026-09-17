@@ -356,6 +356,34 @@ export function createAvatar(color: string) {
   box(gunSniper, '#e5be6b', 0, 0.25, -0.2, 0.09, 0.07, 0.04);
   box(gunSniper, '#232838', 0, -0.08, -0.1, 0.08, 0.16, 0.12);
   box(gunSniper, '#64d4ef', 0, 0.3, -0.375, 0.09, 0.09, 0.02);
+  // Фонарик «Предателя»: корпус, расширенная головка и светлая линза. Из линзы идёт
+  // свет и луч — точка `flashlight` в AVATAR_MUZZLE (components/world-flashlight.ts).
+  const gunTorch = pivot(gun, 'gun-torch', 0, 0, 0);
+  add(
+    gunTorch,
+    new T.CylinderGeometry(0.035, 0.04, 0.26, 10),
+    '#2b3042',
+    0,
+    0.08,
+    -0.08,
+  ).rotation.x = Math.PI / 2;
+  add(
+    gunTorch,
+    new T.CylinderGeometry(0.065, 0.042, 0.09, 12),
+    '#8a93ab',
+    0,
+    0.08,
+    -0.25,
+  ).rotation.x = Math.PI / 2;
+  add(
+    gunTorch,
+    new T.CylinderGeometry(0.055, 0.055, 0.012, 12),
+    '#fff6dc',
+    0,
+    0.08,
+    -0.296,
+  ).rotation.x = Math.PI / 2;
+  box(gunTorch, '#e5be6b', 0, 0.125, -0.04, 0.03, 0.02, 0.05);
   const tablet = pivot(elbows[0], 'tablet', 0, -0.29, 0);
   box(tablet, '#39415b', 0, 0.04, -0.11, 0.36, 0.035, 0.47);
   box(tablet, '#a6ddeb', 0, 0.065, -0.11, 0.3, 0.012, 0.4);
@@ -594,7 +622,7 @@ export function animateAvatar(
     grenade.visible = m.tool === 'grenade';
     if (grenade.visible) setGrenadeStyle(grenade, m.variant || 'pinata');
   }
-  const armed = ['paint', 'confetti', 'grenade', 'sniper'].includes(m.tool);
+  const armed = ['paint', 'confetti', 'grenade', 'sniper', 'flashlight'].includes(m.tool);
   for (let i = 0; i < 2; i++) {
     const side = i ? 1 : -1,
       step = Math.sin(r.phase + (i ? Math.PI : 0));
@@ -695,6 +723,8 @@ export function animateAvatar(
   if (gunShotgun) gunShotgun.visible = m.tool === 'confetti';
   const gunSniper = r.gun.getObjectByName('gun-sniper');
   if (gunSniper) gunSniper.visible = m.tool === 'sniper';
+  const gunTorch = r.gun.getObjectByName('gun-torch');
+  if (gunTorch) gunTorch.visible = m.tool === 'flashlight';
 
   r.tablet.visible = !!m.working || !!m.inventory || m.tool === 'pointer';
   r.scarf.rotation.x = follow(

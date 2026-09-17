@@ -235,8 +235,23 @@ export function createWorldWeather({
     opacity: 0,
     depthWrite: false,
     fog: false,
+    vertexColors: true,
   });
-  const dome = new T.Mesh(new T.SphereGeometry(DOME_RADIUS, 24, 12), domeMaterial);
+  const domeGeometry = new T.SphereGeometry(DOME_RADIUS, 24, 12);
+  {
+    // Облака закрывают небо, а не горизонт: у горизонта купол прозрачный, иначе
+    // пасмурное небо серой пеленой ложилось на дальние дома и выглядело туманом.
+    // Дымку у земли даёт только видимость (туман сцены).
+    const position = domeGeometry.getAttribute('position');
+    const colors = new Float32Array(position.count * 4);
+    for (let i = 0; i < position.count; i++) {
+      const up = position.getY(i) / DOME_RADIUS;
+      const t = Math.min(1, Math.max(0, (up - 0.04) / 0.3));
+      colors.set([1, 1, 1, t * t * (3 - 2 * t)], i * 4);
+    }
+    domeGeometry.setAttribute('color', new T.BufferAttribute(colors, 4));
+  }
+  const dome = new T.Mesh(domeGeometry, domeMaterial);
   dome.userData.transientProjectile = true;
   dome.renderOrder = -1;
   group.add(dome);
@@ -285,7 +300,9 @@ export function createWorldWeather({
       const light = Math.max(0.15, brightness);
       const murk = 1 - Math.min(1, l.visibility / Math.max(1, baseFog.far));
       scratch.copy(l.snow + l.drift > l.rain ? overcastSnow : overcastRain).multiplyScalar(light);
-      fog.color.copy(baseFog.color).lerp(scratch, Math.min(1, Math.max(l.overcast, murk) * 0.85));
+      // Серее туман карты делает прежде всего плохая видимость; одни облака лишь
+      // слегка приглушают его цвет, но не превращают дальний план в пелену.
+      fog.color.copy(baseFog.color).lerp(scratch, Math.min(1, Math.max(l.overcast * 0.35, murk) * 0.85));
       fog.color.lerp(scratch.copy(dustHaze).multiplyScalar(light), Math.min(0.85, l.dust * 0.85));
       // Видимость по шкалам — это дальняя граница тумана; ближнюю сдвигаем в той же пропорции.
       const far = Math.max(12, Math.min(baseFog.far, l.visibility));

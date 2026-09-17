@@ -23,7 +23,7 @@ import {
   Moon,
 } from 'lucide-react';
 import { WEATHER_LABELS, WEATHER_SETTINGS, weatherSetting } from '@/lib/weather';
-import { WeatherTuningPanel } from './weather-tuning';
+import { WeatherPeriodSelect, WeatherTuningPanel } from './weather-tuning';
 
 type WorldTabletProps = {
   room: Room;
@@ -499,8 +499,18 @@ export function WorldTablet(props: WorldTabletProps) {
                   </span>
                 </button>
               </div>
+              <WeatherPeriodSelect
+                className="tablet-weather-period"
+                weather={props.room.state.weather}
+                season={props.room.state.season}
+                period={props.room.state.weatherPeriod}
+                now={props.now}
+                host={!!props.host}
+                onChange={(weatherPeriod) => props.onRoomSettings?.({ weatherPeriod })}
+              />
               <WeatherTuningPanel
                 className="tablet-weather-tuning"
+                period={props.room.state.weatherPeriod}
                 weather={props.room.state.weather}
                 season={props.room.state.season}
                 tuning={props.room.state.weatherTuning}
