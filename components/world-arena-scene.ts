@@ -6,7 +6,8 @@ import { createAvatar, setAvatarStyle } from './world-avatar';
 import { createInterior, interiorDraws } from './world-interior';
 import { createSurfaceLibrary } from './world-cinematic';
 import { createArenaMaterials } from './world-arena-materials';
-import type { WorldKit } from './world-map-scene';
+import type { MapSceneOptions, WorldKit } from './world-map-scene';
+import { createLampLights } from './world-lamp-lights';
 import { mixValue, type DayMix, type TimeOfDay } from '@/lib/day-cycle';
 import { seasonColor } from '@/lib/season-colors';
 
@@ -25,7 +26,7 @@ const ARENA_SUN_HEIGHT: Record<TimeOfDay, number> = { dawn: 36, day: 36, sunset:
  * built from the same boxes, ramps and cylinders that the collision uses, then merged by
  * material to keep draw calls low.
  */
-export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
+export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: MapSceneOptions = {}): WorldKit {
   const def = map.arena;
   const surfaces = createSurfaceLibrary();
   const arenaMaterials = createArenaMaterials();
@@ -147,11 +148,7 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     scene.add(water);
     waters.push(water);
   }
-  for (const l of def.lights ?? []) {
-    const light = new T.PointLight(l.color, l.intensity, l.distance);
-    light.position.set(l.x, l.y, l.z);
-    scene.add(light);
-  }
+  const lampLights = createLampLights(scene, def.lights ?? [], options.lampLights ?? 4);
 
   const fountains = (def.fountains ?? []).map((f) => createFountainSpray(f));
   fountains.forEach((f) => scene.add(f.points));
@@ -257,6 +254,7 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     setNotes: () => {},
     clouds: new T.Group(),
     sunlight,
+    view: (eye: T.Vector3, dt: number) => lampLights.update(eye, dt),
     animate: (seconds: number) => {
       interior?.animate(seconds);
       arenaMaterials.animate(seconds);
@@ -264,6 +262,7 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     },
     dispose: () => {
       surfaces.dispose();
+      lampLights.dispose();
       interior?.dispose();
       arenaMaterials.dispose();
       waters.forEach((w) => w.geometry.dispose());

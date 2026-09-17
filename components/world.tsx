@@ -714,10 +714,12 @@ export default function World(props: Props) {
       return;
     }
     const map = getMap(mapId);
-    const kit = createMapScene(map, renderer),
-      { scene } = kit;
     const isCinematic = props.quality === 'cinematic' || props.quality === 'high';
     const isBalanced = props.quality === 'balanced' || (!isCinematic && props.quality !== 'low');
+    // Каждая лампа — это цикл в шейдере каждого освещённого пикселя; на встроенной
+    // видеокарте 18 ламп «Особняка» съедали больше половины кадра.
+    const kit = createMapScene(map, renderer, { lampLights: isCinematic ? 6 : isBalanced ? 4 : 3 }),
+      { scene } = kit;
     const pixelRatio = isCinematic
       ? Math.min(devicePixelRatio, 1.5)
       : isBalanced
@@ -2395,6 +2397,7 @@ export default function World(props: Props) {
       }
       kit.clouds.position.x = Math.sin(now * 0.000015) * 2;
       kit.animate(now / 1000);
+      kit.view?.(camera.position, dt);
       weather.update(
         dt,
         Date.now() + clockOffset.current,
