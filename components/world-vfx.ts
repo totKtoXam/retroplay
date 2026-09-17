@@ -1,6 +1,7 @@
 import * as T from 'three';
 import { CONFETTI, FIREWORKS } from '@/lib/game-items';
 import { partyGeometry } from './party-geometry';
+import { createMaterialPool } from './material-pool';
 
 type Particle = {
   mesh: T.InstancedMesh;
@@ -46,6 +47,27 @@ export function createWorldVfx({
     paintDropletGeo = new T.SphereGeometry(0.04, 6, 4),
     confettiGeo = new T.PlaneGeometry(0.07, 0.13),
     normalUp = new T.Vector3(0, 0, 1);
+  // Материалы вспышек и клякс переиспользуются: см. material-pool.ts.
+  const burstMaterials = createMaterialPool(
+    () => new T.MeshBasicMaterial({ side: T.DoubleSide, transparent: true }),
+  );
+  const splatMaterials = createMaterialPool(
+    () =>
+      new T.MeshBasicMaterial({
+        transparent: true,
+        side: T.DoubleSide,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -3,
+      }),
+  );
+  const retireBurst = (b: Particle) => {
+    b.mesh.removeFromParent();
+    // Geometry is shared (paintDropletGeo / partyGeometries / confettiGeo);
+    // dispose() frees only this burst's instanceMatrix/instanceColor buffers.
+    b.mesh.dispose();
+    burstMaterials.release(b.mesh.material as T.MeshBasicMaterial);
+  };
   const partyGeometries = new Map([
     ...[...CONFETTI, ...FIREWORKS].map(
       (c) => [c.id, partyGeometry(c.id)] as [string, T.BufferGeometry],
@@ -88,11 +110,9 @@ export function createWorldVfx({
       style === 'paint'
         ? paintDropletGeo
         : partyGeometries.get(style) || confettiGeo;
-    const mesh = new T.InstancedMesh(
-      geo,
-      new T.MeshBasicMaterial({ side: T.DoubleSide, transparent: true }),
-      count,
-    );
+    const material = burstMaterials.acquire();
+    material.opacity = 1;
+    const mesh = new T.InstancedMesh(geo, material, count);
     const velocity: T.Vector3[] = [],
       positions: T.Vector3[] = [],
       rotations: T.Euler[] = [];
@@ -158,9 +178,7 @@ export function createWorldVfx({
     while (bursts.length > MAX_LIVE_BURSTS) {
       const oldest = bursts.shift();
       if (!oldest) break;
-      oldest.mesh.removeFromParent();
-      oldest.mesh.dispose();
-      (oldest.mesh.material as T.Material).dispose();
+      retireBurst(oldest);
     }
   };
   const splat = (
@@ -188,18 +206,10 @@ export function createWorldVfx({
       if (i === 0) shape.moveTo(Math.cos(a) * r, Math.sin(a) * r);
       else shape.lineTo(Math.cos(a) * r, Math.sin(a) * r);
     }
-    const decal = new T.Mesh(
-      new T.ShapeGeometry(shape),
-      new T.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.9,
-        side: T.DoubleSide,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -3,
-      }),
-    );
+    const material = splatMaterials.acquire();
+    material.color.set(color);
+    material.opacity = 0.9;
+    const decal = new T.Mesh(new T.ShapeGeometry(shape), material);
     decal.userData.projectileCollision = 'ignore';
     if (scale !== 1) decal.scale.setScalar(scale);
 
@@ -256,7 +266,7 @@ export function createWorldVfx({
       if (age >= 12) {
         p.mesh.removeFromParent();
         p.mesh.geometry.dispose();
-        (p.mesh.material as T.Material).dispose();
+        splatMaterials.release(p.mesh.material as T.MeshBasicMaterial);
         splats.splice(i, 1);
       }
     }
@@ -294,11 +304,7 @@ export function createWorldVfx({
         (maxAge - age) / (maxAge * 0.35),
       );
       if (age > maxAge) {
-        b.mesh.removeFromParent();
-        // Geometry is shared (paintDropletGeo / partyGeometries / confettiGeo);
-        // dispose() frees only this burst's instanceMatrix/instanceColor buffers.
-        b.mesh.dispose();
-        (b.mesh.material as T.Material).dispose();
+        retireBurst(b);
         bursts.splice(i, 1);
       }
     }
@@ -307,6 +313,8 @@ export function createWorldVfx({
     paintDropletGeo.dispose();
     confettiGeo.dispose();
     partyGeometries.forEach((g) => g.dispose());
+    burstMaterials.dispose();
+    splatMaterials.dispose();
   };
   return {
     paintDropletGeo,
