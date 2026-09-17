@@ -23,6 +23,7 @@ import {
   Moon,
 } from 'lucide-react';
 import { WEATHER_LABELS, WEATHER_SETTINGS, weatherSetting } from '@/lib/weather';
+import { WeatherTuningPanel } from './weather-tuning';
 
 type WorldTabletProps = {
   room: Room;
@@ -498,6 +499,18 @@ export function WorldTablet(props: WorldTabletProps) {
                   </span>
                 </button>
               </div>
+              <WeatherTuningPanel
+                className="tablet-weather-tuning"
+                weather={props.room.state.weather}
+                season={props.room.state.season}
+                tuning={props.room.state.weatherTuning}
+                now={props.now}
+                host={!!props.host}
+                onChange={(weatherTuning) =>
+                  // null в патче значит «вернуть к погоде»; в типе состояния его нет.
+                  props.onRoomSettings?.({ weatherTuning } as unknown as Partial<RoomState>)
+                }
+              />
             </div>
 
             <div className="tablet-settings-section">

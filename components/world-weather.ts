@@ -1,28 +1,23 @@
 import * as T from 'three';
 import type { RoomState } from '@/lib/model';
-import {
-  WEATHER_LOOKS,
-  weatherLook,
-  weatherMix,
-  windFromLook,
-  type WeatherLook,
-  type Wind,
-} from '@/lib/weather';
+import { OPEN_VISIBILITY, weatherLook, windFromLook, type WeatherLook, type Wind } from '@/lib/weather';
 
 /**
- * Погода в 3D-мире: дождь и снег вокруг камеры, туман, затянутое небо и молнии.
+ * Погода в 3D-мире: дождь, снег, метель, град и пыль вокруг камеры, туман,
+ * затянутое небо и молнии. Уровни и их физика — в lib/weather.ts, здесь только
+ * картинка.
+ *
  * Работает поверх любой сцены (хаб, арены, визуальные пакеты): она не знает, кто
  * и когда выставил туман и солнце, поэтому запоминает «базовые» значения и
  * пересчитывает их только тогда, когда их переписал кто-то другой (смена фазы
  * суток, пакет). Иначе множители погоды накладывались бы сами на себя каждый кадр.
  *
- * Осадки — два буфера частиц в коробке вокруг камеры. Всё движение считает
- * шейдер: CPU лишь копит смещение от ветра и гравитации, поэтому даже метель в
- * 30 000 снежинок не нагружает кадр.
+ * Осадки — буферы частиц в коробке вокруг камеры. Всё движение считает шейдер:
+ * CPU лишь копит смещение от ветра и падения, поэтому даже буран в десятки тысяч
+ * снежинок не нагружает кадр. Плотность уровня — доля частиц, которую шейдер
+ * оставляет видимой.
  */
 
-const RAIN_COUNT = 16000;
-const SNOW_COUNT = 30000;
 /** Коробка с осадками вокруг камеры, м. */
 const BOX = new T.Vector3(44, 26, 44);
 /** Затянутое небо — полупрозрачный купол; ближе дальней плоскости камеры. */
@@ -35,25 +30,36 @@ uniform vec3 uBox;
 uniform vec3 uStreak;
 uniform float uDensity;
 uniform float uTime;
-uniform float uSnow;
+uniform float uSway;
+uniform float uSize;
+uniform float uMaxSize;
 uniform float uPointScale;
+uniform float uLayer;
+uniform float uGround;
+uniform float uLayerHeight;
 attribute float aTail;
 attribute float aSeed;
 varying float vAlpha;
 void main() {
   vec3 rel = mod(position + uOffset - uCenter + uBox * 0.5, uBox) - uBox * 0.5;
-  // Снежинки кружатся, капли летят прямо.
-  rel.x += uSnow * sin(uTime * 0.9 + aSeed * 61.0) * 0.35;
-  rel.z += uSnow * cos(uTime * 0.7 + aSeed * 43.0) * 0.35;
-  vec3 world = uCenter + rel - uStreak * aTail;
+  // Снежинки и пыль кружатся, капли и град летят прямо.
+  rel.x += uSway * sin(uTime * 0.9 + aSeed * 61.0) * 0.35;
+  rel.z += uSway * cos(uTime * 0.7 + aSeed * 43.0) * 0.35;
+  vec3 world = uCenter + rel;
+  if (uLayer > 0.5) {
+    // Метель у земли: слой заданной высоты над ногами игрока, гуще всего внизу.
+    float h = mod(position.y / uBox.y * uLayerHeight + uOffset.y, uLayerHeight);
+    world.y = uGround + h * h / uLayerHeight + uSway * sin(uTime * 2.3 + aSeed * 17.0) * 0.12;
+  }
+  world -= uStreak * aTail;
   float edge = 1.0 - smoothstep(uBox.x * 0.32, uBox.x * 0.5, length(rel.xz));
   vAlpha = edge * step(aSeed, uDensity);
   vec4 mv = viewMatrix * vec4(world, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = clamp(0.055 * (0.6 + 0.8 * fract(aSeed * 13.7)) * uPointScale / max(0.1, -mv.z), 1.5, 22.0);
+  gl_PointSize = clamp(uSize * (0.6 + 0.8 * fract(aSeed * 13.7)) * uPointScale / max(0.1, -mv.z), 1.5, uMaxSize);
 }`;
 
-const RAIN_FRAGMENT = /* glsl */ `
+const LINE_FRAGMENT = /* glsl */ `
 uniform vec3 uColor;
 uniform float uOpacity;
 varying float vAlpha;
@@ -62,32 +68,18 @@ void main() {
   gl_FragColor = vec4(uColor, uOpacity * vAlpha);
 }`;
 
-const SNOW_FRAGMENT = /* glsl */ `
+const POINT_FRAGMENT = /* glsl */ `
 uniform vec3 uColor;
 uniform float uOpacity;
+uniform float uSoft;
 varying float vAlpha;
 void main() {
   if (vAlpha < 0.01) discard;
   float d = length(gl_PointCoord - 0.5);
-  float a = smoothstep(0.5, 0.12, d);
+  float a = smoothstep(0.5, mix(0.4, 0.08, uSoft), d);
   if (a < 0.02) discard;
   gl_FragColor = vec4(uColor, uOpacity * vAlpha * a);
 }`;
-
-function precipUniforms(color: string, opacity: number, snow: number) {
-  return {
-    uOffset: { value: new T.Vector3() },
-    uCenter: { value: new T.Vector3() },
-    uBox: { value: BOX.clone() },
-    uStreak: { value: new T.Vector3() },
-    uDensity: { value: 0 },
-    uTime: { value: 0 },
-    uSnow: { value: snow },
-    uPointScale: { value: 600 },
-    uColor: { value: new T.Color(color) },
-    uOpacity: { value: opacity },
-  };
-}
 
 function randomBox(count: number, perParticle: number) {
   const position = new Float32Array(count * perParticle * 3);
@@ -114,6 +106,78 @@ function randomBox(count: number, perParticle: number) {
   return geometry;
 }
 
+type LayerOptions = {
+  /** Частиц при плотности 1. */
+  count: number;
+  lines?: boolean;
+  color: string;
+  opacity: number;
+  /** Мировой размер частицы, м (для точек). */
+  size?: number;
+  maxSize?: number;
+  sway?: number;
+  soft?: number;
+  ground?: boolean;
+};
+
+/** Один слой осадков: буфер частиц, его смещение и материал. */
+function createLayer(group: T.Group, o: LayerOptions) {
+  const uniforms = {
+    uOffset: { value: new T.Vector3() },
+    uCenter: { value: new T.Vector3() },
+    uBox: { value: BOX.clone() },
+    uStreak: { value: new T.Vector3() },
+    uDensity: { value: 0 },
+    uTime: { value: 0 },
+    uSway: { value: o.sway ?? 0 },
+    uSize: { value: o.size ?? 0.05 },
+    uMaxSize: { value: o.maxSize ?? 22 },
+    uPointScale: { value: 600 },
+    uLayer: { value: o.ground ? 1 : 0 },
+    uGround: { value: 0 },
+    uLayerHeight: { value: 1 },
+    uColor: { value: new T.Color(o.color) },
+    uOpacity: { value: o.opacity },
+    uSoft: { value: o.soft ?? 1 },
+  };
+  const material = new T.ShaderMaterial({
+    uniforms,
+    vertexShader: PRECIP_VERTEX,
+    fragmentShader: o.lines ? LINE_FRAGMENT : POINT_FRAGMENT,
+    transparent: true,
+    depthWrite: false,
+    fog: false,
+  });
+  const object = o.lines
+    ? new T.LineSegments(randomBox(o.count, 2), material)
+    : new T.Points(randomBox(o.count, 1), material);
+  object.frustumCulled = false;
+  object.renderOrder = 5;
+  object.userData.transientProjectile = true;
+  object.visible = false;
+  group.add(object);
+  const offset = new T.Vector3();
+  return {
+    uniforms,
+    /** Кадр слоя: скорость частиц, плотность и центр коробки. */
+    step(dt: number, velocity: T.Vector3, density: number, center: T.Vector3, time: number) {
+      offset.addScaledVector(velocity, dt);
+      offset.x %= BOX.x;
+      offset.y %= BOX.y;
+      offset.z %= BOX.z;
+      uniforms.uOffset.value.copy(offset);
+      uniforms.uDensity.value = density;
+      uniforms.uCenter.value.copy(center);
+      uniforms.uTime.value = time;
+      object.visible = density > 0.003;
+    },
+    dispose() {
+      object.geometry.dispose();
+      material.dispose();
+    },
+  };
+}
+
 const damp = (from: number, to: number, lambda: number, dt: number) => to + (from - to) * Math.exp(-lambda * dt);
 
 export function createWorldWeather({
@@ -123,7 +187,7 @@ export function createWorldWeather({
 }: {
   scene: T.Scene;
   sunlight: T.DirectionalLight;
-  /** Над камерой крыша: дождь внутри не идёт. */
+  /** Над камерой крыша: осадки внутри не идут. */
   sheltered: (at: T.Vector3) => boolean;
 }) {
   const group = new T.Group();
@@ -133,36 +197,20 @@ export function createWorldWeather({
   group.userData.cameraCollision = 'ignore';
   scene.add(group);
 
-  const rainUniforms = precipUniforms('#b9c6d2', 0.34, 0);
-  const rain = new T.LineSegments(
-    randomBox(RAIN_COUNT, 2),
-    new T.ShaderMaterial({
-      uniforms: rainUniforms,
-      vertexShader: PRECIP_VERTEX,
-      fragmentShader: RAIN_FRAGMENT,
-      transparent: true,
-      depthWrite: false,
-      fog: false,
-    }),
-  );
-  const snowUniforms = precipUniforms('#f4f8fc', 0.9, 1);
-  const snow = new T.Points(
-    randomBox(SNOW_COUNT, 1),
-    new T.ShaderMaterial({
-      uniforms: snowUniforms,
-      vertexShader: PRECIP_VERTEX,
-      fragmentShader: SNOW_FRAGMENT,
-      transparent: true,
-      depthWrite: false,
-      fog: false,
-    }),
-  );
-  for (const o of [rain, snow]) {
-    o.frustumCulled = false;
-    o.renderOrder = 5;
-    o.userData.transientProjectile = true;
-    group.add(o);
-  }
+  const rain = createLayer(group, { count: 16000, lines: true, color: '#b9c6d2', opacity: 0.34 });
+  const snow = createLayer(group, { count: 30000, color: '#f4f8fc', opacity: 0.9, size: 0.055, sway: 1 });
+  const drift = createLayer(group, {
+    count: 26000,
+    color: '#f2f6fa',
+    opacity: 0.75,
+    size: 0.04,
+    sway: 1,
+    ground: true,
+  });
+  const hail = createLayer(group, { count: 5000, color: '#e6eef3', opacity: 0.95, size: 0.03, maxSize: 40, soft: 0 });
+  const dust = createLayer(group, { count: 22000, color: '#b99b6c', opacity: 0.55, size: 0.035, sway: 1.4 });
+  const layers = [rain, snow, drift, hail, dust];
+
   const domeMaterial = new T.MeshBasicMaterial({
     color: '#8a939b',
     side: T.BackSide,
@@ -177,16 +225,13 @@ export function createWorldWeather({
   group.add(dome);
 
   // Погода меняется плавно даже при ручном переключении: значения тянутся к цели.
-  const look: WeatherLook = { ...WEATHER_LOOKS.clear };
-  let initialized = false;
+  let look: WeatherLook | null = null;
   let shelter = 0;
   let wind: Wind = { x: 0, z: 0, speed: 0 };
-  const rainOffset = new T.Vector3(),
-    snowOffset = new T.Vector3();
   let time = 0;
   // Молния: вспышка затухает за доли секунды, иногда с повторным мерцанием.
   let flash = 0,
-    nextFlash = 4,
+    nextFlash = 3,
     flicker = 0;
 
   // Что туман и солнце были до погоды (см. комментарий к модулю).
@@ -197,15 +242,11 @@ export function createWorldWeather({
     writtenSun = Number.NaN;
   const overcastRain = new T.Color('#747f88');
   const overcastSnow = new T.Color('#c3ccd4');
+  const dustHaze = new T.Color('#a8895a');
   const scratch = new T.Color();
+  const velocity = new T.Vector3();
 
-  const wrap = (v: T.Vector3) => {
-    v.x %= BOX.x;
-    v.y %= BOX.y;
-    v.z %= BOX.z;
-  };
-
-  const applyAtmosphere = () => {
+  const applyAtmosphere = (l: WeatherLook) => {
     const fog = scene.fog;
     let brightness = 1;
     if (fog instanceof T.Fog) {
@@ -224,21 +265,24 @@ export function createWorldWeather({
       // не светло-серая.
       const luminance = baseFog.color.r * 0.3 + baseFog.color.g * 0.59 + baseFog.color.b * 0.11;
       brightness = Math.min(1, luminance / 0.5);
-      scratch
-        .copy(look.snow > look.rain ? overcastSnow : overcastRain)
-        .multiplyScalar(Math.max(0.15, brightness));
-      fog.color.copy(baseFog.color).lerp(scratch, Math.min(1, look.overcast * 0.85));
-      fog.far = Math.max(18, baseFog.far * (1 - look.fog * 0.85));
-      fog.near = Math.min(fog.far - 4, baseFog.near * (1 - look.fog * 0.95));
+      const light = Math.max(0.15, brightness);
+      const murk = 1 - Math.min(1, l.visibility / Math.max(1, baseFog.far));
+      scratch.copy(l.snow + l.drift > l.rain ? overcastSnow : overcastRain).multiplyScalar(light);
+      fog.color.copy(baseFog.color).lerp(scratch, Math.min(1, Math.max(l.overcast, murk) * 0.85));
+      fog.color.lerp(scratch.copy(dustHaze).multiplyScalar(light), Math.min(0.85, l.dust * 0.85));
+      // Видимость по шкалам — это дальняя граница тумана; ближнюю сдвигаем в той же пропорции.
+      const far = Math.max(12, Math.min(baseFog.far, l.visibility));
+      fog.far = far;
+      fog.near = Math.max(0, Math.min(far - 4, baseFog.near * (far / Math.max(1, baseFog.far)) * (far < baseFog.far ? 0.4 : 1)));
       writtenFog.color.copy(fog.color);
       writtenFog.near = fog.near;
       writtenFog.far = fog.far;
       domeMaterial.color.copy(fog.color);
     }
-    domeMaterial.opacity = look.overcast * 0.82;
+    domeMaterial.opacity = Math.min(0.9, Math.max(l.overcast * 0.82, l.dust * 0.7));
     dome.visible = domeMaterial.opacity > 0.01;
     if (sunlight.intensity !== writtenSun) baseSun = sunlight.intensity;
-    sunlight.intensity = baseSun * look.sun;
+    sunlight.intensity = baseSun * l.sun;
     writtenSun = sunlight.intensity;
     return brightness;
   };
@@ -249,9 +293,9 @@ export function createWorldWeather({
     get wind() {
       return wind;
     },
-    /** Множитель экспозиции: в пасмурную погоду мир темнее. */
+    /** Множитель экспозиции: в плохую погоду мир темнее. */
     get exposure() {
-      return look.exposure;
+      return look?.exposure ?? 1;
     },
     /** Вспышка молнии: множитель поверх экспозиции, 1 — вспышки нет. */
     get flash() {
@@ -259,70 +303,83 @@ export function createWorldWeather({
     },
     /**
      * Кадр погоды. `now` — серверное время (мс): по нему у всех одна погода и
-     * один ветер. `interior` — хаб в режиме «внутри».
+     * один ветер. `interior` — хаб в режиме «внутри», `ground` — высота ног
+     * игрока: у неё метёт позёмок.
      */
-    update(dt: number, now: number, camera: T.Camera, state: RoomState, interior: boolean) {
-      const target = weatherLook(weatherMix(state, now));
-      if (!initialized) {
-        Object.assign(look, target);
-        initialized = true;
-      } else
-        for (const key of Object.keys(target) as (keyof WeatherLook)[])
-          look[key] = damp(look[key], target[key], 0.6, dt);
-      wind = windFromLook(look, now);
+    update(dt: number, now: number, camera: T.Camera, state: RoomState, interior: boolean, ground: number) {
+      const target = weatherLook(state, now);
+      if (!look) look = { ...target };
+      else
+        for (const key of Object.keys(target) as (keyof WeatherLook)[]) {
+          // Видимость сглаживаем в обратных метрах: иначе переход с 1000 м на 20 м
+          // проскакивал бы густой туман почти мгновенно.
+          if (key === 'visibility') look.visibility = 1 / damp(1 / look.visibility, 1 / target.visibility, 0.6, dt);
+          else look[key] = damp(look[key], target[key], 0.6, dt);
+        }
+      const l = look;
+      wind = windFromLook(l, now);
       time += dt;
 
       shelter = damp(shelter, interior || sheltered(camera.position) ? 1 : 0, 5, dt);
       const open = 1 - shelter;
-
-      const brightness = applyAtmosphere();
+      const brightness = applyAtmosphere(l);
+      const center = camera.position;
 
       // Дождь: скорость падения + ветер, капля вытянута вдоль своей скорости.
-      const rainVel = scratchVel.set(wind.x * 0.9, -21, wind.z * 0.9);
-      rainOffset.addScaledVector(rainVel, dt);
-      wrap(rainOffset);
-      rainUniforms.uOffset.value.copy(rainOffset);
-      rainUniforms.uStreak.value.copy(rainVel).multiplyScalar(0.026);
-      rainUniforms.uDensity.value = look.rain * open;
-      rainUniforms.uColor.value.setScalar(0.45 + 0.4 * brightness).lerp(scratch.set('#b9c6d2'), 0.5 * brightness);
-      rain.visible = rainUniforms.uDensity.value > 0.003;
+      velocity.set(wind.x * 0.9, -21, wind.z * 0.9);
+      rain.uniforms.uStreak.value.copy(velocity).multiplyScalar(0.026);
+      rain.uniforms.uColor.value.setScalar(0.45 + 0.4 * brightness).lerp(scratch.set('#b9c6d2'), 0.5 * brightness);
+      rain.step(dt, velocity, l.rain * open, center, time);
 
-      const snowVel = scratchVel.set(wind.x * 0.75, -1.4 - wind.speed * 0.06, wind.z * 0.75);
-      snowOffset.addScaledVector(snowVel, dt);
-      wrap(snowOffset);
-      snowUniforms.uOffset.value.copy(snowOffset);
-      snowUniforms.uDensity.value = look.snow * open;
-      snowUniforms.uTime.value = time;
-      snowUniforms.uColor.value.setRGB(0.55 + 0.45 * brightness, 0.6 + 0.4 * brightness, 0.68 + 0.32 * brightness);
-      snow.visible = snowUniforms.uDensity.value > 0.003;
+      const shade = (u: { value: T.Color }, r: number, g: number, b: number) =>
+        u.value.setRGB(r * (0.55 + 0.45 * brightness), g * (0.6 + 0.4 * brightness), b * (0.68 + 0.32 * brightness));
 
-      for (const u of [rainUniforms, snowUniforms]) u.uCenter.value.copy(camera.position);
-      dome.position.copy(camera.position);
+      velocity.set(wind.x * 0.75, -1.4 - wind.speed * 0.06, wind.z * 0.75);
+      shade(snow.uniforms.uColor, 1, 1, 1);
+      snow.step(dt, velocity, l.snow * open, center, time);
+
+      // Метель несёт снег почти горизонтально и чуть быстрее ветра у земли.
+      velocity.set(wind.x * 1.1, 0.4, wind.z * 1.1);
+      drift.uniforms.uGround.value = ground;
+      drift.uniforms.uLayerHeight.value = Math.max(0.5, l.driftHeight);
+      shade(drift.uniforms.uColor, 1, 1, 1);
+      drift.step(dt, velocity, l.drift * open, center, time);
+
+      velocity.set(wind.x * 0.3, -15, wind.z * 0.3);
+      hail.uniforms.uSize.value = Math.max(0.01, l.hailSize);
+      shade(hail.uniforms.uColor, 0.9, 0.93, 0.95);
+      hail.step(dt, velocity, l.hail * open, center, time);
+
+      velocity.set(wind.x * 0.95, -0.15, wind.z * 0.95);
+      shade(dust.uniforms.uColor, 0.72, 0.6, 0.42);
+      dust.step(dt, velocity, l.dust * open, center, time);
+
+      dome.position.copy(center);
 
       flash = Math.max(0, flash - dt * 5);
       if (flicker > 0) {
         flicker -= dt;
         if (flicker <= 0) flash = Math.max(flash, 0.7);
       }
-      if (look.lightning > 0.2 && open > 0.3) {
-        nextFlash -= dt * look.lightning;
+      // Молнии — пуассоновский поток с частотой по шкале LAL.
+      if (l.lightningPerMinute > 0.05 && open > 0.3) {
+        nextFlash -= dt;
         if (nextFlash <= 0) {
           flash = 1;
           flicker = Math.random() < 0.5 ? 0.12 + Math.random() * 0.1 : 0;
-          nextFlash = 4 + Math.random() * 12;
+          nextFlash = (-Math.log(1 - Math.random()) * 60) / l.lightningPerMinute;
         }
       }
+      if (l.visibility >= OPEN_VISIBILITY && l.overcast <= 0 && l.dust <= 0) dome.visible = false;
     },
-    /** Экранный размер снежинок зависит от высоты кадра и угла обзора. */
+    /** Экранный размер частиц зависит от высоты кадра и угла обзора. */
     resize(height: number, fov: number) {
-      snowUniforms.uPointScale.value = height / (2 * Math.tan(T.MathUtils.degToRad(fov) / 2));
+      const scale = height / (2 * Math.tan(T.MathUtils.degToRad(fov) / 2));
+      for (const layer of layers) layer.uniforms.uPointScale.value = scale;
     },
     dispose() {
       group.removeFromParent();
-      rain.geometry.dispose();
-      (rain.material as T.Material).dispose();
-      snow.geometry.dispose();
-      (snow.material as T.Material).dispose();
+      layers.forEach((layer) => layer.dispose());
       dome.geometry.dispose();
       domeMaterial.dispose();
       // Вернуть туману и солнцу то, что было до погоды.
@@ -335,5 +392,3 @@ export function createWorldWeather({
     },
   };
 }
-
-const scratchVel = new T.Vector3();

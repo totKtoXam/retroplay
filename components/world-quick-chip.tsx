@@ -13,7 +13,10 @@ import {
   WEATHER_SETTINGS,
   weatherMix,
   weatherSetting,
+  type WeatherParam,
+  type WeatherTuning,
 } from '@/lib/weather';
+import { WeatherTuningPanel } from './weather-tuning';
 
 /**
  * Время суток, время года и погода прямо в шапке комнаты.
@@ -42,6 +45,7 @@ export function WorldQuickChip({
   time,
   season,
   weather,
+  weatherTuning,
   windEffects,
   now,
   dayCycle,
@@ -49,6 +53,7 @@ export function WorldQuickChip({
   onTimeChange,
   onSeasonChange,
   onWeatherChange,
+  onWeatherTuningChange,
   onWindEffectsChange,
   onDayCycleChange,
   onLocked,
@@ -56,6 +61,7 @@ export function WorldQuickChip({
   time: string;
   season: string;
   weather?: string;
+  weatherTuning?: WeatherTuning;
   windEffects?: boolean;
   /** Серверное время: по нему считается фаза идущих суток. */
   now: number;
@@ -64,6 +70,7 @@ export function WorldQuickChip({
   onTimeChange: (time: string) => void;
   onSeasonChange: (season: string) => void;
   onWeatherChange: (weather: string) => void;
+  onWeatherTuningChange: (patch: Partial<Record<WeatherParam, number | null>> | null) => void;
   onWindEffectsChange: (on: boolean) => void;
   onDayCycleChange: (running: boolean) => void;
   /** Не ведущий тоже открывает чип, но вместо молчания получает объяснение. */
@@ -165,6 +172,17 @@ export function WorldQuickChip({
           <Wind size={13} />
           {windOn ? 'Ветер сносит игроков и пули' : 'Ветер не влияет на бой'}
         </button>
+        <details className="world-chip-tuning">
+          <summary>Тонкая настройка погоды</summary>
+          <WeatherTuningPanel
+            weather={weather}
+            season={season}
+            tuning={weatherTuning}
+            now={now}
+            host={host}
+            onChange={onWeatherTuningChange}
+          />
+        </details>
       </PopoverContent>
     </Popover>
   );
