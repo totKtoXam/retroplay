@@ -41,6 +41,7 @@ import {
   IMPOSTOR_LIMITS,
   type ImpostorSettings,
 } from '@/lib/impostor-settings';
+import { IMPOSTOR_BOT_LEVELS } from '@/lib/impostor-bot-levels';
 import type { Slot } from '@/lib/loadout';
 import { TOOL_ICONS } from './tool-icons';
 import { Choice, Toggle } from './controls';
@@ -1122,20 +1123,24 @@ export function BotsPanel({
   const [team, setTeam] = useState('auto');
   const [count, setCount] = useState(1);
   const bots = s.bots ?? [];
-  if (modeOf(s) !== 'battle')
+  const mode = modeOf(s);
+  if (mode !== 'battle' && mode !== 'impostor')
     return (
       <p className="bots-note">
-        Боты играют только в командном бою. Переключите режим в разделе «Режим и карта» —
-        {bots.length ? ` добавленные раньше боты (${bots.length}) вернутся в бой сами.` : ' и добавляйте.'}
+        Боты играют в командном бою и в «Предателе». Переключите режим в разделе «Режим и карта» —
+        {bots.length ? ` добавленные раньше боты (${bots.length}) вернутся в игру сами.` : ' и добавляйте.'}
       </p>
     );
+  // В «Предателе» сторон нет, а роли боту раздаёт сервер при старте партии — и держит в тайне.
+  const impostor = mode === 'impostor';
+  const hint = impostor ? IMPOSTOR_BOT_LEVELS[level].hint : BOT_LEVELS[level].hint;
   const live = new Map(members.map((m) => [m.id, m]));
   const left = MAX_BOTS - bots.length;
   const amount = Math.max(1, Math.min(MAX_BOTS_PER_ADD, left, count));
   return (
     <>
       <div className="bots-add">
-        <div className="two-fields">
+        <div className={impostor ? undefined : 'two-fields'}>
           <Choice
             label="Уровень"
             value={level}
@@ -1143,19 +1148,26 @@ export function BotsPanel({
             onChange={(value) => setLevel(value as BotLevel)}
             options={LEVEL_OPTIONS}
           />
-          <Choice
-            label="Сторона"
-            value={team}
-            disabled={!host}
-            onChange={setTeam}
-            options={[
-              { value: 'auto', label: 'В меньшую команду' },
-              { value: 'red', label: 'Красные' },
-              { value: 'blue', label: 'Синие' },
-            ]}
-          />
+          {!impostor && (
+            <Choice
+              label="Сторона"
+              value={team}
+              disabled={!host}
+              onChange={setTeam}
+              options={[
+                { value: 'auto', label: 'В меньшую команду' },
+                { value: 'red', label: 'Красные' },
+                { value: 'blue', label: 'Синие' },
+              ]}
+            />
+          )}
         </div>
-        <p className="bots-level-hint">{BOT_LEVELS[level].hint}</p>
+        <p className="bots-level-hint">{hint}</p>
+        {impostor && (
+          <p className="bots-level-hint">
+            Роль бот получает при старте партии, как и люди. Боты считаются в минимум из {4} игроков.
+          </p>
+        )}
         <div className="bots-add-row">
           <label className="field">
             Сколько
@@ -1177,7 +1189,7 @@ export function BotsPanel({
             type="button"
             className="primary"
             disabled={!host || left <= 0}
-            onClick={() => onAct({ type: 'bots.add', level, team, count: amount })}
+            onClick={() => onAct({ type: 'bots.add', level, team: impostor ? 'auto' : team, count: amount })}
           >
             <Bot size={16} /> Добавить {amount > 1 ? amount : ''}
           </button>
@@ -1197,8 +1209,9 @@ export function BotsPanel({
                 <span className="bot-name">
                   <strong>{b.name}</strong>
                   <small>
-                    {side ? TEAM_NAMES[side] : 'сторона при входе'}
-                    {m ? ` · ${m.kills ?? 0}/${m.deaths ?? 0}/${m.assists ?? 0}` : ''}
+                    {impostor
+                      ? IMPOSTOR_BOT_LEVELS[b.level].hint.split(':')[0]
+                      : `${side ? TEAM_NAMES[side] : 'сторона при входе'}${m ? ` · ${m.kills ?? 0}/${m.deaths ?? 0}/${m.assists ?? 0}` : ''}`}
                   </small>
                 </span>
                 <Choice

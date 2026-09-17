@@ -641,11 +641,15 @@ export default function RoomApp({ id }: { id: string }) {
           id: 'bots',
           title: 'Боты',
           hint:
-            gameMode !== 'battle'
-              ? 'Играют только в командном бою'
-              : s?.bots?.length
-                ? `В бою: ${s.bots.length}`
-                : 'Соперники и напарники четырёх уровней',
+            gameMode === 'impostor'
+              ? s?.bots?.length
+                ? `На корабле: ${s.bots.length}`
+                : 'Экипаж и предатели четырёх уровней'
+              : gameMode !== 'battle'
+                ? 'Играют в бою и в «Предателе»'
+                : s?.bots?.length
+                  ? `В бою: ${s.bots.length}`
+                  : 'Соперники и напарники четырёх уровней',
           icon: Bot,
           hostOnly: true,
         },

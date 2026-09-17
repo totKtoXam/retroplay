@@ -6,6 +6,7 @@ import type { Person, WorldEffect } from '@/lib/model';
 import type { BotBrain } from '@/lib/bot-brain';
 import { isBotId } from '@/lib/bot-levels';
 import { impostorView, newImpostorGame, type ImpostorView } from '@/lib/impostor';
+import { stepImpostorBots, type ImpostorBot } from '@/lib/impostor-bot';
 import { getMap } from '@/lib/maps';
 import {
   balanceTeam,
@@ -67,6 +68,8 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
   private ticker: ReturnType<typeof setInterval> | null = null;
   /** Мозги серверных ботов: память, маршрут, прицел. В checkpoint не входят — после перезапуска бот просто заново осматривается. */
   private brains = new Map<string, BotBrain>();
+  /** Мозги ботов «Предателя»: наблюдения и подозрения живут только в памяти объекта. */
+  private impostorBrains = new Map<string, ImpostorBot>();
   private sentSeq = 0;
   private dirty = false;
   private flushScheduled = false;
@@ -346,7 +349,13 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const now = Date.now();
     const bots = hub.room.bots.length > 0 && humansOnline(hub, now);
     if (!this.sockets.size && !bots) return this.stopTicking();
-    if (bots) {
+    if (bots && hub.room.mode === 'impostor') {
+      stepImpostorBots(hub, this.impostorBrains, getMap(hub.room.map), now, {
+        act: (id, op) => impostorAction(hub, id, op, now),
+        move: (m, op) => presence(hub, m, op, now),
+      });
+      this.markDirty(false);
+    } else if (bots) {
       stepBots(hub, this.brains, now);
       // Шаги ботов, как и presence людей, уходят в D1 редкой записью без checkpoint.
       this.markDirty(false);

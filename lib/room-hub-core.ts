@@ -212,11 +212,12 @@ export function roomFromState(host: string, state: Partial<RoomState>): HubRoom 
     host,
     anonymous: !!state.anonymousPlayers,
     respawnSeconds: state.respawnSeconds ?? 5,
-    shieldSeconds: clamp(state.shieldSeconds ?? 5, 0, 30),
+    // В «Предателе» не стреляют и не возрождаются: щита нет ни у кого.
+    shieldSeconds: modeOf(state) === 'impostor' ? 0 : clamp(state.shieldSeconds ?? 5, 0, 30),
     voiceEnabled: state.voiceEnabled !== false,
     voiceMuted: new Set(Array.isArray(state.voiceMuted) ? state.voiceMuted : []),
-    // Боты — участники командного боя: в ретроспективе сервер их не выпускает.
-    bots: (modeOf(state) === 'battle' && Array.isArray(state.bots) ? state.bots : [])
+    // Боты — участники боя и «Предателя»: в ретроспективе сервер их не выпускает.
+    bots: ((modeOf(state) === 'battle' || modeOf(state) === 'impostor') && Array.isArray(state.bots) ? state.bots : [])
       .filter((b) => b && isBotId(b.id) && isBotLevel(b.level))
       .slice(0, MAX_BOTS)
       .map((b) => ({

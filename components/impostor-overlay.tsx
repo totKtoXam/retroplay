@@ -82,9 +82,9 @@ function ReactorHold({ held, onHold }: { held: number; onHold: () => void }) {
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
-/** Игроки в сети по снимку: столько попадёт в партию. */
+/** Игроки в сети по снимку, боты тоже: столько попадёт в партию. */
 const onlineCount = (room: Room, now: number) =>
-  room.members.filter((m) => !m.bot && now - (m.lastSeen ?? 0) < 15_000).length;
+  room.members.filter((m) => now - (m.lastSeen ?? 0) < 15_000).length;
 
 export default function ImpostorOverlay({ room, host, serverNow, pose, send, onBlocked }: Props) {
   const view = room.impostor;
