@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { RoomState } from '@/lib/model';
 import type { ArenaDef, GameMap, MapFountain, SurfaceMaterial } from '@/lib/maps/types';
 import { createAvatar, setAvatarStyle } from './world-avatar';
+import { createInterior, interiorDraws } from './world-interior';
 import { createSurfaceLibrary } from './world-cinematic';
 import { createArenaMaterials } from './world-arena-materials';
 import type { WorldKit } from './world-map-scene';
@@ -103,9 +104,15 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
   // Ground inside the walls and a wider backdrop outside them.
   add(new T.BoxGeometry(maxX - minX, 0.2, maxZ - minZ), def.groundColor, cx, -0.1, cz);
   add(new T.BoxGeometry(span + 200, 0.2, span + 200), def.outsideColor ?? '#6f7f63', cx, -0.14, cz);
-  for (const b of def.boxes) add(new T.BoxGeometry(b.w, b.h, b.d), b.color, b.x, b.y, b.z, b.material);
-  for (const b of def.decor ?? []) add(new T.BoxGeometry(b.w, b.h, b.d), b.color, b.x, b.y, b.z, b.material, decor);
-  for (const c of def.decorCylinders ?? [])
+  // Коробки и цилиндры с меткой `art` рисует интерьер (текстуры и модели), остальные — сцена,
+  // с материалом поверхности, если он задан.
+  const interior = def.boxes.some((b) => b.art) || def.decor?.length ? createInterior(def) : undefined;
+  if (interior) scene.add(interior.group);
+  for (const b of def.boxes)
+    if (!interiorDraws(b)) add(new T.BoxGeometry(b.w, b.h, b.d), b.color, b.x, b.y, b.z, b.material);
+  for (const b of def.furnishings ?? [])
+    add(new T.BoxGeometry(b.w, b.h, b.d), b.color, b.x, b.y, b.z, b.material, decor);
+  for (const c of def.furnishingCylinders ?? [])
     add(new T.CylinderGeometry(c.r, c.r, c.h, c.sides ?? 16), c.color, c.x, c.y, c.z, c.material, decor);
   for (const r of def.ramps ?? []) {
     const run = r.to - r.from,
@@ -120,7 +127,8 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     }
   }
   for (const c of def.cylinders ?? [])
-    add(new T.CylinderGeometry(c.r, c.r, c.h, c.sides ?? 16), c.color, c.x, c.y, c.z, c.material);
+    if (!interiorDraws(c))
+      add(new T.CylinderGeometry(c.r, c.r, c.h, c.sides ?? 16), c.color, c.x, c.y, c.z, c.material);
   for (const s of def.spheres ?? []) add(new T.IcosahedronGeometry(s.r, 1), s.color, s.x, s.y, s.z);
   const waters: T.Mesh[] = [];
   for (const w of def.water ?? []) {
@@ -250,11 +258,13 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     clouds: new T.Group(),
     sunlight,
     animate: (seconds: number) => {
+      interior?.animate(seconds);
       arenaMaterials.animate(seconds);
       fountains.forEach((f) => f.animate(seconds));
     },
     dispose: () => {
       surfaces.dispose();
+      interior?.dispose();
       arenaMaterials.dispose();
       waters.forEach((w) => w.geometry.dispose());
       fountains.forEach((f) => f.dispose());

@@ -131,7 +131,7 @@ test('the furnished house: every room is still reachable and has a real floor', 
   assert.equal(surface({ x: -23.8, z: 2.8 }), 'tile', 'kitchen tiles');
   assert.equal(surface({ x: -20.9, z: -11.95 + 1.6 }), 'carpet', 'the dining-room rug');
   // Furniture is detail, not a maze: decor never collides, and the spawns stay clear.
-  assert.ok(arena.decor.length > 50 && arena.boxes.length < 500);
+  assert.ok(arena.furnishings.length > 50 && arena.boxes.length < 500);
   for (const s of map.spawns.red)
     assert.equal(isBlocked3D(s.x, s.z, 0, 0.32, 1.8, map.colliders), false, `red spawn ${s.x}, ${s.z} is clear`);
 });

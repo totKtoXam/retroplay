@@ -832,8 +832,8 @@ export const MANSION: ArenaDef = {
     { minX: PX - 1.46, maxX: PX + 1.46, minZ: PZ - 1.46, maxZ: PZ + 1.46, y: BOWL_TOP + 0.02, color: WATER, round: true },
   ],
   fountains: [{ x: PX, z: PZ, jetY: 2.5, bowlY: BOWL_TOP + 0.02, bowlR: 1.46, poolY: 0.35 }],
-  decor,
-  decorCylinders,
+  furnishings: decor,
+  furnishingCylinders: decorCylinders,
   lights: [
     // House, ground floor.
     { x: -20, y: 2.9, z: -12, color: '#ffd9a8', intensity: 1.1, distance: 14 },

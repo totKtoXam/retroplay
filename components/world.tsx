@@ -1413,10 +1413,7 @@ export default function World(props: Props) {
             .addScaledVector(perpY, Math.sin(ang) * spreadRadius)
             .normalize();
           const pelletTarget = origin.clone().addScaledVector(spreadDir, dist);
-          const pelletBall = new T.Mesh(
-            paintDropletGeo,
-            new T.MeshBasicMaterial({ color }),
-          );
+          const pelletBall = projectiles.ball(color, paintDropletGeo);
           pelletBall.position.copy(origin);
           pelletBall.userData.transientProjectile = true;
           scene.add(pelletBall);

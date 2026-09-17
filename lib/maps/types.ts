@@ -46,6 +46,13 @@ export type MapBox = {
   solid?: boolean;
   /** Walkable top surface (floor slab, balcony); its underside is a ceiling. */
   floor?: boolean;
+  /**
+   * Detailed model drawn in place of the plain box (components/world-interior.ts), e.g.
+   * `console:wires` or `floor:tile`. Collision still uses the box itself.
+   */
+  art?: string;
+  /** Yaw of the model's front (+z at 0), for `art` models that face somewhere. */
+  yaw?: number;
 };
 /** Sloped walkway: height goes from y0 at `from` to y1 at `to` along `axis`. */
 export type MapRamp = Bounds & {
@@ -67,6 +74,23 @@ export type MapCylinder = {
   solid?: boolean;
   sides?: number;
   material?: SurfaceMaterial;
+  /** Detailed model drawn in place of the plain cylinder, as `MapBox.art`. */
+  art?: string;
+};
+/**
+ * Purely visual detail (door frame, window, pipe, wall screen): no collision, so it must
+ * stay out of the way — on a wall or above head height. Front faces +z rotated by `yaw`.
+ */
+export type MapDecor = {
+  kind: string;
+  x: number;
+  y: number;
+  z: number;
+  /** Size along the local x (width) and y (height); depth is up to the model. */
+  w: number;
+  h: number;
+  yaw: number;
+  label?: string;
 };
 /**
  * A fountain: water arcs from a jet at (x, jetY, z) into a bowl of radius `bowlR` at `bowlY`,
@@ -118,8 +142,8 @@ export type ArenaDef = {
    * Scene-only detail: furniture legs, cushions, frames, lamps, ceilings. Never collides, never
    * counts as a roof or a floor, never shortens the camera boom.
    */
-  decor?: MapBox[];
-  decorCylinders?: MapCylinder[];
+  furnishings?: MapBox[];
+  furnishingCylinders?: MapCylinder[];
   fountains?: MapFountain[];
   lights?: MapLight[];
   spawns: Record<Team, SpawnPoint[]>;
@@ -133,6 +157,8 @@ export type ArenaDef = {
   /** Sabotage repair panels of the impostor mode. */
   panels?: SabotagePanel[];
   vents?: MapVent[];
+  /** Visual-only details: door frames, windows, pipes. */
+  decor?: MapDecor[];
 };
 
 export type GameMap = {
