@@ -520,14 +520,12 @@ export function createArenaMaterials() {
       waterTime.value = seconds;
     },
 
-    /** Лёд вместо воды: матовый, непрозрачный и неподвижный. */
-    setFrozen(frozen: boolean) {
-      for (const m of waters) {
-        m.roughness = frozen ? 0.55 : 0.06;
-        m.metalness = frozen ? 0.05 : 0.15;
-        m.opacity = frozen ? 1 : 0.82;
-        m.normalScale.setScalar(frozen ? 0.08 : 0.45);
-      }
+    /** Лёд вместо воды (для материала из `water`): матовый, непрозрачный и неподвижный. */
+    setFrozen(m: T.MeshStandardMaterial, frozen: boolean) {
+      m.roughness = frozen ? 0.55 : 0.06;
+      m.metalness = frozen ? 0.05 : 0.15;
+      m.opacity = frozen ? 1 : 0.82;
+      m.normalScale.setScalar(frozen ? 0.08 : 0.45);
     },
 
     dispose() {

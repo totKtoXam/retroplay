@@ -227,14 +227,17 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }): WorldKit {
     const native = def.season ?? 'summer';
     for (const { color, material: m } of mats.values())
       m.color.set(seasonColor(color, season, native, groundColors.has(color) ? 'ground' : 'surface'));
-    // Зимой вода на летней карте — лёд: матовый, неподвижный, и фонтан не бьёт.
-    const frozen = season === 'winter' && native !== 'winter';
+    // Зимой вода на летней карте — лёд: матовый и неподвижный. Кроме фонтана: его вода
+    // проточная и бьёт в любой сезон — замёрзший бассейн выглядел как сломанная анимация.
+    const winter = season === 'winter' && native !== 'winter';
     (def.water ?? []).forEach((w, i) => {
       const m = waters[i]?.material as T.MeshStandardMaterial | undefined;
-      m?.color.set(seasonColor(w.color ?? '#3f7f96', season, native, 'water'));
+      if (!m) return;
+      const running = (def.fountains ?? []).some((f) => f.x >= w.minX && f.x <= w.maxX && f.z >= w.minZ && f.z <= w.maxZ);
+      const frozen = winter && !running;
+      m.color.set(frozen ? seasonColor(w.color ?? '#3f7f96', season, native, 'water') : (w.color ?? '#3f7f96'));
+      arenaMaterials.setFrozen(m, frozen);
     });
-    arenaMaterials.setFrozen(frozen);
-    fountains.forEach((f) => (f.points.visible = !frozen));
   };
   const update = (s: RoomState, m: DayMix) => {
     applySeason(s.season);
