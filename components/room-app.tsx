@@ -8,6 +8,7 @@ import {
   useCallback,
   lazy,
   Suspense,
+  Fragment,
 } from 'react';
 import {
   ArrowLeft,
@@ -67,6 +68,7 @@ import {
   isOnline,
   isPresent,
   kdaRatio,
+  monitorGroups,
   voteCount,
   type Note,
   type Pose,
@@ -1621,10 +1623,38 @@ export default function RoomApp({ id }: { id: string }) {
                     когда-либо заходил, и список копил ушедших. Себя оставляем
                     всегда — из скрытой вкладки пакеты не уходят, и смотрящий
                     вычеркнул бы сам себя. */}
-                {room.members
-                  .filter((m) => m.id === room.self || isPresent(m.lastSeen, now))
-                  .sort((a, b) => kdaRatio(b) - kdaRatio(a))
-                  .map((m) => (
+                {monitorGroups(
+                  room.members
+                    .filter((m) => m.id === room.self || isPresent(m.lastSeen, now))
+                    .sort((a, b) => kdaRatio(b) - kdaRatio(a)),
+                  gameMode === 'battle',
+                ).map((group) => (
+                  <Fragment key={group.team ?? 'all'}>
+                  {group.team && (
+                    <div
+                      className={`monitor-team-header team-${group.team}`}
+                      aria-label={`${group.label}: ${group.members.length} игроков`}
+                    >
+                      <span className="col-user">
+                        <strong>{group.label}</strong>
+                        {(group.team === 'red' || group.team === 'blue') &&
+                          room.match && (
+                            <b className="monitor-team-score">
+                              {room.match.score[group.team]}
+                            </b>
+                          )}
+                        <small>{group.members.length}</small>
+                      </span>
+                      <span className="col-status" />
+                      <span className="col-num" />
+                      <span className="col-num col-k">{group.kills}</span>
+                      <span className="col-num col-d">{group.deaths}</span>
+                      <span className="col-num col-a">{group.assists}</span>
+                      <span className="col-num col-kda" />
+                      <span className="col-num col-ping" />
+                    </div>
+                  )}
+                  {group.members.map((m) => (
                   <div key={m.id} className="monitor-table-row">
                     <div className="col-user">
                       <span
@@ -1739,6 +1769,8 @@ export default function RoomApp({ id }: { id: string }) {
                     </span>
                   </div>
                   ))}
+                  </Fragment>
+                ))}
               </div>
             </div>
             <p className="monitor-footer-note">
