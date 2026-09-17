@@ -283,6 +283,8 @@ test('poses are clamped and cleaned; D1 rows load with defaults', () => {
   const p = sanitizePose({ x: 99, y: -1, z: 0, yaw: 1, stance: 'fly', tool: 'bazooka', speed: 50 });
   assert.deepEqual([p.x, p.y, p.stance, p.tool, p.speed], [36, 0, 'stand', 'other', 6.5]);
   assert.equal(sanitizePose({ x: 1, y: 0, z: 0 }), null);
+  // Фонарик доходит до остальных: по нему аватар рисует фонарь в руке и светит из линзы.
+  assert.equal(sanitizePose({ x: 1, y: 0, z: 0, yaw: 0, tool: 'flashlight' }).tool, 'flashlight');
   const m = memberFromRow({ session: 's', name: 'N', color: '#fff', seen: 5, pose: 'bad json', cursor: '{}', hp: 0 });
   assert.deepEqual([m.hp, m.pose.z, m.cursor, m.kills], [0, 4, null, 0]);
 });

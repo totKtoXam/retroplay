@@ -2357,6 +2357,7 @@ export default function World(props: Props) {
             'sniper',
             'sticky',
             'pointer',
+            'flashlight',
           ].includes(GAME_TOOLS[latest.current.tool]?.id)
             ? GAME_TOOLS[latest.current.tool].id
             : 'other',

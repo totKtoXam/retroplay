@@ -81,7 +81,7 @@ const ENDED_MS = 12_000;
 /** Server-side body radius: below the client's 0.32 so rounded poses near walls still pass. */
 const BODY_RADIUS = 0.25;
 const EFFECT_KINDS = ['paint', 'confetti', 'grenade', 'sniper', 'like'];
-const TOOLS = ['paint', 'confetti', 'grenade', 'sniper', 'pointer', 'other'];
+const TOOLS = ['paint', 'confetti', 'grenade', 'sniper', 'pointer', 'flashlight', 'other'];
 
 export type Cursor = { x: number; y: number; mode: 'board' | '3d' };
 export type HubMember = {
