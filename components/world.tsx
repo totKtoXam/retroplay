@@ -53,6 +53,7 @@ import {
 } from '@/lib/day-cycle';
 import { createWorldPlayer } from './world-player';
 import { createWorldWeather } from './world-weather';
+import { buildRoofMap, openShare, underRoof } from '@/lib/weather-shelter';
 import { beaufort, windDrift, windLevel, windRelative, WIND_DRIFT } from '@/lib/weather';
 import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
@@ -754,11 +755,14 @@ export default function World(props: Props) {
     // Погода поверх любой карты. «Под крышей» — когда над камерой есть потолок или вся
     // карта внутри помещения (корабль): там ни осадков, ни ветра.
     const indoor = !!map.arena?.indoor;
+    // Карта крыш: под перекрытием не идут осадки, не сносит игрока и пули.
+    const roof = buildRoofMap(map);
+    if (indoor) roof.heights.fill(1e4);
     let visionFog: { base: { near: number; far: number }; near: number; far: number } | null = null;
     const weather = createWorldWeather({
       scene,
       sunlight: kit.sunlight,
-      sheltered: (at) => indoor || Number.isFinite(map.ceilingHeight(at.x, at.z, at.y - 1.6)),
+      roof,
     });
     const windOn = () => !indoor && latest.current.room.state.windEffects !== false;
     const cameraObstacles: T.Object3D[] = [];
@@ -929,7 +933,8 @@ export default function World(props: Props) {
       // not read it before its initializer has run.
       isDead: () => isDead(),
       onStance: setStance,
-      wind: () => (windOn() ? weather.wind : null),
+      // Под крышей ветра нет: иначе игрока сносило бы посреди комнаты.
+      wind: () => (windOn() && !underRoof(roof, pos.x, pos.y + 1, pos.z) ? weather.wind : null),
       ghost: () => amGhost(latest.current.room.impostor),
     });
     const { pos } = player;
@@ -1245,10 +1250,12 @@ export default function World(props: Props) {
               blocksProjectile(h.object, h.face?.materialIndex),
           );
         const distance = aimed ? aimed.distance : tool === 'sniper' ? 65 : 35;
-        const drift = windDrift(tool, weather.wind, distance);
         const aimPoint = ray.ray.at(distance, new T.Vector3());
-        aimPoint.x += drift.x;
-        aimPoint.z += drift.z;
+        // Сносит только на открытой части пути: из дома через окно — лишь снаружи.
+        const share = openShare(roof, ray.ray.origin.toArray(), aimPoint.toArray());
+        const drift = windDrift(tool, weather.wind, distance);
+        aimPoint.x += drift.x * share;
+        aimPoint.z += drift.z * share;
         ray.ray.direction.copy(aimPoint.sub(ray.ray.origin).normalize());
       }
       const hit = ray
