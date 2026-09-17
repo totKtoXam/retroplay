@@ -570,10 +570,65 @@
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
+.impostor-rules-hint {
+  margin-left: auto;
+  color: #a9b4c6;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.impostor-card.impostor-rules .impostor-rules-tabs button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #a9b4c6;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.impostor-card.impostor-rules .impostor-rules-tabs button:hover {
+  color: #eef3fb;
+  border-color: rgba(255, 255, 255, 0.35);
+}
+/* Активная вкладка: яркая заливка, жирный текст, свечение и полоска-указатель снизу. */
 .impostor-card.impostor-rules .impostor-rules-tabs button.is-active {
   background: #6d5dfc;
-  border-color: #6d5dfc;
+  border-color: #a79bff;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 0 0 2px rgba(109, 93, 252, 0.35), 0 4px 14px rgba(109, 93, 252, 0.45);
+}
+.impostor-card.impostor-rules .impostor-rules-tabs button.is-active::after {
+  content: '';
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: -12px;
+  height: 3px;
+  border-radius: 2px;
+  background: #a79bff;
+}
+.impostor-rules-tab-number {
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 11px;
+  font-weight: 600;
+}
+.impostor-rules-tabs button.is-active .impostor-rules-tab-number {
+  background: rgba(255, 255, 255, 0.25);
+}
+@media (max-width: 640px) {
+  .impostor-rules-hint {
+    display: none;
+  }
 }
 .impostor-rules section {
   display: grid;

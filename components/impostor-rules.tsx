@@ -4,7 +4,7 @@
 // клавиши — текстом и рисунками. Все числа (таймеры, перезарядки, дальности) берутся из тех же
 // констант и настроек комнаты, что и у сервера, а план корабля рисуется из данных карты: правила
 // не могут разойтись с игрой.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { GameMap, TaskKind } from '@/lib/maps/types';
 import {
   CRITICAL_MS,
@@ -291,18 +291,43 @@ export default function ImpostorRules({
   const s = { ...IMPOSTOR_DEFAULTS, ...settings };
   const [tab, setTab] = useState<Tab>(role === 'impostor' ? 'impostor' : role === 'crew' ? 'crew' : 'goal');
   const critical = CRITICAL_MS / 1000;
+  // ← / → листают вкладки по кругу, цифры 1–6 открывают вкладку по номеру. Перехватываем
+  // раньше мира: стрелки там вращают камеру, а цифры выбирают предмет.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const index = TABS.findIndex((t) => t.id === tab);
+      let next = -1;
+      if (e.code === 'ArrowRight') next = (index + 1) % TABS.length;
+      else if (e.code === 'ArrowLeft') next = (index - 1 + TABS.length) % TABS.length;
+      else {
+        const digit = /^Digit([1-9])$/.exec(e.code);
+        if (digit && Number(digit[1]) <= TABS.length) next = Number(digit[1]) - 1;
+      }
+      if (next < 0) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setTab(TABS[next].id);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [tab]);
   return (
     <div className="impostor-modal">
       <div className="impostor-card impostor-rules" role="document">
         <header>
           <strong>Правила · Предатель</strong>
+          <span className="impostor-rules-hint">
+            Вкладки: <kbd>←</kbd> <kbd>→</kbd> или <kbd>1</kbd>–<kbd>{TABS.length}</kbd> · закрыть <kbd>Esc</kbd>
+          </span>
           <button className="impostor-close" onClick={onClose} aria-label="Закрыть правила">
             ×
           </button>
         </header>
         <nav className="impostor-rules-tabs" aria-label="Разделы правил">
-          {TABS.map((t) => (
+          {TABS.map((t, i) => (
             <button key={t.id} className={tab === t.id ? 'is-active' : ''} aria-pressed={tab === t.id} onClick={() => setTab(t.id)}>
+              <span className="impostor-rules-tab-number">{i + 1}</span>
               {t.title}
             </button>
           ))}
