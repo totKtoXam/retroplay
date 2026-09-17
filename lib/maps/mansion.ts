@@ -155,6 +155,9 @@ const windowGap = (a: number, b: number, both = true): Opening => ({
     : [[SILL, LINTEL]],
 });
 
+/** A second-floor window only (the ground floor below it stays wall or door). */
+const upperWindow = (a: number, b: number): Opening => ({ a, b, open: [[SILL2, LINTEL2]] });
+
 // --- the house -----------------------------------------------------------------------
 const houseWalls: MapBox[] = [
   // West facade: back door into the north room, windows on both floors.
@@ -163,16 +166,24 @@ const houseWalls: MapBox[] = [
     windowGap(-5, -3.6),
     windowGap(6, 7.4),
   ]),
-  // North facade.
-  ...wallSegments('x', ZN, XW, XE, 0, EAVES, CREAM, WALL_T, [windowGap(-23, -21.6), windowGap(-12.5, -11.1)]),
-  // South facade: door out of the south room.
+  // North facade. The second-floor north-east room gets a second window on this side.
+  ...wallSegments('x', ZN, XW, XE, 0, EAVES, CREAM, WALL_T, [
+    windowGap(-23, -21.6),
+    windowGap(-12.5, -11.1),
+    upperWindow(-9.6, -8.2),
+  ]),
+  // South facade: door out of the south room; the second-floor south-east room gets a
+  // second window on this side too.
   ...wallSegments('x', ZS, XW, XE, 0, EAVES, CREAM, WALL_T, [
     { a: -20, b: -18, open: [[0, DOOR]] },
     windowGap(-12.5, -11.1),
+    upperWindow(-9.6, -8.2),
   ]),
   // East facade: veranda door with the balcony door above it, east door of the south-east room.
+  // Both second-floor end rooms look out east over the garden to the fountain: the north-east
+  // room through a window above the ground-floor one, the south-east room above its door.
   ...wallSegments('z', XE, ZN, ZS, 0, EAVES, CREAM, WALL_T, [
-    windowGap(-14.5, -13.1, false),
+    windowGap(-14.5, -13.1),
     windowGap(-11, -9.6),
     windowGap(-8, -6.6),
     {
@@ -184,7 +195,14 @@ const houseWalls: MapBox[] = [
       ],
     },
     windowGap(3, 4.4),
-    { a: 9, b: 10.7, open: [[0, DOOR]] },
+    {
+      a: 9,
+      b: 10.7,
+      open: [
+        [0, DOOR],
+        [SILL2, LINTEL2],
+      ],
+    },
   ]),
 
   // West wing | foyer. Ground: north room and stair hall doors, south room to the SE room.
