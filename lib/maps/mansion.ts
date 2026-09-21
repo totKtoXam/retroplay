@@ -1,9 +1,20 @@
-import { perimeterWalls, type ArenaDef, type MapBox, type MapCylinder, type SurfaceMaterial } from './types.ts';
+import {
+  perimeterWalls,
+  type ArenaDef,
+  type MapBox,
+  type MapCylinder,
+  type MapSphere,
+  type MapWater,
+  type SurfaceMaterial,
+} from './types.ts';
 
 // «Особняк» — team battle. Red holds the two-storey house in the west, blue starts in the
 // "спецназ" corridor behind the east compound wall. Routes between them: the main gate and
-// the paved plaza, the roofed service tunnel along the north wall, and a crawl hole in the
-// east wall by the guard hut that only crouching or lying players fit through.
+// the paved plaza, the old sewer along the north wall, and a crawl hole in the east wall by
+// the guard hut that only crouching or lying players fit through.
+//
+// Outdoors nothing stands closer than 1.3 m to anything else: an obstacle either touches its
+// neighbour or leaves a real passage (tests/map-mansion.test.mjs checks every pair).
 
 // --- palette -------------------------------------------------------------------------
 const CREAM = '#e7dabb'; // outer plaster
@@ -15,10 +26,14 @@ const ROOF_TOP = '#8d3826';
 const FENCE = '#c9bb9c'; // compound wall
 const PAVE = '#9b9890';
 const PAVE_LIGHT = '#b7b3a8';
-const HEDGE = '#2e5c33';
+const HEDGE = '#4c7f3d';
 const WATER = '#2f6f9e';
 const POOL = '#1d4f73';
-const CONCRETE = '#7d7c74'; // service tunnel
+const SEWER = '#77705f'; // old sewer brick
+const SEWER_WATER = '#4b5a3c';
+const PLANKS = '#8a6a4a'; // guard hut siding
+const ROOF_TILE = '#9a4a33';
+const SOIL = '#6b4f35';
 const METAL = '#59626e';
 const TILE_DARK = '#4d4c4a';
 const TILE_LIGHT = '#cfc7b4';
@@ -305,6 +320,15 @@ const railings: MapBox[] = [
   block(XE, -3.5, F2, F2 + 1, 6.45, 6.6, CREAM),
 ];
 
+// --- the staircase ------------------------------------------------------------------------
+// One straight flight from the stair hall (z = Z2, ground) up to the second floor (z = Z1).
+// It is drawn as steps; walking follows the smooth slope under them (MapRamp.steps).
+const STAIR = { minX: -17.8, maxX: XB - 0.2, from: Z2, to: Z1, steps: 20 };
+const stairRun = STAIR.from - STAIR.to;
+const stairPitch = Math.atan2(F2, stairRun);
+/** Height of the flight's slope at z. */
+const stairY = (z: number) => (F2 * (STAIR.from - z)) / stairRun;
+
 // --- interior --------------------------------------------------------------------------
 // Solid parts of furniture (table tops, seats, bed frames, cabinets) go into `boxes` and block
 // movement and shots; legs, cushions, frames, lamps and ceilings go into `decor`, which is
@@ -575,8 +599,27 @@ lamp(-24.6, 8.4, 0, 1.5);
 painting('w', XW + 0.2, 8.2, 10.8, 1.3, 2.4, '#b98a5a');
 chandelier(-20, 8, 2.7, F2 - 0.23, 0.4);
 
-// Stair hall: a plant at the foot of the flight.
+// Stair hall: a plant at the foot of the flight, handrails with balusters along both walls.
 plant(-17.2, 3.8, 0.025, 0.8);
+for (const x of [STAIR.minX + 0.08, STAIR.maxX - 0.08]) {
+  const length = Math.hypot(stairRun, F2);
+  decor.push({
+    x,
+    y: F2 / 2 + 0.9,
+    z: (STAIR.from + STAIR.to) / 2,
+    w: 0.07,
+    h: 0.07,
+    d: length,
+    color: WALNUT,
+    material: 'wood',
+    rot: [stairPitch, 0, 0],
+  });
+  for (let z = STAIR.from - 0.4; z > STAIR.to + 0.2; z -= 0.6) {
+    const y = stairY(z);
+    deco(x - 0.02, x + 0.02, y, y + 0.9, z - 0.02, z + 0.02, WALNUT, 'wood');
+  }
+  deco(x - 0.05, x + 0.05, 0, 1.0, STAIR.from - 0.3, STAIR.from - 0.2, WALNUT, 'wood');
+}
 
 // Foyer: marble floor, a long table on a rug under the chandelier, the sideboard.
 interior.push(cover(-12.8, -8.4, -4.6, 0.6, 0.03, RUG_RED, 'carpet'));
@@ -657,28 +700,56 @@ plant(-7.7, 8.6, F2, 0.8);
 
 const furniture: MapBox[] = [
   ...interior,
-  // Chimney.
-  block(-22.5, -21.3, 6.8, 8.2, -10.6, -9.4, ROOF_TOP),
+  // Chimney, through the pitched roof.
+  solid(-22.5, -21.3, 6.8, 9.6, -10.6, -9.4, '#8a4a36', 'brick'),
 ];
 
+/** A garden bench: a solid seat (low enough to step onto) with a decor back and legs. */
+function bench(x0: number, x1: number, z0: number, z1: number, back: Side) {
+  const seat = solid(x0, x1, 0.42, 0.5, z0, z1, OAK, 'wood');
+  legs(x0 + 0.1, x1 - 0.1, z0 + 0.05, z1 - 0.05, 0, 0.42, SOOT, 0.08);
+  if (back === 'n') deco(x0, x1, 0.5, 0.95, z0, z0 + 0.06, OAK, 'wood');
+  if (back === 's') deco(x0, x1, 0.5, 0.95, z1 - 0.06, z1, OAK, 'wood');
+  return seat;
+}
+
+const spheres: MapSphere[] = [];
+/** A bush of flowers or leaves: drawn only, it hides nobody. */
+const shrub = (x: number, z: number, r: number, color: string, y = r * 0.7) =>
+  spheres.push({ x, y, z, r, color, material: 'foliage' });
+
+/** A flower bed: soil and a row of flowering shrubs along it. */
+function flowerBed(x0: number, x1: number, z0: number, z1: number) {
+  const flowers = ['#c0506f', '#d9b23a', '#8a5fb0', '#e07a3c', '#d8d0c0'];
+  const n = Math.max(3, Math.round((x1 - x0) / 1.2));
+  for (let i = 0; i < n; i++) {
+    const x = x0 + ((i + 0.5) * (x1 - x0)) / n,
+      z = (z0 + z1) / 2 + ((i % 2) - 0.5) * (z1 - z0) * 0.35;
+    shrub(x, z, 0.42, i % 2 ? '#4a7a3a' : flowers[i % flowers.length], 0.3);
+  }
+  return { ...paint(x0, x1, z0, z1, SOIL, 0.05), material: 'soil' as const };
+}
+
 const props: MapBox[] = [
-  // Garden benches and planters by the veranda steps.
-  block(-11, -9, 0, 0.5, -16.6, -15.8, WOOD),
-  block(4, 6, 0, 0.5, 18, 18.8, WOOD),
-  block(19, 21, 0, 0.5, -18.8, -18, WOOD),
-  block(-3.2, -2.4, 0, 0.8, -5.4, -4.6, PAVE_LIGHT),
-  block(-3.2, -2.4, 0, 0.8, 0.6, 1.4, PAVE_LIGHT),
-  // Crates: cover by the guard hut and along the blue corridor.
-  block(20.6, 21.8, 0, 1.2, 15.2, 16.4, WOOD),
-  block(21, 22, 0, 0.9, 17, 18, WOOD),
-  block(30.2, 31.3, 0, 1.1, -4, -2.8, WOOD),
-  block(30.2, 31.3, 0, 1.1, 12, 13.2, WOOD),
+  // Garden benches. Planters by the veranda steps.
+  bench(-4.5, -2.5, -21.5, -20.9, 'n'),
+  bench(4, 6, 18.2, 18.8, 's'),
+  bench(19, 21, -18.8, -18.2, 'n'),
+  solid(-1.6, -0.8, 0, 0.8, -5.4, -4.6, PAVE_LIGHT, 'plaster'),
+  solid(-1.6, -0.8, 0, 0.8, 0.6, 1.4, PAVE_LIGHT, 'plaster'),
+  // Crates: cover by the guard hut (one stack, clear of the hut) and along the blue corridor.
+  solid(21.8, 23, 0, 1.2, 14.2, 15.4, WOOD, 'wood'),
+  solid(22, 23, 0, 0.9, 15.4, 16.3, WOOD, 'wood'),
+  solid(30.3, 31.4, 0, 1.1, -4, -2.8, WOOD, 'wood'),
+  solid(30.3, 31.4, 0, 1.1, 12, 13.2, WOOD, 'wood'),
   // Flower beds.
-  paint(-14, -8, -20, -17, '#5a7a3a'),
-  paint(10, 16, -20, -17, '#5a7a3a'),
-  paint(-14, -8, 17, 20, '#5a7a3a'),
-  paint(10, 16, 6, 9, '#5a7a3a'),
+  flowerBed(-14, -8, -20, -17),
+  flowerBed(10, 16, -20, -17),
+  flowerBed(-14, -8, 17, 20),
+  flowerBed(10, 16, 6, 9),
 ];
+shrub(-1.2, -5, 0.5, '#4f8a3f', 1.15);
+shrub(-1.2, 1, 0.5, '#4f8a3f', 1.15);
 
 const verandaTiles: MapBox[] = [];
 for (let i = 0; i < 2; i++)
@@ -688,7 +759,7 @@ for (let i = 0; i < 2; i++)
         paint(XE + i * 1.75, XE + (i + 1) * 1.75, -11 + j * 2.2, -11 + (j + 1) * 2.2, TILE_DARK, 0.06),
       );
 
-const veranda: MapBox[] = [paint(XE, -3.5, -11, 6.6, TILE_LIGHT), ...verandaTiles];
+const veranda: MapBox[] = [{ ...paint(XE, -3.5, -11, 6.6, TILE_LIGHT), material: 'tile' }, ...verandaTiles.map((b): MapBox => ({ ...b, material: 'tile' }))];
 
 // --- courtyard -----------------------------------------------------------------------
 const PX = 6.7;
@@ -697,9 +768,10 @@ const plaza: MapBox[] = [
   paint(PX - 8.3, PX + 8.3, PZ - 8.3, PZ + 8.3, PAVE_LIGHT, 0.03),
   paint(PX - 9.5, PX + 9.5, PZ - 6.6, PZ + 6.6, PAVE, 0.04),
   paint(PX - 6.6, PX + 6.6, PZ - 9.5, PZ + 9.5, PAVE, 0.05),
-  // Path from the plaza out through the gate.
+  // Path from the plaza out through the gate, and from the veranda to the plaza.
   paint(15.9, XGATE, -4, 1, PAVE, 0.05),
-];
+  paint(-3.5, PX - 8.3, -3.2, -0.8, PAVE, 0.04),
+].map((b): MapBox => ({ ...b, material: 'paving' }));
 
 const pool: MapBox[] = [
   // A low rim you can climb and hide behind.
@@ -720,30 +792,64 @@ decorCylinders.push(
   { x: PX, y: 2.43, z: PZ, r: 0.05, h: 0.16, color: GOLD, material: 'metal', sides: 8 },
 );
 
+// Clipped hedges. Along the east wall they stand right against it (no dead-end slot behind
+// them), and the south-west one stops short of the south wall to leave a passage.
 const hedges: MapBox[] = [
   // North-west quadrant.
-  block(-0.6, 0, 0, 1.6, -22, -14, HEDGE),
-  block(-0.6, 8, 0, 1.6, -14.3, -13.7, HEDGE),
+  solid(-0.6, 0, 0, 1.6, -21.6, -14, HEDGE, 'foliage'),
+  solid(-0.6, 8, 0, 1.6, -14.3, -13.7, HEDGE, 'foliage'),
   // North-east quadrant.
-  block(24.2, 24.8, 0, 1.6, -22, -7, HEDGE),
-  block(17, 24.8, 0, 1.6, -6, -5.4, HEDGE),
+  solid(XGATE - 0.9, XGATE - 0.3, 0, 1.6, -21.6, -5.2, HEDGE, 'foliage'),
+  solid(17, XGATE - 0.9, 0, 1.6, -6, -5.4, HEDGE, 'foliage'),
   // South-west quadrant.
-  block(-0.6, 0, 0, 1.6, 14, 23, HEDGE),
-  block(-0.6, 8, 0, 1.6, 13.7, 14.3, HEDGE),
-  // South-east quadrant.
-  block(24.2, 24.8, 0, 1.6, 3, 20, HEDGE),
-  block(17, 24.8, 0, 1.6, 2.6, 3.2, HEDGE),
+  solid(-0.6, 0, 0, 1.6, 14, 21.4, HEDGE, 'foliage'),
+  solid(-0.6, 8, 0, 1.6, 13.7, 14.3, HEDGE, 'foliage'),
+  // South-east quadrant: stops at the crawl hole.
+  solid(XGATE - 0.9, XGATE - 0.3, 0, 1.6, 2.2, 20, HEDGE, 'foliage'),
+  solid(17, XGATE - 0.9, 0, 1.6, 2.6, 3.2, HEDGE, 'foliage'),
 ];
 
-// Guard hut in the south garden, right by the crawl hole.
+// Guard hut in the south garden, right by the crawl hole: a board cabin with a door to the
+// north, a window to the south and a tiled pitched roof (drawn only, over the flat ceiling).
 const hut: MapBox[] = [
-  ...wallSegments('x', 15.8, 14.8, 20, 0, 2.8, PAVE, 0.3, [{ a: 16.5, b: 17.9, open: [[0, DOOR]] }]),
-  ...wallSegments('x', 18.8, 14.8, 20, 0, 2.8, PAVE, 0.3, [{ a: 16.5, b: 17.9, open: [[1.0, 2.0]] }]),
-  ...wallSegments('z', 14.8, 15.8, 18.8, 0, 2.8, PAVE, 0.3),
-  ...wallSegments('z', 20, 15.8, 18.8, 0, 2.8, PAVE, 0.3),
-  block(14.6, 20.2, 2.8, 3.0, 15.6, 19.0, METAL),
-  block(18.4, 19.6, 0, 0.9, 16.6, 18.2, WOOD),
+  ...[
+    ...wallSegments('x', 15.8, 14.8, 20, 0, 2.8, PLANKS, 0.3, [{ a: 16.5, b: 17.9, open: [[0, DOOR]] }]),
+    ...wallSegments('x', 18.8, 14.8, 20, 0, 2.8, PLANKS, 0.3, [{ a: 16.5, b: 17.9, open: [[1.0, 2.0]] }]),
+    ...wallSegments('z', 14.8, 15.8, 18.8, 0, 2.8, PLANKS, 0.3),
+    ...wallSegments('z', 20, 15.8, 18.8, 0, 2.8, PLANKS, 0.3),
+  ].map((b): MapBox => ({ ...b, material: 'planks' })),
+  solid(14.6, 20.2, 2.8, 3.0, 15.6, 19.0, '#6b5440', 'wood'),
+  // The guard's desk, against the east wall.
+  solid(18.7, 19.85, 0.72, 0.8, 17.3, 18.65, WOOD, 'wood'),
 ];
+legs(18.75, 19.8, 17.35, 18.6, 0, 0.72, WOOD);
+// Stone footing, corner posts, the door frame with its leaf folded back against the wall,
+// the window frame and glass, a lamp over the door and a stovepipe through the roof.
+deco(14.55, 20.25, 0, 0.3, 15.55, 19.05, PAVE, 'paving');
+for (const [x, z] of [
+  [14.8, 15.8],
+  [20, 15.8],
+  [14.8, 18.8],
+  [20, 18.8],
+])
+  deco(x - 0.2, x + 0.2, 0, 2.85, z - 0.2, z + 0.2, '#5c4630', 'wood');
+deco(16.36, 16.5, 0, DOOR + 0.1, 15.58, 15.68, '#5c4630', 'wood');
+deco(17.9, 18.04, 0, DOOR + 0.1, 15.58, 15.68, '#5c4630', 'wood');
+deco(16.36, 18.04, DOOR, DOOR + 0.14, 15.58, 15.68, '#5c4630', 'wood');
+deco(15.0, 16.36, 0.05, DOOR - 0.05, 15.58, 15.63, '#4a3322', 'wood');
+deco(16.5, 17.9, 1.0, 2.0, 18.79, 18.81, '#a9cbd9', 'marble');
+deco(17.17, 17.23, 1.0, 2.0, 18.9, 18.96, '#5c4630', 'wood');
+for (const [y0, y1] of [
+  [0.9, 1.0],
+  [2.0, 2.1],
+])
+  deco(16.4, 18.0, y0, y1, 18.64, 18.98, '#5c4630', 'wood');
+deco(16.4, 16.5, 1.0, 2.0, 18.64, 18.98, '#5c4630', 'wood');
+deco(17.9, 18.0, 1.0, 2.0, 18.64, 18.98, '#5c4630', 'wood');
+decorCylinders.push(
+  { x: 17.2, y: 2.62, z: 15.5, r: 0.1, h: 0.22, color: '#f4e4c1', sides: 8 },
+  { x: 19.2, y: 3.9, z: 16.4, r: 0.1, h: 1.6, color: SOOT, material: 'metal', sides: 10 },
+);
 
 // --- compound wall, gate and crawl hole ------------------------------------------------
 const compound: MapBox[] = [
@@ -757,32 +863,109 @@ const compound: MapBox[] = [
     { a: 20, b: 21.6, open: [[0, 1.3]] },
   ]),
   // Gate piers.
-  block(25.4, 26.6, 0, 5, -5.2, -4, PAVE),
-  block(25.4, 26.6, 0, 5, 1, 2.2, PAVE),
-  // Blue corridor props.
-  block(26.7, 27.7, 0, 1.2, 5.8, 7.2, METAL),
-  block(26.7, 27.7, 0, 1.2, 7.8, 9.2, METAL),
-  paint(26.4, 31.4, -23.5, 23.5, PAVE, 0.03),
+  solid(25.4, 26.6, 0, 5, -5.2, -4, PAVE, 'paving'),
+  solid(25.4, 26.6, 0, 5, 1, 2.2, PAVE, 'paving'),
+  // Blue corridor props: two cabinets side by side against the wall.
+  solid(26.3, 27.3, 0, 1.2, 5.8, 7.2, METAL, 'metal'),
+  solid(26.3, 27.3, 0, 1.4, 7.2, 8.6, METAL, 'metal'),
+  { ...paint(26.4, 31.4, -23.5, 23.5, PAVE, 0.03), material: 'paving' },
 ];
 
-// --- service tunnel ("sewer") along the north wall -------------------------------------
-// The engine has no basement, so the sewer is a roofed 1.7 m wide service run: from the
-// blue corridor through a bore in the east wall, west to the yard behind the house.
-const tunnel: MapBox[] = [
-  ...wallSegments('x', TUN_S + 0.2, -28.8, 26.6, 0, TUN_H, CONCRETE, 0.4, [
-    { a: -28, b: -26.4, open: [[0, TUN_H]] }, // behind the house
-    { a: 17, b: 18.6, open: [[0, TUN_H]] }, // north-east yard
-  ]),
-  ...wallSegments('z', -28.8, -23.5, TUN_S + 0.4, 0, TUN_H, CONCRETE),
-  slab(-29, 25.7, -23.5, -21.5, TUN_H, CONCRETE),
-  slab(26.3, 28.4, -23.5, -21.5, TUN_H, CONCRETE),
+// --- the sewer along the north wall ----------------------------------------------------
+// The engine has no basement, so the sewer is an old brick culvert at ground level, turfed
+// over: from the blue corridor through a bore in the east wall, west to the yard behind the
+// house. A channel of murky water runs down the middle between two narrow kerbs.
+const SEWER_IN = { minX: -28.6, maxX: XGATE - 0.3, minZ: BOUNDS.minZ + 0.6, maxZ: TUN_S }; // its inside
+const SEWER_OPENINGS: [number, number][] = [
+  [-28, -26.4], // behind the house
+  [17, 18.6], // north-east yard
 ];
+const tunnel: MapBox[] = [
+  ...wallSegments(
+    'x',
+    TUN_S + 0.2,
+    -28.8,
+    26.6,
+    0,
+    TUN_H,
+    SEWER,
+    0.4,
+    SEWER_OPENINGS.map(([a, b]): Opening => ({ a, b, open: [[0, TUN_H]] })),
+  ),
+  ...wallSegments('z', -28.8, -23.5, TUN_S + 0.4, 0, TUN_H, SEWER),
+  slab(-29, 25.7, -23.5, -21.5, TUN_H, SEWER),
+  slab(26.3, 28.4, -23.5, -21.5, TUN_H, SEWER),
+].map((b): MapBox => ({ ...b, material: 'sewer' }));
+const channel = { minZ: -22.95, maxZ: -22.45 };
+tunnel.push(
+  // Kerbs either side of the channel and its dark bed.
+  { ...paint(SEWER_IN.minX, SEWER_IN.maxX, SEWER_IN.minZ, channel.minZ, '#6f6a5c', 0.06), material: 'paving' },
+  { ...paint(SEWER_IN.minX, SEWER_IN.maxX, channel.maxZ, SEWER_IN.maxZ, '#6f6a5c', 0.06), material: 'paving' },
+  { ...paint(SEWER_IN.minX, SEWER_IN.maxX, channel.minZ, channel.maxZ, '#2e3328', 0.015), material: 'sewer' },
+);
+const sewerWater: MapWater = { minX: SEWER_IN.minX, maxX: SEWER_IN.maxX, ...channel, y: 0.035, color: SEWER_WATER };
+// Old brick over the compound wall's inner face, so the whole culvert is one material.
+deco(SEWER_IN.minX, SEWER_IN.maxX, 0, TUN_H - 0.2, SEWER_IN.minZ, SEWER_IN.minZ + 0.04, SEWER, 'sewer');
+// Brick ribs of the vault every 4 m (not across the side openings).
+const inOpening = (x: number) => SEWER_OPENINGS.some(([a, b]) => x > a - 0.4 && x < b + 0.4);
+for (let x = SEWER_IN.minX + 1.5; x < SEWER_IN.maxX - 0.5; x += 4) {
+  deco(x - 0.2, x + 0.2, TUN_H - 0.32, TUN_H - 0.2, SEWER_IN.minZ, SEWER_IN.maxZ, '#5f594b', 'sewer');
+  deco(x - 0.2, x + 0.2, 0, TUN_H - 0.2, SEWER_IN.minZ, SEWER_IN.minZ + 0.12, '#5f594b', 'sewer');
+  if (!inOpening(x)) deco(x - 0.2, x + 0.2, 0, TUN_H - 0.2, SEWER_IN.maxZ - 0.12, SEWER_IN.maxZ, '#5f594b', 'sewer');
+}
+// Rusty pipes on brackets along the north side: one under the vault, one low by the kerb.
+for (const [y, r] of [
+  [1.62, 0.09],
+  [0.4, 0.07],
+] as const)
+  decorCylinders.push({
+    x: (SEWER_IN.minX + SEWER_IN.maxX) / 2,
+    y,
+    z: SEWER_IN.minZ + 0.22,
+    r,
+    h: SEWER_IN.maxX - SEWER_IN.minX - 0.2,
+    color: '#7a4b31',
+    material: 'metal',
+    sides: 10,
+    axis: 'x',
+  });
+for (let x = SEWER_IN.minX + 0.5; x < SEWER_IN.maxX; x += 2) {
+  deco(x - 0.04, x + 0.04, 1.5, 1.74, SEWER_IN.minZ, SEWER_IN.minZ + 0.32, SOOT, 'metal');
+  deco(x - 0.04, x + 0.04, 0.3, 0.5, SEWER_IN.minZ, SEWER_IN.minZ + 0.3, SOOT, 'metal');
+}
+// Brick portals round the openings, turf over the vault, manholes and a vent stack.
+for (const [a, b] of SEWER_OPENINGS) {
+  deco(a - 0.35, a, 0, TUN_H + 0.1, TUN_S + 0.4, TUN_S + 0.5, '#5f594b', 'sewer');
+  deco(b, b + 0.35, 0, TUN_H + 0.1, TUN_S + 0.4, TUN_S + 0.5, '#5f594b', 'sewer');
+  deco(a - 0.35, b + 0.35, TUN_H - 0.3, TUN_H + 0.1, TUN_S + 0.4, TUN_S + 0.5, '#5f594b', 'sewer');
+}
+deco(-29, XGATE - 0.3, TUN_H, TUN_H + 0.08, -23.5, -21.5, '#5d7d3a', 'grass');
+for (const x of [-18, -2, 12])
+  decorCylinders.push({ x, y: TUN_H + 0.1, z: -22.5, r: 0.42, h: 0.05, color: '#4d4b46', material: 'metal', sides: 20 });
+decorCylinders.push({ x: 6, y: TUN_H + 0.6, z: -22.2, r: 0.12, h: 1.1, color: '#6d6a62', material: 'metal', sides: 10 });
+
+// Garden trees: a trunk and a crown of three clumps of leaves. The one by the house stands
+// clear of its wall.
+const TREES: [number, number][] = [
+  [-4, -19],
+  [-12, -19.5],
+  [21, -12],
+  [-8, 18],
+  [22, 8],
+];
+TREES.forEach(([x, z], i) => {
+  const green = i % 2 ? '#5a9447' : '#4f8a3f';
+  shrub(x, z, 1.7, green, 4.3);
+  shrub(x + 0.9, z + 0.5, 1.1, green, 3.7);
+  shrub(x - 0.8, z - 0.6, 1.0, green, 3.8);
+});
 
 export const MANSION: ArenaDef = {
   id: 'mansion',
   title: 'Особняк',
   bounds: BOUNDS,
   groundColor: '#6f8f4a',
+  groundMaterial: 'grass',
   outsideColor: '#4d5b34',
   boxes: [
     ...compound.map((b): MapBox => (b.color === FENCE ? { ...b, material: 'plaster' } : b)),
@@ -801,7 +984,25 @@ export const MANSION: ArenaDef = {
   ],
   ramps: [
     // Straight flight in the stair hall: ground at z = 4.4 up to the second floor at z = -7.
-    { minX: -17.8, maxX: XB, minZ: Z1, maxZ: Z2, axis: 'z', from: Z2, to: Z1, y0: 0, y1: F2, color: DECK },
+    {
+      minX: STAIR.minX,
+      maxX: XB,
+      minZ: Z1,
+      maxZ: Z2,
+      axis: 'z',
+      from: Z2,
+      to: Z1,
+      y0: 0,
+      y1: F2,
+      color: OAK,
+      material: 'wood',
+      steps: STAIR.steps,
+    },
+  ],
+  roofs: [
+    // Gable roof over the house, ridge north–south, and the guard hut's, ridge east–west.
+    { minX: -26.4, maxX: -6.6, minZ: -17.1, maxZ: 12.5, y: 6.8, rise: 4.2, ridge: 'z', color: ROOF_TILE, material: 'roof-tiles', gable: CREAM, gableMaterial: 'plaster', overhang: 0.5 },
+    { minX: 14.6, maxX: 20.2, minZ: 15.6, maxZ: 19.0, y: 3.0, rise: 1.2, ridge: 'x', color: ROOF_TILE, material: 'roof-tiles', gable: PLANKS, gableMaterial: 'planks', overhang: 0.35 },
   ],
   cylinders: [
     // Fountain in the pool: the pedestal, then the bowl on top of it.
@@ -813,23 +1014,14 @@ export const MANSION: ArenaDef = {
     { x: -3.7, y: 1.8, z: 0, r: 0.25, h: 3.6, color: CREAM, solid: true },
     { x: -3.7, y: 1.8, z: 5, r: 0.25, h: 3.6, color: CREAM, solid: true },
     // Garden trees.
-    { x: -6, y: 1.7, z: -18, r: 0.3, h: 3.4, color: WOOD, solid: true, sides: 8 },
-    { x: -12, y: 1.7, z: -19.5, r: 0.3, h: 3.4, color: WOOD, solid: true, sides: 8 },
-    { x: 21, y: 1.7, z: -12, r: 0.3, h: 3.4, color: WOOD, solid: true, sides: 8 },
-    { x: -8, y: 1.7, z: 18, r: 0.3, h: 3.4, color: WOOD, solid: true, sides: 8 },
-    { x: 22, y: 1.7, z: 8, r: 0.3, h: 3.4, color: WOOD, solid: true, sides: 8 },
+    ...TREES.map(([x, z]): MapCylinder => ({ x, y: 1.7, z, r: 0.3, h: 3.4, color: WOOD, solid: true, sides: 8, material: 'wood' })),
   ],
-  spheres: [
-    { x: -6, y: 4.2, z: -18, r: 1.9, color: '#3d6b34' },
-    { x: -12, y: 4.2, z: -19.5, r: 1.7, color: '#44753a' },
-    { x: 21, y: 4.2, z: -12, r: 1.9, color: '#3d6b34' },
-    { x: -8, y: 4.2, z: 18, r: 1.8, color: '#44753a' },
-    { x: 22, y: 4.2, z: 8, r: 1.9, color: '#3d6b34' },
-  ],
+  spheres,
   water: [
     { minX: PX - 4.3, maxX: PX + 4.3, minZ: PZ - 4.3, maxZ: PZ + 4.3, y: 0.35, color: WATER },
     // The bowl, filled to the brim.
     { minX: PX - 1.46, maxX: PX + 1.46, minZ: PZ - 1.46, maxZ: PZ + 1.46, y: BOWL_TOP + 0.02, color: WATER, round: true },
+    sewerWater,
   ],
   fountains: [{ x: PX, z: PZ, jetY: 2.5, bowlY: BOWL_TOP + 0.02, bowlR: 1.46, poolY: 0.35 }],
   furnishings: decor,
@@ -854,7 +1046,7 @@ export const MANSION: ArenaDef = {
     { x: 17.4, y: 2.4, z: 17.3, color: '#ffd9a8', intensity: 0.9, distance: 9 },
     { x: 29, y: 3.2, z: 0, color: '#cfe6ff', intensity: 1.2, distance: 18 },
     { x: 29, y: 3.2, z: 14, color: '#cfe6ff', intensity: 1.2, distance: 18 },
-    // Service tunnel: dim only.
+    // Sewer: dim only.
     { x: 20, y: 1.9, z: -22.8, color: '#8fb6a6', intensity: 0.45, distance: 10 },
     { x: 4, y: 1.9, z: -22.8, color: '#8fb6a6', intensity: 0.45, distance: 10 },
     { x: -14, y: 1.9, z: -22.8, color: '#8fb6a6', intensity: 0.45, distance: 10 },

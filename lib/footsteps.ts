@@ -50,6 +50,13 @@ const SURFACE_OF_MATERIAL: Record<SurfaceMaterial, FootstepSurface> = {
   metal: 'metal',
   brick: 'stone',
   books: 'wood',
+  grass: 'grass',
+  foliage: 'grass',
+  paving: 'stone',
+  soil: 'gravel',
+  planks: 'wood',
+  'roof-tiles': 'stone',
+  sewer: 'wet',
 };
 
 /** Поверхность по цвету материала. `thin` — плоская плита на полу. */

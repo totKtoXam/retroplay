@@ -1,7 +1,7 @@
 import * as T from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { RoomState } from '@/lib/model';
-import type { ArenaDef, GameMap, MapFountain, SurfaceMaterial } from '@/lib/maps/types';
+import type { ArenaDef, GameMap, MapFountain, MapRamp, MapRoof, SurfaceMaterial } from '@/lib/maps/types';
 import { createAvatar, setAvatarStyle } from './world-avatar';
 import { createInterior, interiorDraws } from './world-interior';
 import { createSurfaceLibrary } from './world-cinematic';
@@ -103,19 +103,35 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
   scene.add(new T.Mesh(new T.SphereGeometry(Math.max(180, span * 2), 24, 16), skyMaterial));
 
   // Ground inside the walls and a wider backdrop outside them.
-  add(new T.BoxGeometry(maxX - minX, 0.2, maxZ - minZ), def.groundColor, cx, -0.1, cz);
+  add(new T.BoxGeometry(maxX - minX, 0.2, maxZ - minZ), def.groundColor, cx, -0.1, cz, def.groundMaterial);
   add(new T.BoxGeometry(span + 200, 0.2, span + 200), def.outsideColor ?? '#6f7f63', cx, -0.14, cz);
   // Коробки и цилиндры с меткой `art` рисует интерьер (текстуры и модели), остальные — сцена,
   // с материалом поверхности, если он задан.
   const interior = def.boxes.some((b) => b.art) || def.decor?.length ? createInterior(def) : undefined;
   if (interior) scene.add(interior.group);
+  // Листва (кусты, кроны) рисуется неровной скруглённой массой, а не гладким бруском.
+  const boxGeometry = (b: { w: number; h: number; d: number; material?: SurfaceMaterial }) =>
+    b.material === 'foliage' ? bushGeometry(b.w, b.h, b.d) : new T.BoxGeometry(b.w, b.h, b.d);
   for (const b of def.boxes)
-    if (!interiorDraws(b)) add(new T.BoxGeometry(b.w, b.h, b.d), b.color, b.x, b.y, b.z, b.material);
-  for (const b of def.furnishings ?? [])
-    add(new T.BoxGeometry(b.w, b.h, b.d), b.color, b.x, b.y, b.z, b.material, decor);
-  for (const c of def.furnishingCylinders ?? [])
-    add(new T.CylinderGeometry(c.r, c.r, c.h, c.sides ?? 16), c.color, c.x, c.y, c.z, c.material, decor);
+    if (!interiorDraws(b)) {
+      const m = add(boxGeometry(b), b.color, b.x, b.y, b.z, b.material);
+      if (b.rot) m.rotation.set(...b.rot);
+    }
+  for (const b of def.furnishings ?? []) {
+    const m = add(boxGeometry(b), b.color, b.x, b.y, b.z, b.material, decor);
+    if (b.rot) m.rotation.set(...b.rot);
+  }
+  for (const c of def.furnishingCylinders ?? []) {
+    const m = add(new T.CylinderGeometry(c.r, c.r, c.h, c.sides ?? 16), c.color, c.x, c.y, c.z, c.material, decor);
+    if (c.axis === 'x') m.rotation.z = Math.PI / 2;
+    if (c.axis === 'z') m.rotation.x = Math.PI / 2;
+  }
+  for (const r of def.roofs ?? []) addRoof(r, (geo, color, kind) => add(geo, color, 0, 0, 0, kind, decor));
   for (const r of def.ramps ?? []) {
+    if (r.steps) {
+      for (const step of flightOfSteps(r)) add(step.geo, r.color, step.x, step.y, step.z, r.material);
+      continue;
+    }
     const run = r.to - r.from,
       rise = r.y1 - r.y0,
       slope = Math.hypot(run, rise);
@@ -130,7 +146,8 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
   for (const c of def.cylinders ?? [])
     if (!interiorDraws(c))
       add(new T.CylinderGeometry(c.r, c.r, c.h, c.sides ?? 16), c.color, c.x, c.y, c.z, c.material);
-  for (const s of def.spheres ?? []) add(new T.IcosahedronGeometry(s.r, 1), s.color, s.x, s.y, s.z);
+  for (const s of def.spheres ?? [])
+    add(s.material === 'foliage' ? crownGeometry(s.r) : new T.IcosahedronGeometry(s.r, 1), s.color, s.x, s.y, s.z, s.material);
   const waters: T.Mesh[] = [];
   for (const w of def.water ?? []) {
     const plane = w.round
@@ -274,6 +291,140 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
       fountains.forEach((f) => f.dispose());
     },
   };
+}
+
+/** Шум для листвы: гладкий, зависит только от точки, поэтому совпадающие вершины сдвигаются одинаково. */
+const leafNoise = (x: number, y: number, z: number) =>
+  Math.sin(x * 3.1 + Math.sin(z * 2.3)) * Math.cos(z * 2.7 - y * 1.9) * 0.6 +
+  Math.sin(y * 4.3 + x * 1.7) * 0.25 +
+  Math.cos(x * 7.9 - z * 6.1 + y * 3.3) * 0.15;
+
+/** Геометрия без UV и нормалей, со склеенными вершинами — чтобы сдвиг не рвал рёбра. */
+function welded(geo: T.BufferGeometry) {
+  geo.deleteAttribute('normal');
+  geo.deleteAttribute('uv');
+  const out = mergeVertices(geo);
+  geo.dispose();
+  return out;
+}
+/** Нормали и пустые UV (настоящие UV потом даёт проекция в метрах мира). */
+function finish(geo: T.BufferGeometry) {
+  geo.computeVertexNormals();
+  geo.setAttribute('uv', new T.BufferAttribute(new Float32Array(geo.getAttribute('position').count * 2), 2));
+  return geo;
+}
+
+/**
+ * Куст живой изгороди: коробка со скруглёнными верхними рёбрами и бугристой поверхностью.
+ * Низ остаётся ровным на земле; наружу масса выходит не больше чем на 0,12 м.
+ */
+function bushGeometry(w: number, h: number, d: number) {
+  const seg = (v: number) => Math.max(2, Math.ceil(v / 0.25));
+  const geo = welded(new T.BoxGeometry(w, h, d, seg(w), seg(h), seg(d)));
+  const p = geo.getAttribute('position');
+  const r = Math.min(0.35, w / 2, d / 2, h / 2);
+  const hx = w / 2 - r,
+    hz = d / 2 - r,
+    top = h / 2 - r,
+    bottom = -h / 2;
+  const v = new T.Vector3(),
+    inner = new T.Vector3(),
+    dir = new T.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    inner.set(Math.max(-hx, Math.min(hx, v.x)), Math.max(bottom, Math.min(top, v.y)), Math.max(-hz, Math.min(hz, v.z)));
+    dir.subVectors(v, inner);
+    if (dir.lengthSq() < 1e-9) dir.set(0, 1, 0);
+    dir.normalize();
+    const bump = 0.07 + leafNoise(v.x * 0.8, v.y * 0.8, v.z * 0.8) * 0.08;
+    v.copy(inner).addScaledVector(dir, r + bump);
+    v.y = Math.max(bottom, v.y);
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+  return finish(geo);
+}
+
+/** Крона дерева или цветущий куст: шар, собранный из бугров. */
+function crownGeometry(r: number) {
+  const geo = welded(new T.IcosahedronGeometry(r, 3));
+  const p = geo.getAttribute('position');
+  const v = new T.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const k = 1 + leafNoise(v.x / r * 1.6, v.y / r * 1.6, v.z / r * 1.6) * 0.16;
+    v.multiplyScalar(k);
+    p.setXYZ(i, v.x, v.y * 0.92, v.z);
+  }
+  return finish(geo);
+}
+
+/**
+ * Лестничный марш на месте пандуса: ступени сплошные до пола. Верх ступени — на высоте пандуса
+ * в середине проступи, так что ноги, идущие по склону, не проваливаются и не висят больше чем
+ * на полступени.
+ */
+function flightOfSteps(r: MapRamp) {
+  const n = r.steps ?? 1;
+  const out: { geo: T.BufferGeometry; x: number; y: number; z: number }[] = [];
+  const width = r.axis === 'z' ? r.maxX - r.minX : r.maxZ - r.minZ;
+  const across = r.axis === 'z' ? (r.minX + r.maxX) / 2 : (r.minZ + r.maxZ) / 2;
+  const tread = Math.abs(r.to - r.from) / n,
+    dir = Math.sign(r.to - r.from);
+  for (let i = 0; i < n; i++) {
+    const top = r.y0 + ((i + 0.5) / n) * (r.y1 - r.y0);
+    const h = top - Math.min(r.y0, r.y1);
+    const along = r.from + dir * (i + 0.5) * tread;
+    const y = Math.min(r.y0, r.y1) + h / 2;
+    out.push(
+      r.axis === 'z'
+        ? { geo: new T.BoxGeometry(width, h, tread), x: across, y, z: along }
+        : { geo: new T.BoxGeometry(tread, h, width), x: along, y, z: across },
+    );
+  }
+  return out;
+}
+
+/**
+ * Скатная крыша: чердак — треугольная призма (её торцы и есть фронтоны), поверх — два ската
+ * с выносом карниза.
+ */
+function addRoof(r: MapRoof, add: (geo: T.BufferGeometry, color: string, kind?: SurfaceMaterial) => T.Mesh) {
+  const o = r.overhang ?? 0.4,
+    t = 0.14;
+  const alongX = r.ridge === 'x';
+  // Поперечник (ширина под скатами) и длина вдоль конька.
+  const a0 = alongX ? r.minZ : r.minX,
+    a1 = alongX ? r.maxZ : r.maxX,
+    l0 = alongX ? r.minX : r.minZ,
+    l1 = alongX ? r.maxX : r.maxZ;
+  const half = (a1 - a0) / 2,
+    mid = (a0 + a1) / 2,
+    length = l1 - l0;
+  // Призма чердака: треугольник в плоскости (поперёк, y), вытянутый вдоль конька.
+  const shape = new T.Shape([new T.Vector2(-half, 0), new T.Vector2(half, 0), new T.Vector2(0, r.rise)]);
+  const attic = new T.ExtrudeGeometry(shape, { depth: length, bevelEnabled: false });
+  if (alongX) {
+    // Локальная z (вытяжка) идёт вдоль мировой x, локальная x — поперёк, вдоль мировой z.
+    attic.rotateY(Math.PI / 2);
+    attic.translate(l0, r.y, mid);
+  } else attic.translate(mid, r.y, l0);
+  add(attic, r.gable, r.gableMaterial);
+  // Скаты: доска от карниза до конька, по одной с каждой стороны.
+  const slope = Math.atan2(r.rise, half),
+    run = Math.hypot(half + o, r.rise + o * Math.tan(slope));
+  for (const side of [-1, 1]) {
+    const geo = alongX ? new T.BoxGeometry(length + o * 2, t, run) : new T.BoxGeometry(run, t, length + o * 2);
+    const m = add(geo, r.color, r.material);
+    const cAcross = mid + side * ((half + o) / 2),
+      cY = r.y + r.rise / 2 - ((o * Math.tan(slope)) / 2) + t / 2;
+    if (alongX) {
+      m.position.set((l0 + l1) / 2, cY, cAcross);
+      m.rotation.x = side * slope;
+    } else {
+      m.position.set(cAcross, cY, (l0 + l1) / 2);
+      m.rotation.z = -side * slope;
+    }
+  }
 }
 
 /**

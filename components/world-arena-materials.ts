@@ -380,6 +380,209 @@ const SPECS: Record<SurfaceMaterial, Spec> = {
       }
     },
   },
+  grass: {
+    size: 256,
+    repeat: 2.5,
+    roughness: 1,
+    bump: 0.012,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(200);
+      ctx.fillRect(0, 0, s, s);
+      // Пятна гуще и реже, потом травинки: короткие штрихи разной яркости и наклона.
+      for (let i = 0; i < 60; i++) {
+        ctx.fillStyle = gray(170 + rand() * 70, 0.25);
+        ctx.beginPath();
+        ctx.arc(rand() * s, rand() * s, 8 + rand() * 30, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (let i = 0; i < 2600; i++) {
+        const x = rand() * s,
+          y = rand() * s,
+          len = 4 + rand() * 9,
+          lean = (rand() - 0.5) * 5;
+        ctx.strokeStyle = gray(150 + rand() * 105, 0.7);
+        ctx.lineWidth = 0.8 + rand() * 0.9;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + lean, y - len);
+        ctx.stroke();
+      }
+      speckle(ctx, s, rand, 18);
+    },
+  },
+  foliage: {
+    size: 256,
+    repeat: 1.1,
+    roughness: 0.9,
+    bump: 0.03,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(150);
+      ctx.fillRect(0, 0, s, s);
+      // Листья — вытянутые эллипсы под разными углами, сверху светлее, в глубине темнее.
+      for (let i = 0; i < 1500; i++) {
+        const x = rand() * s,
+          y = rand() * s,
+          r = 3 + rand() * 6;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rand() * Math.PI);
+        ctx.fillStyle = gray(165 + rand() * 90, 0.9);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, r, r * 0.45, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = gray(130, 0.4);
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(-r, 0);
+        ctx.lineTo(r, 0);
+        ctx.stroke();
+        ctx.restore();
+      }
+      speckle(ctx, s, rand, 20);
+    },
+  },
+  paving: {
+    size: 256,
+    repeat: 2.4,
+    roughness: 0.9,
+    bump: 0.014,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(150);
+      ctx.fillRect(0, 0, s, s);
+      // Брусчатка: ряды камней разной длины со скруглёнными краями и швами.
+      const rows = 8,
+        h = s / rows;
+      for (let r = 0; r < rows; r++) {
+        let x = -rand() * 30;
+        while (x < s) {
+          const w = 22 + rand() * 20;
+          const v = 200 + rand() * 50;
+          ctx.fillStyle = gray(v);
+          ctx.beginPath();
+          ctx.roundRect(x + 2, r * h + 2, w - 4, h - 4, 5);
+          ctx.fill();
+          ctx.fillStyle = gray(v + 12, 0.6);
+          ctx.fillRect(x + 5, r * h + 4, w - 12, 3);
+          // Кусок, вылезающий за край, повторяем с другой стороны: текстура без шва.
+          if (x + w > s) {
+            ctx.fillStyle = gray(v);
+            ctx.beginPath();
+            ctx.roundRect(x - s + 2, r * h + 2, w - 4, h - 4, 5);
+            ctx.fill();
+          }
+          x += w;
+        }
+      }
+      speckle(ctx, s, rand, 22);
+    },
+  },
+  soil: {
+    size: 256,
+    repeat: 1.5,
+    roughness: 1,
+    bump: 0.02,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(170);
+      ctx.fillRect(0, 0, s, s);
+      for (let i = 0; i < 900; i++) {
+        ctx.fillStyle = gray(110 + rand() * 120, 0.55);
+        ctx.beginPath();
+        ctx.arc(rand() * s, rand() * s, 1 + rand() * 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      speckle(ctx, s, rand, 30);
+    },
+  },
+  planks: {
+    size: 256,
+    repeat: 1.6,
+    roughness: 0.8,
+    bump: 0.012,
+    paint: (ctx, s, rand) => {
+      // Вагонка: горизонтальные доски внахлёст, под каждой — тень от нижней кромки верхней.
+      const boards = 8,
+        h = s / boards;
+      for (let b = 0; b < boards; b++) {
+        grain(ctx, 0, b * h, s, h, rand, 205 + rand() * 30);
+        ctx.fillStyle = gray(95, 0.8);
+        ctx.fillRect(0, b * h, s, 3);
+        ctx.fillStyle = gray(250, 0.35);
+        ctx.fillRect(0, b * h + 3, s, 2);
+      }
+      for (let i = 0; i < 12; i++) {
+        ctx.fillStyle = gray(120, 0.8);
+        ctx.fillRect(rand() * s, Math.floor(rand() * boards) * h + h / 2, 3, 3);
+      }
+      speckle(ctx, s, rand, 10);
+    },
+  },
+  'roof-tiles': {
+    size: 256,
+    repeat: 1.6,
+    roughness: 0.85,
+    bump: 0.02,
+    paint: (ctx, s, rand) => {
+      // Черепица: ряды полукруглых чешуек, каждый ряд сдвинут на половину.
+      ctx.fillStyle = gray(120);
+      ctx.fillRect(0, 0, s, s);
+      const rows = 8,
+        h = s / rows,
+        w = s / 8;
+      for (let r = 0; r < rows; r++)
+        for (let c = -1; c <= 8; c++) {
+          const x = c * w + (r % 2 ? w / 2 : 0),
+            y = r * h;
+          const grad = ctx.createLinearGradient(0, y, 0, y + h);
+          const v = 190 + rand() * 50;
+          grad.addColorStop(0, gray(v - 40));
+          grad.addColorStop(0.7, gray(v));
+          grad.addColorStop(1, gray(v - 70));
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.moveTo(x + 1, y);
+          ctx.lineTo(x + 1, y + h * 0.55);
+          ctx.arc(x + w / 2, y + h * 0.55, w / 2 - 1, Math.PI, 0, true);
+          ctx.lineTo(x + w - 1, y);
+          ctx.closePath();
+          ctx.fill();
+        }
+      speckle(ctx, s, rand, 14);
+    },
+  },
+  sewer: {
+    size: 256,
+    repeat: 1.4,
+    roughness: 0.55,
+    bump: 0.016,
+    paint: (ctx, s, rand) => {
+      // Старый кирпич: неровные ряды, выкрошенный раствор и потёки грязи.
+      ctx.fillStyle = gray(95);
+      ctx.fillRect(0, 0, s, s);
+      const rows = 10,
+        h = s / rows,
+        w = s / 4;
+      for (let r = 0; r < rows; r++)
+        for (let c = -1; c < 5; c++) {
+          const x = c * w + (r % 2 ? w / 2 : 0) + (rand() - 0.5) * 3;
+          ctx.fillStyle = gray(150 + rand() * 70);
+          ctx.fillRect(x + 3, r * h + 3, w - 5 - rand() * 3, h - 5);
+          if (rand() < 0.2) {
+            ctx.fillStyle = gray(90, 0.6);
+            ctx.fillRect(x + 4 + rand() * (w - 20), r * h + 4, 6 + rand() * 10, 5 + rand() * 6);
+          }
+        }
+      for (let i = 0; i < 26; i++) {
+        const x = rand() * s,
+          len = 40 + rand() * 180;
+        const grad = ctx.createLinearGradient(0, 0, 0, len);
+        grad.addColorStop(0, gray(50, 0.45));
+        grad.addColorStop(1, gray(50, 0));
+        ctx.fillStyle = grad;
+        ctx.fillRect(x, 0, 3 + rand() * 9, len);
+      }
+      speckle(ctx, s, rand, 26);
+    },
+  },
 };
 
 function paintTexture(spec: Spec, seed: number) {

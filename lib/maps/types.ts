@@ -30,7 +30,16 @@ export type SurfaceMaterial =
   | 'leather'
   | 'metal'
   | 'brick'
-  | 'books';
+  | 'books'
+  | 'grass'
+  /** Leaves: a box or sphere of it is drawn lumpy, as a bush or a crown. */
+  | 'foliage'
+  | 'paving'
+  | 'soil'
+  | 'planks'
+  | 'roof-tiles'
+  /** Old wet brick with grime: sewer walls. */
+  | 'sewer';
 
 /** Axis-aligned box given by its centre (x, y, z) and size (w along x, h along y, d along z). */
 export type MapBox = {
@@ -53,6 +62,11 @@ export type MapBox = {
   art?: string;
   /** Yaw of the model's front (+z at 0), for `art` models that face somewhere. */
   yaw?: number;
+  /**
+   * Euler rotation (x, y, z) about the centre, radians — decor only (a sloped handrail):
+   * the collision of a solid box ignores it.
+   */
+  rot?: [number, number, number];
 };
 /** Sloped walkway: height goes from y0 at `from` to y1 at `to` along `axis`. */
 export type MapRamp = Bounds & {
@@ -62,6 +76,9 @@ export type MapRamp = Bounds & {
   y0: number;
   y1: number;
   color: string;
+  material?: SurfaceMaterial;
+  /** Drawn as a flight of this many steps; walking still follows the smooth slope. */
+  steps?: number;
 };
 export type MapCylinder = {
   x: number;
@@ -76,6 +93,23 @@ export type MapCylinder = {
   material?: SurfaceMaterial;
   /** Detailed model drawn in place of the plain cylinder, as `MapBox.art`. */
   art?: string;
+  /** Lies along this axis (a pipe), `h` being its length — decor only: collision assumes upright. */
+  axis?: 'x' | 'z';
+};
+/**
+ * A pitched roof, drawn only: two slopes of `material` rising `rise` above `y` to a ridge
+ * along `ridge`, closed at both ends by gables of `gable`. `overhang` is the eaves' reach
+ * beyond the footprint.
+ */
+export type MapRoof = Bounds & {
+  y: number;
+  rise: number;
+  ridge: 'x' | 'z';
+  color: string;
+  material?: SurfaceMaterial;
+  gable: string;
+  gableMaterial?: SurfaceMaterial;
+  overhang?: number;
 };
 /**
  * Purely visual detail (door frame, window, pipe, wall screen): no collision, so it must
@@ -98,7 +132,7 @@ export type MapDecor = {
  * are ordinary cylinders, boxes and water.
  */
 export type MapFountain = { x: number; z: number; jetY: number; bowlY: number; bowlR: number; poolY: number };
-export type MapSphere = { x: number; y: number; z: number; r: number; color: string };
+export type MapSphere = { x: number; y: number; z: number; r: number; color: string; material?: SurfaceMaterial };
 /** Still water at height `y`; with `round` it is the disc inscribed in the bounds (a fountain bowl). */
 export type MapWater = Bounds & { y: number; color?: string; round?: boolean };
 export type MapLight = { x: number; y: number; z: number; color: string; intensity: number; distance: number };
@@ -126,6 +160,7 @@ export type ArenaDef = {
   /** Playable area; the client and the server clamp poses to exactly these bounds. */
   bounds: Bounds;
   groundColor: string;
+  groundMaterial?: SurfaceMaterial;
   /**
    * The season the map is painted in (lib/season-colors.ts); other seasons recolour it
    * from there. Missing means summer.
@@ -137,6 +172,7 @@ export type ArenaDef = {
   ramps?: MapRamp[];
   cylinders?: MapCylinder[];
   spheres?: MapSphere[];
+  roofs?: MapRoof[];
   water?: MapWater[];
   /**
    * Scene-only detail: furniture legs, cushions, frames, lamps, ceilings. Never collides, never

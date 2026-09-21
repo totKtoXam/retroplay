@@ -147,3 +147,43 @@ test('the fountain holds water: a brimming bowl over the pool, with a jet', () =
   assert.equal((bowl.minX + bowl.maxX) / 2, pedestal.x);
   assert.ok(bowl.minX > pool.minX && bowl.maxX < pool.maxX && bowl.minZ > pool.minZ && bowl.maxZ < pool.maxZ);
 });
+
+test('outdoors no obstacle leaves a narrow slot: neighbours touch or leave a real passage', () => {
+  // Garden only: the house's own rooms and furniture are out of scope. Anything no higher than
+  // 0.6 m is stepped onto, and anything starting above 0.3 m is walked under or crawled under.
+  const mid = (c) => ({ x: (c.minX + c.maxX) / 2, z: (c.minZ + c.maxZ) / 2 });
+  const inHouse = (c) => {
+    const m = mid(c);
+    return m.x > -25.7 && m.x < -7.3 && m.z > -16.3 && m.z < 11.7;
+  };
+  const obstacles = map.colliders.filter((c) => c.minY < 0.3 && c.maxY > 0.6 && !inHouse(c));
+  const span = (a0, a1, b0, b1) => (a1 < b0 ? [a1, b0] : b1 < a0 ? [b1, a0] : [Math.max(a0, b0), Math.min(a1, b1)]);
+  const narrow = [];
+  for (let i = 0; i < obstacles.length; i++)
+    for (let j = i + 1; j < obstacles.length; j++) {
+      const a = obstacles[i],
+        b = obstacles[j];
+      const gx = Math.max(a.minX - b.maxX, b.minX - a.maxX),
+        gz = Math.max(a.minZ - b.maxZ, b.minZ - a.maxZ);
+      const gap = gx > 0 && gz > 0 ? Math.hypot(gx, gz) : Math.max(gx, gz);
+      if (gap <= 0.2 || gap >= 1.3) continue;
+      // A slot filled by a third obstacle is not a slot.
+      const [x0, x1] = span(a.minX, a.maxX, b.minX, b.maxX),
+        [z0, z1] = span(a.minZ, a.maxZ, b.minZ, b.maxZ);
+      const x = (x0 + x1) / 2,
+        z = (z0 + z1) / 2;
+      if (obstacles.some((c) => c !== a && c !== b && x >= c.minX && x <= c.maxX && z >= c.minZ && z <= c.maxZ)) continue;
+      narrow.push(`${gap.toFixed(2)} m between (${mid(a).x.toFixed(1)}, ${mid(a).z.toFixed(1)}) and (${mid(b).x.toFixed(1)}, ${mid(b).z.toFixed(1)})`);
+    }
+  assert.deepEqual(narrow, []);
+});
+
+test('the stairs are drawn as steps and the sewer holds water', () => {
+  const [stairs] = arena.ramps;
+  assert.ok(stairs.steps >= 16, 'a flight of real steps');
+  // Walking still follows the slope: halfway up the flight is halfway up the storey.
+  assert.ok(Math.abs(map.groundHeight(-16, (stairs.from + stairs.to) / 2, 1.8) - 1.8) < 0.05);
+  const sewer = arena.water.find((w) => w.minZ > -23.4 && w.maxZ < -22);
+  assert.ok(sewer && sewer.maxX - sewer.minX > 40, 'a channel of water down the whole sewer');
+  assert.ok(arena.boxes.some((b) => b.material === 'sewer' && b.solid), 'brick sewer walls');
+});
