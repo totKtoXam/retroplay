@@ -110,6 +110,7 @@ import { GameClock } from './game-clock';
 import { SidePicker } from './side-picker';
 import { PhaseBar } from './phase-bar';
 import { useRoomSync } from './use-room-sync';
+import GameChat from './game-chat';
 import { useVoiceChat } from './use-voice-chat';
 import { MAP_CATALOG, modeOf } from '@/lib/maps/catalog';
 import { defaultSlot, hasSlot, slotsFor } from '@/lib/loadout';
@@ -181,6 +182,9 @@ export default function RoomApp({ id }: { id: string }) {
     [monitor, setMonitor] = useState(false),
     // Экран режима «Предатель» (мини-игра, собрание) держит курсор — мир не слушает ввод.
     [impostorBlocked, setImpostorBlocked] = useState(false),
+    [chatOpen, setChatOpen] = useState(false),
+    // Растёт, когда чат закрыт клавишей: мир снова захватывает мышь.
+    [resumeWorld, setResumeWorld] = useState(0),
     [now, setNow] = useState(() => Date.now()),
     [seconds, setSeconds] = useState('300'),
     [voteLimit, setVoteLimit] = useState('5'),
@@ -306,6 +310,10 @@ export default function RoomApp({ id }: { id: string }) {
     sendVoice,
     setVoiceSink,
     serverNow,
+    chat,
+    chatError,
+    setChatError,
+    sendChat,
   } = useRoomSync({
     id,
     pose,
@@ -562,6 +570,11 @@ export default function RoomApp({ id }: { id: string }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   const { voice, talk } = useVoiceChat({ room, sendVoice, setVoiceSink });
+  const openChat = useCallback((open: boolean, resume = false) => {
+    setChatOpen(open);
+    if (!open && resume) setResumeWorld((n) => n + 1);
+  }, []);
+  const clearChatError = useCallback(() => setChatError(''), [setChatError]);
   const voiceMuted = new Set(room?.state.voiceMuted ?? []);
   const me = room?.members.find((m) => m.id === room.self),
     host = room?.host === room?.self,
@@ -573,6 +586,22 @@ export default function RoomApp({ id }: { id: string }) {
     slots = slotsFor(gameMode),
     // Предмет другого режима в руках не остаётся: берём предмет по умолчанию.
     tool = hasSlot(gameMode, heldTool) ? heldTool : defaultSlot(gameMode);
+  // Каналы чата. В «Предателе» свой канал есть только у живых предателей, а живые пишут
+  // всем лишь на собраниях (правила — lib/room-chat.ts, здесь только подсказка).
+  const impostorView = gameMode === 'impostor' ? room?.impostor : undefined;
+  const inParty = !!impostorView && ['intro', 'play', 'meeting', 'voting', 'eject'].includes(impostorView.phase);
+  const partyGhost = inParty && !(impostorView?.role && impostorView.alive);
+  const chatTeam = inParty
+    ? !partyGhost && impostorView?.role === 'impostor'
+      ? 'Предателям'
+      : null
+    : gameMode === 'battle' && me?.team
+      ? 'Команде'
+      : null;
+  const chatAllBlocked =
+    inParty && !partyGhost && !['meeting', 'voting', 'eject'].includes(impostorView?.phase ?? '')
+      ? 'Живые говорят только на собраниях'
+      : '';
   // Сколько пунктов плана ещё не сделано — подпись раздела «План действий»
   // отвечает на вопрос «надо ли туда заходить» до того, как его открыли.
   const actionsLeft =
@@ -1420,11 +1449,13 @@ export default function RoomApp({ id }: { id: string }) {
                   cursor.current = { x, y, mode: 'tablet' };
                 }}
                 onFailure={() => setWebglFailed(true)}
+                resume={resumeWorld}
                 blocked={
                   !!panel ||
                   !!draft ||
                   !!selectedZone ||
-                  impostorBlocked
+                  impostorBlocked ||
+                  chatOpen
                 }
               />
             </Suspense>
@@ -1440,6 +1471,20 @@ export default function RoomApp({ id }: { id: string }) {
                 onBlocked={setImpostorBlocked}
               />
             </Suspense>
+          )}
+          {!webglFailed && (
+            <GameChat
+              messages={chat}
+              self={room.self}
+              open={chatOpen}
+              onOpen={openChat}
+              send={sendChat}
+              error={chatError}
+              clearError={clearChatError}
+              teamLabel={chatTeam}
+              allBlocked={chatAllBlocked}
+              disabled={!!panel || !!draft || !!selectedZone}
+            />
           )}
           {gameMode === 'retro' && (
             <div className="game-zone-buttons">

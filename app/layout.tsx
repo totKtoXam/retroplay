@@ -5,6 +5,7 @@ import './theme.css';
 import './side-picker.css';
 import './hud.css';
 import './impostor.css';
+import './chat.css';
 import './game-clock.css';
 import './phases.css';
 import './settings-menu.css';

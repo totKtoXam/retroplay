@@ -13,6 +13,7 @@ import { uid, type Room, type RoomState, type Pose, type WorldEffect } from '@/l
 import { api, ready } from '@/lib/client';
 import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
 import type { VoiceSignal } from './voice-chat';
+import type { ChatChannel, ChatMessage } from '@/lib/room-chat';
 
 /** Ответ сервера на действие режима «Предатель». */
 export type ImpostorReply = { ok: boolean; error?: string };
@@ -63,10 +64,15 @@ type SocketMessage =
     }
   | { t: 'refresh' }
   | { t: 'impostor'; id: string; ok: boolean; error?: string }
+  | { t: 'chat'; messages: ChatMessage[]; history?: boolean }
+  | { t: 'chat.error'; error: string }
   | ({ t: 'voice' } & VoiceSignal)
   | { t: 'pong'; at: number }
   | ({ t: 'weapon' } & WeaponReply)
   | { t: 'error'; message: string };
+
+/** Столько сообщений чата держим в памяти вкладки. */
+const CHAT_KEEP = 100;
 
 /** While the socket is down the board still refetches at least this often. */
 const SOCKET_REFRESH_MS = 15_000;
@@ -141,7 +147,9 @@ export function useRoomSync({
     [join, setJoin] = useState<JoinInfo | null>(null),
     [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]),
     [packetLoss, setPacketLoss] = useState(0),
-    [ping, setPing] = useState(0);
+    [ping, setPing] = useState(0),
+    [chat, setChat] = useState<ChatMessage[]>([]),
+    [chatError, setChatError] = useState('');
   const roomRef = useRef(room);
   useEffect(() => {
     roomRef.current = room;
@@ -360,6 +368,21 @@ export function useRoomSync({
     }
   }, []);
   /**
+   * Сообщение в текстовый чат. Только через сокет, как и голос: без него чат молчит,
+   * и `false` говорит об этом окну ввода.
+   */
+  const sendChat = useCallback((channel: ChatChannel, text: string) => {
+    const ws = socketRef.current;
+    if (ws?.readyState !== WebSocket.OPEN) return false;
+    try {
+      ws.send(JSON.stringify({ t: 'chat', channel, text }));
+      setChatError('');
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+  /**
    * Текущее время по серверным часам. Тик комнаты приносит `now` раз в 100 мс,
    * между тиками время идёт по `performance.now()` — монотонному счётчику,
    * который не дёргается от перевода системных часов. До первого тика остаётся
@@ -448,6 +471,16 @@ export function useRoomSync({
             impostorRequests.current.delete(msg.id);
             pending.resolve({ ok: msg.ok, error: msg.error });
           }
+        } else if (msg.t === 'chat') {
+          if (!Array.isArray(msg.messages)) return;
+          setChat((old) => {
+            // История после переподключения повторяет уже известное: склеиваем по id.
+            const known = new Set(old.map((c) => c.id));
+            const fresh = msg.messages.filter((c) => c && typeof c.text === 'string' && !known.has(c.id));
+            return fresh.length ? [...old, ...fresh].sort((a, b) => a.at - b.at).slice(-CHAT_KEEP) : old;
+          });
+        } else if (msg.t === 'chat.error') {
+          setChatError(msg.error);
         } else if (msg.t === 'voice') {
           voiceSink.current?.signal(msg);
         } else if (msg.t === 'refresh') {
@@ -619,5 +652,9 @@ export function useRoomSync({
     sendVoice,
     setVoiceSink,
     serverNow,
+    chat,
+    chatError,
+    setChatError,
+    sendChat,
   };
 }

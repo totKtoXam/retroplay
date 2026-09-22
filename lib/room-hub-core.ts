@@ -56,6 +56,7 @@ import {
   type ImpostorResult,
   type ImpostorSettings,
 } from './impostor.ts';
+import type { ChatEntry } from './room-chat.ts';
 import { stanceHeight, type Bounds, type GameMap, type SpawnPoint, type Team } from './maps/types.ts';
 
 /** Effects older than this are neither resolved nor sent to clients. */
@@ -118,6 +119,8 @@ export type HubMember = {
   spawn: { x: number; z: number };
   /** Team in a team battle; empty in free-for-all. */
   team: Team | '';
+  /** Когда участник писал в чат последние секунды (lib/room-chat.ts): защита от флуда. */
+  chatTimes?: number[];
 };
 export type HubEffect = WorldEffect & {
   resolveAt: number;
@@ -178,6 +181,8 @@ export type HubState = {
   impostor: ImpostorGame;
   /** Открыт ли у участника сокет (ставит объект комнаты; в checkpoint не входит). */
   connected?: (id: string) => boolean;
+  /** Последние сообщения текстового чата (lib/room-chat.ts); в checkpoint не входят. */
+  chat?: ChatEntry[];
 };
 
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);

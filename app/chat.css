@@ -1,0 +1,142 @@
+/*
+ * Текстовый чат поверх мира (components/game-chat.tsx). Как и HUD (app/hud.css), цвета свои:
+ * под чатом произвольный кадр сцены, поэтому текст светлый с тенью, а подложка — только
+ * у открытого чата. Стоит слева над счётом K/D/A и выше собрания «Предателя»: на собрании
+ * чат и нужен.
+ */
+.game-chat {
+  position: absolute;
+  left: 24px;
+  bottom: 96px;
+  z-index: 40;
+  width: min(420px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #eef3fb;
+  font-size: 14px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.game-chat.is-open {
+  pointer-events: auto;
+}
+
+.game-chat-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 40vh;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.6);
+}
+
+.game-chat.is-open .game-chat-list {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(10, 14, 22, 0.72);
+  backdrop-filter: blur(6px);
+  text-shadow: none;
+}
+
+.game-chat-list li {
+  animation: game-chat-in 0.18s ease-out;
+}
+
+.game-chat-list li.is-private {
+  color: #ffd98a;
+}
+
+.game-chat-list b {
+  font-weight: 700;
+  filter: brightness(1.25);
+}
+
+.game-chat-tag {
+  margin-right: 4px;
+  color: #ffd98a;
+  font-size: 12px;
+}
+
+.game-chat-form {
+  display: flex;
+  gap: 6px;
+}
+
+.game-chat-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 8px;
+  background: rgba(10, 14, 22, 0.85);
+  color: inherit;
+  font: inherit;
+}
+
+.game-chat-form input:focus {
+  outline: 2px solid rgba(120, 190, 255, 0.8);
+  outline-offset: 0;
+}
+
+.game-chat-channel {
+  flex: none;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 8px;
+  background: rgba(10, 14, 22, 0.85);
+  color: #cfe6ff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.game-chat-channel.is-team {
+  color: #ffd98a;
+  border-color: rgba(255, 217, 138, 0.55);
+}
+
+.game-chat-channel:disabled {
+  cursor: default;
+  opacity: 0.8;
+}
+
+.game-chat-error {
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(120, 20, 30, 0.8);
+  font-size: 13px;
+}
+
+@keyframes game-chat-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-chat-list li {
+    animation: none;
+  }
+}
+
+/* Узкий экран: низ занят панелью предметов и счётом — поднимаемся над ними. */
+@media (max-width: 900px) {
+  .game-chat {
+    left: 16px;
+    bottom: 150px;
+  }
+}
+@media (max-width: 680px) {
+  .game-chat {
+    bottom: 180px;
+  }
+}

@@ -30,6 +30,13 @@ export type ImpostorBotRules = {
   repairs: boolean;
   /** На голосовании предатель голосует против того, кто нашёл тело (чужих голосов он не видит). */
   bandwagon: boolean;
+  /** Разговорчивость на собрании: с этой вероятностью бот говорит необязательную реплику в чат. */
+  chat: number;
+  /**
+   * Сколько весит для экипажа одно чужое обвинение в чате рядом с собственной уликой (улика у тела
+   * — 2–3 очка). Новичок верит на слово, опытный полагается на то, что видел сам.
+   */
+  trust: number;
 };
 
 export const IMPOSTOR_BOT_LEVELS: Record<BotLevel, ImpostorBotRules> = {
@@ -47,6 +54,8 @@ export const IMPOSTOR_BOT_LEVELS: Record<BotLevel, ImpostorBotRules> = {
     sabotage: [],
     repairs: false,
     bandwagon: false,
+    chat: 0.6,
+    trust: 1,
   },
   medium: {
     hint: 'Обычный игрок: репортит тела, голосует против явных подозреваемых; предателем ждёт, пока рядом никого',
@@ -62,6 +71,8 @@ export const IMPOSTOR_BOT_LEVELS: Record<BotLevel, ImpostorBotRules> = {
     sabotage: ['lights'],
     repairs: true,
     bandwagon: false,
+    chat: 0.8,
+    trust: 1,
   },
   strong: {
     hint: 'Внимательный: помнит, кто был рядом с жертвой; предателем уходит через вентиляцию и устраивает аварии',
@@ -77,6 +88,8 @@ export const IMPOSTOR_BOT_LEVELS: Record<BotLevel, ImpostorBotRules> = {
     sabotage: ['lights', 'comms', 'reactor'],
     repairs: true,
     bandwagon: true,
+    chat: 1,
+    trust: 0.8,
   },
   expert: {
     hint: 'Опытный: замечает всё и голосует по уликам; предателем заметает следы, саботирует и сваливает вину на нашедшего тело',
@@ -92,5 +105,7 @@ export const IMPOSTOR_BOT_LEVELS: Record<BotLevel, ImpostorBotRules> = {
     sabotage: ['lights', 'comms', 'reactor', 'o2'],
     repairs: true,
     bandwagon: true,
+    chat: 1,
+    trust: 0.7,
   },
 };

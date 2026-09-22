@@ -8,6 +8,7 @@ import { isBotId } from '@/lib/bot-levels';
 import { impostorView, newImpostorGame, type ImpostorView } from '@/lib/impostor';
 import { stepImpostorBots, type ImpostorBot } from '@/lib/impostor-bot';
 import { getMap } from '@/lib/maps';
+import { chatFor, postChat, readsChat, type ChatChannel, type ChatEntry } from '@/lib/room-chat';
 import {
   balanceTeam,
   changeMap,
@@ -226,6 +227,8 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const now = Date.now();
     if (resolveCombat(hub, now)) this.markDirty();
     server.send(JSON.stringify({ t: 'tick', ...this.view(hub, now, now - 2000, self) }));
+    // История чата — только то, что этот участник и так имел право прочитать.
+    server.send(JSON.stringify({ t: 'chat', messages: chatFor(hub, self), history: true }));
     this.startTicking();
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -262,6 +265,10 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       ws.send(JSON.stringify({ t: 'pong', at: msg.at }));
     } else if (msg.t === 'voice') {
       this.relayVoice(hub, self, msg);
+    } else if (msg.t === 'chat') {
+      const result = postChat(hub, self, msg, now);
+      if (result.ok) this.deliverChat(result.entry);
+      else ws.send(JSON.stringify({ t: 'chat.error', error: result.error }));
     } else if (msg.t === 'impostor') {
       const result = this.impostorAct(hub, self, msg);
       ws.send(JSON.stringify({ t: 'impostor', id: typeof msg.id === 'string' ? msg.id : '', ...result }));
@@ -314,6 +321,11 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     this.sendToMembers((id) => id === to, JSON.stringify(out));
   }
 
+  /** Сообщение чата — тем, кому оно адресовано (получатели решены в lib/room-chat.ts). */
+  private deliverChat(entry: ChatEntry) {
+    this.sendToMembers((id) => readsChat(entry, id), JSON.stringify({ t: 'chat', messages: [entry.message] }));
+  }
+
   private sendToMembers(match: (id: string) => boolean, message: string) {
     for (const [ws, id] of this.sockets) {
       if (!match(id)) continue;
@@ -353,6 +365,11 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       stepImpostorBots(hub, this.impostorBrains, getMap(hub.room.map), now, {
         act: (id, op) => impostorAction(hub, id, op, now),
         move: (m, op) => presence(hub, m, op, now),
+        say: (id, channel: ChatChannel, text) => {
+          const result = postChat(hub, id, { channel, text }, now);
+          if (result.ok) this.deliverChat(result.entry);
+          return result.ok;
+        },
       });
       this.markDirty(false);
     } else if (bots) {
