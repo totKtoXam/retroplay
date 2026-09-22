@@ -25,6 +25,8 @@ import type { ImpostorReply } from './use-room-sync';
 import { TASK_GAMES } from './impostor-tasks';
 import ImpostorRules from './impostor-rules';
 import ImpostorDeath from './impostor-death';
+import { createImpostorSounds } from './impostor-sounds';
+import { impostorSoundEvents } from '@/lib/impostor-sound-events';
 
 type Props = {
   room: Room;
@@ -132,6 +134,29 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
     }, 200);
     return () => clearInterval(timer);
   }, [serverNow]);
+
+  // Звуки партии: начало, собрание, голоса, изгнание, авария и итог.
+  const sounds = useRef<ReturnType<typeof createImpostorSounds> | null>(null);
+  useEffect(() => {
+    const bank = createImpostorSounds();
+    sounds.current = bank;
+    return () => {
+      bank.dispose();
+      sounds.current = null;
+    };
+  }, []);
+  const heard = useRef(room.impostor);
+  useEffect(() => {
+    for (const e of impostorSoundEvents(heard.current, room.impostor)) sounds.current?.play(e.sound, 1, e.delay);
+    heard.current = room.impostor;
+  }, [room.impostor]);
+  // Критическая авария воет, пока её не починят: у экипажа тикает таймер.
+  const critical = room.impostor?.phase === 'play' && !!room.impostor.sabotage?.until;
+  useEffect(() => {
+    if (!critical) return;
+    const timer = setInterval(() => sounds.current?.play('sabotage', 0.6), 5000);
+    return () => clearInterval(timer);
+  }, [critical]);
 
   const closeDeath = useCallback(() => setDeath(null), []);
   const flash = useCallback((text: string) => {
@@ -627,7 +652,7 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
               })}
             </div>
             <footer>
-              {phase === 'meeting' && <span className="impostor-muted">Голосование начнётся через {left} с — обсудите голосом (Y)</span>}
+              {phase === 'meeting' && <span className="impostor-muted">Голосование начнётся через {left} с — обсудите голосом (Y) или в чате (Enter)</span>}
               {phase === 'voting' &&
                 (ghost ? (
                   <span className="impostor-muted">Призраки не голосуют</span>

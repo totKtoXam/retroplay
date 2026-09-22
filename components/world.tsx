@@ -145,6 +145,8 @@ type Props = {
   onWeapon: (command: WeaponCommand) => Promise<WeaponReply>;
   onFailure: () => void;
   blocked: boolean;
+  /** Растёт, когда окно поверх мира (чат) закрыто с клавиатуры: снова захватить мышь. */
+  resume?: number;
   working?: boolean;
   paintColor: string;
   onOp?: (op: Record<string, unknown>) => Promise<unknown>;
@@ -700,6 +702,11 @@ export default function World(props: Props) {
       if (document.pointerLockElement) document.exitPointerLock();
     }
   }, [props.blocked]);
+  // Закрыли чат клавишей — игрок хочет играть дальше, а не кликать по миру ещё раз.
+  // Нажатие клавиши — жест игрока, поэтому браузер разрешит захват мыши.
+  useEffect(() => {
+    if (props.resume) engine.current?.capture();
+  }, [props.resume]);
   useEffect(() => {
     const host = mount.current;
     if (!host) return;
@@ -1108,6 +1115,8 @@ export default function World(props: Props) {
     });
     // В хабе на ретроспективе выстрелы тише, как и шаги.
     const weaponVolume = () => (modeOf(latest.current.room.state) === 'retro' ? 0.6 : 1);
+    /** Включён ли фонарик у других игроков — по прошлому кадру, чтобы щёлкнуть на смене. */
+    const remoteLights = new Map<string, boolean>();
     const projectiles = createWorldProjectiles({
       scene,
       latest,
@@ -1742,6 +1751,7 @@ export default function World(props: Props) {
       if (e.code === 'KeyF') {
         flashlightOn = flashlight.toggle();
         localBeam.set(flashlightOn && !isDead(), player.pitch);
+        weaponSounds.click(flashlightOn, [0, 0, 0], true, weaponVolume());
       }
       if (e.code === 'KeyV')
         choosePerspective(
@@ -1914,6 +1924,7 @@ export default function World(props: Props) {
         } else if (t === 'flashlight') {
           flashlightOn = flashlight.toggle();
           localBeam.set(flashlightOn && !isDead(), player.pitch);
+          weaponSounds.click(flashlightOn, [0, 0, 0], true, weaponVolume());
         } else if (t === 'pointer') {
           // В «Предателе» планшет — пустые руки: доска ретро в этом режиме не нужна.
           if (modeOf(latest.current.room.state) === 'impostor') return;
@@ -2348,6 +2359,12 @@ export default function World(props: Props) {
           const at = avatarOf.position;
           // Луч до стены считаем только для слышимых: дальние шаги всё равно отбрасываются.
           const near = Math.hypot(at.x - pos.x, at.z - pos.z) <= 16;
+          // Чужой фонарик щёлкает там, где его включили; первый снимок игрока — не щелчок.
+          const light = !!m.pose.light;
+          const before = remoteLights.get(m.id);
+          remoteLights.set(m.id, light);
+          if (before !== undefined && before !== light)
+            weaponSounds.click(light, [at.x, at.y + 1.4, at.z], false, weaponVolume());
           others.push({
             id: m.id,
             x: at.x,

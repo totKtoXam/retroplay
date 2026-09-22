@@ -1,5 +1,6 @@
 /**
- * Звуки оружия: выстрелы, бросок и взрыв пиньяты, разрыв фейерверка, шлепок краски. Записи —
+ * Звуки оружия: выстрелы, бросок и взрыв пиньяты, разрыв фейерверка, шлепок краски, щелчок
+ * фонарика. Записи —
  * public/sounds/weapons (источники и лицензии в README.md рядом), по одному короткому файлу на
  * событие. Каждый раз звук чуть сдвинут по высоте и громкости, чтобы очередь не звучала одним
  * семплом.
@@ -20,6 +21,7 @@ export const WEAPON_SOUNDS = [
   'grenade-burst',
   'firework',
   'paint-splat',
+  'flashlight',
 ] as const;
 export type WeaponSound = (typeof WEAPON_SOUNDS)[number];
 
@@ -33,6 +35,7 @@ const GAIN: Record<WeaponSound, number> = {
   'grenade-burst': 0.8,
   firework: 0.7,
   'paint-splat': 0.35,
+  flashlight: 0.4,
 };
 /** Дальше этого звук не слышно, м. Выстрел снайперки и взрывы слышно дальше всего. */
 const RANGE: Record<WeaponSound, number> = {
@@ -44,6 +47,7 @@ const RANGE: Record<WeaponSound, number> = {
   'grenade-burst': 60,
   firework: 70,
   'paint-splat': 18,
+  flashlight: 12,
 };
 const MASTER = 0.7;
 /** Одновременно звучащих источников не больше этого: в перестрелке лишние просто пропускаются. */
@@ -91,7 +95,7 @@ export function createWeaponSounds(options: {
   };
 
   /** Звук `name` в точке `at`; `own` — свой выстрел: без расстояния и стен. */
-  const play = (name: WeaponSound, at: Point, own: boolean, volume = 1) => {
+  const play = (name: WeaponSound, at: Point, own: boolean, volume = 1, rate = 1) => {
     const c = ctx;
     const buffer = buffers.get(name);
     if (
@@ -127,7 +131,7 @@ export function createWeaponSounds(options: {
 
     const src = c.createBufferSource();
     src.buffer = buffer;
-    src.playbackRate.value = 0.95 + Math.random() * 0.1;
+    src.playbackRate.value = rate * (0.95 + Math.random() * 0.1);
     const amp = c.createGain();
     amp.gain.value = gain * (0.9 + Math.random() * 0.2);
     let node: AudioNode = src;
@@ -187,6 +191,11 @@ export function createWeaponSounds(options: {
               ? 'paint-splat'
               : null;
       if (name) play(name, at, false, volume);
+    },
+
+    /** Щелчок фонарика: включение звучит выше выключения, как у настоящей кнопки. */
+    click(on: boolean, at: Point, own: boolean, volume = 1) {
+      play('flashlight', at, own, volume, on ? 1.12 : 0.88);
     },
 
     dispose() {

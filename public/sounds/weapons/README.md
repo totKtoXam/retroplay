@@ -1,4 +1,4 @@
-# Звуки оружия
+# Звуки оружия и фонарика
 
 Записи с [Freesound](https://freesound.org), все под лицензией [CC0](https://creativecommons.org/publicdomain/zero/1.0/): указывать авторов не обязательно, список — чтобы найти исходники. Играет их `components/world-weapon-sounds.ts`.
 
@@ -14,3 +14,4 @@
 | `grenade-burst.mp3` | взрыв пиньяты | [458398](https://freesound.org/s/458398/) Breviceps — Confetti Cannon |
 | `firework.mp3` | разрыв фейерверка снайперки | [402006](https://freesound.org/s/402006/) eardeer — explosion high to low |
 | `paint-splat.mp3` | шлепок краски | [445109](https://freesound.org/s/445109/) Breviceps — Mud Splat |
+| `flashlight.mp3` | щелчок фонарика (включение — выше, выключение — ниже) | [502506](https://freesound.org/s/502506/) Rudmer_Rotteveel — Small Flashlight Click on Fast |
