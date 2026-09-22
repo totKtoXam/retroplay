@@ -63,6 +63,7 @@ import { slotsFor, slotForDigit, cycleSlot } from '@/lib/loadout';
 import { modeOf } from '@/lib/maps/catalog';
 import { amGhost, impostorFrozen, inGame, inVentNow, minimapShows, visionRadius } from '@/lib/impostor-client';
 import { createFootsteps } from './world-footsteps';
+import { createWeaponSounds } from './world-weapon-sounds';
 import { rayCastWorldObstacle } from '@/lib/world-collision';
 import { CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import { WeaponPrediction } from '@/lib/weapon-prediction';
@@ -1101,6 +1102,12 @@ export default function World(props: Props) {
       }
       return null;
     };
+    const weaponSounds = createWeaponSounds({
+      listener: () => ({ x: camera.position.x, y: camera.position.y, z: camera.position.z, yaw: player.cameraYaw }),
+      occluded: (from, to) => !!rayCastWorldObstacle([...from], [...to], map.colliders)?.hit,
+    });
+    // В хабе на ретроспективе выстрелы тише, как и шаги.
+    const weaponVolume = () => (modeOf(latest.current.room.state) === 'retro' ? 0.6 : 1);
     const projectiles = createWorldProjectiles({
       scene,
       latest,
@@ -1115,6 +1122,11 @@ export default function World(props: Props) {
       smearPlayerWithPaint: vfx.smearPlayerWithPaint,
       checkSceneryHit,
       colliders: map.colliders,
+      onLaunch: (e) => {
+        const [x, y, z] = e.origin ?? [];
+        if (z !== undefined) weaponSounds.fire(e.kind, [x, y, z], e.author === latest.current.room.self, weaponVolume());
+      },
+      onLand: (kind, at) => weaponSounds.impact(kind, [at.x, at.y, at.z], weaponVolume()),
     });
     const { flights, spawn } = projectiles;
     let lastReportedRounds = { ...magazine.current.rounds };
@@ -1450,6 +1462,7 @@ export default function World(props: Props) {
     const capture = () => {
       // Клик по миру — жест игрока: теперь браузер разрешит звук шагов.
       footsteps.resume();
+      weaponSounds.resume();
       if (latest.current.blocked || document.pointerLockElement === canvas)
         return;
       canvas.focus();
@@ -2526,6 +2539,7 @@ export default function World(props: Props) {
       weaponDisposed = true;
       flashlight.dispose();
       footsteps.dispose();
+      weaponSounds.dispose();
       localBeam.dispose();
       projectiles.dispose();
       weather.dispose();

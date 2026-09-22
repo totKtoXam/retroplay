@@ -49,6 +49,8 @@ export function createWorldProjectiles({
   smearPlayerWithPaint,
   checkSceneryHit,
   colliders,
+  onLaunch,
+  onLand,
 }: {
   scene: T.Scene;
   latest: { readonly current: { room: Room } };
@@ -68,6 +70,10 @@ export function createWorldProjectiles({
   ) => { point: T.Vector3; normal: T.Vector3 } | null;
   /** Стены текущей карты: без них отметка попадания загоралась бы сквозь них. */
   colliders: BoxCollider3D[];
+  /** Снаряд вылетел (свой или чужой) — для звука выстрела. Старые эффекты при входе в комнату не зовутся. */
+  onLaunch?: (e: WorldEffect) => void;
+  /** Снаряд долетел до точки — для звука попадания или взрыва. */
+  onLand?: (kind: string, at: T.Vector3) => void;
 }) {
   const flights: Flight[] = [];
   /**
@@ -111,6 +117,8 @@ export function createWorldProjectiles({
       return;
     const now = Date.now();
     seen.set(e.id, now);
+    // Эффекты, пролежавшие в комнате дольше полутора секунд, — не выстрел «сейчас», а история.
+    if (now - e.at < 1500) onLaunch?.(e);
     const remote = remoteAvatars.get(e.author);
     if (remote) avatarShoot(remote);
     if (seen.size > 300)
@@ -166,6 +174,8 @@ export function createWorldProjectiles({
         f.mesh.quaternion.setFromUnitVectors(new T.Vector3(0, 0, 1), dir);
       }
       if (t >= 1) {
+        // Звук — только у свежих приземлений: догнанные при входе в комнату летят «мгновенно».
+        if (now - (f.born + f.duration) < 800) onLand?.(f.kind, f.target);
         let hitPlayerGroup: T.Object3D | null = null;
         let isHitOnPlayer = false;
 
