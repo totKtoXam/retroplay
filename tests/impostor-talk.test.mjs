@@ -115,7 +115,7 @@ test('bots discuss at the meeting: the one who found the body names it, others a
   const caller = hub.impostor.meeting.caller;
   assert.ok(said.length >= 2, `боты заговорили: ${said.map((s) => s.text).join(' | ')}`);
   assert.ok(
-    said.some((s) => s.id === caller && /тело/i.test(s.text)),
+    said.some((s) => s.id === caller && /тело|труп/i.test(s.text)),
     'нашедший рассказал про тело',
   );
   // Обвинение против человека звучит вслух, и это обвинение именно того, кого видели.

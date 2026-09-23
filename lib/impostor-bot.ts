@@ -6,6 +6,10 @@
 // других он не знает (предатель знает союзников — как и человек-предатель). Подозрения экипажа
 // строятся из собственных наблюдений: кто был рядом с местом убийства в момент убийства.
 //
+// Видит бот не всё и помнит не точно: чем дальше человек и чем занятее сам бот, тем легче не
+// заметить встречу; место и время в памяти плывут, издалека и в темноте людей можно перепутать, а
+// старое выцветает и забывается (lib/impostor-bot-memory.ts). Поэтому бот бывает искренне неправ.
+//
 // Голосов других во время голосования бот не видит — как и человек. Голосом бот не говорит, но
 // на собрании пишет в чат: где был, что видел, кого подозревает; читает чужие сообщения и учитывает
 // их, решая, кого выбросить за борт. Предатель-бот врёт об алиби, переводит стрелки и договаривается
@@ -21,6 +25,7 @@ import { IMPOSTOR_BOT_LEVELS, type ImpostorBotRules } from './impostor-bot-level
 import { rayCastWorldObstacle } from './world-collision.ts';
 import { readsChat, type ChatChannel, type ChatMessage } from './room-chat.ts';
 import { hear, placeOf, plainName, SAY, zoneOf } from './impostor-bot-talk.ts';
+import { BotMemory } from './impostor-bot-memory.ts';
 import {
   HOLD_MS,
   isCritical,
@@ -49,7 +54,6 @@ const visionOf = (g: ImpostorGame, p: ImpostorPlayer | undefined) =>
 
 type Point = { x: number; z: number };
 type Goal = Point & { kind: 'task' | 'panel' | 'body' | 'hunt' | 'vent' | 'wander' | 'fake'; ref?: string };
-type Sighting = { x: number; z: number; at: number };
 
 export type BotHooks = {
   /** Действие партии от имени бота — та же операция, что шлёт клиент. */
@@ -92,7 +96,8 @@ export class ImpostorBot {
   private game = -1;
   private meetingKey = '';
   private voteAt = 0;
-  private sightings = new Map<string, Sighting[]>();
+  /** Кого и где видел — так, как это помнится: с пробелами, погрешностью и ошибками. */
+  private memory: BotMemory;
   private suspicion = new Map<string, number>();
   private seenBodies = new Set<string>();
   private reportTarget: string | null = null;
@@ -116,10 +121,12 @@ export class ImpostorBot {
     this.id = spec.id;
     this.rules = IMPOSTOR_BOT_LEVELS[spec.level];
     this.random = random;
+    this.memory = new BotMemory(this.rules, random);
   }
 
   setLevel(level: BotLevel) {
     this.rules = IMPOSTOR_BOT_LEVELS[level];
+    this.memory.setRules(this.rules);
   }
 
   /** Подозрения бота-экипажа: для тестов и отладки. */
@@ -181,7 +188,7 @@ export class ImpostorBot {
 
   private resetGame(game: number) {
     this.game = game;
-    this.sightings.clear();
+    this.memory.forget();
     this.suspicion.clear();
     this.seenBodies.clear();
     this.reportTarget = null;
@@ -205,14 +212,17 @@ export class ImpostorBot {
       this.whereabouts.push({ zone, at: now });
       if (this.whereabouts.length > 20) this.whereabouts.shift();
     }
+    // С кем можно спутать того, кого не разглядели: участники партии с их цветами.
+    const others = Object.keys(g.players).flatMap((id) => {
+      const color = state.members.get(id)?.color;
+      return color ? [{ id, color }] : [];
+    });
+    const dark = g.sabotage?.kind === 'lights';
     for (const [id, other] of Object.entries(g.players)) {
       if (id === this.id || !other.alive || other.left || other.vent) continue;
       const m = state.members.get(id);
       if (!m || !seesPoint(map, this.pos, m.pose, range)) continue;
-      const list = this.sightings.get(id) ?? [];
-      list.push({ x: m.pose.x, z: m.pose.z, at: now });
-      while (list.length && now - list[0].at > this.rules.memory) list.shift();
-      this.sightings.set(id, list);
+      this.memory.see(now, id, m.pose, { map, from: this.pos, range, busy: !!this.work, dark, others });
     }
     for (const body of g.bodies) {
       const key = body.victim + ':' + body.at;
@@ -225,20 +235,21 @@ export class ImpostorBot {
     }
   }
 
-  /** Кто на собственной памяти был рядом с местом, когда там убили. */
+  /**
+   * Кто на собственной памяти был рядом с местом, когда там убили. Улика весит ровно столько,
+   * насколько бот уверен в воспоминании: смутное «вроде кто-то мелькал» уликой не станет, а
+   * перепутанный человек попадёт под подозрение зря — как это и бывает со свидетелями.
+   */
   private suspectAround(body: ImpostorBody, now: number) {
-    for (const [id, list] of this.sightings) {
-      if (id === body.victim) continue;
-      for (const s of list) {
-        // Забытое не в счёт: память у ботов разная.
-        if (now - s.at > this.rules.memory || Math.abs(s.at - body.at) > NEAR_BODY_MS) continue;
-        const d = distance(s, body);
-        if (d > NEAR_BODY) continue;
-        // Вплотную к жертве почти в момент убийства — почти улика.
-        const score = d < 3 && Math.abs(s.at - body.at) < 1500 ? 3 : d < 3 ? 2 : 1;
-        this.suspicion.set(id, Math.max(this.suspicion.get(id) ?? 0, score));
-        break;
-      }
+    for (const seen of this.memory.recall(now)) {
+      if (seen.who === body.victim || seen.who === this.id) continue;
+      const apart = Math.abs(seen.at - body.at);
+      if (apart > NEAR_BODY_MS) continue;
+      const d = distance(seen, body);
+      if (d > NEAR_BODY) continue;
+      // Вплотную к жертве почти в момент убийства — почти улика.
+      const weight = d < 3 && apart < 1500 ? 3 : d < 3 ? 2 : 1;
+      this.suspicion.set(seen.who, Math.max(this.suspicion.get(seen.who) ?? 0, weight * seen.sureness));
     }
   }
 
@@ -490,16 +501,17 @@ export class ImpostorBot {
       const who = suspect ? this.nameOf(state, suspect) : null;
       if (caller && body) said.push(this.pick(SAY.foundBody(victim, bodyPlace)));
       else if (caller) said.push(this.pick(who && score >= 1 ? SAY.buttonSuspect(who) : SAY.button));
-      if (who && score >= 3) said.push(this.pick(SAY.sawKill(who, victim)));
-      else if (who && score >= 2) said.push(this.pick(SAY.nearBody(who, bodyPlace || 'у места убийства')));
-      else if (who && score >= 1) maybe(this.pick(SAY.hunch(who)));
+      // Чем крепче воспоминание, тем увереннее фраза: «точно он», «был рядом», «вроде мелькал».
+      if (who && score >= 2.4) said.push(this.pick(SAY.sawKill(who, victim)));
+      else if (who && score >= 1.4) said.push(this.pick(SAY.nearBody(who, bodyPlace || 'у места убийства')));
+      else if (who && score >= 0.5) maybe(this.pick(SAY.hunch(who)));
       // Нашедший тело без улик не отмалчивается, а спрашивает остальных.
       else if (caller && body) said.push(this.pick(SAY.askWho(bodyPlace)));
       else maybe(this.pick(SAY.noClue));
       const buddy = this.companion(state, now);
       const here = placeOf(this.lastZone());
       maybe(this.pick(buddy ? SAY.alibiWith(here, buddy) : SAY.alibi(here)));
-      if (!(who && score >= 2) && this.random() < 0.5) maybe(this.pick(SAY.suggestSkip));
+      if (!(who && score >= 1.4) && this.random() < 0.5) maybe(this.pick(SAY.suggestSkip));
     } else {
       if (caller && body) said.push(this.pick(SAY.foundBodyImpostor(victim, bodyPlace)));
       else if (caller) said.push(this.pick(SAY.button));
@@ -569,7 +581,7 @@ export class ImpostorBot {
     if (!who || this.reacted.has('agree')) return;
     if (p.role === 'crew') {
       // Поддерживает вслух только то, что видел сам; чужие слова учтёт при голосовании.
-      if ((this.suspicion.get(target) ?? 0) >= 1) {
+      if ((this.suspicion.get(target) ?? 0) >= 0.8) {
         this.reacted.add('agree');
         this.queue(reply, 'all', this.pick(SAY.agree(who)));
       }
@@ -699,18 +711,11 @@ export class ImpostorBot {
   /** Кто был рядом последние секунды игры — живой свидетель алиби. */
   private companion(state: HubState, now: number) {
     const g = state.impostor;
-    let best: string | null = null,
-      latest = 0;
-    for (const [id, list] of this.sightings) {
-      const last = list[list.length - 1];
+    const seen = this.memory.latest(now, (id) => {
       const x = g.players[id];
-      if (!last || !x?.alive || x.left || now - last.at > 10_000) continue;
-      if (last.at > latest) {
-        best = id;
-        latest = last.at;
-      }
-    }
-    return best ? this.nameOf(state, best) : null;
+      return !!x && x.alive && !x.left;
+    });
+    return seen ? this.nameOf(state, seen.who) : null;
   }
 
   private lastZone() {

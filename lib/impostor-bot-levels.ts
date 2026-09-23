@@ -14,7 +14,19 @@ export type ImpostorBotRules = {
   notice: number;
   /** Сколько помнит, кого где видел, мс: по этому экипаж подозревает. */
   memory: number;
-  /** Подозрения, после которых экипаж голосует против, а не пропускает. */
+  /**
+   * Доля замеченных встреч вблизи: кого-то в поле зрения человек попросту не замечает, а дальнего
+   * и подавно (lib/impostor-bot-memory.ts).
+   */
+  attention: number;
+  /** Вероятность перепутать человека с похожим, когда лица не разглядеть: издалека или в темноте. */
+  mixUp: number;
+  /** Сколько встреч держится в памяти: лишнее вытесняется, начиная с самого тусклого. */
+  capacity: number;
+  /**
+   * Подозрения, после которых экипаж голосует против, а не пропускает. Улика у тела — до трёх
+   * очков, но каждое взвешено уверенностью воспоминания, так что чистых трёх почти не бывает.
+   */
   suspectAt: number;
   /** Сколько секунд думает перед голосованием: [от, до]. */
   voteDelay: [number, number];
@@ -41,11 +53,14 @@ export type ImpostorBotRules = {
 
 export const IMPOSTOR_BOT_LEVELS: Record<BotLevel, ImpostorBotRules> = {
   weak: {
-    hint: 'Новичок: медленно делает задания, часто не замечает тела; предателем убивает при свидетелях',
+    hint: 'Новичок: медленно делает задания, часто не замечает тел, путает, кого где видел; предателем убивает при свидетелях',
     speed: 0.8,
     taskTime: 1.8,
     notice: 0.35,
     memory: 6_000,
+    attention: 0.35,
+    mixUp: 0.5,
+    capacity: 2,
     suspectAt: 99,
     voteDelay: [8, 20],
     careful: false,
@@ -63,7 +78,10 @@ export const IMPOSTOR_BOT_LEVELS: Record<BotLevel, ImpostorBotRules> = {
     taskTime: 1.3,
     notice: 0.7,
     memory: 12_000,
-    suspectAt: 3,
+    attention: 0.7,
+    mixUp: 0.25,
+    capacity: 5,
+    suspectAt: 2.2,
     voteDelay: [6, 15],
     careful: true,
     vents: false,
@@ -75,12 +93,15 @@ export const IMPOSTOR_BOT_LEVELS: Record<BotLevel, ImpostorBotRules> = {
     trust: 1,
   },
   strong: {
-    hint: 'Внимательный: помнит, кто был рядом с жертвой; предателем уходит через вентиляцию и устраивает аварии',
+    hint: 'Внимательный: надолго запоминает, кто был рядом с жертвой; предателем уходит через вентиляцию и устраивает аварии',
     speed: 1,
     taskTime: 1.1,
     notice: 0.9,
     memory: 25_000,
-    suspectAt: 2,
+    attention: 0.85,
+    mixUp: 0.12,
+    capacity: 8,
+    suspectAt: 1.6,
     voteDelay: [4, 10],
     careful: true,
     vents: true,
@@ -97,7 +118,10 @@ export const IMPOSTOR_BOT_LEVELS: Record<BotLevel, ImpostorBotRules> = {
     taskTime: 1,
     notice: 1,
     memory: 45_000,
-    suspectAt: 2,
+    attention: 0.95,
+    mixUp: 0.06,
+    capacity: 12,
+    suspectAt: 1.4,
     voteDelay: [3, 8],
     careful: true,
     vents: true,
