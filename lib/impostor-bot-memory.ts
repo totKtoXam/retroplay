@@ -32,7 +32,7 @@ export type Glimpse = {
 /** Насколько человек забывчив и внимателен. Числа — из уровня бота (lib/impostor-bot-levels.ts). */
 export type MemoryRules = {
   /** Сколько живёт воспоминание, мс. */
-  memory: number;
+  horizon: number;
   /** Доля замеченных встреч вблизи; с расстоянием шанс падает. */
   attention: number;
   /** Вероятность перепутать человека, когда лица не разглядеть. */
@@ -155,10 +155,10 @@ export class BotMemory {
 
   /** Забыть выцветшее и лишнее: в голове помещается лишь несколько встреч. */
   private tidy(now: number) {
-    this.glimpses = this.glimpses.filter((g) => recalled(g.strength, now - g.at, this.rules.memory) > FADED);
+    this.glimpses = this.glimpses.filter((g) => recalled(g.strength, now - g.at, this.rules.horizon) > FADED);
     if (this.glimpses.length <= this.rules.capacity) return;
     // Забывается сначала самое слабое: тусклое старое, мельком увиденное.
-    this.glimpses.sort((a, b) => recalled(b.strength, now - b.at, this.rules.memory) - recalled(a.strength, now - a.at, this.rules.memory));
+    this.glimpses.sort((a, b) => recalled(b.strength, now - b.at, this.rules.horizon) - recalled(a.strength, now - a.at, this.rules.horizon));
     this.glimpses.length = this.rules.capacity;
   }
 
@@ -167,7 +167,7 @@ export class BotMemory {
     this.tidy(now);
     return this.glimpses.map((g) => ({
       ...g,
-      sureness: recalled(g.strength, now - g.at, this.rules.memory) * (g.sure ? 1 : 0.75),
+      sureness: recalled(g.strength, now - g.at, this.rules.horizon) * (g.sure ? 1 : 0.75),
     }));
   }
 

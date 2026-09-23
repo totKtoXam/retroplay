@@ -47,18 +47,18 @@ test('memory: fades with time and disappears entirely', () => {
 });
 
 test('memory: the far, the dark and the busy are noticed less often', () => {
-  const rules = IMPOSTOR_BOT_LEVELS.expert;
+  const rules = IMPOSTOR_BOT_LEVELS.expert.memory;
   const near = noticed(rules, 1);
   const far = noticed(rules, 7);
   assert.ok(near > far + 0.2, `рядом ${near.toFixed(2)} против далёкого ${far.toFixed(2)}`);
   assert.ok(noticed(rules, 1, { busy: true }) < near - 0.2, 'занятый пультом замечает реже');
   assert.ok(noticed(rules, 1, { dark: true }) < near - 0.1, 'в темноте замечает реже');
   // Невнимательный пропускает больше, чем опытный, даже вплотную.
-  assert.ok(noticed(IMPOSTOR_BOT_LEVELS.weak, 1) < near - 0.3);
+  assert.ok(noticed(IMPOSTOR_BOT_LEVELS.weak.memory, 1) < near - 0.3);
 });
 
 test('memory: a glimpse keeps who, roughly where and roughly when', () => {
-  const memory = new BotMemory(IMPOSTOR_BOT_LEVELS.expert, seeded(4));
+  const memory = new BotMemory(IMPOSTOR_BOT_LEVELS.expert.memory, seeded(4));
   let ok = false;
   for (let i = 0; i < 20 && !ok; i++) ok = memory.see(T, 'a', CAFETERIA, look({ x: 2, z: -20 }));
   const [seen] = memory.recall(T);
@@ -71,7 +71,7 @@ test('memory: a glimpse keeps who, roughly where and roughly when', () => {
 });
 
 test('memory: far in the dark people get mixed up with a look-alike', () => {
-  const rules = { ...IMPOSTOR_BOT_LEVELS.expert, attention: 1, mixUp: 1 };
+  const rules = { ...IMPOSTOR_BOT_LEVELS.expert.memory, attention: 1, mixUp: 1 };
   const memory = new BotMemory(rules, seeded(9));
   assert.equal(memory.see(T, 'a', { x: 7, z: -20 }, look(CAFETERIA, { dark: true })), true);
   const [seen] = memory.recall(T);
@@ -79,7 +79,7 @@ test('memory: far in the dark people get mixed up with a look-alike', () => {
   assert.equal(seen.sure, false);
   assert.ok(seen.sureness < 0.8, 'в таком воспоминании бот менее уверен');
   // Вблизи и при свете не путают даже самого забывчивого.
-  const close = new BotMemory({ ...IMPOSTOR_BOT_LEVELS.weak, attention: 1, mixUp: 1 }, seeded(9));
+  const close = new BotMemory({ ...IMPOSTOR_BOT_LEVELS.weak.memory, attention: 1, mixUp: 1 }, seeded(9));
   close.see(T, 'a', { x: 1, z: -20 }, look(CAFETERIA));
   assert.equal(close.recall(T)[0].who, 'a');
 });
@@ -92,7 +92,7 @@ test('memory: look-alike is the closest colour, never the person themself', () =
 });
 
 test('memory: only a few meetings fit, the dimmest is forgotten first', () => {
-  const rules = { ...IMPOSTOR_BOT_LEVELS.expert, attention: 1, capacity: 3, memory: 30_000 };
+  const rules = { ...IMPOSTOR_BOT_LEVELS.expert.memory, attention: 1, capacity: 3, horizon: 30_000 };
   const memory = new BotMemory(rules, seeded(2));
   // Пять встреч в разных отсеках, разнесённые по времени.
   const spots = [
@@ -112,7 +112,7 @@ test('memory: only a few meetings fit, the dimmest is forgotten first', () => {
 });
 
 test('memory: the same person in the same room is one memory, not twenty', () => {
-  const memory = new BotMemory({ ...IMPOSTOR_BOT_LEVELS.expert, attention: 1 }, seeded(6));
+  const memory = new BotMemory({ ...IMPOSTOR_BOT_LEVELS.expert.memory, attention: 1 }, seeded(6));
   for (let i = 0; i < 12; i++) memory.see(T + i * 300, 'a', CAFETERIA, look({ x: 1, z: -20 }));
   const kept = memory.recall(T + 3600);
   assert.equal(kept.length, 1);
@@ -120,7 +120,7 @@ test('memory: the same person in the same room is one memory, not twenty', () =>
 });
 
 test('memory: the alibi witness comes from memory and can be forgotten', () => {
-  const memory = new BotMemory({ ...IMPOSTOR_BOT_LEVELS.expert, attention: 1 }, seeded(8));
+  const memory = new BotMemory({ ...IMPOSTOR_BOT_LEVELS.expert.memory, attention: 1 }, seeded(8));
   memory.see(T, 'a', CAFETERIA, look({ x: 1, z: -20 }));
   const alive = () => true;
   assert.equal(memory.latest(T + 1000, alive)?.who, 'a');

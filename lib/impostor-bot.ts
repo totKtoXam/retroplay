@@ -25,7 +25,7 @@ import { IMPOSTOR_BOT_LEVELS, type ImpostorBotRules } from './impostor-bot-level
 import { rayCastWorldObstacle } from './world-collision.ts';
 import { readsChat, type ChatChannel, type ChatMessage } from './room-chat.ts';
 import { hear, placeOf, plainName, SAY, zoneOf } from './impostor-bot-talk.ts';
-import { BotMemory } from './impostor-bot-memory.ts';
+import { BotMemory, recalled } from './impostor-bot-memory.ts';
 import {
   HOLD_MS,
   isCritical,
@@ -68,6 +68,11 @@ export type BotHooks = {
 const MAX_LINES = 5;
 /** Чей-то ответ на сообщение появляется не мгновенно: человек тоже читает и печатает. */
 const REPLY_MS: [number, number] = [1500, 4000];
+/**
+ * Чужое обвинение становится поводом голосовать, начиная с этого веса: подробный рассказ
+ * очевидца весит 1,5, обычное «он подозрительный» — 1, поручившийся за человека вычитает 1.
+ */
+const LOUD_ENOUGH = 1.5;
 
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.z - b.z);
 
@@ -98,7 +103,11 @@ export class ImpostorBot {
   private voteAt = 0;
   /** Кого и где видел — так, как это помнится: с пробелами, погрешностью и ошибками. */
   private memory: BotMemory;
-  private suspicion = new Map<string, number>();
+  /**
+   * Улики против других: не готовые очки, а то, на чём они держатся. Балл считается заново тогда,
+   * когда он нужен, потому что воспоминание под ним к этому времени могло выцвести.
+   */
+  private evidence = new Map<string, { weight: number; strength: number; sure: boolean; at: number }>();
   private seenBodies = new Set<string>();
   private reportTarget: string | null = null;
   /** Где бот был во время игры: отсеки по порядку, для алиби на собрании. */
@@ -106,7 +115,8 @@ export class ImpostorBot {
   /** Собрание: когда началось, что прочитано и что услышано в чате. */
   private meetingAt = 0;
   private chatSeen = new Set<string>();
-  private accused = new Map<string, Set<string>>();
+  /** Кого в чате обвиняли: на кого → кто и с подробностью ли («видел его у тела»). */
+  private accused = new Map<string, Map<string, boolean>>();
   private vouched = new Map<string, Set<string>>();
   private reacted = new Set<string>();
   /** Кого предатель решил подставить: сам или по подсказке союзника. */
@@ -121,17 +131,35 @@ export class ImpostorBot {
     this.id = spec.id;
     this.rules = IMPOSTOR_BOT_LEVELS[spec.level];
     this.random = random;
-    this.memory = new BotMemory(this.rules, random);
+    this.memory = new BotMemory(this.rules.memory, random);
   }
 
   setLevel(level: BotLevel) {
     this.rules = IMPOSTOR_BOT_LEVELS[level];
-    this.memory.setRules(this.rules);
+    this.memory.setRules(this.rules.memory);
   }
 
-  /** Подозрения бота-экипажа: для тестов и отладки. */
-  suspects() {
-    return new Map(this.suspicion);
+  /**
+   * Насколько бот подозревает `id` прямо сейчас. Улика стоит столько, сколько осталось от
+   * воспоминания под ней: чем дольше идёт собрание, тем меньше бот уверен в том, что видел.
+   * Насколько честно он в этом сомневается, решает уровень (`think.fades`): новичок держится за
+   * первое впечатление, опытный сам себе говорит «я уже не уверен».
+   */
+  private suspicionOf(id: string, now: number) {
+    const clue = this.evidence.get(id);
+    if (!clue) return 0;
+    const dim = clue.sure ? 1 : 0.75;
+    const holds = this.rules.memory.horizon * this.rules.think.holds;
+    const left = recalled(clue.strength, now - clue.at, holds) * dim;
+    const fades = this.rules.think.fades;
+    return clue.weight * (left * fades + clue.strength * dim * (1 - fades));
+  }
+
+  /** Подозрения бота-экипажа на его последний такт: для тестов и отладки. */
+  suspects(now = this.lastStep) {
+    const out = new Map<string, number>();
+    for (const id of this.evidence.keys()) out.set(id, this.suspicionOf(id, now));
+    return out;
   }
 
   step(state: HubState, map: GameMap, now: number, hooks: BotHooks) {
@@ -189,7 +217,7 @@ export class ImpostorBot {
   private resetGame(game: number) {
     this.game = game;
     this.memory.forget();
-    this.suspicion.clear();
+    this.evidence.clear();
     this.seenBodies.clear();
     this.reportTarget = null;
     this.goal = null;
@@ -249,7 +277,9 @@ export class ImpostorBot {
       if (d > NEAR_BODY) continue;
       // Вплотную к жертве почти в момент убийства — почти улика.
       const weight = d < 3 && apart < 1500 ? 3 : d < 3 ? 2 : 1;
-      this.suspicion.set(seen.who, Math.max(this.suspicion.get(seen.who) ?? 0, weight * seen.sureness));
+      const known = this.evidence.get(seen.who);
+      if (known && known.weight * known.strength >= weight * seen.strength) continue;
+      this.evidence.set(seen.who, { weight, strength: seen.strength, sure: seen.sure, at: seen.at });
     }
   }
 
@@ -404,7 +434,7 @@ export class ImpostorBot {
             this.afterKill(map);
             // Хитрый предатель сообщает союзникам, чтобы те не наткнулись на тело первыми.
             const victim = this.nameOf(state, target);
-            if (this.rules.bandwagon && victim && this.allies(g).length && this.random() < 0.6)
+            if (this.rules.lying.plansWithAllies && victim && this.allies(g).length && this.random() < 0.6)
               this.queue(now, 'team', this.pick(SAY.killedTeam(victim, placeOf(zoneOf(map, m.pose)))));
           }
           return false;
@@ -497,35 +527,38 @@ export class ImpostorBot {
       if (this.random() < this.rules.chat) said.push(text);
     };
     if (p.role === 'crew') {
-      const [suspect, score] = this.topSuspect(g);
+      const [suspect, score] = this.topSuspect(g, now);
       const who = suspect ? this.nameOf(state, suspect) : null;
       if (caller && body) said.push(this.pick(SAY.foundBody(victim, bodyPlace)));
       else if (caller) said.push(this.pick(who && score >= 1 ? SAY.buttonSuspect(who) : SAY.button));
       // Чем крепче воспоминание, тем увереннее фраза: «точно он», «был рядом», «вроде мелькал».
-      if (who && score >= 2.4) said.push(this.pick(SAY.sawKill(who, victim)));
-      else if (who && score >= 1.4) said.push(this.pick(SAY.nearBody(who, bodyPlace || 'у места убийства')));
-      else if (who && score >= 0.5) maybe(this.pick(SAY.hunch(who)));
+      // Планка — своя на каждом уровне: то, что новичок назовёт уликой, опытный считает догадкой.
+      const sure = this.rules.think.suspectAt;
+      if (who && score >= sure * 1.6) said.push(this.pick(SAY.sawKill(who, victim)));
+      else if (who && score >= sure) said.push(this.pick(SAY.nearBody(who, bodyPlace || 'у места убийства')));
+      else if (who && score >= sure * 0.4) maybe(this.pick(SAY.hunch(who)));
       // Нашедший тело без улик не отмалчивается, а спрашивает остальных.
       else if (caller && body) said.push(this.pick(SAY.askWho(bodyPlace)));
       else maybe(this.pick(SAY.noClue));
       const buddy = this.companion(state, now);
       const here = placeOf(this.lastZone());
       maybe(this.pick(buddy ? SAY.alibiWith(here, buddy) : SAY.alibi(here)));
-      if (!(who && score >= 1.4) && this.random() < 0.5) maybe(this.pick(SAY.suggestSkip));
+      if (!(who && score >= sure) && this.random() < 0.5) maybe(this.pick(SAY.suggestSkip));
     } else {
       if (caller && body) said.push(this.pick(SAY.foundBodyImpostor(victim, bodyPlace)));
       else if (caller) said.push(this.pick(SAY.button));
       maybe(this.pick(SAY.alibi(placeOf(this.alibiZone(map, body)))));
-      if (this.rules.bandwagon) {
-        const reporter = meeting?.reason === 'report' && !caller ? meeting.caller : null;
-        const crew = this.livingCrew(g).filter((id) => id !== reporter);
-        if (reporter && this.isLivingCrew(g, reporter) && this.random() < 0.5) this.scapegoat = reporter;
-        else if (crew.length && this.random() < 0.4) this.scapegoat = crew[Math.floor(this.random() * crew.length)];
-        const who = this.scapegoat ? this.nameOf(state, this.scapegoat) : null;
-        if (who) said.push(this.pick(this.scapegoat === reporter ? SAY.blameReporter(who) : SAY.blame(who)));
-        // Союзникам — кого топим, чтобы голоса не разбежались.
-        if (who && this.allies(g).length) this.queue(now + 500, 'team', this.pick(SAY.planTeam(who)));
-      } else maybe(this.pick(SAY.shrug));
+      const lying = this.rules.lying;
+      const reporter = meeting?.reason === 'report' && !caller ? meeting.caller : null;
+      const crew = this.livingCrew(g).filter((id) => id !== reporter);
+      if (reporter && this.isLivingCrew(g, reporter) && this.random() < lying.blameReporter) this.scapegoat = reporter;
+      else if (crew.length && this.random() < lying.blameRandom)
+        this.scapegoat = crew[Math.floor(this.random() * crew.length)];
+      const who = this.scapegoat ? this.nameOf(state, this.scapegoat) : null;
+      if (who) said.push(this.pick(this.scapegoat === reporter ? SAY.blameReporter(who) : SAY.blame(who)));
+      // Союзникам — кого топим, чтобы голоса не разбежались.
+      if (who && lying.plansWithAllies && this.allies(g).length) this.queue(now + 500, 'team', this.pick(SAY.planTeam(who)));
+      if (!who) maybe(this.pick(SAY.shrug));
     }
     // Первая реплика — через пару секунд, дальше — с паузами, как пишет человек.
     let at = now + 1200 + this.random() * 3500;
@@ -553,12 +586,18 @@ export class ImpostorBot {
       return;
     }
     if (!target) return;
-    const bucket = heard.vouch ? this.vouched : heard.accuse ? this.accused : null;
-    if (!bucket) return;
-    const set = bucket.get(target) ?? new Set<string>();
-    set.add(m.from);
-    bucket.set(target, set);
+    if (heard.vouch) {
+      // Уровень, который поручительств не слушает, их и не запоминает.
+      if (this.rules.think.vouch <= 0) return;
+      const said = this.vouched.get(target) ?? new Set<string>();
+      said.add(m.from);
+      this.vouched.set(target, said);
+      return;
+    }
     if (!heard.accuse) return;
+    const blamed = this.accused.get(target) ?? new Map<string, boolean>();
+    blamed.set(m.from, heard.detail || !!blamed.get(m.from));
+    this.accused.set(target, blamed);
     const reply = now + REPLY_MS[0] + this.random() * (REPLY_MS[1] - REPLY_MS[0]);
     const accuser = this.nameOf(state, m.from);
     if (target === this.id) {
@@ -566,11 +605,17 @@ export class ImpostorBot {
       this.reacted.add('me');
       if (p.role === 'crew') {
         this.queue(reply, 'all', this.pick(SAY.denyCrew(placeOf(this.lastZone()))));
-        // Сам бот точно не предатель — значит, обвинивший ошибается или врёт. Внимательный это запомнит.
-        if (this.rules.trust < 1) this.suspicion.set(m.from, (this.suspicion.get(m.from) ?? 0) + 1);
+        // Сам бот точно не предатель — значит, обвинивший ошибается или врёт. Такая улика не
+        // выцветает: это не мельком увиденная сцена, а сказанное только что и прямо ему. И вслух
+        // он это тоже говорит: молча передуманное собрание не услышит.
+        const counters = this.rules.think.counters;
+        if (counters > 0 && accuser) {
+          this.evidence.set(m.from, { weight: counters, strength: 1, sure: true, at: now });
+          this.queue(reply + 2000, 'all', this.pick(SAY.counter(accuser)));
+        }
       } else {
         this.queue(reply, 'all', this.pick(SAY.denyImpostor(placeOf(this.alibiZone(map)))));
-        if (this.rules.bandwagon && accuser && this.isLivingCrew(g, m.from)) {
+        if (accuser && this.isLivingCrew(g, m.from) && this.random() < this.rules.lying.blameReporter) {
           this.scapegoat = m.from;
           this.queue(reply + 2500, 'all', this.pick(SAY.counter(accuser)));
         }
@@ -581,18 +626,18 @@ export class ImpostorBot {
     if (!who || this.reacted.has('agree')) return;
     if (p.role === 'crew') {
       // Поддерживает вслух только то, что видел сам; чужие слова учтёт при голосовании.
-      if ((this.suspicion.get(target) ?? 0) >= 0.8) {
+      if (this.rules.think.agrees && this.suspicionOf(target, now) >= this.rules.think.suspectAt * 0.6) {
         this.reacted.add('agree');
         this.queue(reply, 'all', this.pick(SAY.agree(who)));
       }
     } else if (this.isLivingCrew(g, target)) {
       // Предатель охотно подхватывает обвинение невиновного.
-      if (this.rules.bandwagon || this.random() < 0.3) {
+      if (this.random() < this.rules.lying.joinsBlame) {
         this.reacted.add('agree');
         this.scapegoat ??= target;
         this.queue(reply, 'all', this.pick(SAY.agree(who)));
       }
-    } else if (this.rules.bandwagon && this.random() < 0.5) {
+    } else if (this.random() < this.rules.lying.defendsAlly) {
       this.reacted.add('agree');
       this.queue(reply, 'all', this.pick(SAY.defendAlly(who)));
     }
@@ -638,25 +683,31 @@ export class ImpostorBot {
       const x = g.players[id];
       return !!x && x.alive && !x.left && id !== this.id;
     };
-    // Обвинения из чата: сколько разных участников назвали этого, минус поручившиеся.
-    const talk = (id: string) => (this.accused.get(id)?.size ?? 0) - 0.7 * (this.vouched.get(id)?.size ?? 0);
+    const think = this.rules.think;
+    // Чужие слова: каждое обвинение весит по доверию уровня, подробное — с прибавкой; поручившиеся
+    // за этого человека вычитаются.
+    const talk = (id: string) => {
+      let sum = 0;
+      for (const detail of this.accused.get(id)?.values() ?? []) sum += think.trust + (detail ? think.detail : 0);
+      return sum - think.vouch * (this.vouched.get(id)?.size ?? 0);
+    };
     let target = 'skip';
     if (p.role === 'crew') {
-      // Свои наблюдения весят полностью, чужие слова — с доверием уровня.
+      // Своя улика весит столько, сколько от неё осталось в памяти; чужие слова — по доверию.
       let best = 0;
       for (const id of Object.keys(g.players)) {
         if (!living(id)) continue;
-        const score = (this.suspicion.get(id) ?? 0) + this.rules.trust * talk(id);
-        if (score >= this.rules.suspectAt && score > best) {
+        const score = this.suspicionOf(id, now) + talk(id);
+        if (score >= think.suspectAt && score > best) {
           best = score;
           target = id;
         }
       }
-      if (target === 'skip' && this.rules.suspectAt > 10) {
-        // Новичок идёт за самым громким обвинением, а без него иногда голосует наугад.
+      if (target === 'skip') {
+        // Своих улик не хватило: идём за самым громким обвинением, а иначе — наугад.
         const loud = this.mostAccused(g, living);
-        if (loud && this.random() < 0.6) target = loud;
-        else if (this.random() < 0.25) {
+        if (loud && this.random() < think.follows) target = loud;
+        else if (this.random() < think.guesses) {
           const pool = Object.keys(g.players).filter(living);
           if (pool.length) target = pool[Math.floor(this.random() * pool.length)];
         }
@@ -664,12 +715,13 @@ export class ImpostorBot {
     } else {
       // Предатель никогда не голосует против своих. Топит того, на кого договорились или на
       // кого и так уже показывают, а без этого хитрый — нашедшего тело.
+      const lying = this.rules.lying;
       const crew = (id: string) => living(id) && g.players[id].role === 'crew';
       const loud = this.mostAccused(g, crew);
       const caller = g.meeting?.reason === 'report' ? g.meeting.caller : null;
       if (this.scapegoat && crew(this.scapegoat)) target = this.scapegoat;
-      else if (loud && (this.rules.bandwagon || this.random() < 0.5)) target = loud;
-      else if (this.rules.bandwagon && caller && crew(caller) && this.random() < 0.6) target = caller;
+      else if (loud && this.random() < lying.joinsBlame) target = loud;
+      else if (caller && crew(caller) && this.random() < lying.blameReporter) target = caller;
     }
     if (!hooks.act(this.id, { action: 'vote', target }).ok) return;
     if (this.random() < 0.5 * this.rules.chat) {
@@ -680,12 +732,13 @@ export class ImpostorBot {
 
   // ------------------------------------------------------------ знания
 
-  /** Самый подозрительный на собственной памяти: [id, очки]. */
-  private topSuspect(g: ImpostorGame): [string | null, number] {
+  /** Самый подозрительный на собственной памяти на эту минуту: [id, очки]. */
+  private topSuspect(g: ImpostorGame, now: number): [string | null, number] {
     let best: string | null = null,
       top = 0;
-    for (const [id, score] of this.suspicion) {
+    for (const id of this.evidence.keys()) {
       const x = g.players[id];
+      const score = this.suspicionOf(id, now);
       if (x?.alive && !x.left && score > top) {
         best = id;
         top = score;
@@ -694,15 +747,21 @@ export class ImpostorBot {
     return [best, top];
   }
 
-  /** Кого в чате обвиняли больше всех (хотя бы раз и без перевеса поручившихся), среди подходящих. */
+  /**
+   * На кого в чате показывают увереннее всего. Одного голоса мало: по чужому слову бот идёт, если
+   * это рассказ очевидца с подробностями («видел его у тела») или если на человека показывают
+   * хотя бы двое независимо. Иначе достаточно было бы одному громко крикнуть — и этим бессовестно
+   * пользовался бы предатель, который на собрании говорит первым.
+   */
   private mostAccused(g: ImpostorGame, allowed: (id: string) => boolean) {
     let best: string | null = null,
-      top = 0;
+      top = LOUD_ENOUGH - 0.001;
     for (const [id, who] of this.accused) {
-      const n = who.size - (this.vouched.get(id)?.size ?? 0);
-      if (allowed(id) && g.players[id] && n > top) {
+      let weight = -(this.vouched.get(id)?.size ?? 0);
+      for (const detail of who.values()) weight += detail ? 1.5 : 1;
+      if (allowed(id) && g.players[id] && weight > top) {
         best = id;
-        top = n;
+        top = weight;
       }
     }
     return best;
