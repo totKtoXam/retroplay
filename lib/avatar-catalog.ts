@@ -13,6 +13,14 @@ export const AVATAR_SKINS: SkinMeta[] = [
   { id: 'knight', name: 'Рыцарь', icon: '🛡️', description: 'Стальные латы, наплечники и шлем с гребнем' },
   { id: 'hazmat', name: 'Химзащита', icon: '☣️', description: 'Защитный костюм с кислородными баллонами' },
   { id: 'cosmo', name: 'Космонавт', icon: '🚀', description: 'Скафандр с купольным шлемом и ранцем' },
+  // ===== Экипаж (Among Us): общий боб-скафандр вместо тела рига, косметика — только головной убор =====
+  { id: 'crewmate', name: 'Член экипажа', icon: '🫘', description: 'Скафандр-боб экипажа без опознавательных знаков' },
+  { id: 'crew-captain', name: 'Капитан', icon: '🧢', description: 'Скафандр экипажа с фуражкой командира' },
+  { id: 'crew-doctor', name: 'Доктор', icon: '🩺', description: 'Скафандр экипажа: зеркальце на лбу и халат поверх' },
+  { id: 'crew-mechanic', name: 'Механик', icon: '🔧', description: 'Скафандр экипажа: каска и комбинезон с карманами' },
+  { id: 'crew-chef', name: 'Шеф', icon: '👨‍🍳', description: 'Скафандр экипажа с поварским колпаком' },
+  { id: 'crew-sprout', name: 'Росток', icon: '🌱', description: 'Скафандр экипажа с ростком-питомцем на шлеме' },
+  { id: 'crew-party', name: 'Вечеринка', icon: '🥳', description: 'Скафандр экипажа с праздничным колпаком' },
 ];
 
 export const PRESET_BANDANA_COLORS = [

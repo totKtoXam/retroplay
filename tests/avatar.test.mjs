@@ -10,6 +10,8 @@ import {
   followCameraHeading,
 } from '../components/world-avatar.ts';
 import { attachCustomSkins, applyAvatarSkin } from '../components/world-skins.ts';
+import { AVATAR_SKINS } from '../lib/avatar-catalog.ts';
+import { cleanText } from '../lib/model.ts';
 
 const idle = {
   speed: 0,
@@ -205,4 +207,79 @@ test('Любой скин оставляет ровно одно видимое 
         `тело должно быть ровно одно: ${skinId}, anime=${anime}, сейчас ${[...bodies].join()}`,
       );
     }
+});
+
+/*
+ * Скины экипажа («Среди нас», components/world-skins.ts): id живут в каталоге
+ * (lib/avatar-catalog.ts) и проходят ту же проверку, что и поле `hat` на сервере
+ * (cleanText в lib/model.ts, лимит 20 символов) — второй список для них заводить
+ * не пришлось.
+ */
+const CREW_SKIN_IDS = [
+  'crewmate',
+  'crew-captain',
+  'crew-doctor',
+  'crew-mechanic',
+  'crew-chef',
+  'crew-sprout',
+  'crew-party',
+];
+
+test('Скины экипажа есть в каталоге, их id уникальны и проходят валидацию поля hat', () => {
+  const ids = AVATAR_SKINS.map((s) => s.id);
+  assert.equal(new Set(ids).size, ids.length, 'id скинов не должны повторяться');
+  for (const id of CREW_SKIN_IDS) {
+    assert.ok(ids.includes(id), `${id} должен быть в AVATAR_SKINS`);
+    assert.equal(cleanText(id, 20), id, `${id} должен проходить валидацию поля hat (lib/model.ts)`);
+  }
+});
+
+test('У скина экипажа спрятана вся плоть рига, кроме оружия и планшета в руках', () => {
+  for (const skinId of CREW_SKIN_IDS) {
+    const { avatar } = dressed(skinId);
+    // Ни одного обычного тела (легаси или AERO) — экипаж целиком в своём скафандре.
+    avatar.traverse((o) => {
+      if (o.name !== 'legacy-skin' && o.name !== 'agent-skin') return;
+      let underTool = false;
+      for (let p = o; p; p = p.parent) if (p.name === 'gun' || p.name === 'tablet') underTool = true;
+      if (!underTool) assert.equal(onScreen(o), false, `${skinId}: плоть ${o.parent?.name} видна поверх скафандра`);
+    });
+    // Сам скафандр (боб, визор, ноги) виден.
+    for (const part of ['skin-crew-body-chest', 'skin-crew-body-head']) {
+      const node = avatar.getObjectByName(part);
+      assert.ok(node && onScreen(node), `${skinId}: ${part} должен быть виден`);
+    }
+    const legs = [];
+    avatar.traverse((o) => {
+      if (o.name === 'skin-crew-body-leg') legs.push(o);
+    });
+    assert.equal(legs.length, 2, `${skinId}: у экипажа должно быть две ноги-столбика`);
+    assert.ok(legs.every(onScreen), `${skinId}: ноги должны быть видны`);
+    // Бандана тонет под цельным корпусом — как под куполом «Космонавта».
+    assert.equal(avatar.getObjectByName('avatar-bandana').visible, false);
+  }
+});
+
+test('Скафандр экипажа красится в переданный (личный/командный) цвет', () => {
+  const { avatar } = dressed('crewmate');
+  const torso = avatar.getObjectByName('crew-torso');
+  assert.equal(torso.material.color.getHexString(), 'ff00ff'); // dressed() красит в '#ff00ff'
+});
+
+test('У каждого скина экипажа виден ровно свой головной убор/костюм, а не чужой', () => {
+  const overlay = {
+    crewmate: [],
+    'crew-captain': ['skin-crew-captain-head'],
+    'crew-doctor': ['skin-crew-doctor-head', 'skin-crew-doctor-chest'],
+    'crew-mechanic': ['skin-crew-mechanic-head', 'skin-crew-mechanic-chest'],
+    'crew-chef': ['skin-crew-chef-head'],
+    'crew-sprout': ['skin-crew-sprout-head'],
+    'crew-party': ['skin-crew-party-head'],
+  };
+  const allOverlays = Object.values(overlay).flat();
+  for (const skinId of CREW_SKIN_IDS) {
+    const { avatar } = dressed(skinId);
+    const visible = allOverlays.filter((name) => onScreen(avatar.getObjectByName(name)));
+    assert.deepEqual(visible.sort(), overlay[skinId].slice().sort(), `неверная косметика для ${skinId}`);
+  }
 });
