@@ -55,6 +55,8 @@ const WIRE_W = 230,
   WIRE_H = 176,
   WIRE_PAD = 20,
   WIRE_ROW = 44;
+/** Насколько близко к разъёму нужно отпустить провод, чтобы он зацепился, px. */
+const WIRE_CATCH = 26;
 const wireAnchor = (side: 'left' | 'right', index: number) => ({
   x: side === 'left' ? WIRE_PAD : WIRE_W - WIRE_PAD,
   y: 22 + index * WIRE_ROW,
@@ -95,11 +97,15 @@ function Wires({ onDone }: GameProps) {
   };
   const onDragEnd = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (!drag) return;
-    // Под пальцем/курсором на момент отпускания — так соединение работает и на тач-экранах,
-    // где события всё ещё приходят на исходную кнопку.
-    const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
-    const plug = el?.closest<HTMLElement>('[data-wire-right]');
-    if (plug?.dataset.wireRight === drag.color) {
+    // Цель ищем по расстоянию до разъёма, а не через elementFromPoint: разъёмы не принимают
+    // события мыши (pointer-events: none), и тот их просто не видит — провод не цеплялся никогда.
+    // Так соединение работает и на тач-экранах, где события всё ещё приходят на исходную кнопку.
+    const p = relative(e.clientX, e.clientY);
+    const target = right.find((_, i) => {
+      const s = wireAnchor('right', i);
+      return Math.hypot(s.x - p.x, s.y - p.y) <= WIRE_CATCH;
+    });
+    if (target === drag.color) {
       const a = wireAnchor('right', right.indexOf(drag.color));
       setSparks((s) => [...s, { id: sparkId.current++, x: a.x, y: a.y }]);
       setJoined((j) => [...j, drag.color]);
@@ -167,7 +173,8 @@ function Wires({ onDone }: GameProps) {
               key={c}
               data-wire-right={c}
               className={`impostor-plug impostor-plug-socket${joined.includes(c) ? ' is-joined' : ''}`}
-              style={{ left: a.x, top: a.y, background: joined.includes(c) ? c : undefined }}
+              // Цвет разъёма виден сразу — рамкой и тусклой заливкой, иначе пару пришлось бы угадывать.
+              style={{ left: a.x, top: a.y, borderColor: c, borderStyle: 'solid', background: joined.includes(c) ? c : `${c}40` }}
               aria-hidden="true"
             />
           );
@@ -381,7 +388,11 @@ function Upload({ onDone }: GameProps) {
     const tick = setInterval(() => {
       const p = Math.min(1, (performance.now() - started) / NEED);
       setProgress(p);
-      if (p >= 1) onDone();
+      if (p < 1) return;
+      // Загрузилось — останавливаемся: иначе пульт звал бы «готово» каждые 100 мс, пока открыт.
+      clearInterval(tick);
+      clearInterval(spawn);
+      onDone();
     }, 100);
     const spawn = setInterval(() => setFiles((f) => [...f.slice(-4), fileId.current++]), 450);
     return () => {
@@ -494,14 +505,21 @@ function Swipe({ onDone }: GameProps) {
     const r = trackRef.current.getBoundingClientRect();
     setX(clamp(e.clientX - r.left, 0, SWIPE_LEN));
   };
-  const onUp = () => {
-    if (!dragging.current) return;
+  const accepted = useRef(false);
+  const onUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!dragging.current || accepted.current) return;
     dragging.current = false;
     const ms = performance.now() - startAt.current;
-    if (x < SWIPE_LEN * 0.92) setMsg('Карта не дошла до конца — ещё раз');
+    // Где карта в момент отпускания — по самому событию: последний рывок мог ещё не успеть
+    // отрисоваться, и состояние `x` отставало бы от руки.
+    const r = trackRef.current?.getBoundingClientRect();
+    const end = r ? clamp(e.clientX - r.left, 0, SWIPE_LEN) : x;
+    if (end < SWIPE_LEN * 0.92) setMsg('Карта не дошла до конца — ещё раз');
     else if (ms < SWIPE_MIN_MS) setMsg('Слишком быстро — ещё раз');
     else if (ms > SWIPE_MAX_MS) setMsg('Слишком медленно — ещё раз');
     else {
+      accepted.current = true;
+      setX(SWIPE_LEN);
       setMsg('Пропуск принят');
       onDone();
       return;
@@ -577,22 +595,16 @@ function Leaves({ onDone }: GameProps) {
   const onUp = (id: number) => (e: React.PointerEvent<HTMLButtonElement>) => {
     const g = grateRef.current?.getBoundingClientRect();
     const inGrate = !!g && e.clientX >= g.left && e.clientX <= g.right && e.clientY >= g.top && e.clientY <= g.bottom;
-    setLeaves((list) =>
-      list.map((l) => {
-        if (l.id !== id) return l;
-        if (inGrate) {
-          doneCount.current += 1;
-          return { ...l, done: true, dragging: false };
-        }
-        return { ...l, dragging: false };
-      }),
-    );
+    // Счёт — снаружи функции обновления: в строгом режиме React вызывает её дважды, и лист
+    // засчитывался бы за два.
+    if (inGrate) doneCount.current += 1;
+    setLeaves((list) => list.map((l) => (l.id !== id ? l : { ...l, done: l.done || inGrate, dragging: false })));
     if (inGrate && doneCount.current >= LEAF_COUNT) onDone();
   };
 
   return (
     <Panel className="impostor-leaves">
-      <p className="impostor-task-hint">Перетащите листья с решётки в сторону</p>
+      <p className="impostor-task-hint">Перетащите листья в решётку сброса</p>
       <div className="impostor-leaves-board" ref={boardRef}>
         <div className="impostor-leaves-grate" ref={grateRef} aria-hidden="true" />
         {leaves

@@ -132,7 +132,7 @@ const TASK_ICON: Record<TaskKind, { title: string; draw: React.JSX.Element }> = 
     ),
   },
   leaves: {
-    title: 'Листья — перетащите их с решётки фильтра в сторону',
+    title: 'Листья — перетащите их с фильтра в решётку сброса',
     draw: (
       <>
         <path d="M14 8 C22 10 24 20 14 28 C4 20 6 10 14 8 Z" fill="#4f8f4a" />

@@ -389,8 +389,103 @@ export function screenTexture(kind: string) {
       }
     } else {
       screenBase(g, w, h);
-      text(g, variant === 'wires' ? 'ПРОВОДКА' : variant === 'code' ? 'КОД' : variant === 'hold' ? 'СИСТЕМА' : variant === 'calibrate' ? 'КАЛИБРОВКА' : 'ДАННЫЕ', 14, 20, 15, '#6fdcff', 'left');
-      if (variant === 'wires') {
+      // Заголовок экрана — по виду задания у этого пульта (components/impostor-tasks.tsx).
+      const titles: Record<string, string> = {
+        wires: 'ПРОВОДКА',
+        code: 'КОД',
+        hold: 'СИСТЕМА',
+        calibrate: 'КАЛИБРОВКА',
+        asteroids: 'ОРУДИЯ',
+        swipe: 'ПРОПУСК',
+        leaves: 'ФИЛЬТР',
+        shields: 'ЩИТЫ',
+        align: 'ДВИГАТЕЛЬ',
+        simon: 'ЗАПУСК',
+        fuel: 'ТОПЛИВО',
+      };
+      text(g, titles[variant] ?? 'ДАННЫЕ', 14, 20, 15, '#6fdcff', 'left');
+      if (variant === 'asteroids') {
+        // Прицел среди обломков.
+        for (let i = 0; i < 6; i++) {
+          g.fillStyle = '#8a7f74';
+          g.beginPath();
+          g.arc(30 + rnd() * 196, 44 + rnd() * 96, 6 + rnd() * 9, 0, Math.PI * 2);
+          g.fill();
+        }
+        g.strokeStyle = '#43f08f';
+        g.lineWidth = 3;
+        g.beginPath();
+        g.arc(128, 92, 22, 0, Math.PI * 2);
+        g.moveTo(128, 60);
+        g.lineTo(128, 124);
+        g.moveTo(96, 92);
+        g.lineTo(160, 92);
+        g.stroke();
+      } else if (variant === 'swipe') {
+        fill(g, '#0f3440', 14, 96, 228, 18);
+        fill(g, '#7fe0f0', 40, 60, 70, 46);
+        fill(g, '#1e4f5c', 48, 70, 30, 6);
+        text(g, 'ПРОВЕДИТЕ КАРТУ', 128, 136, 13, '#ffd23f');
+      } else if (variant === 'leaves') {
+        for (let y = 40; y < 150; y += 14) fill(g, '#1d2a33', 120, y, 120, 8);
+        const leaf = ['#4f8f4a', '#3f7a3d', '#6aa35a'];
+        for (let i = 0; i < 7; i++) {
+          g.fillStyle = leaf[i % 3];
+          g.beginPath();
+          g.ellipse(132 + rnd() * 96, 50 + rnd() * 90, 12, 6, rnd() * Math.PI, 0, Math.PI * 2);
+          g.fill();
+        }
+        g.strokeStyle = '#ffd23f';
+        g.lineWidth = 3;
+        g.beginPath();
+        g.moveTo(110, 92);
+        g.lineTo(40, 92);
+        g.lineTo(52, 82);
+        g.moveTo(40, 92);
+        g.lineTo(52, 102);
+        g.stroke();
+      } else if (variant === 'shields') {
+        for (let i = 0; i < 7; i++) {
+          const cx = [128, 98, 158, 83, 173, 98, 158][i],
+            cy = [92, 74, 74, 92, 92, 110, 110][i];
+          g.fillStyle = i % 3 === 0 ? '#e5484d' : '#cfe9f5';
+          g.beginPath();
+          for (let k = 0; k < 6; k++) {
+            const a = (k / 6) * Math.PI * 2 + Math.PI / 6;
+            g.lineTo(cx + Math.cos(a) * 15, cy + Math.sin(a) * 15);
+          }
+          g.fill();
+        }
+      } else if (variant === 'align') {
+        g.strokeStyle = '#43f08f';
+        g.lineWidth = 2;
+        g.setLineDash([6, 6]);
+        g.beginPath();
+        g.moveTo(20, 92);
+        g.lineTo(236, 92);
+        g.stroke();
+        g.setLineDash([]);
+        fill(g, '#16424c', 180, 36, 12, 112);
+        fill(g, '#ffd23f', 170, 70, 32, 12);
+        g.strokeStyle = '#6fdcff';
+        g.lineWidth = 3;
+        g.beginPath();
+        g.moveTo(30, 112);
+        g.lineTo(160, 76);
+        g.stroke();
+      } else if (variant === 'simon') {
+        for (let i = 0; i < 9; i++) {
+          const x = 70 + (i % 3) * 42,
+            y = 36 + Math.floor(i / 3) * 40;
+          fill(g, i === 4 ? '#39b6ff' : '#123a47', x, y, 34, 32);
+        }
+      } else if (variant === 'fuel') {
+        fill(g, '#16424c', 40, 40, 56, 104);
+        fill(g, '#ffcf33', 40, 90, 56, 54);
+        fill(g, '#d94f2b', 150, 70, 70, 60);
+        fill(g, '#d94f2b', 162, 58, 22, 14);
+        text(g, '52%', 68, 60, 16, '#aee6ff');
+      } else if (variant === 'wires') {
         const colors = ['#ff4b4b', '#3aa0ff', '#ffd23f', '#ff5ce1'];
         const to = [2, 0, 3, 1];
         g.lineWidth = 8;
