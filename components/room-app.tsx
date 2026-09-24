@@ -1270,8 +1270,9 @@ export default function RoomApp({ id }: { id: string }) {
               </button>
               {/* В ретро MatchBar не рендерится, поэтому часы встают в тот же
                   ряд — сразу за таймером встречи, чтобы «сколько осталось» в
-                  реальном и в игровом времени читалось рядом. */}
-              <GameClock state={s} now={now} />
+                  реальном и в игровом времени читалось рядом. На корабле
+                  «Предателя» суток нет — ни солнца, ни заката. */}
+              {gameMode !== 'impostor' && <GameClock state={s} now={now} />}
             </>
           )}
         </div>
@@ -1308,6 +1309,8 @@ export default function RoomApp({ id }: { id: string }) {
             {joinRequests.length}
           </button>
         )}
+        {/* Время суток, погода и сезон — облик открытых карт; внутри корабля их нет. */}
+        {gameMode !== 'impostor' && (
         <WorldQuickChip
           time={s.time}
           season={s.season}
@@ -1341,6 +1344,7 @@ export default function RoomApp({ id }: { id: string }) {
           }
           onLocked={() => flash('Облик мира меняет ведущий встречи')}
         />
+        )}
         <button className="game-tag" onClick={() => setPanel('share')}>
           <Link2 size={14} />
           Пригласить

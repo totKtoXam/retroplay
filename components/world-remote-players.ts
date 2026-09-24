@@ -8,6 +8,7 @@ import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { modeOf } from '@/lib/maps/catalog';
 import { createFlashlightBeam, type FlashlightBeam } from './world-flashlight';
 import { createShieldBubble, type ShieldBubble } from './world-shield';
+import { createGhostForm, setGhostLook, type GhostForm } from './world-ghost';
 
 /** Цвета сторон: боец и его метка окрашены в цвет команды, а не личный. */
 const TEAM_COLORS: Record<string, string> = { red: '#ff5d52', blue: '#5aa9ff' };
@@ -42,6 +43,8 @@ export function createWorldRemotePlayers({
     // Пузырь щита живёт вместе с аватаром: без щита он просто невидим, и
     // создавать его заново на каждое возрождение незачем.
     shields = new Map<string, ShieldBubble>(),
+    // Облик призрака «Предателя»: создаётся, когда игрока впервые видят призраком.
+    ghosts = new Map<string, GhostForm>(),
     remoteMotion = new Map<
       string,
       {
@@ -106,6 +109,8 @@ export function createWorldRemotePlayers({
     beams.delete(id);
     shields.get(id)?.dispose();
     shields.delete(id);
+    ghosts.get(id)?.dispose();
+    ghosts.delete(id);
     labels.delete(id);
     remoteBandanaMats.delete(id);
     remoteMotion.delete(id);
@@ -235,8 +240,23 @@ export function createWorldRemotePlayers({
       if (label) label.visible = !shouldHideLabel && remote.visible;
 
       const p = member.pose;
+      // Призраков видят только призраки — и видят настоящими призраками: парящее светящееся
+      // тело с хвостом вместо ног (components/world-ghost.ts), без фонаря.
+      const spectral = !!ghostMark;
+      let ghost = ghosts.get(member.id) ?? null;
+      if (spectral && !ghost) {
+        ghost = createGhostForm(colorOf(member));
+        ghosts.set(member.id, ghost);
+      }
+      if (ghost) {
+        setGhostLook(remote, ghost, spectral, [label, beams.get(member.id)?.group, shields.get(member.id)?.group]);
+        if (spectral) {
+          ghost.setColor(colorOf(member));
+          ghost.animate(now / 1000, !!p.moving);
+        }
+      }
       // Погибший фонарём не светит — иначе труп продолжал бы выдавать позицию.
-      beams.get(member.id)?.set(!!p.light && !isRemoteDead, p.pitch || 0, p.tool);
+      beams.get(member.id)?.set(!!p.light && !isRemoteDead && !spectral, p.pitch || 0, p.tool);
       let motion = remoteMotion.get(member.id);
       if (!motion) {
         motion = {

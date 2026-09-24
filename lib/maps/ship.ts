@@ -362,21 +362,34 @@ const onWall = (kind: string, roomId: string, side: Side, at: number, w: number,
     z = side === 'n' ? r.minZ : side === 's' ? r.maxZ : at;
   return { kind, x, y, z, w, h, yaw: FACING[side] };
 };
-const windowAt = (roomId: string, side: Side, at: number, w: number) => onWall('window', roomId, side, at, w, 1.75, 1.3);
+/**
+ * Иллюминатор почти во всю высоту стены: низ на уровне пояса, верх под потолочной балкой. За
+ * стеклом — космос с планетами и солнцем (components/world-space.ts), и в окна, смотрящие на
+ * солнце, падает луч.
+ */
+const windowAt = (roomId: string, side: Side, at: number, w: number, h = 2.1) =>
+  onWall('window', roomId, side, at, w, 0.62 + h / 2, h);
 
-/** Иллюминаторы — только на внешних стенах, в стороне от дверей и пультов. */
+/**
+ * Иллюминаторы — только на внешних стенах, в стороне от дверей и пультов на той же стене.
+ * Северные и восточные смотрят на солнце, южные — на окольцованный гигант, западные — на
+ * ржавую планету.
+ */
 const WINDOWS: MapDecor[] = [
-  windowAt('cafeteria', 'n', 0, 3.5),
-  windowAt('weapons', 'n', 25, 2.6),
-  windowAt('weapons', 'e', -27, 5),
-  windowAt('navigation', 'e', -4, 3),
-  windowAt('navigation', 'e', 4, 3),
-  windowAt('o2', 'n', 19.8, 2.2),
-  windowAt('shields', 'n', 29, 4),
-  windowAt('shields', 's', 31.5, 3),
-  windowAt('comms', 's', 5.5, 2),
-  windowAt('upper-engine', 'n', -33.5, 3),
-  windowAt('lower-engine', 's', -33, 3),
+  windowAt('cafeteria', 'n', 0, 8.4),
+  windowAt('cafeteria', 'e', -19, 5),
+  windowAt('cafeteria', 'w', -18.5, 5),
+  windowAt('weapons', 'n', 25, 3.4),
+  windowAt('weapons', 'e', -27, 7.2),
+  windowAt('navigation', 'e', -4.2, 4.6),
+  windowAt('navigation', 'e', 4.2, 4.6),
+  windowAt('o2', 'n', 19.9, 2.6),
+  windowAt('shields', 'n', 29, 6),
+  windowAt('shields', 'e', 25.6, 3.4),
+  windowAt('shields', 's', 31.4, 3.2),
+  windowAt('comms', 's', 5.6, 2.4),
+  windowAt('upper-engine', 'n', -33.5, 5),
+  windowAt('lower-engine', 's', -33, 5),
 ];
 
 /** Щитки, настенные экраны и трубы под потолком коридоров — выше головы, не мешают. */

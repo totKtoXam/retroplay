@@ -91,6 +91,10 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
   sunlight.shadow.bias = -0.0005;
   sunlight.shadow.normalBias = 0.035;
   scene.add(sunlight);
+  // Внутри корабля суточного солнца нет: потолок тени не бросает, и «дневной» свет с резкими
+  // тенями от стен заливал бы отсеки, будто крыши нет. Настоящее солнце — за иллюминаторами
+  // (components/world-space.ts), его свет входит в окна лучами.
+  if (def.indoor) sunlight.castShadow = false;
   const skyMaterial = new T.ShaderMaterial({
     uniforms: { top: { value: new T.Color('#76b6ed') }, bottom: { value: new T.Color('#e0dff4') } },
     vertexShader:
@@ -215,10 +219,17 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
   ) => target.set(table[m.from]).lerp(scratch.set(table[m.to]), m.blend);
   const setDayMix = (m: DayMix) => {
     if (def.indoor) {
-      // В помещении (корабль) за стенами — тёмный космос при любом времени суток.
+      // В помещении (корабль) за стенами — тёмный космос, и сутки здесь ни при чём: свет отсеков
+      // одинаков всегда, а солнце светит только через иллюминаторы.
       (skyMaterial.uniforms.top.value as T.Color).set('#03050a');
       (skyMaterial.uniforms.bottom.value as T.Color).set('#0b1020');
       fog.color.set('#05070d');
+      scene.fog = fog;
+      hemi.intensity = 0.95;
+      hemi.color.set('#dfe8ff');
+      hemi.groundColor.set('#3a3550');
+      sunlight.intensity = 0;
+      return;
     } else {
       mixInto(skyMaterial.uniforms.top.value as T.Color, ARENA_SKY_TOP, m);
       mixInto(skyMaterial.uniforms.bottom.value as T.Color, ARENA_SKY_BOTTOM, m);

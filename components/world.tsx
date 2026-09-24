@@ -44,6 +44,7 @@ import {
   createFlashlightBeam,
   createPlayerFlashlight,
 } from './world-flashlight';
+import { createGhostForm, setGhostLook, type GhostForm } from './world-ghost';
 import {
   dayMix,
   dayPosition,
@@ -854,6 +855,8 @@ export default function World(props: Props) {
     // аватаром (`avatar.visible` ниже) и не светит в камеру.
     const localBeam = createFlashlightBeam();
     avatar.add(localBeam.group);
+    // Погибший в «Предателе» видит себя в третьем лице тем же призраком, каким его видят другие.
+    let localGhost: GhostForm | null = null;
     const avatarGun = avatar.getObjectByName('gun');
     // Attach custom skins & bandana to local avatar
     const localSkinResult = attachCustomSkins(avatar);
@@ -2245,6 +2248,20 @@ export default function World(props: Props) {
       );
       avatar.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
       shadow.visible = mode === 'third' && (!isDead() || isMyDeathRecent);
+      {
+        const spectral = amGhost(latest.current.room.impostor);
+        if (spectral && !localGhost) localGhost = createGhostForm(avatar.userData.color ?? '#9fb7ff');
+        if (localGhost) {
+          setGhostLook(avatar, localGhost, spectral, [localBeam.group]);
+          if (spectral) {
+            const me = latest.current.room.members.find((m) => m.id === latest.current.room.self);
+            if (me?.color) localGhost.setColor(me.color);
+            localGhost.animate(now / 1000, moving);
+          }
+        }
+        // У призрака нет тени: он парит и светится сам.
+        if (spectral) shadow.visible = false;
+      }
       // (shield aura removed — immunity is HUD-only now)
       if (localBandanaMat) {
         if (now - lastLocalSkinRead > 400) {
@@ -2328,7 +2345,7 @@ export default function World(props: Props) {
       // Луч на своём аватаре идёт за взглядом: его видят остальные, значит и
       // направление должно совпадать с тем, куда игрок смотрит.
       const heldTool = GAME_TOOLS[latest.current.tool]?.id || 'pointer';
-      localBeam.set(flashlightOn && !isDead(), player.pitch, heldTool);
+      localBeam.set(flashlightOn && !isDead() && !amGhost(latest.current.room.impostor), player.pitch, heldTool);
       if (flashlightOn) {
         // Свет — от дула того оружия, что видно на экране: в первом лице это
         // оружие в руках, в третьем — оружие аватара.
@@ -2555,6 +2572,7 @@ export default function World(props: Props) {
       });
       weaponDisposed = true;
       flashlight.dispose();
+      localGhost?.dispose();
       footsteps.dispose();
       weaponSounds.dispose();
       localBeam.dispose();
