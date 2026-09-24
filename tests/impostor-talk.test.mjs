@@ -4,7 +4,7 @@ import { impostorAction, memberFromRow, newMatch, presence, resolveCombat, roomF
 import { newImpostorGame } from '../lib/impostor.ts';
 import { postChat, readsChat } from '../lib/room-chat.ts';
 import { ImpostorBot, stepImpostorBots } from '../lib/impostor-bot.ts';
-import { hear, placeOf, plainName, zoneOf } from '../lib/impostor-bot-talk.ts';
+import { hear, placeOf, plainName, SAY, zoneOf } from '../lib/impostor-bot-talk.ts';
 import { impostorSoundEvents } from '../lib/impostor-sound-events.ts';
 import { applyOperation, initialState } from '../lib/model.ts';
 import { getMap } from '../lib/maps/index.ts';
@@ -216,4 +216,50 @@ test('impostor sounds follow the party: start, meeting, votes, ejection and the 
     [],
     'та же авария не воет заново каждый тик',
   );
+});
+
+test('talk: bots understand every line other bots say about someone', () => {
+  const names = [['x', 'Динара']];
+  const who = 'Динара',
+    victim = 'Тимур',
+    place = 'в отсеке «Кафетерий»';
+  // Что должен услышать другой бот: обвинение очевидца, обвинение или поручительство.
+  const expect = {
+    witness: [...SAY.sawKill(who, victim), ...SAY.nearBody(who, place)],
+    accuse: [
+      ...SAY.hunch(who),
+      ...SAY.buttonSuspect(who),
+      ...SAY.blameReporter(who),
+      ...SAY.blame(who),
+      ...SAY.agree(who),
+      ...SAY.counter(who),
+      ...SAY.vote(who),
+      ...SAY.planTeam(who),
+    ],
+    vouch: [...SAY.defendAlly(who), ...SAY.alibiWith(place, who)],
+  };
+  for (const [kind, lines] of Object.entries(expect))
+    for (const text of lines) {
+      const heard = hear(text, names);
+      assert.deepEqual(heard.named, ['x'], `имя найдено: ${text}`);
+      if (kind === 'vouch') assert.ok(heard.vouch && !heard.accuse, `поручительство: ${text}`);
+      else assert.ok(heard.accuse && !heard.vouch, `обвинение: ${text}`);
+      if (kind === 'witness') assert.ok(heard.detail, `рассказ очевидца: ${text}`);
+      // Подстава предателя — рассуждение, а не свидетельство: подробностью она не считается.
+      if ([...SAY.blameReporter(who), ...SAY.blame(who)].includes(text)) assert.ok(!heard.detail, `не очевидец: ${text}`);
+    }
+});
+
+test('talk: lines without anyone to blame never turn into an accusation of the named', () => {
+  const names = [['x', 'Динара']];
+  // Своё алиби и отрицание не задевают других, даже если в них есть слова вроде «предатель».
+  for (const text of [
+    ...SAY.denyCrew('в отсеке «Связь»'),
+    ...SAY.denyImpostor('в отсеке «Связь»'),
+    ...SAY.alibi('в отсеке «Связь»'),
+    ...SAY.noClue,
+    ...SAY.shrug,
+    ...SAY.suggestSkip,
+  ])
+    assert.deepEqual(hear(text, names).named, [], text);
 });

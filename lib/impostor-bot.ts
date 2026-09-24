@@ -587,8 +587,9 @@ export class ImpostorBot {
     }
     if (!target) return;
     if (heard.vouch) {
-      // Уровень, который поручительств не слушает, их и не запоминает.
-      if (this.rules.think.vouch <= 0) return;
+      // Уровень, который поручительств не слушает, их и не запоминает. Кто уже обвинил человека,
+      // тот за него не ручается: из двух противоречащих слов одного говорящего верим обвинению.
+      if (this.rules.think.vouch <= 0 || this.accused.get(target)?.has(m.from)) return;
       const said = this.vouched.get(target) ?? new Set<string>();
       said.add(m.from);
       this.vouched.set(target, said);
@@ -598,6 +599,7 @@ export class ImpostorBot {
     const blamed = this.accused.get(target) ?? new Map<string, boolean>();
     blamed.set(m.from, heard.detail || !!blamed.get(m.from));
     this.accused.set(target, blamed);
+    this.vouched.get(target)?.delete(m.from);
     const reply = now + REPLY_MS[0] + this.random() * (REPLY_MS[1] - REPLY_MS[0]);
     const accuser = this.nameOf(state, m.from);
     if (target === this.id) {
@@ -770,9 +772,11 @@ export class ImpostorBot {
   /** Кто был рядом последние секунды игры — живой свидетель алиби. */
   private companion(state: HubState, now: number) {
     const g = state.impostor;
+    // На того, кого сам подозревает, бот в алиби не сошлётся: иначе он поручился бы за человека,
+    // которого только что обвинил.
     const seen = this.memory.latest(now, (id) => {
       const x = g.players[id];
-      return !!x && x.alive && !x.left;
+      return !!x && x.alive && !x.left && this.suspicionOf(id, now) < 0.3;
     });
     return seen ? this.nameOf(state, seen.who) : null;
   }

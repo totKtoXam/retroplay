@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { impostorAction, memberFromRow, newMatch, presence, resolveCombat, roomFromState, syncBots } from '../lib/room-hub-core.ts';
 import { newImpostorGame } from '../lib/impostor.ts';
-import { ImpostorBot } from '../lib/impostor-bot.ts';
+import { ImpostorBot, stepImpostorBots } from '../lib/impostor-bot.ts';
+import { postChat } from '../lib/room-chat.ts';
 import { IMPOSTOR_BOT_LEVELS } from '../lib/impostor-bot-levels.ts';
 import { BOT_LEVEL_IDS } from '../lib/bot-levels.ts';
 import { applyOperation, initialState } from '../lib/model.ts';
@@ -150,4 +151,47 @@ test('memory drives the vote: a novice sticks to the first impression', () => {
   const after = scene.brain.suspects(later).get('host') ?? 0;
   assert.ok(before > 0, 'новичок всё-таки что-то заметил');
   assert.ok(after > before * 0.7, `впечатление держится: ${before.toFixed(2)} → ${after.toFixed(2)}`);
+});
+
+/**
+ * Собрание после убийства: очевидец и бот, который ничего не видел, обсуждают и голосуют.
+ * `talk` — слышат ли они друг друга в чате. Возвращает голос того, кто ничего не видел.
+ */
+function meetingAfter(scene, talk) {
+  const { hub, brain, watcher, victim } = scene;
+  const blind = hub.room.bots[2].id;
+  const g = hub.impostor;
+  let now = scene.seen;
+  g.phase = 'meeting';
+  g.until = now + 20_000;
+  g.meeting = { caller: watcher, reason: 'report', body: victim };
+  g.votes = {};
+  const brains = new Map([[watcher, brain]]);
+  for (let i = 0; i < 900 && !(blind in g.votes); i++) {
+    now += 100;
+    hub.members.get('host').seen = now;
+    stepImpostorBots(
+      hub,
+      brains,
+      ship,
+      now,
+      {
+        act: (id, op) => impostorAction(hub, id, op, now),
+        move: (m, op) => presence(hub, m, op, now),
+        ...(talk ? { say: (id, channel, text) => postChat(hub, id, { channel, text }, now).ok } : {}),
+      },
+      seeded(4),
+    );
+    resolveCombat(hub, now);
+  }
+  return { vote: g.votes[blind], suspects: brains.get(blind)?.suspects(now) };
+}
+
+test('bots talk each other round: a witness bot convinces a bot that saw nothing', () => {
+  const heard = meetingAfter(witnessScene('expert'), true);
+  assert.equal(heard.vote, 'host', 'поверил очевидцу и проголосовал против убийцы');
+  // Чужой рассказ меняет голос, но не становится своим воспоминанием: сам бот ничего не видел.
+  assert.equal(heard.suspects.size, 0);
+  const silent = meetingAfter(witnessScene('expert'), false);
+  assert.equal(silent.vote, 'skip', 'без разговора ничего не видевший пропускает');
 });
