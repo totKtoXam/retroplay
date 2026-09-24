@@ -2,15 +2,24 @@ import * as T from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /**
- * Attaches the 5 custom skin accessory sets and the customizable bandana to the avatar rig.
+ * Attaches the custom skin accessory sets (ninja/cyber/knight/hazmat/cosmo), the crewmate
+ * suit family («Среди нас») and the customizable bandana to the avatar rig.
  */
 export function attachCustomSkins(avatar: T.Group): {
   dispose: () => void;
   bandanaMat: T.MeshStandardMaterial;
+  suitMat: T.MeshStandardMaterial;
 } {
   const head = avatar.getObjectByName('head') as T.Group | undefined;
   const chest = avatar.getObjectByName('chest') as T.Group | undefined;
-  if (!head || !chest) return { dispose: () => {}, bandanaMat: new T.MeshStandardMaterial() };
+  const legL = avatar.getObjectByName('legL') as T.Group | undefined;
+  const legR = avatar.getObjectByName('legR') as T.Group | undefined;
+  if (!head || !chest || !legL || !legR)
+    return {
+      dispose: () => {},
+      bandanaMat: new T.MeshStandardMaterial(),
+      suitMat: new T.MeshStandardMaterial(),
+    };
 
   const materials: T.Material[] = [];
   const trackMat = <M extends T.Material>(m: M): M => {
@@ -274,11 +283,209 @@ export function attachCustomSkins(avatar: T.Group): {
   cosmoChest.add(panel);
   chest.add(cosmoChest);
 
+  // ===================== 6. CREWMATE FAMILY (в духе Among Us) =====================
+  /*
+   * Тут вместо накладки поверх рига — целиком свой корпус: настоящее тело рига
+   * (legacy-skin/agent-skin) для этих скинов гасится в applyAvatarSkin, а плоть
+   * заменяет один цельный «боб». Цвет — как у банданы, тот же принцип личного/
+   * командного цвета, поэтому материал так же возвращаем наружу и красим при
+   * каждом applyAvatarSkin.
+   */
+  const suitMat = trackMat(
+    new T.MeshStandardMaterial({ color: '#3b82f6', roughness: 0.55, metalness: 0.05 }),
+  );
+  const trimMat = mat('#7d8a99', 0.6, 0.2); // ранец и ботинки — нейтральный цвет для всех скафандров
+  const visorMat = mat('#8fd6f7', 0.12, 0.4, '#2f8fc9'); // лёгкое свечение стекла визора
+  const glareMat = mat('#eef8ff', 0.05, 0.1); // блик в углу визора
+
+  // Корпус: капсула сама по себе даёт форму боба — голова и туловище одним целым.
+  const crewChest = dressed('skin-crew-body-chest');
+  const torso = new T.Mesh(new T.CapsuleGeometry(0.3, 0.46, 4, 12), suitMat);
+  torso.scale.set(1.05, 1.05, 0.82);
+  torso.position.set(0, 0.26, 0);
+  torso.name = 'crew-torso';
+  crewChest.add(torso);
+  // Ранец на спине (локально «сзади» тут отрицательный Z — см. комментарий у dressed()).
+  const backpack = new T.Mesh(new RoundedBoxGeometry(0.26, 0.32, 0.15, 2, 0.05), trimMat);
+  backpack.position.set(0, 0.24, -0.32);
+  crewChest.add(backpack);
+  chest.add(crewChest);
+
+  // Визор: большая скруглённая пластина спереди на голове рига, пониже и покрупнее,
+  // чтобы читаться отдельной деталью, а не сливаться с бобом в шапочку на макушке.
+  const crewHead = dressed('skin-crew-body-head');
+  const crewVisor = new T.Mesh(new T.SphereGeometry(0.27, 16, 12), visorMat);
+  crewVisor.scale.set(1.05, 0.62, 0.62);
+  crewVisor.position.set(0, -0.08, 0.19);
+  crewHead.add(crewVisor);
+  const glare = new T.Mesh(new T.SphereGeometry(0.05, 8, 6), glareMat);
+  glare.scale.set(1, 1.5, 0.4);
+  glare.position.set(-0.1, -0.03, 0.235);
+  crewHead.add(glare);
+  head.add(crewHead);
+
+  /*
+   * Ноги-столбики: прицеплены прямо к костям бёдер (legL/legR), а не к рукам рига,
+   * поэтому наследуют бедренное вращение из animateAvatar и качаются при ходьбе без
+   * правок world-avatar.ts. Высота посчитана так, чтобы подошва доставала до земли:
+   * бедро висит на y=0.92 над полом (см. createAvatar), капсула и ботинок в сумме
+   * дают те же 0.92 — иначе персонаж парил бы или проваливался в пол.
+   */
+  for (const bone of [legL, legR]) {
+    const leg = new T.Group();
+    leg.name = 'skin-crew-body-leg';
+    const stub = new T.Mesh(new T.CapsuleGeometry(0.13, 0.54, 3, 8), suitMat);
+    stub.position.set(0, -0.4, 0);
+    leg.add(stub);
+    const boot = new T.Mesh(new RoundedBoxGeometry(0.24, 0.12, 0.3, 2, 0.035), trimMat);
+    boot.position.set(0, -0.86, 0.04);
+    leg.add(boot);
+    bone.add(leg);
+  }
+
+  // ---- Головные уборы и костюмы поверх базового скафандра (косметика, как в Among Us) ----
+
+  // «Капитан»: фуражка с золотой лентой и козырьком вперёд.
+  const captainHead = dressed('skin-crew-captain-head');
+  const crown = new T.Mesh(new T.CylinderGeometry(0.235, 0.25, 0.14, 14), mat('#1d3557', 0.5, 0.2));
+  crown.position.set(0, 0.28, -0.01);
+  captainHead.add(crown);
+  const crownBand = new T.Mesh(new T.CylinderGeometry(0.252, 0.252, 0.045, 14), mat('#d7ae72', 0.35, 0.6));
+  crownBand.position.set(0, 0.212, -0.01);
+  captainHead.add(crownBand);
+  const brim = new T.Mesh(new RoundedBoxGeometry(0.34, 0.02, 0.16, 2, 0.008), mat('#12233a', 0.4, 0.3));
+  brim.position.set(0, 0.203, 0.17);
+  captainHead.add(brim);
+  head.add(captainHead);
+
+  // «Доктор»: круглое зеркальце на налобной ленте + распахнутый халат на груди.
+  // Лента сидит на верхнем крае визора (а не выше макушки), иначе выглядит нимбом.
+  const doctorHead = dressed('skin-crew-doctor-head');
+  const headband = new T.Mesh(new T.TorusGeometry(0.2, 0.016, 6, 16, Math.PI * 1.3), mat('#e2e8f0', 0.5));
+  headband.position.set(0, 0.05, -0.02);
+  headband.rotation.x = Math.PI / 2;
+  doctorHead.add(headband);
+  const mirrorArm = new T.Mesh(new T.CylinderGeometry(0.012, 0.012, 0.08, 6), mat('#94a3b8', 0.5));
+  mirrorArm.position.set(0, 0.1, 0.24);
+  mirrorArm.rotation.x = 0.5;
+  doctorHead.add(mirrorArm);
+  const mirror = new T.Mesh(new T.CylinderGeometry(0.05, 0.05, 0.015, 14), mat('#cbd5e1', 0.1, 0.9, '#e2e8f0'));
+  mirror.position.set(0, 0.05, 0.29);
+  mirror.rotation.x = Math.PI / 2;
+  doctorHead.add(mirror);
+  head.add(doctorHead);
+
+  const doctorChest = dressed('skin-crew-doctor-chest');
+  for (const side of [-1, 1]) {
+    const lapel = new T.Mesh(new RoundedBoxGeometry(0.16, 0.34, 0.06, 2, 0.02), mat('#f8fafc', 0.7));
+    lapel.position.set(side * 0.15, 0.15, 0.19);
+    lapel.rotation.z = -side * 0.12;
+    doctorChest.add(lapel);
+  }
+  const collar = new T.Mesh(new RoundedBoxGeometry(0.3, 0.1, 0.06, 2, 0.02), mat('#f8fafc', 0.7));
+  collar.position.set(0, 0.36, 0.18);
+  doctorChest.add(collar);
+  chest.add(doctorChest);
+
+  // «Механик»: строительная каска с гребнем и комбинезон с накладными карманами и ремнём.
+  const mechHead = dressed('skin-crew-mechanic-head');
+  const helmet = new T.Mesh(
+    new T.SphereGeometry(0.245, 14, 10, 0, Math.PI * 2, 0, Math.PI / 1.8),
+    mat('#f59e0b', 0.5, 0.15),
+  );
+  helmet.position.set(0, 0.19, -0.02);
+  mechHead.add(helmet);
+  const helmetBrim = new T.Mesh(new T.CylinderGeometry(0.27, 0.27, 0.03, 16), mat('#d97706', 0.5, 0.15));
+  helmetBrim.position.set(0, 0.09, -0.02);
+  mechHead.add(helmetBrim);
+  const helmetRidge = new T.Mesh(new RoundedBoxGeometry(0.035, 0.16, 0.42, 2, 0.015), mat('#d97706', 0.5, 0.15));
+  helmetRidge.position.set(0, 0.24, -0.02);
+  mechHead.add(helmetRidge);
+  head.add(mechHead);
+
+  /*
+   * Капсула боба книзу сужается почти в точку (см. комментарий у torso выше), поэтому
+   * ремень и карманы посажены не на самый низ, а в цилиндрическую часть повыше — иначе
+   * ремень фиксированного радиуса торчит «летающей тарелкой» на почти нулевой талии.
+   */
+  const mechChest = dressed('skin-crew-mechanic-chest');
+  for (const side of [-1, 1]) {
+    const pocket = new T.Mesh(new RoundedBoxGeometry(0.13, 0.14, 0.05, 2, 0.015), mat('#475569', 0.6, 0.2));
+    pocket.position.set(side * 0.16, 0.1, 0.22);
+    mechChest.add(pocket);
+  }
+  const belt = new T.Mesh(new T.CylinderGeometry(0.32, 0.32, 0.05, 16), mat('#334155', 0.5, 0.3));
+  belt.position.set(0, 0.05, 0);
+  mechChest.add(belt);
+  const buckle = new T.Mesh(new RoundedBoxGeometry(0.08, 0.06, 0.02, 2, 0.008), mat('#d7ae72', 0.3, 0.7));
+  buckle.position.set(0, 0.05, 0.225);
+  mechChest.add(buckle);
+  chest.add(mechChest);
+
+  // «Шеф»: классический высокий поварской колпак.
+  const chefHead = dressed('skin-crew-chef-head');
+  const hatBase = new T.Mesh(new T.CylinderGeometry(0.19, 0.19, 0.14, 14), mat('#f8fafc', 0.6));
+  hatBase.position.set(0, 0.24, -0.01);
+  chefHead.add(hatBase);
+  const hatPoof = new T.Mesh(new T.SphereGeometry(0.2, 14, 10), mat('#f8fafc', 0.6));
+  hatPoof.scale.set(1, 0.85, 1);
+  hatPoof.position.set(0, 0.42, -0.01);
+  chefHead.add(hatPoof);
+  head.add(chefHead);
+
+  // «Росток»: мини-питомец на голове — стебель с двумя листьями в горшочке.
+  const sproutHead = dressed('skin-crew-sprout-head');
+  const pot = new T.Mesh(new T.CylinderGeometry(0.05, 0.06, 0.06, 10), mat('#78350f', 0.7));
+  pot.position.set(0, 0.22, -0.02);
+  sproutHead.add(pot);
+  const stem = new T.Mesh(new T.CylinderGeometry(0.012, 0.012, 0.12, 6), mat('#4d7c2b', 0.6));
+  stem.position.set(0, 0.29, -0.02);
+  sproutHead.add(stem);
+  for (const [x, ang] of [
+    [-0.045, 0.5],
+    [0.045, -0.5],
+  ] as const) {
+    const leaf = new T.Mesh(new T.SphereGeometry(0.05, 8, 6), mat('#65a30d', 0.5));
+    leaf.scale.set(1.6, 0.5, 0.9);
+    leaf.position.set(x, 0.34, -0.02);
+    leaf.rotation.z = ang;
+    sproutHead.add(leaf);
+  }
+  head.add(sproutHead);
+
+  // «Вечеринка»: конусный колпак с ободками и помпоном.
+  const partyHead = dressed('skin-crew-party-head');
+  const cone = new T.Mesh(new T.ConeGeometry(0.19, 0.38, 12), mat('#f43f5e', 0.5));
+  cone.position.set(0, 0.36, -0.02);
+  partyHead.add(cone);
+  for (let i = 0; i < 2; i++) {
+    const ring = new T.Mesh(new T.TorusGeometry(0.15 - i * 0.05, 0.012, 6, 16), mat('#fde047', 0.5));
+    ring.position.set(0, 0.3 + i * 0.12, -0.02);
+    ring.rotation.x = Math.PI / 2;
+    partyHead.add(ring);
+  }
+  const pompom = new T.Mesh(new T.SphereGeometry(0.045, 8, 6), mat('#fde047', 0.6));
+  pompom.position.set(0, 0.55, -0.02);
+  partyHead.add(pompom);
+  head.add(partyHead);
+
   return {
     dispose: () => materials.forEach((m) => m.dispose()),
     bandanaMat,
+    suitMat,
   };
 }
+
+/** Скины экипажа («Среди нас»): общий скафандр + своя косметика у каждого. */
+const CREW_SKIN_IDS = new Set([
+  'crewmate',
+  'crew-captain',
+  'crew-doctor',
+  'crew-mechanic',
+  'crew-chef',
+  'crew-sprout',
+  'crew-party',
+]);
 
 /**
  * Toggles visibility of the selected skin accessory set and updates bandana color.
@@ -292,12 +499,17 @@ export function applyAvatarSkin(
   if (bandanaMat) {
     bandanaMat.color.set(bandanaColor);
   }
+  // Скафандр экипажа красится в тот же личный/командный цвет, что и бандана.
+  const suitMesh = avatar.getObjectByName('crew-torso') as T.Mesh | undefined;
+  const suitMat = suitMesh?.material as T.MeshStandardMaterial | undefined;
+  if (suitMat) suitMat.color.set(bandanaColor);
 
   const isNinja = skinId === 'ninja';
   const isCyber = skinId === 'cyber';
   const isKnight = skinId === 'knight';
   const isHazmat = skinId === 'hazmat';
   const isCosmo = skinId === 'cosmo';
+  const isCrew = CREW_SKIN_IDS.has(skinId);
 
   /*
    * Тело у аватара ровно одно из двух: блочное legacy-skin («Классика» и аниме-стиль)
@@ -315,9 +527,44 @@ export function applyAvatarSkin(
     if (o.name === 'skin-knight-head' || o.name === 'skin-knight-chest') o.visible = isKnight;
     if (o.name === 'skin-hazmat-head' || o.name === 'skin-hazmat-chest') o.visible = isHazmat;
     if (o.name === 'skin-cosmo-head' || o.name === 'skin-cosmo-chest') o.visible = isCosmo;
+    if (o.name === 'skin-crew-body-chest' || o.name === 'skin-crew-body-head' || o.name === 'skin-crew-body-leg')
+      o.visible = isCrew;
+    if (o.name === 'skin-crew-captain-head') o.visible = skinId === 'crew-captain';
+    if (o.name === 'skin-crew-doctor-head' || o.name === 'skin-crew-doctor-chest')
+      o.visible = skinId === 'crew-doctor';
+    if (o.name === 'skin-crew-mechanic-head' || o.name === 'skin-crew-mechanic-chest')
+      o.visible = skinId === 'crew-mechanic';
+    if (o.name === 'skin-crew-chef-head') o.visible = skinId === 'crew-chef';
+    if (o.name === 'skin-crew-sprout-head') o.visible = skinId === 'crew-sprout';
+    if (o.name === 'skin-crew-party-head') o.visible = skinId === 'crew-party';
     if (o.name === 'legacy-skin') o.visible = legacyBody;
     if (o.name === 'agent-skin') o.visible = !legacyBody;
-    // Под глухим куполом скафандра ленты не видно — иначе она протыкает шлем.
-    if (o.name === 'avatar-bandana') o.visible = !isCosmo;
+    // Под глухим куполом скафандра и бобом экипажа ленты не видно.
+    if (o.name === 'avatar-bandana') o.visible = !isCosmo && !isCrew;
   });
+
+  /*
+   * У экипажа своё цельное тело — настоящую плоть рига (руки, ноги, торс, лицо) прячем
+   * ПОВЕРХ обычной логики legacy/agent выше. Оружие и планшет не трогаем намеренно:
+   * 'gun' и 'tablet' — отдельные соседние узлы у локтя, а не 'legacy-skin'/'agent-skin',
+   * поэтому фонарик и прочие инструменты в руках остаются на месте.
+   */
+  if (isCrew) {
+    const bodyJoints = new Set([
+      'chest',
+      'unmasked-head',
+      'legL',
+      'legR',
+      'kneeL',
+      'kneeR',
+      'armL',
+      'armR',
+      'elbowL',
+      'elbowR',
+    ]);
+    avatar.traverse((o) => {
+      if ((o.name === 'legacy-skin' || o.name === 'agent-skin') && bodyJoints.has(o.parent?.name ?? ''))
+        o.visible = false;
+    });
+  }
 }
