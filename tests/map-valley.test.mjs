@@ -5,6 +5,8 @@ import { VALLEY } from '../lib/maps/valley.ts';
 import { MOUNTAIN } from '../lib/maps/mountain.ts';
 import { buildArena } from '../lib/maps/types.ts';
 import { isBlocked3D } from '../lib/world-collision.ts';
+import { footstepSurface } from '../lib/footsteps.ts';
+import { isSnowy } from '../lib/season-colors.ts';
 import { reachable } from './map-helpers.mjs';
 
 const map = getMap('valley');
@@ -51,23 +53,32 @@ test('the whole map is mirror-symmetric across z = 0', () => {
     const b = list.map((o) => key(mirror(o))).sort();
     assert.deepEqual(a, b, label);
   };
-  same(
-    'boxes',
-    VALLEY.boxes,
-    (b) => [b.x, b.y, round(b.z), b.w, b.h, b.d, b.color, !!b.solid, !!b.floor].join('|'),
-    (b) => ({ ...b, z: -b.z }),
-  );
-  same(
-    'cylinders',
-    VALLEY.cylinders,
-    (c) => [c.x, c.y, round(c.z), c.r, c.h, c.color, !!c.solid].join('|'),
-    (c) => ({ ...c, z: -c.z }),
-  );
+  // Декор бывает повёрнут: при отражении z -> -z углы вокруг x и y меняют знак.
+  const boxKey = (b) =>
+    [b.x, b.y, round(b.z), b.w, b.h, b.d, b.color, b.material, b.glow, !!b.solid, !!b.floor, !!b.invisible, (b.rot ?? []).map(round)].join('|');
+  const mirrorBox = (b) => ({ ...b, z: -b.z, ...(b.rot ? { rot: [-b.rot[0], -b.rot[1], b.rot[2]] } : {}) });
+  const cylKey = (c) => [c.x, c.y, round(c.z), c.r, c.rTop, c.h, c.color, c.material, c.glow, c.axis, !!c.solid].join('|');
+  same('boxes', VALLEY.boxes, boxKey, mirrorBox);
+  same('cylinders', VALLEY.cylinders, cylKey, (c) => ({ ...c, z: -c.z }));
   same(
     'spheres',
     VALLEY.spheres,
-    (s) => [s.x, s.y, round(s.z), s.r, s.color].join('|'),
+    (s) => [s.x, s.y, round(s.z), s.r, s.color, s.material, s.glow].join('|'),
     (s) => ({ ...s, z: -s.z }),
+  );
+  same('furnishings', VALLEY.furnishings, boxKey, mirrorBox);
+  same('furnishing cylinders', VALLEY.furnishingCylinders, cylKey, (c) => ({ ...c, z: -c.z }));
+  same(
+    'roofs',
+    VALLEY.roofs,
+    (r) => [r.minX, r.maxX, round(r.minZ), round(r.maxZ), r.y, r.rise, r.ridge, r.color, r.material, r.gable].join('|'),
+    (r) => ({ ...r, minZ: -r.maxZ, maxZ: -r.minZ }),
+  );
+  same(
+    'lights',
+    VALLEY.lights,
+    (l) => [l.x, l.y, round(l.z), l.color, l.intensity, l.distance].join('|'),
+    (l) => ({ ...l, z: -l.z }),
   );
   same(
     'ramps',
@@ -204,4 +215,127 @@ test('the ridge lets the camps out through three gates and nowhere else', () => 
       assert.equal(isBlocked3D(x, s * 36, 0, 0.32, 1.8, map.colliders), true, `ridge at (${x}, ${s * 36})`);
     }
   }
+});
+
+// --- отделка и обстановка ----------------------------------------------------------------
+
+const DRY = { season: 'winter', rain: 0, snow: 0 };
+const inside = (o, x0, x1, z0, z1) => o.x > x0 && o.x < x1 && o.z > z0 && o.z < z1;
+/** Дом красных; у синих — его отражение. */
+const LODGE = (s) => ({ x0: -12.5, x1: 12.5, z0: s < 0 ? -53.5 : 46.5, z1: s < 0 ? -46.5 : 53.5 });
+/** Четыре сруба: по два в каждом лагере. */
+const CABINS = [-1, 1].flatMap((sx) => [-1, 1].map((sz) => ({ cx: 24 * sx, cz: 43 * sz, sx, sz })));
+
+test('the valley is textured: snow ground, rock, ice and concrete, stepped stone ramps, pines of needles', () => {
+  assert.equal(VALLEY.groundMaterial, 'snow');
+  const solids = VALLEY.boxes.filter((b) => b.solid && !b.invisible);
+  const bare = solids.filter((b) => !b.material);
+  assert.equal(bare.length, 0, `solid boxes without a surface: ${bare.map((b) => `${b.x},${b.z}`).join(' ')}`);
+  const used = new Set(solids.map((b) => b.material));
+  for (const m of ['rock', 'concrete', 'ice', 'logs', 'ashlar', 'rust', 'metal', 'bark', 'crate'])
+    assert.ok(used.has(m), `some solid block is ${m}`);
+  // Пандусы: на плато — каменные лестницы, на полку — лёд, на вышку — доски со ступенями.
+  const plateauRamps = VALLEY.ramps.filter((r) => r.y1 === 3.4);
+  assert.equal(plateauRamps.length, 4);
+  for (const r of plateauRamps) assert.deepEqual([r.material, r.steps], ['ashlar', 17]);
+  for (const r of VALLEY.ramps.filter((r) => r.y1 === 2.5)) assert.deepEqual([r.material, r.steps], ['ice', undefined]);
+  for (const r of VALLEY.ramps.filter((r) => r.y1 === 3)) assert.ok(r.material === 'planks' && r.steps > 0, 'tower stairs');
+  // Сосны: ствол в коре, крона — ярусы конусов хвои над головой.
+  const crowns = VALLEY.cylinders.filter((c) => c.material === 'foliage');
+  const trunks = VALLEY.cylinders.filter((c) => c.material === 'bark' && c.r === 0.3 && c.solid);
+  assert.equal(crowns.length, trunks.length * 4, 'four tiers per pine');
+  for (const c of crowns) {
+    assert.ok(c.rTop < c.r / 2, `crown at (${c.x}, ${c.z}) is a cone`);
+    assert.ok(c.y - c.h / 2 >= 2.1, `crown at (${c.x}, ${c.z}) is above head height`);
+  }
+  assert.ok(VALLEY.spheres.some((s) => s.material === 'snow') && VALLEY.spheres.some((s) => s.material === 'ice'), 'snow caps and ice');
+});
+
+test('nothing but snow wears a snow colour, and the palette stays small', () => {
+  // Сезоны перекрашивают по цвету: светлое бесцветное на зимней карте летом «тает» в луг.
+  const all = [
+    ...VALLEY.boxes,
+    ...VALLEY.cylinders,
+    ...VALLEY.spheres,
+    ...VALLEY.furnishings,
+    ...VALLEY.furnishingCylinders,
+  ];
+  for (const o of all)
+    if (!o.glow && o.material !== 'snow' && !o.invisible)
+      assert.equal(isSnowy(o.color), false, `${o.color} ${o.material ?? ''} at (${o.x}, ${o.y}, ${o.z}) would melt`);
+  const pairs = new Set(all.map((o) => `${o.color}|${o.material ?? ''}|${o.glow ?? ''}`));
+  for (const r of VALLEY.roofs) pairs.add(`${r.color}|${r.material}`).add(`${r.gable}|${r.gableMaterial}`);
+  assert.ok(pairs.size <= 150, `draw calls: ${pairs.size}`);
+  assert.ok(VALLEY.lights.length <= 30, `lights: ${VALLEY.lights.length}`);
+});
+
+test('the lodges are furnished, floored in planks and reached from their spawns', () => {
+  for (const s of [-1, 1]) {
+    const L = LODGE(s);
+    const team = s < 0 ? RED : BLUE;
+    const solids = VALLEY.boxes.filter((b) => b.solid && inside(b, L.x0, L.x1, L.z0, L.z1));
+    // Стол радиста, два стола, четыре скамьи и скамья у вешалки, нары, полки, поленница, печь, шкафчики.
+    assert.ok(solids.length >= 14, `solid furniture: ${solids.length}`);
+    const decor = VALLEY.furnishings.filter((b) => inside(b, L.x0, L.x1, L.z0, L.z1));
+    assert.ok(decor.length >= 150, `decor: ${decor.length}`);
+    assert.ok(decor.some((b) => b.glow), 'a lantern or the radio dial glows');
+    // Шаги по доскам пола — дерево, и под крышей, и если крыша не распознана.
+    for (const sheltered of [true, false])
+      for (const [x, z] of [
+        [-4, -50],
+        [4, -52.5],
+        [-10.8, -49],
+      ])
+        assert.equal(footstepSurface({ map, ...DRY, sheltered }, x, 0, s * -z), 'wood', `floor at (${x}, ${s * -z})`);
+    assert.equal(map.ceilingHeight(-10, s * 50, 0), 4.2, 'ceiling');
+    assert.ok(
+      VALLEY.roofs.some((r) => r.material === 'planks' && r.minX <= -14 && r.maxX >= 14 && r.minZ < s * 50 && r.maxZ > s * 50),
+      'pitched roof over the lodge',
+    );
+    // Из дома в оба конца столовой и со двора внутрь.
+    const home = team[11];
+    assert.deepEqual([home.x, home.z], [0, s * 49.5], 'the spawn inside the lodge');
+    assert.equal(reachable(map, home, { x: -10.8, z: s * 49 }, 'stand'), true, 'to the west end');
+    assert.equal(reachable(map, team[6], { x: 10.8, z: s * 50.5 }, 'stand'), true, 'from the yard to the east end');
+  }
+});
+
+test('the log cabins are enterable, roofed, furnished, and their neighbouring spawns stay free', () => {
+  for (const { cx, cz, sx, sz } of CABINS) {
+    const where = `cabin (${cx}, ${cz})`;
+    const x0 = cx - 3.7,
+      x1 = cx + 3.7,
+      z0 = cz - 2.7,
+      z1 = cz + 2.7;
+    const spot = { x: cx - sx * 2, z: cz };
+    assert.equal(map.groundHeight(spot.x, spot.z, 0), 0, `${where}: floor`);
+    assert.equal(isBlocked3D(spot.x, spot.z, 0, 0.32, 1.8, map.colliders), false, `${where}: room inside`);
+    assert.ok(Math.abs(map.ceilingHeight(spot.x, spot.z, 0) - 3.2) < 1e-9, `${where}: ceiling`);
+    assert.ok(
+      VALLEY.roofs.some((r) => r.minX < cx && r.maxX > cx && r.minZ < cz && r.maxZ > cz && r.material === 'planks'),
+      `${where}: pitched roof`,
+    );
+    assert.equal(footstepSurface({ map, ...DRY, sheltered: true }, spot.x, 0, spot.z), 'wood', `${where}: plank floor`);
+    const furniture = VALLEY.boxes.filter((b) => b.solid && inside(b, x0, x1, z0, z1));
+    // Две нары, печь, поленница, стол, полки.
+    assert.ok(furniture.length >= 6, `${where}: furniture ${furniture.length}`);
+    assert.ok(VALLEY.furnishings.some((b) => b.glow && inside(b, x0, x1, z0, z1)), `${where}: a lantern`);
+    // Вход с ближнего к срубу спавна за домом.
+    const team = sz < 0 ? RED : BLUE;
+    const near = team.find((p) => p.x === cx && Math.abs(p.z) === 50);
+    assert.equal(reachable(map, near, spot, 'stand'), true, `${where}: from the spawn behind it`);
+  }
+});
+
+test('the tunnel lining is decor only: the arms stay clear from wall to wall', () => {
+  for (const [x, z] of [
+    [-2.6, -16],
+    [2.6, -8],
+    [-2.6, 16],
+    [-8, -2.6],
+    [17, 2.6],
+    [-19, 2.6],
+  ])
+    assert.equal(isBlocked3D(x, z, 0, 0.32, 1.8, map.colliders), false, `tunnel at (${x}, ${z})`);
+  assert.equal(footstepSurface({ map, ...DRY, sheltered: true }, 0, 0, -8), 'tile', 'concrete floor under the plateau');
 });

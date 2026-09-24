@@ -39,7 +39,35 @@ export type SurfaceMaterial =
   | 'planks'
   | 'roof-tiles'
   /** Old wet brick with grime: sewer walls. */
-  | 'sewer';
+  | 'sewer'
+  /** Packed snow; a box of it is drawn as a soft drift. Sounds by its (season-painted) colour. */
+  | 'snow'
+  /** Glassy ice with cracks; a box of it is drawn with rough, slightly lumpy faces. */
+  | 'ice'
+  /** Weathered rock with strata; a box of it is drawn as a rough rock mass, its top kept flat. */
+  | 'rock'
+  /** Tree bark; a box of it is drawn as a round log along its longer horizontal side. */
+  | 'bark'
+  /** Log-cabin wall: stacked round logs with chinking. */
+  | 'logs'
+  /** Sun-dried clay plaster with straw (саман). */
+  | 'adobe'
+  /** Dressed stone blocks: quay walls, dry-stone walls, steps. */
+  | 'ashlar'
+  /** Yurt felt. */
+  | 'felt'
+  | 'sand'
+  /** Rusty painted metal: wrecks, carts, barrels. */
+  | 'rust'
+  /** Tent canvas with seams. */
+  | 'canvas'
+  /** Striped awning cloth. */
+  | 'awning'
+  | 'concrete'
+  /** Wooden crate: each face is one crate side with its frame and brace. */
+  | 'crate'
+  /** Burlap sack; a box of it is drawn as a plump sack. */
+  | 'sack';
 
 /** Axis-aligned box given by its centre (x, y, z) and size (w along x, h along y, d along z). */
 export type MapBox = {
@@ -67,6 +95,13 @@ export type MapBox = {
    * the collision of a solid box ignores it.
    */
   rot?: [number, number, number];
+  /**
+   * Collision only, not drawn: something else shows it (a tent is a solid box drawn as a
+   * `MapRoof` sitting on the ground).
+   */
+  invisible?: boolean;
+  /** Glows by itself with this emissive intensity (lantern glass, embers) — decor mostly. */
+  glow?: number;
 };
 /** Sloped walkway: height goes from y0 at `from` to y1 at `to` along `axis`. */
 export type MapRamp = Bounds & {
@@ -86,7 +121,11 @@ export type MapCylinder = {
   z: number;
   r: number;
   h: number;
+  /** Radius at the top end, for cones and tapers (pine crowns, pots); `r` is the bottom. */
+  rTop?: number;
   color: string;
+  /** Glows by itself with this emissive intensity. */
+  glow?: number;
   /** Blocks as its bounding box. */
   solid?: boolean;
   sides?: number;
@@ -132,7 +171,16 @@ export type MapDecor = {
  * are ordinary cylinders, boxes and water.
  */
 export type MapFountain = { x: number; z: number; jetY: number; bowlY: number; bowlR: number; poolY: number };
-export type MapSphere = { x: number; y: number; z: number; r: number; color: string; material?: SurfaceMaterial };
+export type MapSphere = {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  color: string;
+  material?: SurfaceMaterial;
+  /** Glows by itself with this emissive intensity. */
+  glow?: number;
+};
 /** Still water at height `y`; with `round` it is the disc inscribed in the bounds (a fountain bowl). */
 export type MapWater = Bounds & { y: number; color?: string; round?: boolean };
 export type MapLight = { x: number; y: number; z: number; color: string; intensity: number; distance: number };
@@ -215,6 +263,13 @@ export type GameMap = {
   panels: SabotagePanel[];
   vents: MapVent[];
 };
+
+/**
+ * Замёрзла ли вода зимой: стоячая — да (и на летней карте, и на заснеженной), а вода фонтана
+ * проточная и бьёт в любой сезон — замёрзший бассейн выглядел бы сломанной анимацией.
+ */
+export const waterFrozen = (def: ArenaDef, w: MapWater, season: string) =>
+  season === 'winter' && !(def.fountains ?? []).some((f) => f.x >= w.minX && f.x <= w.maxX && f.z >= w.minZ && f.z <= w.maxZ);
 
 const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
 const within = (c: Bounds, x: number, z: number) =>

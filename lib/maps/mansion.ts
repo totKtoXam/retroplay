@@ -7,6 +7,7 @@ import {
   type MapWater,
   type SurfaceMaterial,
 } from './types.ts';
+import { lighten, wallSegments, type Opening } from './furnish.ts';
 
 // «Особняк» — team battle. Red holds the two-storey house in the west, blue starts in the
 // "спецназ" corridor behind the east compound wall. Routes between them: the main gate and
@@ -65,48 +66,6 @@ const ZS = 12; // south outer wall
 const XGATE = 26; // east compound wall (blue corridor beyond it)
 const TUN_S = -22; // service tunnel: inner face of its south wall
 const TUN_H = 2.2;
-
-/** One opening in a wall: the span [a, b] along the wall with a list of open y ranges. */
-type Opening = { a: number; b: number; open: [number, number][] };
-
-/**
- * Solid wall segments for a straight wall, cut by door/window openings.
- * `axis: 'z'` runs along z at x = `at`; `axis: 'x'` runs along x at z = `at`.
- */
-function wallSegments(
-  axis: 'x' | 'z',
-  at: number,
-  p0: number,
-  p1: number,
-  bottom: number,
-  top: number,
-  color: string,
-  thickness = WALL_T,
-  gaps: Opening[] = [],
-): MapBox[] {
-  const out: MapBox[] = [];
-  const piece = (a: number, b: number, y0: number, y1: number) => {
-    if (b - a < 1e-6 || y1 - y0 < 1e-6) return;
-    out.push(
-      axis === 'z'
-        ? { x: at, y: (y0 + y1) / 2, z: (a + b) / 2, w: thickness, h: y1 - y0, d: b - a, color, solid: true }
-        : { x: (a + b) / 2, y: (y0 + y1) / 2, z: at, w: b - a, h: y1 - y0, d: thickness, color, solid: true },
-    );
-  };
-  let cursor = p0;
-  for (const g of [...gaps].sort((m, n) => m.a - n.a)) {
-    piece(cursor, g.a, bottom, top);
-    let y = bottom;
-    for (const [y0, y1] of g.open) {
-      piece(g.a, g.b, y, y0);
-      y = y1;
-    }
-    piece(g.a, g.b, y, top);
-    cursor = g.b;
-  }
-  piece(cursor, p1, bottom, top);
-  return out;
-}
 
 /** Walkable slab 0.2 m thick whose top is at `top` (its underside is a ceiling). */
 const slab = (x0: number, x1: number, z0: number, z1: number, top: number, color = DECK): MapBox => ({
@@ -347,13 +306,6 @@ const RUG_BLUE = '#2d4a6d';
 const RUG_GREEN = '#46603c';
 const LEAF = '#3f6f37';
 const POT = '#9b5b3b';
-
-/** `hex` mixed toward white by `k` (0…1): cushions a shade lighter than their sofa. */
-const lighten = (hex: string, k: number) => {
-  const n = parseInt(hex.slice(1), 16);
-  const ch = (shift: number) => Math.round(((n >> shift) & 255) + (255 - ((n >> shift) & 255)) * k);
-  return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0')}`;
-};
 
 const decor: MapBox[] = [];
 const decorCylinders: MapCylinder[] = [];

@@ -23,6 +23,11 @@ type Spec = {
   metalness?: number;
   bump: number;
   paint: Painter;
+  /**
+   * UV берутся из самой геометрии, а не из мировой проекции: у ящика каждая грань — одна
+   * стенка с рамкой, у бревна кора обвивает ствол и идёт вдоль него (components/world-arena-scene.ts).
+   */
+  faceUV?: boolean;
 };
 
 const rng = (seed: number) => () => {
@@ -78,6 +83,54 @@ function grain(
     }
     ctx.stroke();
   }
+}
+
+/**
+ * Рисует фигуру и её копии, сдвинутые на размер текстуры, если она заходит за край: так
+ * пятна, трещины и камни переходят через шов и повтор текстуры на большой земле не виден.
+ */
+function tiled(s: number, x: number, y: number, reach: number, draw: (x: number, y: number) => void) {
+  for (const dx of [-s, 0, s])
+    for (const dy of [-s, 0, s]) {
+      const px = x + dx,
+        py = y + dy;
+      if (px + reach < 0 || px - reach > s || py + reach < 0 || py - reach > s) continue;
+      draw(px, py);
+    }
+}
+
+/** Мягкие пятна тона вокруг `base`: основа для камня, штукатурки, снега. */
+function blotches(ctx: CanvasRenderingContext2D, s: number, rand: () => number, n: number, r0: number, r1: number, v0: number, v1: number, alpha: number) {
+  for (let i = 0; i < n; i++) {
+    const r = r0 + rand() * (r1 - r0);
+    ctx.fillStyle = gray(v0 + rand() * (v1 - v0), alpha);
+    tiled(s, rand() * s, rand() * s, r, (x, y) => {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+}
+
+/** Ломаная трещина из точки (x, y) в общем направлении `angle`, с переносом через края. */
+function crack(ctx: CanvasRenderingContext2D, s: number, rand: () => number, x: number, y: number, angle: number, length: number, v: number, alpha: number, width = 1) {
+  const pts: [number, number][] = [[x, y]];
+  let a = angle;
+  for (let run = 0; run < length; ) {
+    const step = 5 + rand() * 9;
+    a += (rand() - 0.5) * 0.9;
+    x += Math.cos(a) * step;
+    y += Math.sin(a) * step;
+    pts.push([x, y]);
+    run += step;
+  }
+  ctx.strokeStyle = gray(v, alpha);
+  ctx.lineWidth = width;
+  tiled(s, 0, 0, s, (ox, oy) => {
+    ctx.beginPath();
+    pts.forEach(([px, py], i) => (i ? ctx.lineTo(px + ox, py + oy) : ctx.moveTo(px + ox, py + oy)));
+    ctx.stroke();
+  });
 }
 
 const SPECS: Record<SurfaceMaterial, Spec> = {
@@ -583,6 +636,522 @@ const SPECS: Record<SurfaceMaterial, Spec> = {
       speckle(ctx, s, rand, 26);
     },
   },
+  snow: {
+    size: 256,
+    repeat: 3.2,
+    roughness: 0.82,
+    bump: 0.02,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(244);
+      ctx.fillRect(0, 0, s, s);
+      // Надувы: мягкие тени и светлые бугры, потом застругы — пологие волны ветра.
+      blotches(ctx, s, rand, 40, 20, 60, 226, 255, 0.22);
+      for (let i = 0; i < 9; i++) {
+        const y0 = rand() * s,
+          amp = 4 + rand() * 8,
+          k = 1 + Math.floor(rand() * 3),
+          phase = rand() * Math.PI * 2;
+        ctx.strokeStyle = gray(212, 0.28);
+        ctx.lineWidth = 1.5 + rand() * 2;
+        ctx.beginPath();
+        for (let x = 0; x <= s; x += 4) {
+          const y = y0 + Math.sin((x / s) * Math.PI * 2 * k + phase) * amp;
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      // Искры наста.
+      for (let i = 0; i < 260; i++) {
+        ctx.fillStyle = gray(255, 0.9);
+        ctx.fillRect(rand() * s, rand() * s, 1, 1);
+      }
+      speckle(ctx, s, rand, 6);
+    },
+  },
+  ice: {
+    size: 256,
+    repeat: 2.2,
+    roughness: 0.16,
+    metalness: 0.05,
+    bump: 0.005,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(232);
+      ctx.fillRect(0, 0, s, s);
+      // Мутные слои и иней, пузырьки воздуха, трещины со светлой каймой.
+      blotches(ctx, s, rand, 30, 18, 55, 214, 255, 0.2);
+      for (let i = 0; i < 140; i++) {
+        const r = 0.8 + rand() * 2.4;
+        ctx.strokeStyle = gray(255, 0.55);
+        ctx.lineWidth = 0.8;
+        tiled(s, rand() * s, rand() * s, r, (x, y) => {
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.stroke();
+        });
+      }
+      for (let i = 0; i < 7; i++) {
+        const x = rand() * s,
+          y = rand() * s,
+          a = rand() * Math.PI * 2,
+          len = 60 + rand() * 140;
+        crack(ctx, s, rand, x, y, a, len, 255, 0.35, 3);
+        crack(ctx, s, rand, x, y, a, len, 168, 0.55, 1);
+      }
+      speckle(ctx, s, rand, 5);
+    },
+  },
+  rock: {
+    size: 256,
+    repeat: 2.8,
+    roughness: 0.95,
+    bump: 0.035,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(196);
+      ctx.fillRect(0, 0, s, s);
+      blotches(ctx, s, rand, 70, 8, 40, 150, 240, 0.22);
+      // Пласты породы: пологие волнистые полосы (на стенах идут поперёк высоты).
+      for (let i = 0; i < 11; i++) {
+        const y0 = rand() * s,
+          amp = 3 + rand() * 7,
+          k = 1 + Math.floor(rand() * 2),
+          phase = rand() * Math.PI * 2,
+          v = rand() < 0.5 ? 150 : 232;
+        ctx.strokeStyle = gray(v, 0.35);
+        ctx.lineWidth = 1 + rand() * 4;
+        ctx.beginPath();
+        for (let x = 0; x <= s; x += 4) {
+          const y = y0 + Math.sin((x / s) * Math.PI * 2 * k + phase) * amp;
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      // Трещины: тёмная щель и светлый скол рядом.
+      for (let i = 0; i < 8; i++) {
+        const x = rand() * s,
+          y = rand() * s,
+          a = Math.PI / 2 + (rand() - 0.5) * 1.4,
+          len = 25 + rand() * 70;
+        crack(ctx, s, rand, x + 1.5, y, a, len, 236, 0.3, 1);
+        crack(ctx, s, rand, x, y, a, len, 92, 0.5, 1.1);
+      }
+      // Лишайник: мелкие светлые пятнышки гроздьями.
+      for (let i = 0; i < 9; i++) {
+        const cx = rand() * s,
+          cy = rand() * s;
+        for (let k = 0; k < 14; k++) {
+          const r = 1 + rand() * 2.5;
+          ctx.fillStyle = gray(240, 0.25);
+          tiled(s, cx + (rand() - 0.5) * 18, cy + (rand() - 0.5) * 18, r, (x, y) => {
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fill();
+          });
+        }
+      }
+      speckle(ctx, s, rand, 26);
+    },
+  },
+  bark: {
+    size: 256,
+    repeat: 0.9,
+    roughness: 0.95,
+    bump: 0.03,
+    faceUV: true,
+    paint: (ctx, s, rand) => {
+      // Кора: вытянутые вдоль ствола пластины, между ними глубокие тёмные борозды.
+      ctx.fillStyle = gray(78);
+      ctx.fillRect(0, 0, s, s);
+      for (let i = 0; i < 70; i++) {
+        const w = 10 + rand() * 18,
+          h = 40 + rand() * 90,
+          v = 165 + rand() * 70;
+        ctx.fillStyle = gray(v);
+        tiled(s, rand() * s, rand() * s, h, (x, y) => {
+          ctx.beginPath();
+          ctx.roundRect(x - w / 2, y - h / 2, w, h, w / 2.5);
+          ctx.fill();
+        });
+      }
+      for (let i = 0; i < 90; i++) {
+        ctx.strokeStyle = gray(100, 0.5);
+        ctx.lineWidth = 0.8;
+        const x = rand() * s,
+          y = rand() * s,
+          dx = (rand() - 0.5) * 3,
+          dy = 8 + rand() * 12;
+        tiled(s, x, y, 20, (px, py) => {
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + dx, py + dy);
+          ctx.stroke();
+        });
+      }
+      speckle(ctx, s, rand, 24);
+    },
+  },
+  logs: {
+    size: 256,
+    repeat: 1.6,
+    roughness: 0.85,
+    bump: 0.03,
+    paint: (ctx, s, rand) => {
+      // Сруб: шесть круглых брёвен друг на друге — к краям бревна темнеют, между ними пакля.
+      const n = 6,
+        h = s / n;
+      for (let i = 0; i < n; i++) {
+        const y = i * h;
+        const tone = 190 + rand() * 40;
+        const grad = ctx.createLinearGradient(0, y, 0, y + h);
+        grad.addColorStop(0, gray(tone - 70));
+        grad.addColorStop(0.3, gray(tone));
+        grad.addColorStop(0.55, gray(tone + 12));
+        grad.addColorStop(1, gray(tone - 80));
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, y, s, h);
+        for (let k = 0; k < 6; k++) {
+          const yy = y + 5 + rand() * (h - 10),
+            periods = 1 + Math.floor(rand() * 3),
+            phase = rand() * Math.PI * 2;
+          ctx.strokeStyle = gray(tone - 45, 0.35);
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          for (let x = 0; x <= s; x += 6) {
+            const dy = Math.sin((x / s) * Math.PI * 2 * periods + phase) * 1.5;
+            if (x === 0) ctx.moveTo(x, yy + dy);
+            else ctx.lineTo(x, yy + dy);
+          }
+          ctx.stroke();
+        }
+        // Сучок.
+        if (rand() < 0.7) {
+          ctx.fillStyle = gray(tone - 60, 0.8);
+          const rx = 4 + rand() * 3;
+          tiled(s, rand() * s, y + h * (0.35 + rand() * 0.3), 8, (x, yy) => {
+            ctx.beginPath();
+            ctx.ellipse(x, yy, rx, 3, 0, 0, Math.PI * 2);
+            ctx.fill();
+          });
+        }
+        ctx.fillStyle = gray(58, 0.9);
+        ctx.fillRect(0, y + h - 3, s, 3);
+      }
+      speckle(ctx, s, rand, 12);
+    },
+  },
+  adobe: {
+    size: 256,
+    repeat: 3.4,
+    roughness: 0.96,
+    bump: 0.014,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(226);
+      ctx.fillRect(0, 0, s, s);
+      blotches(ctx, s, rand, 60, 10, 45, 200, 250, 0.2);
+      // Солома в глине.
+      for (let i = 0; i < 380; i++) {
+        const x = rand() * s,
+          y = rand() * s,
+          a = rand() * Math.PI,
+          len = 3 + rand() * 7;
+        ctx.strokeStyle = gray(rand() < 0.5 ? 196 : 250, 0.6);
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+        ctx.stroke();
+      }
+      for (let i = 0; i < 6; i++) crack(ctx, s, rand, rand() * s, rand() * s, rand() * Math.PI * 2, 30 + rand() * 50, 140, 0.45, 0.8);
+      speckle(ctx, s, rand, 14);
+    },
+  },
+  ashlar: {
+    size: 256,
+    repeat: 2.4,
+    roughness: 0.9,
+    bump: 0.022,
+    paint: (ctx, s, rand) => {
+      // Тёсаный камень: ряды блоков разной длины, в каждом — своя фактура скола.
+      ctx.fillStyle = gray(118);
+      ctx.fillRect(0, 0, s, s);
+      const rows = 4,
+        h = s / rows;
+      for (let r = 0; r < rows; r++) {
+        let x = -rand() * 60;
+        while (x < s) {
+          const w = 50 + rand() * 50,
+            v = 185 + rand() * 55;
+          for (const ox of x + w > s ? [0, -s] : [0]) {
+            ctx.fillStyle = gray(v);
+            ctx.beginPath();
+            ctx.roundRect(x + ox + 2, r * h + 2, w - 4, h - 4, 3);
+            ctx.fill();
+            ctx.fillStyle = gray(v + 14, 0.5);
+            ctx.fillRect(x + ox + 4, r * h + 4, w - 8, 3);
+            ctx.fillStyle = gray(v - 30, 0.4);
+            ctx.fillRect(x + ox + 4, r * h + h - 7, w - 8, 3);
+          }
+          x += w;
+        }
+      }
+      speckle(ctx, s, rand, 24);
+    },
+  },
+  felt: {
+    size: 256,
+    repeat: 1.3,
+    roughness: 1,
+    bump: 0.01,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(222);
+      ctx.fillRect(0, 0, s, s);
+      blotches(ctx, s, rand, 50, 10, 34, 200, 248, 0.22);
+      // Свалянная шерсть: короткие изогнутые волоски во все стороны.
+      for (let i = 0; i < 1800; i++) {
+        const x = rand() * s,
+          y = rand() * s,
+          a = rand() * Math.PI * 2,
+          len = 2 + rand() * 5;
+        ctx.strokeStyle = gray(rand() < 0.5 ? 190 : 248, 0.35);
+        ctx.lineWidth = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.quadraticCurveTo(x + Math.cos(a + 1) * len, y + Math.sin(a + 1) * len, x + Math.cos(a) * len * 2, y + Math.sin(a) * len * 2);
+        ctx.stroke();
+      }
+      speckle(ctx, s, rand, 16);
+    },
+  },
+  sand: {
+    size: 256,
+    repeat: 3,
+    roughness: 1,
+    bump: 0.016,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(222);
+      ctx.fillRect(0, 0, s, s);
+      blotches(ctx, s, rand, 50, 12, 50, 196, 246, 0.2);
+      // Рябь от ветра и ног.
+      for (let i = 0; i < 14; i++) {
+        const y0 = rand() * s,
+          k = 1 + Math.floor(rand() * 3),
+          phase = rand() * Math.PI * 2;
+        ctx.strokeStyle = gray(rand() < 0.5 ? 196 : 246, 0.3);
+        ctx.lineWidth = 1 + rand() * 2;
+        ctx.beginPath();
+        for (let x = 0; x <= s; x += 4) {
+          const y = y0 + Math.sin((x / s) * Math.PI * 2 * k + phase) * 5;
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      // Галька.
+      for (let i = 0; i < 70; i++) {
+        const r = 1 + rand() * 2.6,
+          turn = rand() * Math.PI;
+        ctx.fillStyle = gray(140 + rand() * 60, 0.75);
+        tiled(s, rand() * s, rand() * s, r, (x, y) => {
+          ctx.beginPath();
+          ctx.ellipse(x, y, r, r * 0.75, turn, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+      speckle(ctx, s, rand, 30);
+    },
+  },
+  rust: {
+    size: 256,
+    repeat: 1.4,
+    roughness: 0.78,
+    metalness: 0.3,
+    bump: 0.012,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(222);
+      ctx.fillRect(0, 0, s, s);
+      // Облупленная краска, рыжие пятна и подтёки вниз.
+      blotches(ctx, s, rand, 34, 8, 36, 130, 175, 0.45);
+      blotches(ctx, s, rand, 60, 3, 12, 110, 160, 0.5);
+      for (let i = 0; i < 22; i++) {
+        const x = rand() * s,
+          len = 30 + rand() * 120,
+          y = rand() * s,
+          w = 2 + rand() * 6;
+        tiled(s, x, y, len, (px, py) => {
+          const grad = ctx.createLinearGradient(0, py, 0, py + len);
+          grad.addColorStop(0, gray(120, 0.45));
+          grad.addColorStop(1, gray(120, 0));
+          ctx.fillStyle = grad;
+          ctx.fillRect(px, py, w, len);
+        });
+      }
+      for (let i = 0; i < 30; i++) {
+        ctx.strokeStyle = gray(250, 0.45);
+        ctx.lineWidth = 0.7;
+        const x = rand() * s,
+          y = rand() * s,
+          a = rand() * Math.PI;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + Math.cos(a) * 18, y + Math.sin(a) * 18);
+        ctx.stroke();
+      }
+      speckle(ctx, s, rand, 22);
+    },
+  },
+  canvas: {
+    size: 256,
+    repeat: 1.6,
+    roughness: 1,
+    bump: 0.006,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(226);
+      ctx.fillRect(0, 0, s, s);
+      // Грубое полотно, два шва на повтор и пятна от непогоды.
+      for (let i = 0; i < s; i += 3) {
+        ctx.fillStyle = gray(206, 0.35);
+        ctx.fillRect(i, 0, 1, s);
+        ctx.fillStyle = gray(244, 0.3);
+        ctx.fillRect(0, i + 1, s, 1);
+      }
+      blotches(ctx, s, rand, 16, 10, 40, 190, 215, 0.2);
+      for (const x of [0, s / 2]) {
+        ctx.fillStyle = gray(170, 0.8);
+        ctx.fillRect(x, 0, 3, s);
+        ctx.fillStyle = gray(248, 0.5);
+        ctx.fillRect(x + 3, 0, 2, s);
+        for (let y = 2; y < s; y += 8) {
+          ctx.fillStyle = gray(150, 0.7);
+          ctx.fillRect(x + 7, y, 1, 4);
+        }
+      }
+      speckle(ctx, s, rand, 14);
+    },
+  },
+  awning: {
+    size: 256,
+    repeat: 1.2,
+    roughness: 0.95,
+    bump: 0.004,
+    paint: (ctx, s, rand) => {
+      // Полосатый тент: светлые и насыщенные полосы, по краю каждой — шов.
+      const n = 8,
+        w = s / n;
+      for (let i = 0; i < n; i++) {
+        ctx.fillStyle = gray(i % 2 ? 150 : 250);
+        ctx.fillRect(i * w, 0, w, s);
+        ctx.fillStyle = gray(120, 0.35);
+        ctx.fillRect(i * w, 0, 1, s);
+      }
+      for (let i = 0; i < s; i += 3) {
+        ctx.fillStyle = gray(0, 0.05);
+        ctx.fillRect(0, i, s, 1);
+      }
+      speckle(ctx, s, rand, 12);
+    },
+  },
+  concrete: {
+    size: 256,
+    repeat: 2.6,
+    roughness: 0.93,
+    bump: 0.012,
+    paint: (ctx, s, rand) => {
+      ctx.fillStyle = gray(212);
+      ctx.fillRect(0, 0, s, s);
+      blotches(ctx, s, rand, 50, 8, 40, 180, 236, 0.18);
+      // Швы опалубки, подтёки от воды, раковины и трещины.
+      for (let y = 0; y < s; y += 64) {
+        ctx.fillStyle = gray(160, 0.55);
+        ctx.fillRect(0, y, s, 2);
+      }
+      for (let i = 0; i < 14; i++) {
+        const x = rand() * s,
+          y = Math.floor(rand() * 4) * 64,
+          len = 20 + rand() * 90;
+        const grad = ctx.createLinearGradient(0, y, 0, y + len);
+        grad.addColorStop(0, gray(140, 0.35));
+        grad.addColorStop(1, gray(140, 0));
+        ctx.fillStyle = grad;
+        ctx.fillRect(x, y, 3 + rand() * 10, len);
+      }
+      for (let i = 0; i < 90; i++) {
+        ctx.fillStyle = gray(120, 0.6);
+        ctx.fillRect(rand() * s, rand() * s, 1.5, 1.5);
+      }
+      for (let i = 0; i < 5; i++) crack(ctx, s, rand, rand() * s, rand() * s, rand() * Math.PI * 2, 40 + rand() * 80, 110, 0.55, 1);
+      speckle(ctx, s, rand, 20);
+    },
+  },
+  crate: {
+    size: 256,
+    repeat: 1,
+    roughness: 0.8,
+    bump: 0.02,
+    faceUV: true,
+    paint: (ctx, s, rand) => {
+      // Одна стенка ящика: вертикальные доски, рамка по краю, раскос из угла в угол и гвозди.
+      const boards = 5,
+        bw = s / boards;
+      for (let i = 0; i < boards; i++) {
+        ctx.save();
+        ctx.translate(i * bw, s);
+        ctx.rotate(-Math.PI / 2);
+        grain(ctx, 0, 0, s, bw, rand, 200 + rand() * 30);
+        ctx.restore();
+        ctx.fillStyle = gray(90, 0.9);
+        ctx.fillRect(i * bw, 0, 2, s);
+      }
+      const t = 30;
+      /** Накладная доска: сначала её тень на досках под ней, потом она сама. */
+      const batten = (x: number, y: number, w: number, h: number, tone: number) => {
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.55)';
+        ctx.shadowBlur = 7;
+        ctx.fillStyle = gray(tone);
+        ctx.fillRect(x, y, w, h);
+        ctx.restore();
+        grain(ctx, x, y, w, h, rand, tone);
+      };
+      ctx.save();
+      ctx.translate(s / 2, s / 2);
+      ctx.rotate(Math.PI / 4);
+      batten(-s * 0.7, -t / 2, s * 1.4, t, 214);
+      ctx.restore();
+      batten(0, 0, s, t, 222);
+      batten(0, s - t, s, t, 222);
+      batten(0, 0, t, s, 226);
+      batten(s - t, 0, t, s, 226);
+      ctx.fillStyle = gray(70);
+      for (const x of [t / 2, s - t / 2])
+        for (const y of [t / 2, s - t / 2]) {
+          ctx.beginPath();
+          ctx.arc(x - 5, y, 2.2, 0, Math.PI * 2);
+          ctx.arc(x + 5, y, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      speckle(ctx, s, rand, 12);
+    },
+  },
+  sack: {
+    size: 128,
+    repeat: 0.5,
+    roughness: 1,
+    bump: 0.012,
+    paint: (ctx, s, rand) => {
+      // Мешковина: толстые нити в полотняном переплетении.
+      ctx.fillStyle = gray(170);
+      ctx.fillRect(0, 0, s, s);
+      const step = 8;
+      for (let y = 0; y < s; y += step)
+        for (let x = 0; x < s; x += step) {
+          const over = (x / step + y / step) % 2 === 0;
+          ctx.fillStyle = gray(over ? 236 : 214);
+          ctx.fillRect(x + 1, y + (over ? 1 : 2), step - 2, step - (over ? 2 : 4));
+        }
+      speckle(ctx, s, rand, 30);
+    },
+  },
 };
 
 function paintTexture(spec: Spec, seed: number) {
@@ -671,8 +1240,15 @@ export function createArenaMaterials() {
       });
     },
 
+    /** Берёт ли этот вид UV из геометрии (ящик, кора), а не из проекции в метрах мира. */
+    faceUV: (kind: SurfaceMaterial) => !!SPECS[kind].faceUV,
+
+    /** Метров на один повтор текстуры: геометрии со своими UV масштабируют их по нему. */
+    repeat: (kind: SurfaceMaterial) => SPECS[kind].repeat,
+
     /** UV в метрах мира: верх и низ коробки — по x/z, стены — по длине и высоте. */
     projectUV(geometry: T.BufferGeometry, kind: SurfaceMaterial) {
+      if (SPECS[kind].faceUV) return;
       const scale = 1 / SPECS[kind].repeat;
       const p = geometry.getAttribute('position'),
         n = geometry.getAttribute('normal'),

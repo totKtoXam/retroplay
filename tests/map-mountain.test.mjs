@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { footstepSurface } from '../lib/footsteps.ts';
 import { getMap } from '../lib/maps/index.ts';
 import { MOUNTAIN } from '../lib/maps/mountain.ts';
 import { buildArena } from '../lib/maps/types.ts';
@@ -106,4 +107,104 @@ test('the pine forest is passable north to south and gives cover', () => {
   // Open lanes either side of the plateau stay usable as a third and fourth route.
   assert.equal(reachable(map, { x: -11.5, z: -16 }, { x: -11.5, z: 16 }, 'stand'), true, 'west lane');
   assert.equal(reachable(map, { x: 11, z: -16 }, { x: 11, z: 16 }, 'stand'), true, 'east lane');
+});
+
+test('the map is textured: snow ground, rock cliffs and plateau, stone steps', () => {
+  assert.equal(MOUNTAIN.groundMaterial, 'snow');
+  const plateau = MOUNTAIN.boxes.find((b) => b.solid && b.x === 0 && b.z === 0 && b.w === 16 && b.d === 12);
+  assert.equal(plateau?.material, 'rock', 'the plateau is a rock mass');
+  // Every visible solid box says what it is made of (tents and woodpiles are invisible colliders).
+  const bare = MOUNTAIN.boxes.filter((b) => b.solid && !b.invisible && !b.material);
+  assert.deepEqual(bare.map((b) => `${b.x},${b.y},${b.z}`), []);
+  // The perimeter cliffs, the cave rock and its roof are rock.
+  const cliffs = MOUNTAIN.boxes.filter((b) => b.solid && (b.w >= 56 || b.d >= 48));
+  assert.equal(cliffs.length, 4);
+  for (const b of cliffs) assert.equal(b.material, 'rock');
+  for (const [x, z] of [[-25, 1], [-17, -5], [-22, -12]]) {
+    const rock =MOUNTAIN.boxes.filter((b) => b.solid && Math.abs(x - b.x) < b.w / 2 && Math.abs(z - b.z) < b.d / 2);
+    assert.ok(rock.length > 0 && rock.every((b) => b.material === 'rock'), `cave rock at (${x}, ${z})`);
+  }
+  // Both ramps are flights of stone steps; logs are round bark; drifts are snow.
+  for (const r of MOUNTAIN.ramps) assert.deepEqual([r.material, r.steps], ['ashlar', 12]);
+  const logs = MOUNTAIN.boxes.filter((b) => b.solid && b.material === 'bark');
+  assert.ok(logs.length >= 6, `logs: ${logs.length}`);
+  const drifts = MOUNTAIN.boxes.filter((b) => !b.solid && b.color === '#f6fafd');
+  assert.ok(drifts.length >= 10 && drifts.every((b) => b.material === 'snow'), 'snow drifts');
+  // Tents and cabins are drawn with roofs, and there is plenty of detail.
+  assert.equal((MOUNTAIN.roofs ?? []).length, 10, '6 tents + 4 cabins');
+  assert.ok((MOUNTAIN.furnishings ?? []).length > 300, `furnishings: ${MOUNTAIN.furnishings?.length}`);
+});
+
+test('pines are cones of needles and icicles hang from the cave roof', () => {
+  const crowns = MOUNTAIN.cylinders.filter((c) => c.material === 'foliage');
+  assert.ok(crowns.length >= 3 * 18, `crown tiers: ${crowns.length}`);
+  for (const c of crowns) {
+    assert.ok(c.rTop !== undefined && c.rTop < c.r / 3, `a cone at (${c.x}, ${c.z})`);
+    assert.ok(c.y - c.h / 2 >= 2.4 - 1e-9, `crown over head height at (${c.x}, ${c.z})`);
+    assert.ok((c.sides ?? 16) >= 10);
+  }
+  const icicles = MOUNTAIN.cylinders.filter((c) => c.material === 'ice');
+  assert.ok(icicles.length >= 40, `icicles: ${icicles.length}`);
+  for (const c of icicles) {
+    const where = `icicle at (${c.x.toFixed(2)}, ${c.z.toFixed(2)})`;
+    assert.ok(c.rTop > c.r, `${where} points down`);
+    assert.ok(Math.abs(c.y + c.h / 2 - 3) < 1e-9 && c.y - c.h / 2 >= 2.1 - 1e-9, `${where} hangs from 3 m to above 2.1 m`);
+    assert.ok(Math.abs(map.ceilingHeight(c.x, c.z, 0) - 3) < 1e-9, `${where} is under the cave roof`);
+  }
+});
+
+/** The four log cabins: centre and the side (±1 along x) whose door faces the camp centre. */
+const CABINS = [-1, 1].flatMap((s) => [-1, 1].map((e) => ({ x: e * 14, z: s * 19, s, e })));
+
+test('the log cabins are enterable from the spawns, roofed and furnished', () => {
+  for (const c of CABINS) {
+    const name = `cabin (${c.x}, ${c.z})`;
+    const spawn = (c.s < 0 ? RED : BLUE).find((p) => p.x === c.e * 9.5 && p.z === c.s * 19.5);
+    assert.ok(spawn, `${name}: a spawn by the door`);
+    // Just inside the door and deep in the room, by the bunks.
+    const door = { x: c.x - c.e * 2, z: c.z };
+    const deep = { x: c.x + c.e * 1.25, z: c.z - c.s * 0.3 };
+    for (const p of [door, deep]) {
+      const where = `${name} at (${p.x}, ${p.z})`;
+      assert.equal(reachable(map, spawn, p, 'stand'), true, `${where}: reachable from the spawn`);
+      assert.equal(map.groundHeight(p.x, p.z, 0), 0, `${where}: on the floor`);
+      assert.ok(Math.abs(map.ceilingHeight(p.x, p.z, 0) - 3) < 1e-9, `${where}: under a 3 m ceiling`);
+    }
+    // Plank floor underfoot, indoors and in any season.
+    for (const season of ['winter', 'summer'])
+      assert.equal(footstepSurface({ map, season, sheltered: true, rain: 0, snow: 0 }, door.x, 0, door.z), 'wood', `${name}: ${season}`);
+    // Furniture inside: bunks, stove, woodpile, table, bench and shelf.
+    const inside = MOUNTAIN.boxes.filter(
+      (b) => b.solid && b.material !== 'logs' && Math.abs(b.x - c.x) < 2.95 && Math.abs(b.z - c.z) < 2.2,
+    );
+    assert.ok(inside.length >= 6, `${name}: ${inside.length} pieces of furniture`);
+    assert.ok(inside.some((b) => b.material === 'rust'), `${name}: a stove`);
+    // The stove pipe goes out above the roof ridge (3.25 + 1.3); a lamp is lit inside.
+    const pipe = MOUNTAIN.furnishingCylinders.find(
+      (p) => Math.abs(p.x - c.x) < 3 && Math.abs(p.z - c.z) < 2.5 && p.y + p.h / 2 > 4.6 && p.y - p.h / 2 < 1,
+    );
+    assert.ok(pipe, `${name}: stove pipe through the roof`);
+    assert.ok(
+      MOUNTAIN.lights.some((l) => Math.abs(l.x - c.x) < 2.95 && Math.abs(l.z - c.z) < 2.2 && l.y < 3),
+      `${name}: a lamp inside`,
+    );
+  }
+  // Red and blue get the same cabins, mirrored.
+  const count = (s) => MOUNTAIN.boxes.filter((b) => Math.sign(b.z) === s && Math.abs(Math.abs(b.z) - 19) < 2.6 && Math.abs(Math.abs(b.x) - 14) < 3.3).length;
+  assert.equal(count(-1), count(1));
+});
+
+test('both camps have tents, a firepit, crates and their flag', () => {
+  for (const s of [-1, 1]) {
+    const tents = MOUNTAIN.boxes.filter((b) => b.invisible && b.h === 1.8 && Math.sign(b.z) === s);
+    assert.equal(tents.length, 3, `tents at z ${s * 20}`);
+    const embers = MOUNTAIN.furnishingCylinders.filter((c) => c.glow && Math.hypot(c.x, c.z - s * 20) < 1);
+    assert.ok(embers.length >= 2, 'glowing embers in the firepit');
+    const stones = MOUNTAIN.spheres.filter((b) => b.material === 'rock' && Math.hypot(b.x, b.z - s * 20) < 1);
+    assert.ok(stones.length >= 8, 'a ring of stones');
+    const crates = MOUNTAIN.boxes.filter((b) => b.material === 'crate' && Math.sign(b.z) === s && Math.abs(b.z) > 15);
+    assert.equal(crates.length, 4);
+    // The flag pole rises above the cliff behind the camp.
+    assert.ok(MOUNTAIN.furnishingCylinders.some((c) => Math.abs(c.z - s * 23.1) < 0.2 && c.y + c.h / 2 > 5.4));
+  }
 });

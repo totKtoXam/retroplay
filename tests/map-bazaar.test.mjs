@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getMap } from '../lib/maps/index.ts';
+import { rampHeight } from '../lib/maps/types.ts';
 import { isBlocked3D } from '../lib/world-collision.ts';
 import { reachable } from './map-helpers.mjs';
 
@@ -94,4 +95,121 @@ test('bazaar: the doorways of the covered market are wide and high enough', () =
   ]) {
     assert.equal(reachable(bazaar, outside, inside), true, `door at (${outside.x}, ${outside.z})`);
   }
+});
+
+test('bazaar: textured and furnished — sand outside, real floors inside, spawns and doors clear', async () => {
+  const { footstepSurface } = await import('../lib/footsteps.ts');
+  const arena = bazaar.arena;
+  const surface = (p) => footstepSurface({ map: bazaar, season: 'summer', sheltered: false, rain: 0, snow: 0 }, p.x, p.y ?? 0.03, p.z);
+  // Sand in the lanes; tiles, rugs and boards in the hall; paving and planks by the river.
+  assert.equal(arena.groundMaterial, 'sand');
+  assert.equal(surface({ x: -20, z: -3, y: 0 }), 'gravel', 'open ground is sand');
+  for (const p of [HALL_GROUND, { x: -5, z: 4.1 }, { x: 5, z: -4.1 }, { x: 8, z: 0 }, { x: -2, z: 0 }])
+    assert.notEqual(surface(p), 'gravel', `the hall has a floor at (${p.x}, ${p.z})`);
+  assert.equal(surface({ x: -5, z: 4.1 }), 'tile', 'fired-brick tiles');
+  assert.equal(surface(HALL_GROUND), 'carpet', 'the runner from the north door');
+  assert.equal(surface(HALL_UPPER), 'carpet', 'a rug on the balcony');
+  assert.equal(surface({ x: 6, z: -1.5, y: 3.6 }), 'wood', 'balcony boards');
+  assert.equal(surface(EMBANKMENT), 'stone', 'the paved embankment');
+  assert.equal(surface({ x: 0, z: 10, y: 0.45 }), 'wood', 'the bridge deck');
+  // Every solid box that is drawn has a surface; the kit is there, within the draw-call budget.
+  const untextured = arena.boxes.filter((b) => b.solid && !b.invisible && !b.material);
+  assert.deepEqual(untextured, [], 'untextured solid boxes');
+  assert.ok(arena.boxes.every((b) => !b.floor || b.material), 'textured floor slabs');
+  assert.ok(arena.furnishings.length > 300 && arena.furnishingCylinders.length > 300, 'furnished');
+  assert.ok(arena.boxes.length < 500, `boxes: ${arena.boxes.length}`);
+  const pairs = new Set(
+    [...arena.boxes.filter((b) => !b.invisible), ...arena.furnishings, ...arena.cylinders, ...arena.furnishingCylinders, ...arena.spheres].map(
+      (o) => `${o.color}|${o.material ?? ''}|${o.glow ?? ''}`,
+    ),
+  );
+  assert.ok(pairs.size <= 150, `distinct colour/material pairs: ${pairs.size}`);
+  // The stair ramp is a flight of stone steps; the yurts keep their felt collider.
+  const [stairs] = arena.ramps;
+  assert.ok(stairs.steps >= 16 && stairs.material === 'ashlar');
+  const yurts = arena.cylinders.filter((c) => c.solid && c.r === 2);
+  assert.deepEqual(
+    yurts.map((c) => [c.x, c.z, c.h, c.material]),
+    [
+      [-16, 0, 2.2, 'felt'],
+      [16, 0, 2.2, 'felt'],
+    ],
+  );
+  // Spawns stay free, and the north, south and east doorways still let a standing player
+  // straight in (the west one opens onto the stone under the ramp, as it always has).
+  for (const s of [...blue, ...red]) assert.equal(isBlocked3D(s.x, s.z, 0, 0.4, 1.8, bazaar.colliders), false, `spawn (${s.x}, ${s.z})`);
+  for (const [outside, inside] of [
+    [{ x: 0, z: -6.5 }, { x: 0, z: -3.5 }],
+    [{ x: 0, z: 6.5 }, { x: 0, z: 3.5 }],
+    [{ x: 12, z: 0 }, { x: 8, z: 0 }],
+  ])
+    assert.equal(reachable(bazaar, outside, inside), true, `straight in from (${outside.x}, ${outside.z})`);
+  // The tea-house topchan is low enough to step onto; its carpet sounds soft.
+  assert.equal(bazaar.groundHeight(8.4, 4.4, 0.45), 0.45);
+  assert.equal(reachable(bazaar, blue[0], { x: 8.4, z: 4.4, y: 0.45 }), true, 'onto the topchan');
+  assert.equal(surface({ x: 8.4, z: 4.4, y: 0.47 }), 'carpet');
+});
+
+test('bazaar: decor never floats in a walkway, and every lamp light has a lantern or a fire', () => {
+  const arena = bazaar.arena;
+  const floors = arena.boxes.filter((b) => b.floor);
+  /** Walking surface under (x, z) at or below `y`: ground, slabs and the ramp — not furniture. */
+  const walk = (x, z, y) => {
+    let top = 0;
+    for (const b of floors)
+      if (Math.abs(x - b.x) <= b.w / 2 && Math.abs(z - b.z) <= b.d / 2 && b.y + b.h / 2 <= y + 0.05) top = Math.max(top, b.y + b.h / 2);
+    for (const r of arena.ramps)
+      if (x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ && rampHeight(r, x, z) <= y + 0.05) top = Math.max(top, rampHeight(r, x, z));
+    return top;
+  };
+  const extent = (o) => {
+    const r = Math.max(o.r ?? 0, o.rTop ?? 0);
+    if (o.r === undefined) return { minX: o.x - o.w / 2, maxX: o.x + o.w / 2, minY: o.y - o.h / 2, maxY: o.y + o.h / 2, minZ: o.z - o.d / 2, maxZ: o.z + o.d / 2 };
+    if (o.h === undefined) return { minX: o.x - r, maxX: o.x + r, minY: o.y - r, maxY: o.y + r, minZ: o.z - r, maxZ: o.z + r };
+    const hx = o.axis === 'x' ? o.h / 2 : r,
+      hz = o.axis === 'z' ? o.h / 2 : r,
+      hy = o.axis ? r : o.h / 2;
+    return { minX: o.x - hx, maxX: o.x + hx, minY: o.y - hy, maxY: o.y + hy, minZ: o.z - hz, maxZ: o.z + hz };
+  };
+  // Tilted pieces (handrail, tripod, straps, the boat's bow) are checked by eye.
+  const decor = [...arena.furnishings.filter((b) => !b.rot), ...arena.furnishingCylinders, ...arena.spheres].map(extent);
+  const water = (x, z) => arena.water.some((w) => x > w.minX && x < w.maxX && z > w.minZ && z < w.maxZ);
+  const floating = [];
+  for (const d of decor) {
+    const x = (d.minX + d.maxX) / 2,
+      z = (d.minZ + d.maxZ) / 2,
+      ground = walk(x, z, d.minY);
+    if (d.maxY - ground <= 0.1 || d.minY - ground >= 2.1 || (ground < 0.3 && water(x, z))) continue;
+    // At body height it must stand on, hang off or lean against something solid.
+    const held = bazaar.colliders.some(
+      (c) =>
+        d.maxX > c.minX - 0.36 && d.minX < c.maxX + 0.36 && d.maxZ > c.minZ - 0.36 && d.minZ < c.maxZ + 0.36 &&
+        c.maxY >= Math.max(ground + 0.1, d.minY - 1.1) && c.minY <= d.maxY,
+    );
+    if (!held) floating.push(`(${x.toFixed(2)}, ${d.minY.toFixed(2)}..${d.maxY.toFixed(2)}, ${z.toFixed(2)})`);
+  }
+  assert.deepEqual(floating, [], 'decor floating at body height');
+  // Nothing drawn inside the doorway openings of the hall (casings may touch their edges).
+  const doorways = [
+    { minX: -1, maxX: 1, minZ: -5.2, maxZ: -4.8 },
+    { minX: -1, maxX: 1, minZ: 4.8, maxZ: 5.2 },
+    { minX: -10.2, maxX: -9.8, minZ: -1, maxZ: 1 },
+    { minX: 9.8, maxX: 10.2, minZ: -1, maxZ: 1 },
+  ];
+  const e = 0.01;
+  const inDoorway = decor.filter(
+    (d) =>
+      d.maxY > 0.1 &&
+      d.minY < 2.0 &&
+      doorways.some((w) => d.maxX > w.minX + e && d.minX < w.maxX - e && d.maxZ > w.minZ + e && d.minZ < w.maxZ - e),
+  );
+  assert.deepEqual(inDoorway, []);
+  // Lights: a reasonable number, each at a lantern's glass or a fire.
+  const glowing = [...arena.furnishings, ...arena.furnishingCylinders].filter((o) => o.glow);
+  assert.ok(arena.lights.length >= 12 && arena.lights.length <= 30, `lights: ${arena.lights.length}`);
+  for (const l of arena.lights)
+    assert.ok(
+      glowing.some((g) => Math.hypot(g.x - l.x, g.y - l.y, g.z - l.z) < 1.2),
+      `light at (${l.x}, ${l.y}, ${l.z}) has no lantern`,
+    );
 });

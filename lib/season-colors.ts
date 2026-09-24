@@ -67,10 +67,16 @@ export const isVegetation = (hex: string) => {
   const [h, s, l] = toHsl(parse(hex));
   return h >= 60 && h <= 170 && s > 0.12 && l > 0.08 && l < 0.85;
 };
-/** Снег и лёд: светлое и почти бесцветное. */
+/**
+ * Снег и лёд: светлое и почти бесцветное. У почти белого насыщенность по HSL раздувается
+ * (у голубоватого наста `#f6fafd` она 0,64), поэтому бесцветность проверяется ещё и по
+ * размаху каналов — иначе такие сугробы летом не таяли и хрустели бы как камень.
+ */
 export const isSnowy = (hex: string) => {
-  const [, s, l] = toHsl(parse(hex));
-  return l > 0.8 && s < 0.4;
+  const rgb = parse(hex);
+  const [, s, l] = toHsl(rgb);
+  const chroma = Math.max(...rgb) - Math.min(...rgb);
+  return l > 0.8 && (s < 0.4 || chroma < 0.12);
 };
 
 const SNOW = parse('#e6edf2');

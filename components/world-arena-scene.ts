@@ -1,7 +1,7 @@
 import * as T from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { RoomState } from '@/lib/model';
-import type { ArenaDef, GameMap, MapFountain, MapRamp, MapRoof, SurfaceMaterial } from '@/lib/maps/types';
+import { waterFrozen, type ArenaDef, type GameMap, type MapBox, type MapCylinder, type MapFountain, type MapRamp, type MapRoof, type SurfaceMaterial } from '@/lib/maps/types';
 import { createAvatar, setAvatarStyle } from './world-avatar';
 import { createInterior, interiorDraws } from './world-interior';
 import { createSurfaceLibrary } from './world-cinematic';
@@ -38,14 +38,26 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
   const decor = new T.Group();
   decor.userData.noCameraCollision = true;
   scene.add(decor);
-  /** Материал по цвету и виду поверхности; `color` хранится отдельно для сезонной перекраски. */
-  const mats = new Map<string, { color: string; kind?: SurfaceMaterial; material: T.MeshStandardMaterial }>();
+  /**
+   * Материал по цвету, виду поверхности и свечению; `color` хранится отдельно для сезонной
+   * перекраски. Светящееся (стекло фонаря, угли) — без текстуры и сезоном не перекрашивается.
+   */
+  const mats = new Map<string, { color: string; kind?: SurfaceMaterial; glow?: number; material: T.MeshStandardMaterial }>();
   const kindOf = new Map<T.Material, SurfaceMaterial | undefined>();
-  const material = (color: string, kind?: SurfaceMaterial) => {
-    const key = `${color}|${kind ?? ''}`;
+  const material = (color: string, kind?: SurfaceMaterial, glow?: number) => {
+    const key = `${color}|${kind ?? ''}|${glow ?? ''}`;
     let m = mats.get(key);
     if (!m) {
-      m = { color, kind, material: kind ? arenaMaterials.material(color, kind) : surfaces.material(color) };
+      const made = kind
+        ? arenaMaterials.material(color, kind)
+        : glow
+          ? new T.MeshStandardMaterial({ color, roughness: 0.4 })
+          : surfaces.material(color);
+      if (glow) {
+        made.emissive.set(color);
+        made.emissiveIntensity = glow;
+      }
+      m = { color, kind, glow, material: made };
       mats.set(key, m);
       kindOf.set(m.material, kind);
     }
@@ -59,11 +71,59 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
     z: number,
     kind?: SurfaceMaterial,
     group: T.Group = statics,
+    glow?: number,
   ) => {
-    const m = new T.Mesh(geo, material(color, kind));
+    const m = new T.Mesh(geo, material(color, kind, glow));
     m.position.set(x, y, z);
     group.add(m);
     return m;
+  };
+  /** Цилиндр или конус; кора и прочие виды со своими UV получают их в метрах. */
+  const cylinderGeometry = (c: MapCylinder) => {
+    const geo = new T.CylinderGeometry(c.rTop ?? c.r, c.r, c.h, c.sides ?? 16);
+    if (c.material && arenaMaterials.faceUV(c.material)) {
+      const k = arenaMaterials.repeat(c.material);
+      scaleUV(geo, (Math.PI * 2 * c.r) / k, c.h / k);
+    }
+    return geo;
+  };
+  const addCylinder = (c: MapCylinder, group: T.Group) => {
+    const m = add(cylinderGeometry(c), c.color, c.x, c.y, c.z, c.material, group, c.glow);
+    if (c.axis === 'x') m.rotation.z = Math.PI / 2;
+    if (c.axis === 'z') m.rotation.x = Math.PI / 2;
+  };
+  /**
+   * Коробка, нарисованная формой своего материала: листва — куст, скала и лёд — неровная глыба
+   * с плоским верхом (по нему ходят), снег — сугроб, мешок — пухлый мешок, кора — круглое
+   * бревно со срезами на торцах. Столкновения у всех по-прежнему по коробке.
+   */
+  const addBox = (b: MapBox, group: T.Group) => {
+    if (b.material === 'bark') {
+      addLog(b, group);
+      return;
+    }
+    const m = add(boxGeometry(b), b.color, b.x, b.y, b.z, b.material, group, b.glow);
+    if (b.rot) m.rotation.set(...b.rot);
+  };
+  const addLog = (b: MapBox, group: T.Group) => {
+    const alongX = b.w >= b.d;
+    const length = alongX ? b.w : b.d,
+      r = Math.min(b.h, alongX ? b.d : b.w) / 2;
+    const k = arenaMaterials.repeat('bark');
+    // Лежит на низу коробки: высокая коробка — это бревно на земле, а не висящее в воздухе.
+    const lift = r - b.h / 2;
+    const turn = new T.Matrix4().makeRotationFromEuler(new T.Euler(...(b.rot ?? [0, 0, 0])));
+    const body = new T.CylinderGeometry(r, r, length, 12, 1, true);
+    scaleUV(body, (Math.PI * 2 * r) / k, length / k);
+    if (alongX) body.rotateZ(Math.PI / 2);
+    else body.rotateX(Math.PI / 2);
+    add(body.translate(0, lift, 0).applyMatrix4(turn), b.color, b.x, b.y, b.z, 'bark', group);
+    for (const end of [-1, 1]) {
+      const cap = new T.CircleGeometry(r * 0.97, 12);
+      if (alongX) cap.rotateY((end * Math.PI) / 2).translate((end * length) / 2, lift, 0);
+      else cap.rotateY(end < 0 ? Math.PI : 0).translate(0, lift, (end * length) / 2);
+      add(cap.applyMatrix4(turn), LOG_END, b.x, b.y, b.z, 'wood', group);
+    }
   };
   const { minX, maxX, minZ, maxZ } = def.bounds;
   const cx = (minX + maxX) / 2,
@@ -104,28 +164,14 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
 
   // Ground inside the walls and a wider backdrop outside them.
   add(new T.BoxGeometry(maxX - minX, 0.2, maxZ - minZ), def.groundColor, cx, -0.1, cz, def.groundMaterial);
-  add(new T.BoxGeometry(span + 200, 0.2, span + 200), def.outsideColor ?? '#6f7f63', cx, -0.14, cz);
+  add(new T.BoxGeometry(span + 200, 0.2, span + 200), def.outsideColor ?? '#6f7f63', cx, -0.14, cz, def.groundMaterial);
   // Коробки и цилиндры с меткой `art` рисует интерьер (текстуры и модели), остальные — сцена,
   // с материалом поверхности, если он задан.
   const interior = def.boxes.some((b) => b.art) || def.decor?.length ? createInterior(def) : undefined;
   if (interior) scene.add(interior.group);
-  // Листва (кусты, кроны) рисуется неровной скруглённой массой, а не гладким бруском.
-  const boxGeometry = (b: { w: number; h: number; d: number; material?: SurfaceMaterial }) =>
-    b.material === 'foliage' ? bushGeometry(b.w, b.h, b.d) : new T.BoxGeometry(b.w, b.h, b.d);
-  for (const b of def.boxes)
-    if (!interiorDraws(b)) {
-      const m = add(boxGeometry(b), b.color, b.x, b.y, b.z, b.material);
-      if (b.rot) m.rotation.set(...b.rot);
-    }
-  for (const b of def.furnishings ?? []) {
-    const m = add(boxGeometry(b), b.color, b.x, b.y, b.z, b.material, decor);
-    if (b.rot) m.rotation.set(...b.rot);
-  }
-  for (const c of def.furnishingCylinders ?? []) {
-    const m = add(new T.CylinderGeometry(c.r, c.r, c.h, c.sides ?? 16), c.color, c.x, c.y, c.z, c.material, decor);
-    if (c.axis === 'x') m.rotation.z = Math.PI / 2;
-    if (c.axis === 'z') m.rotation.x = Math.PI / 2;
-  }
+  for (const b of def.boxes) if (!interiorDraws(b) && !b.invisible) addBox(b, statics);
+  for (const b of def.furnishings ?? []) addBox(b, decor);
+  for (const c of def.furnishingCylinders ?? []) addCylinder(c, decor);
   for (const r of def.roofs ?? []) addRoof(r, (geo, color, kind) => add(geo, color, 0, 0, 0, kind, decor));
   for (const r of def.ramps ?? []) {
     if (r.steps) {
@@ -136,18 +182,15 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
       rise = r.y1 - r.y0,
       slope = Math.hypot(run, rise);
     if (r.axis === 'z') {
-      const m = add(new T.BoxGeometry(r.maxX - r.minX, 0.2, slope), r.color, (r.minX + r.maxX) / 2, (r.y0 + r.y1) / 2 - 0.1, (r.from + r.to) / 2);
+      const m = add(new T.BoxGeometry(r.maxX - r.minX, 0.2, slope), r.color, (r.minX + r.maxX) / 2, (r.y0 + r.y1) / 2 - 0.1, (r.from + r.to) / 2, r.material);
       m.rotation.x = -Math.atan2(rise, run);
     } else {
-      const m = add(new T.BoxGeometry(slope, 0.2, r.maxZ - r.minZ), r.color, (r.from + r.to) / 2, (r.y0 + r.y1) / 2 - 0.1, (r.minZ + r.maxZ) / 2);
+      const m = add(new T.BoxGeometry(slope, 0.2, r.maxZ - r.minZ), r.color, (r.from + r.to) / 2, (r.y0 + r.y1) / 2 - 0.1, (r.minZ + r.maxZ) / 2, r.material);
       m.rotation.z = Math.atan2(rise, run);
     }
   }
-  for (const c of def.cylinders ?? [])
-    if (!interiorDraws(c))
-      add(new T.CylinderGeometry(c.r, c.r, c.h, c.sides ?? 16), c.color, c.x, c.y, c.z, c.material);
-  for (const s of def.spheres ?? [])
-    add(s.material === 'foliage' ? crownGeometry(s.r) : new T.IcosahedronGeometry(s.r, 1), s.color, s.x, s.y, s.z, s.material);
+  for (const c of def.cylinders ?? []) if (!interiorDraws(c)) addCylinder(c, statics);
+  for (const s of def.spheres ?? []) add(sphereGeometry(s.r, s.material, s), s.color, s.x, s.y, s.z, s.material, statics, s.glow);
   const waters: T.Mesh[] = [];
   for (const w of def.water ?? []) {
     const plane = w.round
@@ -241,16 +284,14 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
     if (season === appliedSeason) return;
     appliedSeason = season;
     const native = def.season ?? 'summer';
-    for (const { color, material: m } of mats.values())
-      m.color.set(seasonColor(color, season, native, groundColors.has(color) ? 'ground' : 'surface'));
-    // Зимой вода на летней карте — лёд: матовый и неподвижный. Кроме фонтана: его вода
-    // проточная и бьёт в любой сезон — замёрзший бассейн выглядел как сломанная анимация.
-    const winter = season === 'winter' && native !== 'winter';
+    for (const { color, glow, material: m } of mats.values())
+      if (!glow) m.color.set(seasonColor(color, season, native, groundColors.has(color) ? 'ground' : 'surface'));
+    // Зимой стоячая вода — лёд: матовый и неподвижный, в том числе на заснеженной карте
+    // (раньше озёра «Горного лагеря» и «Ледниковой долины» в их же зиму рябили, как летом).
     (def.water ?? []).forEach((w, i) => {
       const m = waters[i]?.material as T.MeshStandardMaterial | undefined;
       if (!m) return;
-      const running = (def.fountains ?? []).some((f) => f.x >= w.minX && f.x <= w.maxX && f.z >= w.minZ && f.z <= w.maxZ);
-      const frozen = winter && !running;
+      const frozen = waterFrozen(def, w, season);
       m.color.set(frozen ? seasonColor(w.color ?? '#3f7f96', season, native, 'water') : (w.color ?? '#3f7f96'));
       arenaMaterials.setFrozen(m, frozen);
     });
@@ -354,6 +395,173 @@ function crownGeometry(r: number) {
     const k = 1 + leafNoise(v.x / r * 1.6, v.y / r * 1.6, v.z / r * 1.6) * 0.16;
     v.multiplyScalar(k);
     p.setXYZ(i, v.x, v.y * 0.92, v.z);
+  }
+  return finish(geo);
+}
+
+/** Цвет спила на торцах брёвен. */
+const LOG_END = '#c29a6b';
+
+function scaleUV(geo: T.BufferGeometry, su: number, sv: number) {
+  const uv = geo.getAttribute('uv');
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
+}
+
+/** Шум для камня: крупные бугры и мелкие сколы, в мировых координатах. */
+const rockNoise = (x: number, y: number, z: number) =>
+  Math.sin(x * 1.7 + Math.sin(z * 1.3)) * Math.cos(z * 1.9 - y * 1.1) * 0.55 +
+  Math.sin(y * 2.9 + x * 1.3 - z * 0.7) * 0.3 +
+  Math.cos(x * 5.3 - z * 4.1 + y * 3.7) * 0.15;
+
+/**
+ * Коробка со скруглёнными рёбрами и неровными гранями. Шум берётся в мировых координатах
+ * (`at` — центр коробки), поэтому одинаковые валуны не выходят одинаковыми, а соседние
+ * глыбы одной стены сходятся без ступеньки. Низ остаётся на земле; при `flatTop` по верху
+ * почти нет бугров — по скальным плато и полкам ходят.
+ *
+ * `massive` — для скальных стен, сводов и плато: верхнее ребро не скругляется, а бугры только
+ * выпирают наружу. Иначе скругление и впадины у верха стены открыли бы щель под плитой свода,
+ * лежащей на ней, и сквозь пещеру светило бы небо.
+ */
+function lumpyBox(
+  w: number,
+  h: number,
+  d: number,
+  at: { x: number; y: number; z: number },
+  o: { radius: number; amp: number; flatTop?: boolean; massive?: boolean; seg?: number },
+) {
+  const segSize = o.seg ?? 0.35;
+  const seg = (v: number) => Math.max(2, Math.min(40, Math.ceil(v / segSize)));
+  const geo = welded(new T.BoxGeometry(w, h, d, seg(w), seg(h), seg(d)));
+  const p = geo.getAttribute('position');
+  const r = Math.min(o.radius, w / 2, d / 2, h);
+  const hx = w / 2 - r,
+    hz = d / 2 - r,
+    bottom = -h / 2,
+    top = o.massive ? h / 2 : Math.max(bottom, h / 2 - r);
+  const v = new T.Vector3(),
+    inner = new T.Vector3(),
+    dir = new T.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    inner.set(Math.max(-hx, Math.min(hx, v.x)), Math.max(bottom, Math.min(top, v.y)), Math.max(-hz, Math.min(hz, v.z)));
+    dir.subVectors(v, inner);
+    // Точки дна (внутри проекции внутренней коробки) не трогаем: низ плоский.
+    if (dir.lengthSq() < 1e-9) continue;
+    dir.normalize();
+    const n = rockNoise(v.x + at.x, v.y + at.y, v.z + at.z);
+    let bump = o.amp * (o.massive ? 0.5 + 0.5 * n : 0.35 + n);
+    if (o.flatTop) bump *= 1 - 0.92 * T.MathUtils.smoothstep(dir.y, 0.4, 0.95);
+    v.copy(inner).addScaledVector(dir, r + bump);
+    v.y = Math.max(bottom, v.y);
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+  return finish(geo);
+}
+
+/**
+ * Сугроб: только верхняя поверхность, от краёв коробки полого поднимается к её высоте, углы
+ * скруглены, по верху — мягкие бугры. Снизу его не видно: он лежит на земле или на крышке.
+ */
+function driftGeometry(w: number, h: number, d: number, at: { x: number; y: number; z: number }) {
+  const seg = (v: number) => Math.max(2, Math.min(48, Math.ceil(v / 0.3)));
+  const geo = new T.PlaneGeometry(w, d, seg(w), seg(d));
+  geo.rotateX(-Math.PI / 2);
+  const p = geo.getAttribute('position');
+  // Ширина пологого края: у большого сугроба — метр, у снега на крышке ящика — меньше.
+  const m = Math.max(0.05, Math.min(1, w / 2, d / 2));
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i),
+      z = p.getZ(i);
+    const qx = Math.abs(x) - (w / 2 - m),
+      qz = Math.abs(z) - (d / 2 - m);
+    const edge = qx > 0 && qz > 0 ? m - Math.hypot(qx, qz) : Math.min(w / 2 - Math.abs(x), d / 2 - Math.abs(z));
+    const rise = T.MathUtils.smoothstep(edge / m, 0, 1);
+    const bump = 0.88 + 0.12 * rockNoise((x + at.x) * 0.6, at.y, (z + at.z) * 0.6);
+    p.setY(i, -h / 2 + h * rise * bump);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * Мешки: короткая коробка — один пухлый мешок, длинная (бруствер из мешков с песком) — ряды
+ * мешков вперевязку, каждый ~0,6 × 0,4 м, по высоте слоями ~0,22 м.
+ */
+function sackGeometry(w: number, h: number, d: number, at: { x: number; y: number; z: number }) {
+  if (Math.max(w, d) <= 1) return lumpyBox(w, h, d, at, { radius: 0.2, amp: 0.025, seg: 0.1 });
+  const alongX = w >= d;
+  const length = alongX ? w : d,
+    depth = alongX ? d : w;
+  const rows = Math.max(1, Math.round(h / 0.22)),
+    across = Math.max(1, Math.round(depth / 0.42)),
+    n = Math.max(1, Math.round(length / 0.6));
+  const sh = h / rows,
+    sd = depth / across,
+    sl = length / n;
+  const parts: T.BufferGeometry[] = [];
+  for (let r = 0; r < rows; r++)
+    for (let a = 0; a < across; a++) {
+      // Каждый второй слой сдвинут на полмешка; крайние половинки — короткие мешки.
+      const shift = r % 2 ? sl / 2 : 0;
+      for (let s0 = -length / 2 - shift; s0 < length / 2 - 1e-6; s0 += sl) {
+        const lo = Math.max(-length / 2, s0),
+          hi = Math.min(length / 2, s0 + sl);
+        if (hi - lo < 0.15) continue;
+        const cl = (lo + hi) / 2,
+          ca = -depth / 2 + (a + 0.5) * sd,
+          cy = -h / 2 + (r + 0.5) * sh;
+        const [px, pz] = alongX ? [cl, ca] : [ca, cl];
+        const [sw, sdd] = alongX ? [hi - lo - 0.02, sd - 0.02] : [sd - 0.02, hi - lo - 0.02];
+        const g = lumpyBox(sw, sh, sdd, { x: at.x + px, y: at.y + cy, z: at.z + pz }, { radius: 0.1, amp: 0.02, seg: 0.12 });
+        g.translate(px, cy, pz);
+        parts.push(g);
+      }
+    }
+  const merged = mergeGeometries(parts) ?? lumpyBox(w, h, d, at, { radius: 0.2, amp: 0.025, seg: 0.1 });
+  parts.forEach((g) => g !== merged && g.dispose());
+  return merged;
+}
+
+/** Отдельная глыба на земле, а не часть стены, свода или плато. */
+const isBoulder = (b: MapBox) => b.y - b.h / 2 < 0.05 && b.y + b.h / 2 <= 2.2 && Math.max(b.w, b.d) <= 4.5;
+
+/** Коробка, нарисованная формой своего материала (кроме бревна — его строит `addLog`). */
+function boxGeometry(b: MapBox) {
+  switch (b.material) {
+    case 'foliage':
+      return bushGeometry(b.w, b.h, b.d);
+    // Валун (невысокий и небольшой) скруглён со всех сторон, скальный массив — только по вертикальным рёбрам.
+    case 'rock':
+      return isBoulder(b)
+        ? lumpyBox(b.w, b.h, b.d, b, { radius: 0.35, amp: 0.1, flatTop: true })
+        : lumpyBox(b.w, b.h, b.d, b, { radius: 0.22, amp: 0.12, massive: true });
+    case 'ice':
+      return isBoulder(b)
+        ? lumpyBox(b.w, b.h, b.d, b, { radius: 0.18, amp: 0.05, flatTop: true })
+        : lumpyBox(b.w, b.h, b.d, b, { radius: 0.12, amp: 0.05, massive: true });
+    case 'snow':
+      return driftGeometry(b.w, b.h, b.d, b);
+    case 'sack':
+      return sackGeometry(b.w, b.h, b.d, b);
+    default:
+      return new T.BoxGeometry(b.w, b.h, b.d);
+  }
+}
+
+/** Шар по материалу: крона, снежная шапка (приплюснутая и гладкая), валун или простой шар. */
+function sphereGeometry(r: number, material: SurfaceMaterial | undefined, at: { x: number; y: number; z: number }) {
+  if (material === 'foliage') return crownGeometry(r);
+  if (material !== 'snow' && material !== 'rock') return new T.IcosahedronGeometry(r, 1);
+  const geo = welded(new T.IcosahedronGeometry(r, material === 'snow' ? 3 : 2));
+  const p = geo.getAttribute('position');
+  const v = new T.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const n = rockNoise(v.x + at.x, v.y + at.y, v.z + at.z);
+    if (material === 'snow') v.multiplyScalar(1 + n * 0.04).setY(v.y * 0.62);
+    else v.multiplyScalar(1 + n * 0.14).setY(v.y * 0.8);
+    p.setXYZ(i, v.x, v.y, v.z);
   }
   return finish(geo);
 }

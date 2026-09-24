@@ -34,6 +34,7 @@ test('цвета палитр карт узнаются как поверхно�
   assert.equal(surfaceOfColor('#8a5f3c'), 'wood'); // настил особняка
   assert.equal(surfaceOfColor('#7c5838'), 'wood'); // доски горного лагеря
   assert.equal(surfaceOfColor('#e8eff5'), 'snow');
+  assert.equal(surfaceOfColor('#f6fafd', true), 'snow'); // голубоватый наст сугробов
   assert.equal(surfaceOfColor('#d8c48e'), 'gravel'); // песок базара
   assert.equal(surfaceOfColor('#9c9285'), 'stone');
   assert.equal(surfaceOfColor('#6d7883'), 'stone'); // скалы
@@ -62,6 +63,8 @@ test('сезон перекрашивает землю: зимой луг хру
   for (let x = b.minX + 2; x < b.maxX; x += 7)
     for (let z = b.minZ + 2; z < b.maxZ; z += 7) {
       if (mountain.groundHeight(x, z, 0) !== 0) continue;
+      // Пруд зимой замёрз и хрустит снегом, а летом оттаивает — это не луг.
+      if (mountain.arena.water.some((w) => x >= w.minX && x <= w.maxX && z >= w.minZ && z <= w.maxZ)) continue;
       if (
         footstepSurface(
           { map: mountain, ...dry, season: 'winter' },
@@ -79,6 +82,45 @@ test('сезон перекрашивает землю: зимой луг хру
       checked++;
     }
   assert.ok(checked > 10, `открытых заснеженных точек: ${checked}`);
+});
+
+test('материал поверхности задаёт звук, а снег звучит по сезонному цвету', () => {
+  const camp = buildArena({
+    id: 'camp',
+    title: 'Лагерь',
+    bounds: { minX: -20, maxX: 20, minZ: -20, maxZ: 20 },
+    groundColor: '#e8eff5',
+    groundMaterial: 'snow',
+    season: 'winter',
+    boxes: [
+      // Сугроб, пол сруба, бревно-лавка, ящик и глыба льда.
+      { x: 0, y: 0.1, z: 0, w: 4, h: 0.2, d: 4, color: '#f6fafd', material: 'snow' },
+      { x: 8, y: 0.015, z: 0, w: 4, h: 0.03, d: 4, color: '#8a6a4a', material: 'planks' },
+      { x: -8, y: 0.2, z: 0, w: 2, h: 0.4, d: 0.4, color: '#8c6544', material: 'bark', solid: true },
+      { x: 0, y: 0.25, z: 8, w: 1, h: 0.5, d: 1, color: '#a3763f', material: 'crate', solid: true },
+      { x: 0, y: 0.25, z: -8, w: 2, h: 0.5, d: 2, color: '#a8dcee', material: 'ice', solid: true },
+    ],
+    spawns: { red: [{ x: 0, z: 0 }], blue: [{ x: 0, z: 0 }] },
+  });
+  const at = (season, x, y, z) => footstepSurface({ map: camp, ...dry, season }, x, y, z);
+  assert.equal(at('winter', 0, 0.2, 0), 'snow');
+  // Летом сугроб на заснеженной карте перекрашен в луг — и шуршит травой.
+  assert.equal(at('summer', 0, 0.2, 0), 'grass');
+  assert.equal(at('winter', 8, 0.03, 0), 'wood');
+  assert.equal(at('winter', -8, 0.4, 0), 'wood');
+  assert.equal(at('winter', 0, 0.5, 8), 'wood');
+  assert.equal(at('winter', 0, 0.5, -8), 'stone');
+});
+
+test('зимой стоячая вода замерзает и не хлюпает, а фонтан бьёт и зимой', () => {
+  const winter = { ...dry, season: 'winter' };
+  // Пруд двора зимой — лёд поверх луга, который зимой под снегом.
+  assert.equal(footstepSurface({ map: yard, ...dry }, -12, 0, 0), 'wet');
+  assert.equal(footstepSurface({ map: yard, ...winter }, -12, 0, 0), 'snow');
+  // Бассейн особняка с фонтаном остаётся водой.
+  const mansion = getMap('mansion');
+  const [fountain] = mansion.arena.fountains;
+  assert.equal(footstepSurface({ map: mansion, ...winter }, fountain.x + 3, 0.3, fountain.z), 'wet');
 });
 
 test('погода: снегопад и дождь только под открытым небом', () => {

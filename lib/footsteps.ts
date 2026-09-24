@@ -7,7 +7,7 @@
 // того, на чём стоит игрок: зелень — трава, коричневое — дерево, снег — снег. Цвет берётся уже
 // перекрашенным под текущий сезон, так что летний луг на зимней карте хрустит снегом.
 
-import { rampHeight, type GameMap, type MapBox, type SurfaceMaterial } from './maps/types.ts';
+import { rampHeight, waterFrozen, type GameMap, type MapBox, type SurfaceMaterial } from './maps/types.ts';
 import {
   hexToHsl,
   isSnowy,
@@ -35,8 +35,11 @@ export const footstepUrl = (surface: FootstepSurface) =>
 /** Тонкая плита не выше этого, м, — ковёр или дорожка, а не стол и не ящик. */
 const RUG_HEIGHT = 0.15;
 
-/** Звук шагов для вида поверхности, заданного на карте явно. */
-const SURFACE_OF_MATERIAL: Record<SurfaceMaterial, FootstepSurface> = {
+/**
+ * Звук шагов для вида поверхности, заданного на карте явно. `null` — звук по цвету: снег летом
+ * перекрашен в луг и должен шуршать травой, а не хрустеть.
+ */
+const SURFACE_OF_MATERIAL: Record<SurfaceMaterial, FootstepSurface | null> = {
   plaster: 'stone',
   wallpaper: 'stone',
   wood: 'wood',
@@ -57,6 +60,21 @@ const SURFACE_OF_MATERIAL: Record<SurfaceMaterial, FootstepSurface> = {
   planks: 'wood',
   'roof-tiles': 'stone',
   sewer: 'wet',
+  snow: null,
+  ice: 'stone',
+  rock: 'stone',
+  bark: 'wood',
+  logs: 'wood',
+  adobe: 'stone',
+  ashlar: 'stone',
+  felt: 'carpet',
+  sand: 'gravel',
+  rust: 'metal',
+  canvas: 'carpet',
+  awning: 'carpet',
+  concrete: 'stone',
+  crate: 'wood',
+  sack: 'carpet',
 };
 
 /** Поверхность по цвету материала. `thin` — плоская плита на полу. */
@@ -119,13 +137,15 @@ export function footstepSurface(
   // Хаб собран вручную, без цветных коробок: площадь каменная.
   let terrain = !arena;
   if (arena) {
+    // Замёрзшая вода — не лужа: звук даёт то, что под ней (лёд озера, дно бассейна, земля).
     for (const w of arena.water ?? [])
       if (
         x >= w.minX &&
         x <= w.maxX &&
         z >= w.minZ &&
         z <= w.maxZ &&
-        y <= w.y + 0.05
+        y <= w.y + 0.05 &&
+        !waterFrozen(arena, w, ctx.season)
       )
         return 'wet';
 
@@ -141,7 +161,8 @@ export function footstepSurface(
         z <= r.maxZ &&
         Math.abs(rampHeight(r, x, z) - y) < 0.3,
     );
-    if (box?.material) surface = SURFACE_OF_MATERIAL[box.material];
+    const fixed = box?.material ? SURFACE_OF_MATERIAL[box.material] : null;
+    if (fixed) surface = fixed;
     else if (box)
       surface = surfaceOfColor(
         paint(box.color, 'surface'),
