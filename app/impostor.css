@@ -301,7 +301,10 @@
 .impostor-card footer {
   margin-top: 12px;
 }
-.impostor-card button:not(.impostor-player):not(.impostor-wire):not(.impostor-close) {
+.impostor-card
+  button:not(.impostor-player):not(.impostor-close):not(.impostor-plug):not(.impostor-key):not(.impostor-hex):not(
+    .impostor-asteroid
+  ):not(.impostor-leaf):not(.impostor-swipe-card):not(.impostor-fuel-can):not(.impostor-simon-btn):not(.impostor-lever) {
   padding: 7px 14px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -435,98 +438,566 @@
   white-space: nowrap;
 }
 
-/* --- Мини-игры --- */
-.impostor-wires {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+/* --- Мини-игры ---
+ * Общий вид — приборная панель шаттла: скошенный металл, заклёпки по углам и подсвеченный
+ * «экран» внутри. Рамку и заклёпки задаёт `.impostor-game` (components/impostor-tasks.tsx
+ * оборачивает в неё каждую игру), а модалку под неё сужаем — пульт компактнее, чем меню
+ * саботажа или стол собрания, которые тоже используют `.impostor-card`.
+ */
+.impostor-card:has(.impostor-game) {
+  width: min(400px, 100%);
 }
-.impostor-wires-column {
+.impostor-game {
+  position: relative;
   display: grid;
-  gap: 14px;
-}
-.impostor-wire {
-  width: 64px;
-  height: 18px;
-  border-radius: 4px;
-  border: 2px solid transparent;
-  cursor: pointer;
-}
-.impostor-wire.is-picked {
-  border-color: #fff;
-}
-.impostor-wire.is-joined {
-  opacity: 0.35;
-  cursor: default;
-}
-.impostor-hold,
-.impostor-upload,
-.impostor-calibrate {
-  display: grid;
+  width: 100%;
   gap: 14px;
   justify-items: center;
+  padding: 20px 16px 16px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, #3a4250, #1c212b 65%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -8px 16px rgba(0, 0, 0, 0.45),
+    0 10px 22px rgba(0, 0, 0, 0.4);
 }
-.impostor-hold .impostor-bar,
-.impostor-upload .impostor-bar {
+.impostor-rivet {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #cfd6e0, #4b5361 70%);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+}
+.impostor-rivet.tl {
+  left: 8px;
+  top: 8px;
+}
+.impostor-rivet.tr {
+  right: 8px;
+  top: 8px;
+}
+.impostor-rivet.bl {
+  left: 8px;
+  bottom: 8px;
+}
+.impostor-rivet.br {
+  right: 8px;
+  bottom: 8px;
+}
+.impostor-game .impostor-bar {
   width: 100%;
   height: 14px;
 }
-.impostor-card .impostor-hold-button {
-  width: 140px;
-  height: 140px;
-  border-radius: 50%;
+
+/* Провода: перетаскивание с тянущимся SVG-проводом и искрой при соединении. */
+.impostor-wires-board {
+  position: relative;
+  touch-action: none;
+}
+.impostor-wires-svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.impostor-wire-live {
+  filter: drop-shadow(0 0 4px currentColor);
+}
+.impostor-spark {
+  animation: impostor-spark 0.5s ease-out forwards;
+}
+@keyframes impostor-spark {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.impostor-plug {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  transform: translate(-50%, -50%);
+  border-radius: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  touch-action: none;
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, 0.4),
+    0 2px 4px rgba(0, 0, 0, 0.5);
+}
+.impostor-plug.is-joined {
+  opacity: 0.4;
+  cursor: default;
+}
+.impostor-plug-socket {
+  background: #11161f;
+  border-color: rgba(255, 255, 255, 0.25);
+  border-style: dashed;
+  pointer-events: none;
+}
+.impostor-plug-socket.is-joined {
+  border-style: solid;
+}
+
+/* Удержание: манометр со стрелкой вместо полоски. */
+.impostor-gauge {
+  width: 100%;
+  max-width: 220px;
+  height: auto;
+}
+.impostor-gauge-track {
+  fill: none;
+  stroke: #141a24;
+  stroke-width: 14;
+  stroke-linecap: round;
+}
+.impostor-gauge-fill {
+  fill: none;
+  stroke: #4ade80;
+  stroke-width: 14;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.1s linear;
+  filter: drop-shadow(0 0 4px rgba(74, 222, 128, 0.6));
+}
+.impostor-gauge-tick {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 2;
+}
+.impostor-gauge-needle {
+  transition: transform 0.1s linear;
+}
+.impostor-gauge-needle line {
+  stroke: #fcd34d;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+.impostor-gauge-hub {
+  fill: #dfe6ee;
+  stroke: #141a24;
+  stroke-width: 2;
+}
+.impostor-gauge-readout {
+  font-family: ui-monospace, monospace;
+  font-size: 20px;
+  color: #4ade80;
+  margin-top: -8px;
+}
+.impostor-lever {
+  width: 100%;
+  max-width: 220px;
+  padding: 12px;
+  border-radius: 10px;
   font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #eef3fb;
+  background: linear-gradient(180deg, #5b6577, #333c49);
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 4px 0 #1b2028,
+    0 6px 10px rgba(0, 0, 0, 0.4);
   touch-action: none;
   user-select: none;
+  cursor: pointer;
 }
-.impostor-calibrate-track {
-  position: relative;
+.impostor-lever.is-active {
+  transform: translateY(3px);
+  box-shadow:
+    0 1px 0 #1b2028,
+    0 2px 4px rgba(0, 0, 0, 0.4);
+  background: linear-gradient(180deg, #4ade80, #1c8a4d);
+}
+
+/* Калибровка: осциллограф — луч бежит по кругу, нужно поймать его в зоне. */
+.impostor-scope {
   width: 100%;
-  height: 26px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.1);
+  max-width: 200px;
+  height: auto;
 }
-.impostor-calibrate-zone {
-  position: absolute;
-  left: 41%;
-  width: 18%;
-  top: 0;
-  bottom: 0;
-  background: rgba(74, 222, 128, 0.45);
+.impostor-scope-ring {
+  fill: #10151f;
+  stroke: rgba(255, 255, 255, 0.25);
+  stroke-width: 2;
 }
-.impostor-calibrate-marker {
-  position: absolute;
-  top: -4px;
-  bottom: -4px;
-  width: 4px;
-  margin-left: -2px;
-  background: #fcd34d;
+.impostor-scope-tick {
+  stroke: rgba(255, 255, 255, 0.3);
+  stroke-width: 2;
 }
-.impostor-code {
-  display: grid;
-  gap: 10px;
-  justify-items: center;
+.impostor-scope-zone {
+  fill: rgba(74, 222, 128, 0.4);
 }
+.impostor-scope-needle line {
+  stroke: #ff5a5f;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.impostor-scope-hub {
+  fill: #dfe6ee;
+  stroke: #10151f;
+  stroke-width: 2;
+}
+.impostor-scope-stop {
+  min-width: 120px;
+}
+
+/* Код: экран терминала и физическая клавиатура. */
 .impostor-code-note {
-  padding: 4px 10px;
+  padding: 4px 12px;
   background: #fef3c7;
   color: #3b2f0a;
   border-radius: 4px;
   font-family: ui-monospace, monospace;
+  font-size: 18px;
+  letter-spacing: 0.15em;
 }
 .impostor-code-screen {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: #04140f;
+  border: 1px solid #0e3a2c;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.6);
+}
+.impostor-code-screen.is-shake {
+  animation: impostor-code-shake 0.26s ease;
+}
+@keyframes impostor-code-shake {
+  25% {
+    transform: translateX(-6px);
+  }
+  75% {
+    transform: translateX(6px);
+  }
+}
+.impostor-code-digit {
+  width: 22px;
+  text-align: center;
   font-family: ui-monospace, monospace;
-  font-size: 28px;
-  letter-spacing: 0.3em;
+  font-size: 26px;
+  color: #2fe7a4;
+  text-shadow: 0 0 6px rgba(47, 231, 164, 0.7);
+  border-bottom: 2px solid rgba(47, 231, 164, 0.35);
+}
+.impostor-code-digit.is-filled {
+  border-color: #2fe7a4;
 }
 .impostor-code-pad {
   display: grid;
-  grid-template-columns: repeat(5, 48px);
+  grid-template-columns: repeat(3, 52px);
+  gap: 8px;
+}
+.impostor-key {
+  height: 44px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #eef3fb;
+  cursor: pointer;
+  background: linear-gradient(180deg, #4a5261, #2a303b);
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 3px 0 #14181f,
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+.impostor-key:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+.impostor-key-wide {
+  grid-column: span 2;
+}
+
+/* Загрузка: файлы летят из одной папки в другую. */
+.impostor-upload-lane {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 56px;
+}
+.impostor-folder {
+  width: 52px;
+  height: auto;
+  flex: none;
+}
+.impostor-upload-file {
+  position: absolute;
+  top: 50%;
+  left: 46px;
+  width: 16px;
+  height: 12px;
+  margin-top: -6px;
+  background: #fef3c7;
+  border: 1px solid #a98b3a;
+  border-radius: 2px;
+  animation: impostor-fly 0.9s linear forwards;
+}
+@keyframes impostor-fly {
+  from {
+    left: 46px;
+    opacity: 1;
+  }
+  to {
+    left: calc(100% - 62px);
+    opacity: 0.2;
+  }
+}
+
+/* Астероиды: сбить кликом падающие обломки у турели Оружейной. */
+.impostor-asteroids-field {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: radial-gradient(circle at 30% 20%, #1a2233, #05070c 70%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.impostor-asteroid {
+  position: absolute;
+  top: -34px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: crosshair;
+  animation-name: impostor-fall;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+.impostor-asteroid svg {
+  width: 100%;
+  height: 100%;
+}
+@keyframes impostor-fall {
+  from {
+    top: -34px;
+  }
+  to {
+    top: 100%;
+  }
+}
+.impostor-asteroids-turret {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 30px;
+  height: 20px;
+  transform: translateX(-50%);
+  background: #6f7a88;
+  border-radius: 6px 6px 0 0;
+  box-shadow: 0 0 0 2px #2b3340;
+}
+
+/* Пропуск: карту нужно провести через считыватель не быстрее и не медленнее нужного. */
+.impostor-swipe-track {
+  position: relative;
+  width: 100%;
+  max-width: 260px;
+  height: 44px;
+  border-radius: 8px;
+  background: #10151f;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  touch-action: none;
+}
+.impostor-swipe-slot {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+.impostor-swipe-card {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 46px;
+  height: 36px;
+  padding: 0;
+  border-radius: 5px;
+  background: linear-gradient(135deg, #7fe0f0, #3e8ef7);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  touch-action: none;
+  cursor: grab;
+}
+
+/* Листья: перетащить каждый лист с решётки фильтра в сторону. */
+.impostor-leaves-board {
+  position: relative;
+  width: 100%;
+  height: 170px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #16321f, #0c1c12);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  touch-action: none;
+}
+.impostor-leaves-grate {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 70px;
+  height: 56px;
+  border-radius: 6px;
+  background: repeating-linear-gradient(90deg, #3b424d, #3b424d 4px, #21262e 4px, #21262e 8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.impostor-leaf {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: grab;
+  touch-action: none;
+}
+
+/* Щиты: кликами погасить все красные шестиугольники. */
+.impostor-shields-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 64px);
   gap: 6px;
 }
-.impostor-card .impostor-code-pad button {
-  padding: 10px 0;
+.impostor-hex {
+  width: 64px;
+  height: 56px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.impostor-hex polygon {
+  stroke: rgba(0, 0, 0, 0.4);
+  stroke-width: 2;
+  transition: fill 0.15s ease;
+}
+.impostor-hex.is-red polygon {
+  fill: #e5484d;
+}
+.impostor-hex.is-clear polygon {
+  fill: #dfe6ee;
+}
+.impostor-hex:disabled {
+  cursor: default;
+}
+
+/* Выравнивание: ползунком совместить метку с линией и удержать. */
+.impostor-align-track {
+  position: relative;
+  width: 100%;
+  height: 40px;
+  border-radius: 8px;
+  background: #10151f;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  touch-action: none;
+  cursor: pointer;
+}
+.impostor-align-target {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  margin-left: -1.5px;
+  background: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.8);
+}
+.impostor-align-handle {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 14px;
+  margin-left: -7px;
+  border-radius: 4px;
+  background: #fcd34d;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+}
+
+/* Симон: повторить растущую последовательность подсвеченных кнопок. */
+.impostor-simon-pad {
+  display: grid;
+  grid-template-columns: repeat(2, 84px);
+  gap: 8px;
+}
+.impostor-simon-btn {
+  width: 84px;
+  height: 60px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  opacity: 0.55;
+  cursor: pointer;
+}
+.impostor-simon-btn:disabled {
+  cursor: default;
+}
+.impostor-simon-btn.is-active {
+  opacity: 1;
+  box-shadow: 0 0 18px 6px rgba(255, 255, 255, 0.8);
+}
+
+/* Топливо: перетащить канистру к баку и дождаться заправки. */
+.impostor-fuel-board {
+  position: relative;
+  width: 100%;
+  height: 160px;
+  touch-action: none;
+}
+.impostor-fuel-tank {
+  position: absolute;
+  right: 10px;
+  bottom: 4px;
+  width: 60px;
+  height: 110px;
+  border-radius: 6px;
+  border: 2px solid #6f7a88;
+  background: #10151f;
+  overflow: hidden;
+}
+.impostor-fuel-level {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, #ffcf33, #e0912a);
+  transition: height 0.12s linear;
+}
+.impostor-fuel-can {
+  position: absolute;
+  left: 10px;
+  bottom: 4px;
+  width: 44px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: grab;
+  touch-action: none;
+}
+.impostor-fuel-can:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .impostor-spark,
+  .impostor-code-screen.is-shake,
+  .impostor-gauge-needle,
+  .impostor-gauge-fill,
+  .impostor-lever {
+    animation: none !important;
+    transition: none !important;
+  }
+  .impostor-upload-file {
+    animation: none !important;
+    opacity: 0.6;
+  }
 }
 
 /* --- Правила (I) --- */

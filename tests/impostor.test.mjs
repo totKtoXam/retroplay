@@ -398,6 +398,18 @@ test('ship: each station stands inside the room it names; the ship is indoors', 
   assert.equal(new Set(map.stations.map((s) => s.id)).size, map.stations.length, 'unique ids');
 });
 
+test('mini-games: every kind has a positive minimum time, every station uses a real kind, the new games are all on the ship', () => {
+  const map = getMap('ship');
+  // Ключи TASK_MS — это и есть весь набор TaskKind: объект собран как Record<TaskKind, number>.
+  for (const [kind, ms] of Object.entries(TASK_MS)) assert.ok(ms > 0, `${kind}: TASK_MS must be positive`);
+  for (const st of map.stations) assert.ok(st.kind in TASK_MS, `${st.id}: unknown kind ${st.kind}`);
+  const kindsOnMap = new Set(map.stations.map((s) => s.kind));
+  const newKinds = ['asteroids', 'swipe', 'leaves', 'shields', 'align', 'simon', 'fuel'];
+  for (const kind of newKinds) assert.ok(kindsOnMap.has(kind), `${kind} is not used by any station`);
+  // Старые виды тоже никуда не делись — часть заданий их сохранила.
+  for (const kind of ['wires', 'hold', 'calibrate', 'code', 'upload']) assert.ok(kindsOnMap.has(kind), `${kind} disappeared from the ship`);
+});
+
 // ---------------------------------------------------------------- саботаж и вентиляция
 
 const panel = (id) => getMap('ship').panels.find((p) => p.id === id);

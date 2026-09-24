@@ -110,6 +110,89 @@ const TASK_ICON: Record<TaskKind, { title: string; draw: React.JSX.Element }> = 
       </>
     ),
   },
+  asteroids: {
+    title: 'Астероиды — собьите кликом падающие обломки',
+    draw: (
+      <>
+        <circle cx="16" cy="14" r="7" fill="#8a7f74" />
+        <circle cx="34" cy="8" r="5" fill="#8a7f74" />
+        <circle cx="46" cy="20" r="4" fill="#8a7f74" />
+        <rect x="24" y="38" width="16" height="10" rx="2" fill="#6f7a88" />
+      </>
+    ),
+  },
+  swipe: {
+    title: 'Пропуск — проведите картой не быстрее и не медленнее нужного',
+    draw: (
+      <>
+        <rect x="6" y="18" width="52" height="8" rx="4" fill="#26324a" />
+        <rect x="10" y="10" width="20" height="14" rx="2" fill="#7fe0f0" />
+        <path d="M36 20 H50 M46 16 L50 20 L46 24" stroke="#fcd34d" strokeWidth="2" fill="none" />
+      </>
+    ),
+  },
+  leaves: {
+    title: 'Листья — перетащите их с решётки фильтра в сторону',
+    draw: (
+      <>
+        <path d="M14 8 C22 10 24 20 14 28 C4 20 6 10 14 8 Z" fill="#4f8f4a" />
+        <path d="M28 16 C36 18 38 28 28 36 C18 28 20 18 28 16 Z" fill="#3f7a3d" />
+        <rect x="40" y="16" width="18" height="26" fill="#3b424d" />
+        <rect x="42" y="18" width="14" height="4" fill="#21262e" />
+        <rect x="42" y="24" width="14" height="4" fill="#21262e" />
+        <rect x="42" y="30" width="14" height="4" fill="#21262e" />
+      </>
+    ),
+  },
+  shields: {
+    title: 'Щиты — кликами погасите все красные шестиугольники',
+    draw: (
+      <>
+        {[
+          [14, 20],
+          [32, 14],
+          [48, 24],
+        ].map(([x, y]) => (
+          <polygon
+            key={`${x}-${y}`}
+            points={`${x},${y - 9} ${x + 8},${y - 4.5} ${x + 8},${y + 4.5} ${x},${y + 9} ${x - 8},${y + 4.5} ${x - 8},${y - 4.5}`}
+            fill="#e5484d"
+          />
+        ))}
+      </>
+    ),
+  },
+  align: {
+    title: 'Двигатель — ползунком совместите метку с линией и удержите',
+    draw: (
+      <>
+        <rect x="6" y="22" width="52" height="6" rx="3" fill="#26324a" />
+        <rect x="30" y="16" width="3" height="18" fill="#4ade80" />
+        <rect x="14" y="19" width="10" height="10" rx="2" fill="#fcd34d" />
+      </>
+    ),
+  },
+  simon: {
+    title: 'Реактор — повторите растущую последовательность кнопок',
+    draw: (
+      <>
+        {['#e5484d', '#3e8ef7', '#f5d90a', '#4ade80'].map((c, i) => (
+          <rect key={c} x={6 + (i % 2) * 28} y={8 + Math.floor(i / 2) * 22} width="24" height="18" rx="3" fill={c} />
+        ))}
+      </>
+    ),
+  },
+  fuel: {
+    title: 'Топливо — перетащите канистру к баку и дождитесь заправки',
+    draw: (
+      <>
+        <rect x="40" y="10" width="18" height="30" rx="2" fill="none" stroke="#6f7a88" strokeWidth="2" />
+        <rect x="41" y="26" width="16" height="13" fill="#ffcf33" />
+        <rect x="6" y="20" width="16" height="18" rx="2" fill="#e0b23a" />
+        <rect x="10" y="14" width="8" height="6" rx="1" fill="#c79a2c" />
+      </>
+    ),
+  },
 };
 
 function TaskIcons() {

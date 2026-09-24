@@ -136,8 +136,31 @@ export type MapSphere = { x: number; y: number; z: number; r: number; color: str
 /** Still water at height `y`; with `round` it is the disc inscribed in the bounds (a fountain bowl). */
 export type MapWater = Bounds & { y: number; color?: string; round?: boolean };
 export type MapLight = { x: number; y: number; z: number; color: string; intensity: number; distance: number };
-/** Kind of mini-game at a task station (режим «Предатель», lib/impostor.ts). */
-export type TaskKind = 'wires' | 'hold' | 'calibrate' | 'code' | 'upload';
+/**
+ * Kind of mini-game at a task station (режим «Предатель», lib/impostor.ts). Первые пять —
+ * исходный набор; остальные добавлены по мотивам заданий Among Us и закреплены за конкретными
+ * отсеками «Корабля» (lib/maps/ship.ts).
+ */
+export type TaskKind =
+  | 'wires'
+  | 'hold'
+  | 'calibrate'
+  | 'code'
+  | 'upload'
+  /** Оружейная: сбить кликом падающие астероиды. */
+  | 'asteroids'
+  /** Администрация: провести пропуск с нужной скоростью — не быстрее и не медленнее. */
+  | 'swipe'
+  /** O2: перетащить листья с решётки фильтра в сторону. */
+  | 'leaves'
+  /** Щиты: кликами погасить все красные шестиугольники. */
+  | 'shields'
+  /** Двигатели: ползунком выставить и удержать метку на линии. */
+  | 'align'
+  /** Реактор: повторить растущую последовательность подсвеченных кнопок. */
+  | 'simon'
+  /** Хранилище: перетащить канистру к баку и дождаться заправки. */
+  | 'fuel';
 /** A place where a crewmate does a task: the player must stand within reach of (x, z). */
 export type TaskStation = { id: string; kind: TaskKind; title: string; room: string; x: number; z: number };
 /**
