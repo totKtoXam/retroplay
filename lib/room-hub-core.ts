@@ -4,11 +4,10 @@
 import { memberWeapon } from './weapon-authority.ts';
 import { BotBrain } from './bot-brain.ts';
 import { BOT_PREFIX, isBotId, isBotLevel, MAX_BOTS, type BotSpec } from './bot-levels.ts';
-import { isBlaster } from './weapon-definition.ts';
+import { cooledDown, flightMs, isBlaster } from './weapon-definition.ts';
 import type { ToolMagazine } from './tool-magazine.ts';
 import {
   calculatePelletsHit,
-  effectCooldown,
   effectDamage,
   effectStyle,
   hitZone,
@@ -106,6 +105,8 @@ export type HubMember = {
   assists: number;
   recentDamage: Record<string, number>;
   lastShot: number;
+  /** Последний бросок гранаты: у неё свой отсчёт перезарядки (lib/weapon-definition.ts). */
+  lastGrenade?: number;
   /** Recent poses of the current life, oldest first, for lag compensation. */
   track: { at: number; pose: Pose }[];
   moveBudget: number;
@@ -480,9 +481,13 @@ export function fireEffect(
     throw Error('Предмет слишком далеко');
   const id = typeof op.id === 'string' && /^[a-f0-9-]{36}$/.test(op.id) ? op.id : uid();
   if (state.effects.some((e) => e.id === id)) return { ok: false, reason: 'duplicate' };
-  if (shooter.lastShot > now - effectCooldown(kind)) return { ok: false, reason: 'cooldown' };
+  if (!cooledDown(shooter, kind, now)) return { ok: false, reason: 'cooldown' };
   if (isBlaster(kind) && !memberWeapon(shooter).magazine.fire(kind, now))
     return { ok: false, reason: 'magazine' };
+  // Урон — когда снаряд долетит до точки прицела, как его полёт видят клиенты.
+  const flight = flightMs(kind, Math.hypot(target[0] - origin[0], target[1] - origin[1], target[2] - origin[2]));
+  // Стрелок целился в то, что видел (seenAt); за время полёта цель могла уйти с линии.
+  const seen = kind === 'grenade' || !finite(op.seenAt) ? now : clamp(op.seenAt, now - MAX_REWIND_MS, now);
   const effect: HubEffect = {
     id,
     kind,
@@ -496,15 +501,15 @@ export function fireEffect(
     pelletsHit: typeof op.pelletsHit === 'number' ? op.pelletsHit : undefined,
     author: self,
     at: now,
-    resolveAt: now + (kind === 'grenade' ? 1100 : 0),
+    resolveAt: now + flight,
     applied: false,
-    // A grenade explodes later in server time; other shots hit what the shooter saw.
-    rewindTo:
-      kind === 'grenade' || !finite(op.seenAt) ? now : clamp(op.seenAt, now - MAX_REWIND_MS, now),
+    // Позы жертв — на миг, когда снаряд долетел в картине стрелка.
+    rewindTo: seen + flight,
     seq: ++state.seq,
   };
   state.effects.push(effect);
   shooter.lastShot = now;
+  if (kind === 'grenade') shooter.lastGrenade = now;
   return { ok: true, effect };
 }
 

@@ -21,7 +21,7 @@ import {
 } from '@/lib/model';
 import { ItemWheel, type WheelGroup } from './item-wheel';
 import { WorldTablet } from './world-tablet';
-import { AmmoIndicator, WorldHud } from './world-hud';
+import { AmmoIndicator, GrenadeRecharge, WorldHud } from './world-hud';
 import { WorldMinimap, type MinimapFrame } from './world-minimap';
 import { minimapBlips, type MinimapBlip, type SpotMemory } from '@/lib/minimap-blips';
 import type { VoiceChannel, VoiceView } from './voice-chat';
@@ -69,7 +69,7 @@ import { rayCastWorldObstacle } from '@/lib/world-collision';
 import { CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import { WeaponPrediction } from '@/lib/weapon-prediction';
 import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
-import { isBlaster } from '@/lib/weapon-definition';
+import { GRENADE_COOLDOWN_MS, isBlaster } from '@/lib/weapon-definition';
 import {
   blocksCamera,
   blocksProjectile,
@@ -655,6 +655,7 @@ export default function World(props: Props) {
   const [showAgent, setShowAgent] = useState(false);
   const [rounds, setRounds] = useState({ ...CAPACITY }),
     [reloading, setReloading] = useState(false),
+    [grenadeReadyAt, setGrenadeReadyAt] = useState(0),
     [aiming, setAiming] = useState(false);
   const aimModes = props.aimModes || readAimModes();
   const aimModesRef = useRef<WeaponAimModes>(aimModes);
@@ -891,6 +892,8 @@ export default function World(props: Props) {
         if (dx * dx + dz * dz > radius * radius) return true;
         return !!rayCastWorldObstacle([visionEye.x, visionEye.y + 1.5, visionEye.z], [at.x, at.y + 1.2, at.z], map.colliders)?.hit;
       },
+      // Краска не переживает смерть. vfx создаётся ниже, но зовётся это уже из кадра.
+      onDied: (remote) => vfx.clearPaint(remote),
     });
     const { remoteAvatars, deadTimers } = remotePlayers;
     const shadow = new T.Mesh(
@@ -1220,8 +1223,9 @@ export default function World(props: Props) {
       const now = performance.now();
       const wasReloading = magazine.current.reloading;
       if (tool === 'grenade') {
-        if (now - lastGrenade < 1200) return;
+        if (now - lastGrenade < GRENADE_COOLDOWN_MS) return;
         lastGrenade = now;
+        setGrenadeReadyAt(now + GRENADE_COOLDOWN_MS);
       }
       if (
         tool !== 'grenade' &&
@@ -2162,6 +2166,9 @@ export default function World(props: Props) {
       if (myHp === 0) {
         if (!deadTimers.has(latest.current.room.self)) {
           deadTimers.set(latest.current.room.self, now);
+          // Своя смерть смывает краску и с аватара, и с экрана.
+          vfx.clearPaint(avatar);
+          vfx.clearPaint(hands.group.parent ?? hands.group);
         }
       } else {
         deadTimers.delete(latest.current.room.self);
@@ -2780,6 +2787,9 @@ export default function World(props: Props) {
       {/* Вид индикатора (цифры или графика) выбирается в настройках, поэтому
           разметка и подписка на настройку живут в world-hud.tsx. Место —
           слева от панели предметов: правый нижний угол занят миникартой. */}
+      {current?.id === 'grenade' && (
+        <GrenadeRecharge readyAt={grenadeReadyAt} cooldown={GRENADE_COOLDOWN_MS} />
+      )}
       {['paint', 'confetti', 'sniper'].includes(current?.id) && (
         <AmmoIndicator
           rounds={rounds[current.id as Blaster]}

@@ -25,6 +25,7 @@ export function createWorldRemotePlayers({
   latest,
   map,
   hidden,
+  onDied,
 }: {
   scene: T.Scene;
   kit: WorldKit;
@@ -33,6 +34,8 @@ export function createWorldRemotePlayers({
   map: GameMap;
   /** Режим прячет этого игрока от смотрящего (обзор в «Предателе»): вне радиуса или за стеной. */
   hidden?: (pose: { x: number; y: number; z: number }) => boolean;
+  /** Игрок только что погиб: смыть с его аватара краску. */
+  onDied?: (remote: T.Group) => void;
 }) {
   const remoteAvatars = new Map<string, T.Group>(),
     remoteBandanaMats = new Map<string, T.MeshStandardMaterial>(),
@@ -177,6 +180,7 @@ export function createWorldRemotePlayers({
       if (isRemoteDead) {
         if (!deadTimers.has(member.id)) {
           deadTimers.set(member.id, now);
+          onDied?.(remote);
         }
       } else {
         deadTimers.delete(member.id);

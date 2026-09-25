@@ -324,6 +324,54 @@ export function AmmoIndicator(props: {
   );
 }
 
+/**
+ * Перезарядка гранаты: бросать её можно раз в 10 секунд. Пока ждём — шкала
+ * наполняется и идёт отсчёт секунд, готова — полная шкала. Без этого долгая
+ * пауза выглядела бы так, будто бросок сломался.
+ */
+export function GrenadeRecharge(props: { readyAt: number; cooldown: number }) {
+  const display = useAmmoDisplay();
+  const [now, setNow] = useState(() => performance.now());
+  const waiting = props.readyAt > now;
+  useEffect(() => {
+    const tick = () => setNow(performance.now());
+    // Новый бросок сдвинул readyAt: обновляем сразу, не ждём такта таймера.
+    const first = requestAnimationFrame(tick);
+    const timer = setInterval(tick, 100);
+    const stop = setTimeout(() => clearInterval(timer), Math.max(0, props.readyAt - performance.now()) + 150);
+    return () => {
+      cancelAnimationFrame(first);
+      clearInterval(timer);
+      clearTimeout(stop);
+    };
+  }, [props.readyAt]);
+  const left = Math.max(0, props.readyAt - now);
+  const share = waiting ? 1 - left / props.cooldown : 1;
+  return (
+    <output
+      className={`hud-ammo ${display === 'graphic' ? 'is-graphic' : 'is-numbers'} ${waiting ? 'is-charging' : ''}`}
+      style={{ '--ammo-fill': `${share * 100}%` } as React.CSSProperties}
+      aria-label={waiting ? `Граната через ${Math.ceil(left / 1000)} с` : 'Граната готова'}
+    >
+      {display === 'graphic' ? (
+        <span className="hud-ammo-gauge" aria-hidden="true">
+          <i />
+        </span>
+      ) : waiting ? (
+        <>
+          <strong>{Math.ceil(left / 1000)}</strong>
+          <small>с</small>
+        </>
+      ) : (
+        <>
+          <strong>1</strong>
+          <small>/1</small>
+        </>
+      )}
+    </output>
+  );
+}
+
 export function WorldHud(props: WorldHudProps) {
   useLoadoutAnchor();
   const hp = Math.min(100, Math.max(0, props.self?.hp ?? 100));

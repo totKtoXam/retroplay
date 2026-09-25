@@ -1,6 +1,7 @@
 import * as T from 'three';
 import type { Room, WorldEffect } from '@/lib/model';
 import { hitZone, inHitRange, type HitZone } from '@/lib/game-items';
+import { flightMs } from '@/lib/weapon-definition';
 import type { BoxCollider3D } from '@/lib/world-collision';
 import type { Perspective } from '@/lib/game-camera';
 import {
@@ -144,12 +145,8 @@ export function createWorldProjectiles({
       target,
       normal,
       born: performance.now() - Math.max(0, Date.now() - e.at),
-      duration:
-        e.kind === 'grenade'
-          ? 1100
-          : e.kind === 'sniper'
-            ? Math.max(25, start.distanceTo(target) * 1.8)
-            : Math.max(130, start.distanceTo(target) * 22),
+      // Столько же сервер ждёт, прежде чем ранить: урон приходит вместе со снарядом.
+      duration: flightMs(e.kind, start.distanceTo(target)),
       variant: e.variant || 'classic',
       color: e.color,
       kind: e.kind,
@@ -276,15 +273,15 @@ export function createWorldProjectiles({
         }
 
         if (f.kind === 'paint') {
-          if (isHitOnPlayer && hitPlayerGroup) {
-            smearPlayerWithPaint(
-              hitPlayerGroup,
-              f.target,
-              f.normal,
-              f.color,
-              f.born + f.duration,
-            );
-          } else {
+          // Краска ложится на то место тела, куда пришёлся шарик. Не нашлось
+          // тела у точки попадания — летит дальше и пачкает стену.
+          if (
+            !(
+              isHitOnPlayer &&
+              hitPlayerGroup &&
+              smearPlayerWithPaint(hitPlayerGroup, f.origin, f.target, f.color, f.born + f.duration)
+            )
+          ) {
             const sceneryHit = checkSceneryHit(f.target, f.normal);
             if (sceneryHit) {
               splat(
@@ -320,15 +317,14 @@ export function createWorldProjectiles({
             );
           }
           if (f.kind === 'grenade' && f.variant === 'paintburst') {
-            if (isHitOnPlayer && hitPlayerGroup) {
-              smearPlayerWithPaint(
-                hitPlayerGroup,
-                f.target,
-                f.normal,
-                f.color,
-                f.born + f.duration,
-              );
-            } else {
+            // Взрыв окатывает бойца со стороны, где рванула граната.
+            if (
+              !(
+                isHitOnPlayer &&
+                hitPlayerGroup &&
+                smearPlayerWithPaint(hitPlayerGroup, f.target, f.target, f.color, f.born + f.duration, 0.45, Infinity)
+              )
+            ) {
               const sceneryHit = checkSceneryHit(f.target, f.normal);
               if (sceneryHit) {
                 splat(

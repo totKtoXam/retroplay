@@ -1,4 +1,5 @@
 import * as T from 'three';
+import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
 import { CONFETTI, FIREWORKS } from '@/lib/game-items';
 import { partyGeometry } from './party-geometry';
 import { createMaterialPool } from './material-pool';
@@ -19,6 +20,61 @@ type Particle = {
  */
 /** Сколько вспышек живёт одновременно: больше — экран превращается в стену частиц. */
 const MAX_LIVE_BURSTS = 12;
+/** Краска на бойце держится дольше, чем на стенах: пока её не смыла смерть. */
+const BODY_PAINT_SECONDS = 25;
+/** Больше пятен на одном бойце не держим: старые уступают место новым. */
+const BODY_PAINT_LIMIT = 24;
+/** Глубина проекции пятна: хватает на изгиб корпуса, но не пробивает руку насквозь. */
+const BODY_PAINT_DEPTH = 0.2;
+
+/**
+ * Пятно краски: клякса с неровным краем, брызги вокруг и потёк вниз. Белая —
+ * цвет даёт материал. Одна текстура на все пятна.
+ */
+function paintStainTexture() {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d')!;
+  g.fillStyle = '#fff';
+  const c = size / 2;
+  g.beginPath();
+  for (let i = 0; i <= 40; i++) {
+    const a = (i / 40) * Math.PI * 2;
+    const r = size * (0.24 + Math.sin(a * 5 + 1) * 0.035 + Math.cos(a * 9) * 0.025 + Math.sin(a * 13) * 0.012);
+    const x = c + Math.cos(a) * r,
+      y = c + Math.sin(a) * r;
+    if (i === 0) g.moveTo(x, y);
+    else g.lineTo(x, y);
+  }
+  g.fill();
+  // Брызги: мелкие капли вокруг, чем дальше — тем мельче.
+  for (let i = 0; i < 11; i++) {
+    const a = i * 2.39996 + 0.4,
+      d = size * (0.3 + ((i * 37) % 11) / 60);
+    g.beginPath();
+    g.arc(c + Math.cos(a) * d, c + Math.sin(a) * d, size * (0.045 - d / size / 14), 0, Math.PI * 2);
+    g.fill();
+  }
+  // Потёк: краска стекает вниз по ткани. Верх пятна смотрит вверх по миру
+  // (paintBody), а с flipY верх canvas — это верх текстуры: потёк рисуем вниз.
+  for (const [dx, len, w] of [
+    [-0.08, 0.2, 0.05],
+    [0.07, 0.13, 0.04],
+  ] as const) {
+    const x = c + dx * size,
+      end = c + (0.2 + len) * size;
+    g.fillRect(x - (w * size) / 2, c, w * size, end - c);
+    g.beginPath();
+    g.arc(x, end, w * size * 0.75, 0, Math.PI * 2);
+    g.fill();
+  }
+  const texture = new T.CanvasTexture(canvas);
+  texture.colorSpace = T.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
 /** Ближе этого расстояния до камеры частица не рисуется. */
 const PARTICLE_NEAR_CULL = 0.45;
 /** До этого расстояния частица уменьшается, чтобы не закрывать обзор. */
@@ -34,7 +90,8 @@ export function createWorldVfx({
   /** Нужна, чтобы гасить частицы, пролетающие вплотную к глазам игрока. */
   camera?: T.Camera;
 }) {
-  const splats: { mesh: T.Mesh; born: number }[] = [],
+  /** Пятна краски; `owner` — на ком или на чём пятно (сцена, боец, экран). */
+  const splats: { mesh: T.Mesh; born: number; owner: T.Object3D; life: number }[] = [],
     bursts: Particle[] = [];
   const nearCameraScale = (p: T.Vector3) => {
     if (!camera) return 1;
@@ -61,6 +118,28 @@ export function createWorldVfx({
         polygonOffsetFactor: -3,
       }),
   );
+  let stainTexture: T.Texture | null = null;
+  // Краска на теле освещается как само тело: влажный блеск, а не плоская наклейка.
+  const bodyPaintMaterials = createMaterialPool(
+    () =>
+      new T.MeshStandardMaterial({
+        map: (stainTexture ??= paintStainTexture()),
+        transparent: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -4,
+        polygonOffsetUnits: -4,
+        roughness: 0.32,
+        metalness: 0,
+      }),
+  );
+  const retireSplat = (p: (typeof splats)[number]) => {
+    p.mesh.removeFromParent();
+    p.mesh.geometry.dispose();
+    const material = p.mesh.material;
+    if (material instanceof T.MeshStandardMaterial) bodyPaintMaterials.release(material);
+    else splatMaterials.release(material as T.MeshBasicMaterial);
+  };
   const retireBurst = (b: Particle) => {
     b.mesh.removeFromParent();
     // Geometry is shared (paintDropletGeo / partyGeometries / confettiGeo);
@@ -232,41 +311,140 @@ export function createWorldVfx({
       decal.quaternion.setFromUnitVectors(normalUp, normal.normalize());
     }
     parent.add(decal);
-    splats.push({ mesh: decal, born: now });
+    splats.push({ mesh: decal, born: now, owner: parent, life: 12 });
   };
-  const smearPlayerWithPaint = (
-    playerGroup: T.Object3D,
-    hitPoint: T.Vector3,
-    hitNormal: T.Vector3,
+  const raycaster = new T.Raycaster();
+  const bodyParts: T.Mesh[] = [];
+  const projector = new T.Object3D();
+  /** Видна ли часть тела: невидимый предок (первое лицо, скрытый призрак) прячет и её. */
+  const shown = (o: T.Object3D, owner: T.Object3D) => {
+    for (let q: T.Object3D | null = o; q; q = q.parent) {
+      if (!q.visible || q.userData.presentationOnly) return false;
+      if (q === owner) return true;
+    }
+    return false;
+  };
+  /**
+   * Пятно краски прямо на теле бойца. Луч идёт от `from` к `toward`; там, где он
+   * встретил часть тела, на её поверхность проецируется пятно (DecalGeometry) и
+   * становится дочерним у этой части — клякса облегает форму, двигается с рукой
+   * или головой и падает вместе с телом. Тело дальше `reach` от точки попадания
+   * `impact` не красим: краска не ляжет туда, куда шарик не долетал.
+   */
+  const paintBody = (
+    owner: T.Object3D,
+    from: T.Vector3,
+    toward: T.Vector3,
+    impact: T.Vector3,
     color: string,
     now: number,
+    size: number,
+    reach: number,
   ) => {
-    splat(hitPoint, hitNormal, color, now, playerGroup, 0.55);
-    const dropletOffset = new T.Vector3(
-      (Math.random() - 0.5) * 0.16,
-      -0.14 - Math.random() * 0.12,
-      (Math.random() - 0.5) * 0.16,
+    if (!owner.visible) return false;
+    owner.updateMatrixWorld(true);
+    bodyParts.length = 0;
+    owner.traverse((o) => {
+      if (
+        o instanceof T.Mesh &&
+        !(o instanceof T.InstancedMesh) &&
+        !o.userData.paintStain &&
+        o.geometry.getAttribute('position') &&
+        shown(o, owner)
+      )
+        bodyParts.push(o);
+    });
+    const direction = toward.clone().sub(from);
+    const distance = direction.length();
+    if (!bodyParts.length || distance < 1e-4) return false;
+    raycaster.set(from, direction.divideScalar(distance));
+    raycaster.far = distance + reach;
+    const hit = raycaster.intersectObjects(bodyParts, false)[0];
+    if (!hit || !hit.face || hit.point.distanceTo(impact) > reach) return false;
+    const part = hit.object as T.Mesh;
+    const normal = hit.face.normal.clone().transformDirection(part.matrixWorld);
+    // Проектор смотрит в поверхность; «верх» пятна — вверх по миру, так потёк
+    // стекает вниз. Небольшой случайный поворот, чтобы пятна не были одинаковыми.
+    projector.position.copy(hit.point);
+    projector.up.set(0, 1, 0);
+    if (Math.abs(normal.y) > 0.95) projector.up.set(0, 0, 1);
+    projector.lookAt(hit.point.clone().add(normal));
+    projector.rotateZ((Math.random() - 0.5) * 0.5);
+    const geometry = new DecalGeometry(
+      part,
+      hit.point,
+      projector.rotation,
+      new T.Vector3(size, size, BODY_PAINT_DEPTH),
     );
-    splat(
-      hitPoint.clone().add(dropletOffset),
-      hitNormal,
-      color,
-      now,
-      playerGroup,
-      0.28,
-    );
-    burst(hitPoint, color, now, 'paint');
+    if (!geometry.getAttribute('position')?.count) {
+      geometry.dispose();
+      return false;
+    }
+    // DecalGeometry отдаёт мировые координаты; пятно живёт в координатах части тела.
+    geometry.applyMatrix4(part.matrixWorld.clone().invert());
+    const material = bodyPaintMaterials.acquire();
+    material.color.set(color);
+    material.opacity = 0.95;
+    const stain = new T.Mesh(geometry, material);
+    stain.userData.paintStain = true;
+    stain.userData.projectileCollision = 'ignore';
+    // Общая чистка аватара (world-remote-players.ts) пятна не трогает: их
+    // материалы — из пула, освобождает их retireSplat.
+    stain.userData.presentationOnly = true;
+    stain.castShadow = false;
+    part.add(stain);
+    splats.push({ mesh: stain, born: now, owner, life: BODY_PAINT_SECONDS });
+    let count = 0;
+    for (let i = splats.length - 1; i >= 0; i--) {
+      if (splats[i].owner !== owner || !splats[i].mesh.userData.paintStain) continue;
+      if (++count > BODY_PAINT_LIMIT) {
+        retireSplat(splats[i]);
+        splats.splice(i, 1);
+      }
+    }
+    return true;
+  };
+  /**
+   * Попадание краской по бойцу: пятно на том месте тела, куда пришёлся шарик
+   * (луч от `from` через точку прицела `toward`), и брызги. Если по пути к точке
+   * прицела тела не оказалось — например, боец успел сдвинуться, — ищем его
+   * поверхность не дальше `near` от точки, со стороны центра тела. Возвращает,
+   * прилипла ли краска: если нет, пусть ляжет на стену позади.
+   */
+  const smearPlayerWithPaint = (
+    playerGroup: T.Object3D,
+    from: T.Vector3,
+    toward: T.Vector3,
+    color: string,
+    now: number,
+    size = 0.3,
+    near = 0.35,
+  ) => {
+    playerGroup.updateMatrixWorld(true);
+    const center = new T.Vector3(0, 0.95, 0).applyMatrix4(playerGroup.matrixWorld);
+    const stuck =
+      paintBody(playerGroup, from, toward, toward, color, now, size, 0.45) ||
+      paintBody(playerGroup, toward, center, toward, color, now, size, near);
+    burst(toward, color, now, 'paint');
+    return stuck;
+  };
+  /** Смыть краску с бойца (или с экрана): пятна не переживают смерть. */
+  const clearPaint = (owner: T.Object3D) => {
+    for (let i = splats.length - 1; i >= 0; i--) {
+      if (splats[i].owner !== owner) continue;
+      retireSplat(splats[i]);
+      splats.splice(i, 1);
+    }
   };
   const update = (now: number, dt: number) => {
     for (let i = splats.length - 1; i >= 0; i--) {
       const p = splats[i],
         age = (now - p.born) / 1000;
       (p.mesh.material as T.MeshBasicMaterial).opacity =
-        0.9 * Math.min(1, (12 - age) / 3);
-      if (age >= 12) {
-        p.mesh.removeFromParent();
-        p.mesh.geometry.dispose();
-        splatMaterials.release(p.mesh.material as T.MeshBasicMaterial);
+        (p.mesh.userData.paintStain ? 0.95 : 0.9) * Math.min(1, (p.life - age) / 3);
+      // Боец ушёл из комнаты — его аватара уже нет в сцене, и пятна с ним.
+      if (age >= p.life || (p.mesh.userData.paintStain && !p.owner.parent)) {
+        retireSplat(p);
         splats.splice(i, 1);
       }
     }
@@ -315,12 +493,15 @@ export function createWorldVfx({
     partyGeometries.forEach((g) => g.dispose());
     burstMaterials.dispose();
     splatMaterials.dispose();
+    bodyPaintMaterials.dispose();
+    stainTexture?.dispose();
   };
   return {
     paintDropletGeo,
     burst,
     splat,
     smearPlayerWithPaint,
+    clearPaint,
     update,
     dispose,
   };

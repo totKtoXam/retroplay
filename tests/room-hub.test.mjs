@@ -91,11 +91,34 @@ const shot = (kind = 'paint', over = {}) => ({
   ...over,
 });
 const duel = () => hub(member('a'), member('v', { pose: stand(0, 0) }));
+// Урон приходит, когда снаряд долетел: 4 м краски летят 130 мс (flightMs).
+const PAINT_FLIGHT = 130;
 const fire = (h, who, now, kind, over) => {
   const r = fireEffect(h, who, shot(kind, over), now);
-  resolveCombat(h, now);
+  resolveCombat(h, r.effect ? r.effect.resolveAt : now);
   return r;
 };
+
+test('a shot deals damage only when the ball reaches the victim', () => {
+  const h = duel();
+  const r = fireEffect(h, 'a', shot(), T);
+  assert.equal(r.effect.resolveAt, T + PAINT_FLIGHT);
+  resolveCombat(h, T + PAINT_FLIGHT - 1);
+  assert.equal(h.members.get('v').hp, 100, 'шарик ещё летит');
+  resolveCombat(h, T + PAINT_FLIGHT);
+  assert.equal(h.members.get('v').hp, 80);
+  // Дальний выстрел летит дольше.
+  const far = fireEffect(duel(), 'a', shot('paint', { target: [0, 1.1, -36] }), T);
+  assert.equal(far.effect.resolveAt, T + 40 * 22);
+});
+
+test('a grenade can be thrown once in 10 seconds, whatever else was fired between', () => {
+  const h = duel();
+  assert.equal(fireEffect(h, 'a', shot('grenade'), T).ok, true);
+  assert.equal(fireEffect(h, 'a', shot('grenade'), T + 9_999).reason, 'cooldown');
+  assert.equal(fireEffect(h, 'a', shot('paint'), T + 1_200).ok, true, 'краской стрелять можно');
+  assert.equal(fireEffect(h, 'a', shot('grenade'), T + 10_000).ok, true);
+});
 
 test('a paint hit deals 20 damage once, even when the same shot id arrives twice', () => {
   const h = duel();
@@ -120,7 +143,7 @@ test('a lethal hit kills, credits the killer and the latest other attacker, and 
   const v = h.members.get('v');
   assert.equal(v.hp, 0);
   assert.equal(v.deaths, 1);
-  assert.equal(v.respawnAt, T + 4 * WEAPONS.paint.cooldown + 5000);
+  assert.equal(v.respawnAt, T + 4 * WEAPONS.paint.cooldown + PAINT_FLIGHT + 5000);
   assert.equal(h.members.get('a').kills, 1);
   assert.equal(h.members.get('b').assists, 1);
   const kill = h.effects.find((e) => e.kind === 'kill');
@@ -222,7 +245,8 @@ test('clients cannot set their own HP through presence', () => {
 
 test('a grenade explodes after its fuse and is resolved only once', () => {
   const h = duel();
-  fire(h, 'a', T, 'grenade', { variant: 'pinata' });
+  fireEffect(h, 'a', shot('grenade', { variant: 'pinata' }), T);
+  resolveCombat(h, T + 1099);
   assert.equal(h.members.get('v').hp, 100, 'grenade fuse is delayed');
   resolveCombat(h, T + 1100);
   resolveCombat(h, T + 1150);
@@ -298,12 +322,16 @@ const runner = (steps) => {
   return h;
 };
 
-test('lag compensation: a shot hits where the shooter saw the victim', () => {
-  const seen = runner(4); // victim now at x = 0.96, out of a shot aimed at x = 0
-  fire(seen, 'a', T + 200, 'paint', { seenAt: T });
+test('lag compensation: a shot hits where the victim was in the shooter view when the ball arrived', () => {
+  // Стрелок видел жертву в T; шарик летит 130 мс — к его прилёту она на x = 0,624.
+  const seen = runner(4); // victim now at x = 0.96
+  fire(seen, 'a', T + 200, 'paint', { seenAt: T, target: [0.62, 1.1, 0] });
   assert.equal(seen.members.get('v').hp, 80);
-  const unseen = runner(4);
-  fire(unseen, 'a', T + 200);
+  const dodged = runner(4);
+  fire(dodged, 'a', T + 200, 'paint', { seenAt: T, target: [-0.6, 1.1, 0] });
+  assert.equal(dodged.members.get('v').hp, 100, 'пока шарик летел, жертва ушла с линии');
+  const unseen = runner(8); // x = 1.92
+  fire(unseen, 'a', T + 400, 'paint', { target: [0.62, 1.1, 0] });
   assert.equal(unseen.members.get('v').hp, 100, 'without seenAt the current pose is used');
   assert.deepEqual(
     [poseAt(seen.members.get('v'), T + 125).x, poseAt(seen.members.get('v'), T + 999).x],
@@ -312,14 +340,16 @@ test('lag compensation: a shot hits where the shooter saw the victim', () => {
 });
 
 test('lag compensation rewinds at most 250 ms and never for grenades', () => {
-  const h = runner(10); // x = 2.4 at T + 500; 250 ms back it was at x = 1.2
+  // x = 2.4 at T + 500; 250 ms back plus the 130 ms flight it was at x = 1.824.
+  const h = runner(10);
   fire(h, 'a', T + 500, 'paint', { seenAt: T });
   assert.equal(h.members.get('v').hp, 100, 'x = 0 is further back than the cap');
   const aimed = runner(10);
-  fire(aimed, 'a', T + 500, 'paint', { seenAt: T, target: [1.2, 1.1, 0] });
-  assert.equal(aimed.members.get('v').hp, 80, 'clamped to 250 ms: x = 1.2');
+  fire(aimed, 'a', T + 500, 'paint', { seenAt: T, target: [1.82, 1.1, 0] });
+  assert.equal(aimed.members.get('v').hp, 80, 'clamped to 250 ms: x = 1.824');
+  // Граната бьёт по тем, кто стоит рядом в миг взрыва.
   const g = fireEffect(h, 'a', shot('grenade', { seenAt: T }), T + 2000);
-  assert.equal(g.effect.rewindTo, T + 2000);
+  assert.equal(g.effect.rewindTo, T + 3100);
 });
 
 test('repeated teleports are refused and publish a correction instead of trusting the client', () => {

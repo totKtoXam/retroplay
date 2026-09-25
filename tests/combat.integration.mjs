@@ -87,6 +87,8 @@ const first = fire();
 // Wait for that existing rule instead of expecting damage during immunity.
 await wait(Math.max(0, (await member()).immuneRemaining || 0) + 80);
 await req(host, path, first);
+// Урон приходит, когда шарик долетел: 4 м летят 130 мс.
+await wait(160);
 assert.equal((await member()).hp, 80);
 await Promise.all([
   req(host, path, first),
@@ -98,6 +100,7 @@ for (let i = 0; i < 4; i++) {
   await wait(210);
   await req(host, path, fire());
 }
+await wait(160);
 const dead = await member();
 assert.equal(dead.hp, 0);
 assert.ok(dead.respawnAt > Date.now());

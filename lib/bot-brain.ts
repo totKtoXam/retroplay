@@ -17,7 +17,7 @@
 import type { HubMember, HubState } from './room-hub-core.ts';
 import { stanceHeight, type GameMap } from './maps/types.ts';
 import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
-import { WEAPONS, isBlaster, weaponCooldown, type Blaster } from './weapon-definition.ts';
+import { WEAPONS, cooledDown, isBlaster, weaponCooldown, type Blaster } from './weapon-definition.ts';
 import { memberWeapon } from './weapon-authority.ts';
 import { BOT_LEVELS, type BotLevel, type BotLevelRules, type BotSpec } from './bot-levels.ts';
 
@@ -736,7 +736,7 @@ export class BotBrain {
     }
     if (this.tool === 'sniper' && target.dist < 3) return {};
     if (this.tool === 'grenade' && (target.dist < 5 || target.dist > 22)) return {};
-    if (me.lastShot > now - weaponCooldown(this.tool)) return {};
+    if (!cooledDown(me, this.tool, now)) return {};
     const eye = eyeHeight(me.pose.stance);
     const origin = [me.pose.x, me.pose.y + eye, me.pose.z];
     const aim = this.leadPoint(target);
