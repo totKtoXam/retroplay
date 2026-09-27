@@ -69,7 +69,6 @@ export function loadHumanAssets(): Promise<HumanAssets> {
     });
   return pending;
 }
-export const humanAssets = () => ready;
 
 /* ---------- Костюм ---------- */
 
@@ -341,7 +340,7 @@ function handBasis(hand: T.Bone, side: 'l' | 'r') {
  * Создаёт человека и надевает его на процедурного бойца `avatar`. Возвращает
  * false, если модели ещё не загружены — тогда боец пока остаётся процедурным.
  */
-export function attachHuman(avatar: T.Group, seed: string) {
+function attachHuman(avatar: T.Group, seed: string) {
   if (humans.has(avatar)) return true;
   const assets = ready;
   if (!assets) return false;
@@ -505,10 +504,6 @@ const BONE_SOCKETS = {
   upperArmL: 'upperarm_l',
   upperArmR: 'upperarm_r',
 } as const;
-export type HumanSocket = keyof typeof BONE_SOCKETS;
-export function humanSocket(avatar: T.Object3D, name: HumanSocket) {
-  return humans.get(avatar)?.boneSockets.get(name) ?? null;
-}
 
 /**
  * Надевает человека на процедурного бойца: оружие, планшет и граната
@@ -586,7 +581,7 @@ export function unmountHuman(avatar: T.Group) {
 }
 
 /** Снимает человека с бойца и освобождает его ресурсы. */
-export function detachHuman(avatar: T.Object3D) {
+function detachHuman(avatar: T.Object3D) {
   const r = humans.get(avatar);
   if (!r) return;
   r.mixer.stopAllAction();
@@ -609,7 +604,7 @@ export function detachHuman(avatar: T.Object3D) {
  * Дальний боец рисуется упрощённым телом (в четыре раза меньше треугольников).
  * Невидимое упрощённое тело остаётся мишенью для попаданий.
  */
-export function setHumanDetail(avatar: T.Object3D, far: boolean) {
+function setHumanDetail(avatar: T.Object3D, far: boolean) {
   const r = humans.get(avatar);
   if (!r || (r.lodOn === far && r.lod.material !== r.suitMaterial && !far)) return;
   r.lodOn = far;
@@ -667,37 +662,11 @@ export function updateHumanLod(avatar: T.Object3D, distance: number, lite: boole
   }
 }
 
-/** Анимировать реже: 0 — каждый кадр, 1 — через кадр и т. д. */
-export function setHumanUpdateSkip(avatar: T.Object3D, skip: number) {
-  const r = humans.get(avatar);
-  if (r) r.skip = skip;
-}
-
-/** Цвет костюма (цвет игрока или команды) и закрытое лицо у скинов со шлемом. */
-export function setHumanSuit(avatar: T.Object3D, color: string, gear = '#1c1f26', cover = 0) {
-  const r = humans.get(avatar);
-  if (!r) return;
-  r.suit.suitColor.value.set(color);
-  r.suit.gearColor.value.set(gear);
-  r.suit.suitCover.value = cover;
-}
-
 export function humanShoot(avatar: T.Object3D, tool?: string) {
   const r = humans.get(avatar);
   if (!r) return;
   r.recoil = 1;
   if (tool === 'grenade') r.throwing = 1;
-}
-
-export function humanHeadBone(avatar: T.Object3D) {
-  return humans.get(avatar)?.bones.head ?? null;
-}
-export function humanBone(avatar: T.Object3D, name: string) {
-  const r = humans.get(avatar);
-  return r ? (r.group.getObjectByName(name) as T.Bone | undefined) ?? null : null;
-}
-export function humanSockets(avatar: T.Object3D) {
-  return humans.get(avatar)?.sockets ?? null;
 }
 
 /* ---------- Анимация ---------- */
