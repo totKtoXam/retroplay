@@ -9,6 +9,8 @@ import { modeOf } from '@/lib/maps/catalog';
 import { createFlashlightBeam, type FlashlightBeam } from './world-flashlight';
 import { createShieldBubble, type ShieldBubble } from './world-shield';
 import { createGhostForm, setGhostLook, type GhostForm } from './world-ghost';
+import { syncHuman, unmountHuman, updateHumanLod } from './world-human';
+import type { CharacterModels } from '@/lib/graphics-settings';
 
 /** Цвета сторон: боец и его метка окрашены в цвет команды, а не личный. */
 const TEAM_COLORS: Record<string, string> = { red: '#ff5d52', blue: '#5aa9ff' };
@@ -26,6 +28,7 @@ export function createWorldRemotePlayers({
   map,
   hidden,
   onDied,
+  characters,
 }: {
   scene: T.Scene;
   kit: WorldKit;
@@ -36,6 +39,8 @@ export function createWorldRemotePlayers({
   hidden?: (pose: { x: number; y: number; z: number }) => boolean;
   /** Игрок только что погиб: смыть с его аватара краску. */
   onDied?: (remote: T.Group) => void;
+  /** Модели бойцов из настроек графики и точка, от которой считать расстояние (камера). */
+  characters?: () => { mode: CharacterModels; eye: T.Vector3 };
 }) {
   const remoteAvatars = new Map<string, T.Group>(),
     remoteBandanaMats = new Map<string, T.MeshStandardMaterial>(),
@@ -103,6 +108,8 @@ export function createWorldRemotePlayers({
     liveRemoteIds = new Set<string>();
   let remoteKey = '';
   const retireRemote = (id: string, remote: T.Group) => {
+    // Геометрия человека общая на всех бойцов: снимаем его до общей чистки аватара.
+    unmountHuman(remote);
     remote.removeFromParent();
     retiredAvatars.push(remote);
     remoteAvatars.delete(id);
@@ -209,6 +216,10 @@ export function createWorldRemotePlayers({
         );
       // Update remote skin if changed
       applyAvatarSkin(remote, member.hat || member.skin || 'agent', colorOf(member), remoteBandanaMats.get(member.id));
+      // Люди вместо бойцов из деталей (world-human.ts), если так выбрано в настройках графики.
+      const look = characters?.();
+      if (look && syncHuman(remote, look.mode !== 'classic', member.id, colorOf(member)))
+        updateHumanLod(remote, remote.position.distanceTo(look.eye), look.mode === 'human-lite');
       const ally = isAlly(member);
       const mode = modeOf(latest.current.room.state);
       // В «Предателе» здоровья нет, а призраков (их видят только призраки) отмечаем, чтобы

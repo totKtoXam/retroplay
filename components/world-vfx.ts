@@ -313,6 +313,66 @@ export function createWorldVfx({
     parent.add(decal);
     splats.push({ mesh: decal, born: now, owner: parent, life: 12 });
   };
+  /**
+   * Треугольники кожи со скелетом вокруг точки — в текущей позе и мировых
+   * координатах, как сетка для DecalGeometry; и кость с наибольшим весом у
+   * ближайшей вершины: к ней пятно и крепится.
+   */
+  const posedNear = (mesh: T.SkinnedMesh, at: T.Vector3, size: number) => {
+    const position = mesh.geometry.getAttribute('position');
+    const index = mesh.geometry.getIndex();
+    const skinIndex = mesh.geometry.getAttribute('skinIndex');
+    const skinWeight = mesh.geometry.getAttribute('skinWeight');
+    const count = position.count;
+    const posed = new Float32Array(count * 3);
+    const v = new T.Vector3();
+    const near = size * 1.2;
+    let closest = -1,
+      best = Infinity;
+    for (let i = 0; i < count; i++) {
+      mesh.getVertexPosition(i, v).applyMatrix4(mesh.matrixWorld);
+      posed[i * 3] = v.x;
+      posed[i * 3 + 1] = v.y;
+      posed[i * 3 + 2] = v.z;
+      const d = v.distanceToSquared(at);
+      if (d < best) {
+        best = d;
+        closest = i;
+      }
+    }
+    const out: number[] = [];
+    const tris = index ? index.count : count;
+    const idx = (k: number) => (index ? index.getX(k) : k);
+    const n2 = near * near;
+    for (let t = 0; t < tris; t += 3) {
+      const a = idx(t),
+        b = idx(t + 1),
+        c = idx(t + 2);
+      const inside = [a, b, c].some((k) => {
+        const dx = posed[k * 3] - at.x,
+          dy = posed[k * 3 + 1] - at.y,
+          dz = posed[k * 3 + 2] - at.z;
+        return dx * dx + dy * dy + dz * dz < n2;
+      });
+      if (!inside) continue;
+      for (const k of [a, b, c]) out.push(posed[k * 3], posed[k * 3 + 1], posed[k * 3 + 2]);
+    }
+    const geometry = new T.BufferGeometry();
+    geometry.setAttribute('position', new T.Float32BufferAttribute(out, 3));
+    geometry.computeVertexNormals();
+    let bone = mesh.skeleton.bones[0];
+    if (closest >= 0 && skinIndex && skinWeight) {
+      let top = -1;
+      for (let k = 0; k < 4; k++) {
+        const w = skinWeight.getComponent(closest, k);
+        if (w > top) {
+          top = w;
+          bone = mesh.skeleton.bones[skinIndex.getComponent(closest, k)] ?? bone;
+        }
+      }
+    }
+    return { proxy: { geometry, matrixWorld: new T.Matrix4() }, bone };
+  };
   const raycaster = new T.Raycaster();
   const bodyParts: T.Mesh[] = [];
   const projector = new T.Object3D();
@@ -350,6 +410,8 @@ export function createWorldVfx({
         !(o instanceof T.InstancedMesh) &&
         !o.userData.paintStain &&
         o.geometry.getAttribute('position') &&
+        // Невидимый материал — мишень для попаданий (упрощённое тело человека), а не кожа.
+        (o.material as T.Material).visible !== false &&
         shown(o, owner)
       )
         bodyParts.push(o);
@@ -370,18 +432,25 @@ export function createWorldVfx({
     if (Math.abs(normal.y) > 0.95) projector.up.set(0, 0, 1);
     projector.lookAt(hit.point.clone().add(normal));
     projector.rotateZ((Math.random() - 0.5) * 0.5);
+    // Кожа со скелетом (боец-человек): DecalGeometry не знает про кости и
+    // проецировала бы пятно на позу покоя. Даём ей тело в текущей позе и
+    // вешаем пятно на кость, ближе всех к месту попадания.
+    const skinned = part instanceof T.SkinnedMesh ? posedNear(part, hit.point, size) : null;
     const geometry = new DecalGeometry(
-      part,
+      (skinned?.proxy ?? part) as T.Mesh,
       hit.point,
       projector.rotation,
       new T.Vector3(size, size, BODY_PAINT_DEPTH),
     );
+    skinned?.proxy.geometry.dispose();
     if (!geometry.getAttribute('position')?.count) {
       geometry.dispose();
       return false;
     }
-    // DecalGeometry отдаёт мировые координаты; пятно живёт в координатах части тела.
-    geometry.applyMatrix4(part.matrixWorld.clone().invert());
+    // DecalGeometry отдаёт мировые координаты; пятно живёт в координатах части тела (или кости).
+    const holder: T.Object3D = skinned?.bone ?? part;
+    holder.updateMatrixWorld(true);
+    geometry.applyMatrix4(holder.matrixWorld.clone().invert());
     const material = bodyPaintMaterials.acquire();
     material.color.set(color);
     material.opacity = 0.95;
@@ -392,7 +461,7 @@ export function createWorldVfx({
     // материалы — из пула, освобождает их retireSplat.
     stain.userData.presentationOnly = true;
     stain.castShadow = false;
-    part.add(stain);
+    holder.add(stain);
     splats.push({ mesh: stain, born: now, owner, life: BODY_PAINT_SECONDS });
     let count = 0;
     for (let i = splats.length - 1; i >= 0; i--) {

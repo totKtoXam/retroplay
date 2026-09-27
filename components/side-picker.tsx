@@ -192,6 +192,7 @@ export function SidePicker({
             anonymous={anonymous}
             skin={skinId}
             bandanaColor={bandana}
+            seed={self?.id}
           />
           <p className="sp-look-caption">
             <strong>{skin?.name || 'Скин'}</strong>

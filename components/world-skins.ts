@@ -499,6 +499,8 @@ export function applyAvatarSkin(
   if (bandanaMat) {
     bandanaMat.color.set(bandanaColor);
   }
+  // Бойцу-человеку (world-human.ts) нужен скин и личный цвет: из них его костюм и снаряжение.
+  avatar.userData.skinLook = { skin: skinId, accent: bandanaColor };
   // Скафандр экипажа красится в тот же личный/командный цвет, что и бандана.
   const suitMesh = avatar.getObjectByName('crew-torso') as T.Mesh | undefined;
   const suitMat = suitMesh?.material as T.MeshStandardMaterial | undefined;

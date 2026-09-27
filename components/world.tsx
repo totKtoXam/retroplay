@@ -30,7 +30,7 @@ import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
 import { createFieldOptics } from './resource-packs/realistic/post';
 import { useGraphicsSettings } from '../hooks/use-graphics-settings';
-import { GRAPHICS_PRESETS } from '../lib/graphics-settings';
+import { defaultCharacters, GRAPHICS_PRESETS } from '../lib/graphics-settings';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { visualBudget } from '../lib/resource-packs';
@@ -45,6 +45,7 @@ import {
   createPlayerFlashlight,
 } from './world-flashlight';
 import { createGhostForm, setGhostLook, type GhostForm } from './world-ghost';
+import { syncHuman, unmountHuman, updateHumanLod } from './world-human';
 import {
   dayMix,
   dayPosition,
@@ -878,7 +879,10 @@ export default function World(props: Props) {
     // Обзор в «Предателе»: дальше радиуса и за стенами других игроков не видно. Сервер
     // позиции всё равно присылает — это правило игры, а не защита от читов.
     const visionEye = new T.Vector3();
+    /** Модели бойцов: из настроек графики, иначе по профилю качества. */
+    const characterMode = () => graphicsRef.current?.characters ?? defaultCharacters(props.quality);
     const remotePlayers = createWorldRemotePlayers({
+      characters: () => ({ mode: characterMode(), eye: camera.position }),
       scene,
       kit,
       quality: props.quality,
@@ -2176,6 +2180,11 @@ export default function World(props: Props) {
       const myDeathTime = deadTimers.get(latest.current.room.self);
       const isMyDeathRecent = myHp === 0 && now - (myDeathTime || now) < 3800;
 
+      // Свой боец — тем же человеком, что его видят другие. В первом лице он не
+      // виден, и анимировать его каждый кадр незачем.
+      const characters = characterMode();
+      if (syncHuman(avatar, characters !== 'classic', latest.current.room.self, myMember?.color || '#718cdd'))
+        updateHumanLod(avatar, perspectiveRef.current === 'first' ? 60 : 0, characters === 'human-lite');
       animateAvatar(
         avatar,
         {
@@ -2561,6 +2570,9 @@ export default function World(props: Props) {
       canvas.removeEventListener('auxclick', context);
       canvas.removeEventListener('webglcontextlost', context);
       visuals.dispose();
+      // Геометрия и текстуры людей общие для всех бойцов и сцен — общая чистка ниже их не трогает.
+      unmountHuman(avatar);
+      for (const remote of remoteAvatars.values()) unmountHuman(remote);
       scene.traverse((o) => {
         if (
           o instanceof T.Mesh ||
@@ -2977,6 +2989,7 @@ export default function World(props: Props) {
               }
               anime={props.room.state.visualStyle === 'anime'}
               anonymous={!!props.room.state.anonymousPlayers}
+              seed={props.room.self}
             />
           )}
           <div className="equipment-items">

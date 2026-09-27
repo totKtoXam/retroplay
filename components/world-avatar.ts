@@ -2,6 +2,7 @@ import { makeGrenade, setGrenadeStyle } from './party-geometry.ts';
 import * as T from 'three';
 import { buildAgentSkin } from './world-agent.ts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { animateHuman, hasHuman, humanShoot } from './world-human.ts';
 
 export type AvatarMotion = {
   speed: number;
@@ -527,6 +528,7 @@ export function setAvatarAnonymous(avatar: T.Group, value: boolean) {
 export function avatarShoot(avatar: T.Group) {
   const r = rigs.get(avatar);
   if (r) r.recoil = 1;
+  humanShoot(avatar, r?.tool);
 }
 
 /** Одни суставы и переходы для своего персонажа и сетевых аватаров. */
@@ -538,6 +540,22 @@ export function animateAvatar(
 ) {
   const r = rigs.get(avatar);
   if (!r) return;
+  if (hasHuman(avatar)) {
+    // Боец-человек (world-human.ts): процедурное тело скрыто, двигается человек.
+    // Отсюда нужен только выбор предмета в руках — сами предметы висят в держателях у кистей.
+    r.tool = m.tool;
+    showHeldItem(avatar, r, m);
+    if (m.hp === 0) {
+      // Погибший роняет всё, что держал.
+      r.gun.visible = r.tablet.visible = false;
+      const grenade = avatar.getObjectByName('held-grenade');
+      if (grenade) grenade.visible = false;
+    }
+    r.gun.position.set(0, 0, 0);
+    r.gun.rotation.set(0, 0, 0);
+    animateHuman(avatar, m, dt, time);
+    return;
+  }
   const follow = (a: number, b: number, rate = 12) =>
     T.MathUtils.lerp(a, b, 1 - Math.exp(-rate * dt));
   const airborne = m.airborne;
@@ -617,11 +635,6 @@ export function animateAvatar(
   r.head.rotation.y = follow(r.head.rotation.y, targetHeadRotY);
   r.head.rotation.z = follow(r.head.rotation.z, Math.sin(time * 1.5) * 0.018);
 
-  const grenade = avatar.getObjectByName('held-grenade');
-  if (grenade) {
-    grenade.visible = m.tool === 'grenade';
-    if (grenade.visible) setGrenadeStyle(grenade, m.variant || 'pinata');
-  }
   const armed = ['paint', 'confetti', 'grenade', 'sniper', 'flashlight'].includes(m.tool);
   for (let i = 0; i < 2; i++) {
     const side = i ? 1 : -1,
@@ -714,19 +727,8 @@ export function animateAvatar(
   }
   r.gun.rotation.x =
     -r.arms[1].rotation.x - r.elbows[1].rotation.x - m.pitch * 0.6;
-  r.gun.visible = armed && m.tool !== 'grenade' && !m.working && !m.inventory;
   r.gun.position.z = follow(r.gun.position.z, -0.03 + r.recoil * 0.08);
-
-  const gunPaint = r.gun.getObjectByName('gun-paint');
-  if (gunPaint) gunPaint.visible = m.tool === 'paint';
-  const gunShotgun = r.gun.getObjectByName('gun-shotgun');
-  if (gunShotgun) gunShotgun.visible = m.tool === 'confetti';
-  const gunSniper = r.gun.getObjectByName('gun-sniper');
-  if (gunSniper) gunSniper.visible = m.tool === 'sniper';
-  const gunTorch = r.gun.getObjectByName('gun-torch');
-  if (gunTorch) gunTorch.visible = m.tool === 'flashlight';
-
-  r.tablet.visible = !!m.working || !!m.inventory || m.tool === 'pointer';
+  showHeldItem(avatar, r, m);
   r.scarf.rotation.x = follow(
     r.scarf.rotation.x,
     -stride * 0.45 + Math.sin(time * 5) * 0.08 * stride,
@@ -735,6 +737,26 @@ export function animateAvatar(
     r.coat.rotation.x,
     -stride * 0.28 + wave * 0.08 * stride,
   );
+}
+
+/** Что в руках: граната, одна из моделей оружия или планшет. */
+function showHeldItem(avatar: T.Group, r: Rig, m: AvatarMotion) {
+  const grenade = avatar.getObjectByName('held-grenade');
+  if (grenade) {
+    grenade.visible = m.tool === 'grenade';
+    if (grenade.visible) setGrenadeStyle(grenade, m.variant || 'pinata');
+  }
+  const armed = ['paint', 'confetti', 'grenade', 'sniper', 'flashlight'].includes(m.tool);
+  r.gun.visible = armed && m.tool !== 'grenade' && !m.working && !m.inventory;
+  const gunPaint = r.gun.getObjectByName('gun-paint');
+  if (gunPaint) gunPaint.visible = m.tool === 'paint';
+  const gunShotgun = r.gun.getObjectByName('gun-shotgun');
+  if (gunShotgun) gunShotgun.visible = m.tool === 'confetti';
+  const gunSniper = r.gun.getObjectByName('gun-sniper');
+  if (gunSniper) gunSniper.visible = m.tool === 'sniper';
+  const gunTorch = r.gun.getObjectByName('gun-torch');
+  if (gunTorch) gunTorch.visible = m.tool === 'flashlight';
+  r.tablet.visible = !!m.working || !!m.inventory || m.tool === 'pointer';
 }
 
 export function followCameraHeading(

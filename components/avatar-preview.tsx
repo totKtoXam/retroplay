@@ -13,6 +13,8 @@ export function AvatarPreview(props: {
   /** Идентификатор скина из lib/avatar-catalog; без него показываем «агента». */
   skin?: string;
   bandanaColor?: string;
+  /** id игрока: по нему выбирается облик бойца-человека, как в игре. */
+  seed?: string;
 }) {
   const mounted = useSyncExternalStore(subscribe, client, server);
   return <Suspense fallback={null}>{mounted ? <Scene {...props} /> : null}</Suspense>;

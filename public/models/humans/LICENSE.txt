@@ -1,0 +1,16 @@
+Модели и анимации бойцов-людей — Quaternius, лицензия CC0 1.0 Universal
+(общественное достояние): https://creativecommons.org/publicdomain/zero/1.0/
+
+  human-male.glb, human-female.glb
+    Universal Base Characters [Standard] — тела Superhero Male/Female и причёски.
+    https://quaternius.itch.io/universal-base-characters
+
+  human-animations.glb
+    Universal Animation Library [Standard] — отобранные клипы, без сетки манекена.
+    https://quaternius.itch.io/universal-animation-library
+
+Файлы собраны скриптом scripts/build-human-models.mjs: текстуры уменьшены и
+пережаты в WebP, добавлены упрощённое тело (body-lod) и маска костюма в цвете
+вершин, из анимаций убраны неподвижные дорожки, всё сжато EXT_meshopt_compression.
+
+Автор: Quaternius — https://quaternius.com, https://www.patreon.com/quaternius
