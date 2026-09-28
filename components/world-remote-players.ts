@@ -3,7 +3,7 @@ import { isOnline, type Room } from '@/lib/model';
 import { isBlocked3D, rayCastWorldObstacle } from '@/lib/world-collision';
 import type { GameMap } from '@/lib/maps/types';
 import type { WorldKit } from './world-map-scene';
-import { animateAvatar, setAvatarAnonymous } from './world-avatar';
+import { animateAvatar, fighterShared, setAvatarAnonymous } from './world-avatar';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { modeOf } from '@/lib/maps/catalog';
 import { createFlashlightBeam, type FlashlightBeam } from './world-flashlight';
@@ -136,11 +136,14 @@ export function createWorldRemotePlayers({
         o.material.map?.dispose();
         o.material.dispose();
       } else if (o instanceof T.Mesh) {
-        o.geometry.dispose();
+        // Геометрия и постоянные материалы бойца общие с шаблоном (world-avatar.ts).
+        if (!fighterShared(o.geometry)) o.geometry.dispose();
         const materials = Array.isArray(o.material)
           ? o.material
           : [o.material];
-        materials.forEach((m) => m.dispose());
+        materials.forEach((m) => {
+          if (!fighterShared(m)) m.dispose();
+        });
       }
     });
   };

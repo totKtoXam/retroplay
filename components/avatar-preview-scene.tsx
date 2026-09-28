@@ -7,6 +7,7 @@ import {
   animateAvatar,
   setAvatarStyle,
   setAvatarAnonymous,
+  fighterShared,
 } from './world-avatar';
 import { applyAvatarSkin, attachCustomSkins } from './world-skins';
 import { useGraphicsSettings } from '../hooks/use-graphics-settings';
@@ -225,8 +226,9 @@ export function AvatarPreview({
           );
         }
       });
-      geometries.forEach((g) => g.dispose());
-      materials.forEach((m) => m.dispose());
+      // Общее с шаблоном бойца нужно игре и следующему превью.
+      geometries.forEach((g) => fighterShared(g) || g.dispose());
+      materials.forEach((m) => fighterShared(m) || m.dispose());
       renderer.dispose();
       renderer.domElement.remove();
     };

@@ -14,6 +14,9 @@ export function attachCustomSkins(avatar: T.Group): {
   const chest = avatar.getObjectByName('chest') as T.Group | undefined;
   const legL = avatar.getObjectByName('legL') as T.Group | undefined;
   const legR = avatar.getObjectByName('legR') as T.Group | undefined;
+  // Копия шаблона (world-avatar.ts) уже одета: аксессуары у неё общие с
+  // шаблоном, а свои у бойца только материалы банданы и скафандра.
+  if (avatar.getObjectByName('avatar-bandana')) return adoptSkins(avatar);
   if (!head || !chest || !legL || !legR)
     return {
       dispose: () => {},
@@ -45,6 +48,8 @@ export function attachCustomSkins(avatar: T.Group): {
       metalness: 0.05,
     }),
   );
+  bandanaMat.userData.skinMaterial = 'bandana';
+  bandanaMat.userData.perFighter = true;
 
   /**
    * Лицо рига смотрит в −Z: в createAvatar глаза и рот стоят на z ≈ −0.21. Весь этот
@@ -294,6 +299,8 @@ export function attachCustomSkins(avatar: T.Group): {
   const suitMat = trackMat(
     new T.MeshStandardMaterial({ color: '#3b82f6', roughness: 0.55, metalness: 0.05 }),
   );
+  suitMat.userData.skinMaterial = 'suit';
+  suitMat.userData.perFighter = true;
   const trimMat = mat('#7d8a99', 0.6, 0.2); // ранец и ботинки — нейтральный цвет для всех скафандров
   const visorMat = mat('#8fd6f7', 0.12, 0.4, '#2f8fc9'); // лёгкое свечение стекла визора
   const glareMat = mat('#eef8ff', 0.05, 0.1); // блик в углу визора
@@ -474,6 +481,33 @@ export function attachCustomSkins(avatar: T.Group): {
     bandanaMat,
     suitMat,
   };
+}
+
+/** Одетая копия шаблона: свои материалы банданы и скафандра вместо общих. */
+function adoptSkins(avatar: T.Group) {
+  let bandanaMat: T.MeshStandardMaterial | null = null,
+    suitMat: T.MeshStandardMaterial | null = null;
+  avatar.traverse((o) => {
+    if (!(o instanceof T.Mesh) || Array.isArray(o.material)) return;
+    const kind = (o.material as T.Material).userData.skinMaterial;
+    if (kind === 'bandana') o.material = bandanaMat ??= own(o.material as T.MeshStandardMaterial);
+    else if (kind === 'suit') o.material = suitMat ??= own(o.material as T.MeshStandardMaterial);
+  });
+  const bandana = bandanaMat ?? new T.MeshStandardMaterial(),
+    suit = suitMat ?? new T.MeshStandardMaterial();
+  return {
+    dispose: () => {
+      bandana.dispose();
+      suit.dispose();
+    },
+    bandanaMat: bandana,
+    suitMat: suit,
+  };
+}
+function own(source: T.MeshStandardMaterial) {
+  const m = source.clone();
+  m.userData = { skinMaterial: source.userData.skinMaterial, perFighter: true };
+  return m;
 }
 
 /** Скины экипажа («Среди нас»): общий скафандр + своя косметика у каждого. */

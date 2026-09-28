@@ -3,6 +3,7 @@ import * as T from 'three';
 import { buildAgentSkin } from './world-agent.ts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { animateHuman, hasHuman, humanShoot } from './world-human.ts';
+import { attachCustomSkins } from './world-skins.ts';
 
 export type AvatarMotion = {
   speed: number;
@@ -45,8 +46,137 @@ type Rig = {
 };
 const rigs = new WeakMap<T.Group, Rig>();
 
+/*
+ * Шаблон бойца. Процедурный боец тяжёлый: одних деталей скина «Агента» —
+ * 150 тыс. вершин, а сборка со скинами занимала ~40 мс на каждого игрока, и у
+ * каждого была своя копия геометрии. Теперь боец собирается один раз —
+ * шаблоном (или загружается файлом, world-fighter-file.ts), — а каждый новый
+ * боец — копия шаблона: геометрия и постоянные материалы общие, свои у бойца
+ * только материалы с его цветом.
+ *
+ * Цвет игрока не запекается в вершины: детали его цвета помечены атрибутом
+ * `tint`, а сам цвет подаёт материал бойца (tintedSkinMaterial).
+ */
+/** Цвет-метка, которым шаблон собирается вместо цвета игрока. */
+export const TINT_KEY = '#ff00fe';
+/** Постоянный материал обводки аниме-стиля: один на всех бойцов. */
+export const fighterOutlineMaterial = new T.ShaderMaterial({
+  side: T.BackSide,
+  vertexShader:
+    'void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position+normal*.009,1.0);}',
+  fragmentShader: 'void main(){gl_FragColor=vec4(.24,.22,.34,1.0);}',
+});
+fighterOutlineMaterial.userData.fighterShared = true;
+
+/**
+ * Материал тела бойца: цвета деталей из вершин, а детали цвета игрока
+ * (атрибут `tint`) красятся в `userData.tint`. Подмена стиля (world-art.ts)
+ * переносит onBeforeCompile в «мультяшный» материал — цвет не теряется.
+ */
+export function tintedSkinMaterial(color = '#ffffff') {
+  const m = new T.MeshStandardMaterial({ color: '#ffffff', vertexColors: true, roughness: 0.8 });
+  const tint = { value: new T.Color(color) };
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.tintColor = tint;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float tint;\nvarying float vTint;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTint = tint;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 tintColor;\nvarying float vTint;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(vec3(1.0), tintColor, vTint);');
+  };
+  m.customProgramCacheKey = () => 'fighter-tint-v1';
+  return m;
+}
+
+/**
+ * Общая с шаблоном геометрия или материал: у всех копий бойцов одни и те же.
+ * Чистка ушедшего бойца или сцены их не освобождает — иначе видеокарта
+ * заново загружала бы их для каждого оставшегося.
+ */
+export const fighterShared = (resource: { userData: Record<string, unknown> }) => !!resource.userData.fighterShared;
+
+/** Шаблон, из которого копируются бойцы; файл (если загружен) подменяет процедурный. */
+let template: T.Group | null = null;
+export function setFighterTemplate(next: T.Group) {
+  template = next;
+}
+/** Собрать шаблон процедурно: боец цвета-метки со всеми скинами. */
+export function buildFighterTemplate(dressSkins: (avatar: T.Group) => void) {
+  const avatar = buildAvatar(TINT_KEY);
+  dressSkins(avatar);
+  // Аксессуары скинов в копиях скрыты, пока applyAvatarSkin не выберет нужные.
+  avatar.traverse((o) => {
+    if (o.name.startsWith('skin-') || o.name === 'avatar-bandana') o.visible = false;
+  });
+  avatar.traverse((o) => {
+    if (o instanceof T.Mesh) {
+      o.geometry.userData.fighterShared = true;
+      const list = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of list) if (!m.userData.perFighter) m.userData.fighterShared = true;
+    }
+  });
+  return avatar;
+}
+
+/** Боец цвета `color`: копия шаблона с собственными материалами цвета. */
 export function createAvatar(color: string) {
   if (color === '#368c78') color = '#657ac9';
+  template ??= buildFighterTemplate((a) => attachCustomSkins(a));
+  return instantiate(template, color);
+}
+
+function instantiate(source: T.Group, color: string) {
+  const avatar = source.clone(true);
+  const skin = tintedSkinMaterial(color);
+  skin.userData.perFighter = true;
+  avatar.traverse((o) => {
+    if (!(o instanceof T.Mesh)) return;
+    const m = o.material as T.Material;
+    if (m.userData.fighterSkin) o.material = skin;
+    // Функции-заглушки луча не копируются вместе с объектом.
+    if (o.name === 'anime-outline') o.raycast = () => {};
+  });
+  const find = (name: string) => avatar.getObjectByName(name) as T.Group;
+  const legs = [find('legL'), find('legR')],
+    knees = [find('kneeL'), find('kneeR')],
+    arms = [find('armL'), find('armR')],
+    elbows = [find('elbowL'), find('elbowR')];
+  // Граната у каждого своя: её вид (setGrenadeStyle) меняется прямо в её материалах.
+  const grenade = makeGrenade('#f49fd6');
+  grenade.name = 'held-grenade';
+  grenade.visible = false;
+  grenade.position.set(0, -0.3, 0.03);
+  elbows[1].add(grenade);
+  avatar.userData.color = color;
+  rigs.set(avatar, {
+    root: find('rig'),
+    chest: find('chest'),
+    head: find('head'),
+    legs,
+    knees,
+    arms,
+    elbows,
+    scarf: find('scarf'),
+    coat: find('coat-tail'),
+    gun: find('gun'),
+    tablet: find('tablet'),
+    classic: find('classic-detail'),
+    anime: find('anime-detail'),
+    phase: 0,
+    speed: 0,
+    airborne: false,
+    landing: 0,
+    recoil: 0,
+    equip: 0,
+    tool: '',
+  });
+  setAvatarStyle(avatar, false);
+  return avatar;
+}
+
+/** Процедурная сборка бойца — источник шаблона (и файла с ним). */
+function buildAvatar(color: string) {
   const avatar = new T.Group(),
     root = new T.Group();
   root.name = 'rig';
@@ -391,40 +521,12 @@ export function createAvatar(color: string) {
   for (let i = 0; i < 3; i++)
     box(tablet, '#e7f5ff', -0.02, 0.073, -0.2 + i * 0.09, 0.22, 0.005, 0.025);
   const disposeAgentMaterials = buildAgentSkin(avatar, color);
-  rigs.set(avatar, {
-    root,
-    chest,
-    head,
-    legs,
-    knees,
-    arms,
-    elbows,
-    scarf,
-    coat,
-    gun,
-    tablet,
-    classic,
-    anime,
-    phase: 0,
-    speed: 0,
-    airborne: false,
-    landing: 0,
-    recoil: 0,
-    equip: 0,
-    tool: '',
-  });
-  // Цвет запекается в вершины: одна отрисовка на сустав вместо десятков отдельных деталей.
-  const skin = new T.MeshStandardMaterial({
-    color: '#ffffff',
-    vertexColors: true,
-    roughness: 0.8,
-  });
-  const outlineMaterial = new T.ShaderMaterial({
-    side: T.BackSide,
-    vertexShader:
-      'void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position+normal*.009,1.0);}',
-    fragmentShader: 'void main(){gl_FragColor=vec4(.24,.22,.34,1.0);}',
-  });
+  // Цвет запекается в вершины: одна отрисовка на сустав вместо десятков
+  // отдельных деталей. Детали цвета игрока (здесь — цвета-метки) помечаются
+  // атрибутом `tint`: их цвет подаёт материал конкретного бойца.
+  const skin = tintedSkinMaterial();
+  skin.userData.fighterSkin = true;
+  const tintHex = new T.Color(color).getHexString();
   const joints: T.Group[] = [];
   avatar.traverse((o) => {
     if (o instanceof T.Group) joints.push(o);
@@ -441,13 +543,16 @@ export function createAvatar(color: string) {
         : p.geometry.clone();
       geo.applyMatrix4(p.matrix);
       const color = (p.material as T.MeshStandardMaterial).color;
-      const colors = new Float32Array(geo.attributes.position.count * 3);
+      const tinted = color.getHexString() === tintHex;
+      const count = geo.attributes.position.count;
+      const colors = new Float32Array(count * 3);
       for (let i = 0; i < colors.length; i += 3) {
-        colors[i] = color.r;
-        colors[i + 1] = color.g;
-        colors[i + 2] = color.b;
+        colors[i] = tinted ? 1 : color.r;
+        colors[i + 1] = tinted ? 1 : color.g;
+        colors[i + 2] = tinted ? 1 : color.b;
       }
       geo.setAttribute('color', new T.BufferAttribute(colors, 3));
+      geo.setAttribute('tint', new T.BufferAttribute(new Float32Array(count).fill(tinted ? 1 : 0), 1));
       return geo;
     });
     const geometry = mergeGeometries(geos);
@@ -460,7 +565,7 @@ export function createAvatar(color: string) {
     const shape = new T.Mesh(geometry, skin);
     shape.castShadow = true;
     joint.add(shape);
-    const outline = new T.Mesh(geometry, outlineMaterial);
+    const outline = new T.Mesh(geometry, fighterOutlineMaterial);
     outline.name = 'anime-outline';
     outline.visible = false;
     outline.raycast = () => {};
@@ -496,12 +601,7 @@ export function createAvatar(color: string) {
   smile.position.set(0, -0.035, 0.264);
   bag.add(smile);
   head.add(bag);
-  const grenade = makeGrenade('#f49fd6');
-  grenade.name = 'held-grenade';
-  grenade.visible = false;
-  grenade.position.set(0, -0.3, 0.03);
-  elbows[1].add(grenade);
-  setAvatarStyle(avatar, false);
+  // Граната в шаблон не входит — её добавляет каждому бойцу instantiate.
   return avatar;
 }
 

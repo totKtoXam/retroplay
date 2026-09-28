@@ -46,6 +46,7 @@ import {
 } from './world-flashlight';
 import { createGhostForm, setGhostLook, type GhostForm } from './world-ghost';
 import { syncHuman, unmountHuman, updateHumanLod } from './world-human';
+import { preloadFighterModel } from './world-fighter-file';
 import {
   dayMix,
   dayPosition,
@@ -86,7 +87,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { animateAvatar, avatarShoot } from './world-avatar';
+import { animateAvatar, avatarShoot, fighterShared } from './world-avatar';
 import {
   MousePointer2,
   MoveUp,
@@ -276,6 +277,10 @@ function animateRef(
   };
   requestAnimationFrame(step);
 }
+
+// Шаблон бойца (оружие, скины) — файлом, пока собирается остальное: бойцы
+// копируются из него, а не собираются каждый заново (world-fighter-file.ts).
+if (typeof window !== 'undefined') void preloadFighterModel();
 
 export default function World(props: Props) {
   const resourcePack = useResourcePack();
@@ -2579,11 +2584,13 @@ export default function World(props: Props) {
           o instanceof T.Points ||
           o instanceof T.Sprite
         ) {
-          if ('geometry' in o) o.geometry.dispose();
+          // Общее с шаблоном бойца остаётся для следующей сцены (world-avatar.ts).
+          if ('geometry' in o && !fighterShared(o.geometry)) o.geometry.dispose();
           const materials = Array.isArray(o.material)
             ? o.material
             : [o.material];
           materials.forEach((m) => {
+            if (fighterShared(m)) return;
             if ('map' in m && m.map) (m.map as T.Texture).dispose();
             m.dispose();
           });

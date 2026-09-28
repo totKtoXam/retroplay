@@ -1,7 +1,8 @@
 import * as T from 'three';
 import { geometryBatch, garment, visualOnly } from '../realistic/geometry.ts';
 import type { UrbanMaterials } from './materials.ts';
-export function disposeGeometry(root: T.Object3D) { root.removeFromParent(); root.traverse(o=>{if(o instanceof T.Mesh)o.geometry.dispose();}); }
+// Геометрия бойцов общая с их шаблоном (world-avatar.ts) — её не освобождаем.
+export function disposeGeometry(root: T.Object3D) { root.removeFromParent(); root.traverse(o=>{if(o instanceof T.Mesh&&!o.geometry.userData.fighterShared)o.geometry.dispose();}); }
 /** Skyline outside every playable map; never adds fake cover inside the match. */
 export function createUrbanDistrict(scene: T.Scene, m: UrbanMaterials, detail: number) {
   const root=visualOnly(new T.Group());root.name='urban-district';scene.add(root);
