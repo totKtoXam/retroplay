@@ -2,6 +2,7 @@ import * as T from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { AvatarMotion } from './world-avatar.ts';
 import { buildHeadband, buildTacticalGear, humanLook, makeAdapter } from './world-human-gear.ts';
+import { WEAPON_MODEL, WEAPON_SUPPORT, WORLD_WEAPON_SCALE } from './world-weapon-models.ts';
 
 /*
  * Бойцы-люди: скелетные модели Quaternius (CC0, public/models/humans, сборка —
@@ -35,6 +36,11 @@ type HumanAssets = {
 
 let pending: Promise<HumanAssets> | null = null;
 let ready: HumanAssets | null = null;
+
+/** Загруженные модели людей или null (загрузку запускает loadHumanAssets). */
+export function humanAssets() {
+  return ready;
+}
 
 /** Загружает модели один раз на вкладку; при ошибке следующая попытка начнётся заново. */
 export function loadHumanAssets(): Promise<HumanAssets> {
@@ -90,7 +96,7 @@ varying vec3 vSuitMask;
  * цвет игрока или команды. `suitCover` = 1 закрывает и лицо — для скинов с
  * маской или шлемом во всю голову.
  */
-function suitMaterial(source: T.MeshStandardMaterial) {
+export function suitMaterial(source: T.MeshStandardMaterial) {
   const material = source.clone();
   const uniforms = {
     suitColor: { value: new T.Color('#3d4a66') },
@@ -151,7 +157,7 @@ function prepareTemplate(scene: T.Object3D) {
 
 /* ---------- Кости ---------- */
 
-type Bones = {
+export type Bones = {
   root: T.Bone;
   pelvis: T.Bone;
   spine: T.Bone[];
@@ -163,7 +169,7 @@ type Bones = {
 };
 const SIDES = ['l', 'r'] as const;
 
-function findBones(scene: T.Object3D): Bones {
+export function findBones(scene: T.Object3D): Bones {
   const bone = (name: string) => {
     const b = scene.getObjectByName(name);
     if (!(b instanceof T.Bone)) throw Error(`нет кости ${name}`);
@@ -202,7 +208,7 @@ function rotateWorld(bone: T.Object3D, axis: T.Vector3, angle: number) {
 }
 
 /** Ставит мировую ориентацию кости. */
-function setWorldQuaternion(bone: T.Object3D, world: T.Quaternion) {
+export function setWorldQuaternion(bone: T.Object3D, world: T.Quaternion) {
   bone.parent!.getWorldQuaternion(_q2);
   bone.quaternion.copy(_q2.invert().multiply(world));
   bone.updateWorldMatrix(false, false);
@@ -219,7 +225,7 @@ function aimBone(bone: T.Object3D, from: T.Vector3, to: T.Vector3) {
  * Двухзвенная IK: плечо → локоть → кисть к точке `target`. Локоть уходит в
  * сторону `pole`. Если цель дальше вытянутой руки — рука просто тянется к ней.
  */
-function reach(upper: T.Bone, lower: T.Bone, hand: T.Bone, target: T.Vector3, pole: T.Vector3) {
+export function reach(upper: T.Bone, lower: T.Bone, hand: T.Bone, target: T.Vector3, pole: T.Vector3) {
   const a = upper.getWorldPosition(new T.Vector3()),
     b = lower.getWorldPosition(new T.Vector3()),
     c = hand.getWorldPosition(new T.Vector3());
@@ -329,12 +335,13 @@ function hash(text: string) {
   return h >>> 0;
 }
 
-function handBasis(hand: T.Bone, side: 'l' | 'r') {
+export function handBasis(hand: T.Bone, side: 'l' | 'r') {
   // Базис кисти в её локальных осях: «вперёд» — к среднему пальцу, «вверх» — к большому.
   const finger = hand.getObjectByName(`middle_01_${side}`)!.position.clone().normalize();
   const thumb = hand.getObjectByName(`thumb_01_${side}`)!.position.clone().normalize();
   const up = thumb.sub(finger.clone().multiplyScalar(thumb.dot(finger))).normalize();
-  const right = new T.Vector3().crossVectors(finger, up);
+  // Правая тройка (right, up, finger): из левой матрицы кватернион не собрать.
+  const right = new T.Vector3().crossVectors(up, finger);
   return new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(right, up, finger));
 }
 
@@ -681,6 +688,13 @@ export function updateHumanLod(avatar: T.Object3D, distance: number, lite: boole
   }
 }
 
+/** Облик надетого человека: тело и цвета костюма — для рук от первого лица (world-view-arms.ts). */
+export function humanOutfit(avatar: T.Object3D) {
+  const r = humans.get(avatar);
+  if (!r) return null;
+  return { female: r.female, suit: r.suit.suitColor.value, gear: r.suit.gearColor.value, cover: r.suit.suitCover.value };
+}
+
 export function humanShoot(avatar: T.Object3D, tool?: string) {
   const r = humans.get(avatar);
   if (!r) return;
@@ -690,7 +704,7 @@ export function humanShoot(avatar: T.Object3D, tool?: string) {
 
 /* ---------- Анимация ---------- */
 
-const ARMED = new Set(['paint', 'confetti', 'sniper', 'flashlight']);
+const ARMED = new Set(['paint', 'confetti', 'sniper', 'like', 'flashlight']);
 const UP = new T.Vector3(0, 1, 0);
 
 /**
@@ -859,8 +873,12 @@ function holdItem(avatar: T.Group, r: HumanRig, m: AvatarMotion, armed: boolean,
   const reload = m.reload ? Math.sin(m.reload * Math.PI) : 0;
 
   if (armed) {
-    // Хват у плеча: приклад в плечо, ствол вперёд по прицелу.
-    const pos = at(0.17, -0.05 - reload * 0.08, -0.34 + r.recoil * 0.07);
+    // Хват у плеча: приклад в плечо, ствол вперёд по прицелу. Пистолет — на
+    // вытянутых руках перед грудью.
+    const pistol = m.tool === 'like';
+    const pos = pistol
+      ? at(0.06, 0.02 - reload * 0.08, -0.5 + r.recoil * 0.05)
+      : at(0.17, -0.05 - reload * 0.08, -0.34 + r.recoil * 0.07);
     gun.position.copy(pos);
     gun.quaternion.copy(aim).multiply(_q.setFromAxisAngle(new T.Vector3(0, 0, 1), reload * 0.5));
   }
@@ -887,7 +905,15 @@ function holdItem(avatar: T.Group, r: HumanRig, m: AvatarMotion, armed: boolean,
   const rightDir = new T.Vector3(1, 0, 0).applyQuaternion(aimWorld);
   let rightTarget: T.Vector3 | null = null,
     leftTarget: T.Vector3 | null = null;
-  if (armed) {
+  const model = gun.userData.weaponsDressed ? WEAPON_MODEL[m.tool] : undefined;
+  if (armed && model) {
+    // Модель из файла: начало — хват правой ладонью, запястье чуть ниже и позади;
+    // левая — под цевьём (у пистолета — под правой кистью).
+    const k = WORLD_WEAPON_SCALE;
+    const [sx, sy, sz] = WEAPON_SUPPORT[model];
+    rightTarget = world(gun, 0.012 * k, -0.035 * k, 0.05 * k);
+    leftTarget = world(gun, sx * k - 0.01, (sy - 0.035) * k - reload * 0.12, (sz + 0.05) * k + reload * 0.18);
+  } else if (armed) {
     rightTarget = world(gun, 0, -0.02, 0.02);
     leftTarget =
       m.tool === 'flashlight'
@@ -911,8 +937,8 @@ function holdItem(avatar: T.Group, r: HumanRig, m: AvatarMotion, armed: boolean,
     // Кисть: пальцы вдоль ствола, большой палец вверх; левая ладонь снизу цевья.
     const fingers = fwd.clone().applyAxisAngle(rightDir, i ? -0.5 : -0.2);
     const thumb = i ? up.clone() : up.clone().applyAxisAngle(fwd, 0.9);
-    const side = new T.Vector3().crossVectors(fingers, thumb.sub(fingers.clone().multiplyScalar(thumb.dot(fingers))).normalize());
-    const upOrtho = new T.Vector3().crossVectors(side, fingers);
+    const side = new T.Vector3().crossVectors(thumb.sub(fingers.clone().multiplyScalar(thumb.dot(fingers))).normalize(), fingers);
+    const upOrtho = new T.Vector3().crossVectors(fingers, side);
     const basis = new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(side, upOrtho, fingers));
     setWorldQuaternion(b.hand[i], basis.multiply(r.handBasis[i].clone().invert()));
   }

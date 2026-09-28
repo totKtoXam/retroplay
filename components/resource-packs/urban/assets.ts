@@ -67,19 +67,6 @@ export function createUrbanSuit(avatar:T.Group,m:UrbanMaterials) {
   }
   return {sync(){hidden.forEach(h=>{h.mesh.material=invisible;h.mesh.castShadow=false;});},dispose(){groups.forEach(disposeGeometry);hidden.forEach(h=>{h.mesh.material=h.material;h.mesh.castShadow=h.shadow;});invisible.dispose();}};
 }
-export function createUrbanTool(hands:T.Group,m:UrbanMaterials) {
-  const root=visualOnly(new T.Group());hands.getObjectByName('paint-launcher')?.add(root);
-  const shell=m.ceramic.clone(),metal=m.copper.clone();shell.depthTest=metal.depthTest=false;
-  const b=geometryBatch(root);
-  // Everything stays under the sight line (lib/weapon-sights.ts, y .118): the tool ignores depth, so a part above it covers the dot and the front post.
-  b.box([.16,.12,.27],shell,[0,.035,-.23],.028);
-  for(const side of [-1,1]) for(let i=0;i<7;i++)b.box([.012,.04,.013],metal,[side*.084,.045,-.15-i*.026],.003);
-  b.add(new T.TorusGeometry(.052,.007,12,32),metal,[0,.018,-.375]);
-  b.box([.08,.012,.11],metal,[0,.09,-.24],.004);
-  b.finish().forEach(o=>{o.renderOrder=1001;o.castShadow=false;});
-  return {dispose(){disposeGeometry(root);shell.dispose();metal.dispose();}};
-}
-
 /** Flush architectural cladding: same opaque wall footprint, no new cover or openings. */
 export function createUrbanFacade(mesh:T.Mesh,m:UrbanMaterials,detail:number) {
   if(!(mesh.geometry instanceof T.BoxGeometry))return;

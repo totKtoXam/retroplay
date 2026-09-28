@@ -4,6 +4,7 @@ import { buildAgentSkin } from './world-agent.ts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { animateHuman, hasHuman, humanShoot } from './world-human.ts';
 import { attachCustomSkins } from './world-skins.ts';
+import { WORLD_WEAPON_PIVOT, dressWorldWeapons } from './world-weapon-models.ts';
 
 export type AvatarMotion = {
   speed: number;
@@ -846,14 +847,14 @@ function showHeldItem(avatar: T.Group, r: Rig, m: AvatarMotion) {
     grenade.visible = m.tool === 'grenade';
     if (grenade.visible) setGrenadeStyle(grenade, m.variant || 'pinata');
   }
-  const armed = ['paint', 'confetti', 'grenade', 'sniper', 'flashlight'].includes(m.tool);
+  const armed = ['paint', 'confetti', 'grenade', 'sniper', 'like', 'flashlight'].includes(m.tool);
   r.gun.visible = armed && m.tool !== 'grenade' && !m.working && !m.inventory;
-  const gunPaint = r.gun.getObjectByName('gun-paint');
-  if (gunPaint) gunPaint.visible = m.tool === 'paint';
-  const gunShotgun = r.gun.getObjectByName('gun-shotgun');
-  if (gunShotgun) gunShotgun.visible = m.tool === 'confetti';
-  const gunSniper = r.gun.getObjectByName('gun-sniper');
-  if (gunSniper) gunSniper.visible = m.tool === 'sniper';
+  // Модели оружия из файла заменяют процедурные стволы, как только загрузятся.
+  dressWorldWeapons(r.gun);
+  for (const [tool, name] of Object.entries(WORLD_WEAPON_PIVOT)) {
+    const pivot = r.gun.getObjectByName(name);
+    if (pivot) pivot.visible = m.tool === tool;
+  }
   const gunTorch = r.gun.getObjectByName('gun-torch');
   if (gunTorch) gunTorch.visible = m.tool === 'flashlight';
   r.tablet.visible = !!m.working || !!m.inventory || m.tool === 'pointer';

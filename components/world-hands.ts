@@ -7,8 +7,57 @@ import {
   type PaintSight,
   type WeaponSight,
 } from '../lib/weapon-sights.ts';
+import { WEAPON_MODEL, WEAPON_SUPPORT, preloadWeaponModels, weaponModel } from './world-weapon-models.ts';
 import * as T from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+/*
+ * Оружие в руках рисуется поверх мира, иначе ствол протыкал бы стену, к
+ * которой прижался игрок. Раньше для этого выключали проверку глубины, но тогда
+ * внутри самой модели нет сортировки: детали перекрывают друг друга в
+ * произвольном порядке, и настоящая модель оружия превращается в кашу. Поэтому
+ * глубина у рук своя: вершинный шейдер сжимает её в самый ближний сотый слой
+ * буфера. Мир дальше этого слоя (ближе 6 см к глазу — только ближняя плоскость
+ * камеры), а между собой детали оружия сортируются как обычно.
+ */
+const VIEW_DEPTH = 0.01;
+
+/** Материал для рук и оружия от первого лица: своя ближняя глубина (см. выше). */
+const viewModels = new WeakSet<T.Material>();
+export function viewModelMaterial<M extends T.Material>(material: M): M {
+  // По самому материалу, а не по userData: копия материала метку унаследует, а шейдер — нет.
+  if (viewModels.has(material)) return material;
+  viewModels.add(material);
+  const previous = material.onBeforeCompile.bind(material);
+  const key = material.customProgramCacheKey.bind(material);
+  material.onBeforeCompile = (shader, renderer) => {
+    previous(shader, renderer);
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <project_vertex>',
+      /* glsl */ `#include <project_vertex>
+      gl_Position.z = -gl_Position.w + (gl_Position.z + gl_Position.w) * ${VIEW_DEPTH.toFixed(3)};`,
+    );
+  };
+  material.customProgramCacheKey = () => `${key()}|view-model`;
+  material.depthTest = true;
+  material.userData.viewModel = true;
+  material.needsUpdate = true;
+  return material;
+}
+
+/** Всё, что рисуется в руках: ближняя глубина, поверх мира, мимо лучей прицеливания. */
+function asViewModel(root: T.Object3D, order = 1000) {
+  root.traverse((o) => {
+    if (!(o instanceof T.Mesh)) return;
+    o.renderOrder = order;
+    o.raycast = () => {};
+    o.castShadow = false;
+    o.receiveShadow = false;
+    o.frustumCulled = false;
+    const list = Array.isArray(o.material) ? o.material : [o.material];
+    list.forEach(viewModelMaterial);
+  });
+}
 
 export function createFirstPersonHands(camera: T.Camera) {
   const group = new T.Group();
@@ -16,69 +65,18 @@ export function createFirstPersonHands(camera: T.Camera) {
   camera.add(group);
   const weapon = new T.Group();
   group.add(weapon);
-  /*
-   * Оружие рисуется поверх мира (`depthTest: false`), иначе ствол протыкал бы
-   * стену, к которой прижался игрок. Плата за это — внутри самой модели нет
-   * сортировки по глубине: детали одного материала перекрывают друг друга в
-   * произвольном порядке, а детали разных материалов — в порядке создания
-   * материалов. Поэтому порядок ниже не случайный: то, что должно лежать
-   * сверху (накладки, кольца, мушки, линзы), объявлено позже того, на чём оно
-   * лежит.
-   */
-  const metal = new T.MeshStandardMaterial({
-    color: '#d1dcd7',
-    metalness: 0.72,
-    roughness: 0.28,
-    depthTest: false,
-  });
-  const polymer = new T.MeshStandardMaterial({
-    color: '#39424b',
-    metalness: 0.18,
-    roughness: 0.74,
-    depthTest: false,
-  });
-  const grip = new T.MeshStandardMaterial({
-    color: '#131a20',
-    roughness: 0.86,
-    depthTest: false,
-  });
-  const rubber = new T.MeshStandardMaterial({
-    color: '#1c2228',
-    roughness: 0.98,
-    depthTest: false,
-  });
-  const sleeve = new T.MeshStandardMaterial({
-    color: '#263d49',
-    roughness: 0.9,
-    depthTest: false,
-  });
-  const skin = new T.MeshStandardMaterial({
-    color: '#bd8c68',
-    roughness: 0.8,
-    depthTest: false,
-  });
-  const paint = new T.MeshStandardMaterial({
-    color: '#aa86f6',
-    roughness: 0.3,
-    metalness: 0.2,
-    depthTest: false,
-  });
-  const accent = new T.MeshStandardMaterial({
-    color: '#ed646d',
-    metalness: 0.5,
-    roughness: 0.31,
-    depthTest: false,
-  });
-  const gold = new T.MeshStandardMaterial({
-    color: '#f5c358',
-    metalness: 0.85,
-    roughness: 0.2,
-    depthTest: false,
-  });
-  const lensGlow = new T.MeshBasicMaterial({
-    color: '#64d4ef',
-    depthTest: false,
-  });
+  // В браузере: в тестах под Node загружать нечего и некуда.
+  if (typeof window !== 'undefined') void preloadWeaponModels();
+
+  const metal = new T.MeshStandardMaterial({ color: '#b9c3c9', metalness: 0.72, roughness: 0.3 });
+  const polymer = new T.MeshStandardMaterial({ color: '#2c333a', metalness: 0.18, roughness: 0.74 });
+  const grip = new T.MeshStandardMaterial({ color: '#131a20', roughness: 0.86 });
+  const sleeve = new T.MeshStandardMaterial({ color: '#263d49', roughness: 0.9 });
+  const skin = new T.MeshStandardMaterial({ color: '#1d2126', roughness: 0.7 });
+  const paint = new T.MeshStandardMaterial({ color: '#aa86f6', roughness: 0.25, metalness: 0.1 });
+  const accent = new T.MeshStandardMaterial({ color: '#ed646d', metalness: 0.5, roughness: 0.31 });
+  const gold = new T.MeshStandardMaterial({ color: '#f5c358', metalness: 0.85, roughness: 0.2 });
+  const lensGlow = new T.MeshBasicMaterial({ color: '#64d4ef' });
   /*
    * Точка коллиматора. Почти прозрачная: непрозрачная точка на тёмном фоне
    * превращается в кляксу и закрывает собой то, во что целятся, — а в оптике
@@ -90,7 +88,6 @@ export function createFirstPersonHands(camera: T.Camera) {
     color: '#ff5566',
     transparent: true,
     opacity: 0.0425,
-    depthTest: false,
     depthWrite: false,
   });
   /*
@@ -108,7 +105,6 @@ export function createFirstPersonHands(camera: T.Camera) {
     transparent: true,
     opacity: 0.05,
     side: T.DoubleSide,
-    depthTest: false,
     depthWrite: false,
   });
 
@@ -128,54 +124,25 @@ export function createFirstPersonHands(camera: T.Camera) {
   likeBlaster.name = 'like-blaster';
   weapon.add(likeBlaster);
 
-  const part = (
-    geo: T.BufferGeometry,
-    mat: T.Material,
-    x: number,
-    y: number,
-    z: number,
-    parent: T.Group = weapon,
-  ) => {
+  const guns: Record<string, T.Group> = {
+    paint: paintGun,
+    confetti: shotgun,
+    sniper: sniperRifle,
+    like: likeBlaster,
+  };
+
+  const part = (geo: T.BufferGeometry, mat: T.Material, x: number, y: number, z: number, parent: T.Group) => {
     const m = new T.Mesh(geo, mat);
     m.position.set(x, y, z);
-    m.renderOrder = 1000;
-    m.raycast = () => {};
     parent.add(m);
     return m;
   };
-  const box = (
-    w: number,
-    h: number,
-    d: number,
-    mat: T.Material,
-    x: number,
-    y: number,
-    z: number,
-    parent: T.Group = weapon,
-  ) => part(new RoundedBoxGeometry(w, h, d, 2, 0.012), mat, x, y, z, parent);
-  const barrel = (
-    r: number,
-    length: number,
-    mat: T.Material,
-    x: number,
-    y: number,
-    z: number,
-    parent: T.Group = weapon,
-  ) => {
-    const m = part(new T.CylinderGeometry(r, r, length, 16), mat, x, y, z, parent);
-    m.rotation.x = Math.PI / 2;
+  const box = (w: number, h: number, d: number, mat: T.Material, x: number, y: number, z: number, parent: T.Group) =>
+    part(new RoundedBoxGeometry(w, h, d, 2, Math.min(w, h, d) * 0.25), mat, x, y, z, parent);
+  const disc = (r: number, mat: T.Material, x: number, y: number, z: number, parent: T.Group) => {
+    const m = part(new T.CircleGeometry(r, 24), mat, x, y, z, parent);
     return m;
   };
-  /** Кольцо вокруг ствола или трубы прицела. */
-  const ring = (
-    r: number,
-    thickness: number,
-    mat: T.Material,
-    x: number,
-    y: number,
-    z: number,
-    parent: T.Group,
-  ) => part(new T.TorusGeometry(r, thickness, 6, 18), mat, x, y, z, parent);
   /**
    * Метки прицельной линии. Пустышки, а не меши: они ничего не рисуют, но
    * именно по ним тест проверяет, что при прицеливании целик и мушка вышли на
@@ -193,293 +160,153 @@ export function createFirstPersonHands(camera: T.Camera) {
     }
   };
 
-  // --- 1. КРАСКОМЁТ: маркер с боковым бункером и коллиматором ---
-  const paintSight = WEAPON_SIGHTS.paint;
-  box(0.112, 0.13, 0.44, metal, 0, 0, -0.17, paintGun);
-  box(0.118, 0.045, 0.16, metal, 0, 0.045, -0.06, paintGun);
-  barrel(0.034, 0.3, metal, 0, 0.018, -0.52, paintGun);
-  box(0.052, 0.026, 0.3, polymer, 0, 0.079, -0.19, paintGun);
-  barrel(0.044, 0.2, polymer, 0, 0.018, -0.47, paintGun);
-  // Рёбра кожуха: ими маркер отличается силуэтом от дробовика даже боковым
-  // зрением, когда разглядывать оружие некогда.
-  for (let i = 0; i < 5; i++)
-    box(0.098, 0.008, 0.012, polymer, 0, 0.018, -0.55 + i * 0.037, paintGun);
-  for (let i = 0; i < 7; i++)
-    box(0.062, 0.012, 0.012, metal, 0, 0.094, -0.3 + i * 0.036, paintGun);
-  box(0.072, 0.185, 0.095, grip, 0, -0.135, -0.03, paintGun).rotation.x = -0.2;
-  for (let i = 0; i < 4; i++)
-    box(0.076, 0.008, 0.012, rubber, 0, -0.09 - i * 0.032, -0.008 - i * 0.006, paintGun);
-  const paintGuard = part(
-    new T.TorusGeometry(0.042, 0.008, 6, 14),
-    metal,
-    0,
-    -0.052,
-    -0.115,
-    paintGun,
-  );
-  paintGuard.rotation.x = Math.PI / 2;
-  box(0.012, 0.038, 0.014, rubber, 0, -0.05, -0.122, paintGun);
-  const cartridge = box(0.082, 0.175, 0.105, grip, 0, -0.12, -0.235, paintGun);
-  const hopper = part(
-    new RoundedBoxGeometry(0.062, 0.05, 0.19, 2, 0.008),
-    paint,
-    0.084,
-    0.012,
-    -0.17,
-    paintGun,
-  );
-  const feed = barrel(0.019, 0.05, paint, 0.05, 0.012, -0.17, paintGun);
-  feed.rotation.set(0, 0, Math.PI / 2);
-  barrel(0.046, 0.055, accent, 0, 0.018, -0.685, paintGun);
   /*
-   * Два прицела на одной линии, переключаются колесом (СКМ). Основания обоих
-   * остаются на стволе всегда — это часть железа, — а поднимается только то,
-   * чем целятся: сложенная мушка не торчит в окне коллиматора, а снятый
-   * коллиматор не закрывает механику рамкой.
+   * Сами стволы — модели из файла (world-weapon-models.ts), они приходят через
+   * мгновение после старта. Здесь — только то, чего в моделях нет: прицелы
+   * краскомёта, бункер с краской, патроны-хлопушки, линзы оптики, сердце.
    */
-  box(0.056, 0.06, 0.055, polymer, 0, 0.055, paintSight.front, paintGun);
-  box(0.046, 0.018, 0.05, metal, 0, 0.092, paintSight.front, paintGun);
+
+  // --- 1. КРАСКОМЁТ: карабин с бункером краски и двумя прицелами ---
+  const paintSight = WEAPON_SIGHTS.paint;
+  // Бункер сбоку на ствольной коробке, цвета выбранной краски: сверху он
+  // закрыл бы прицельную линию.
+  const hopper = part(new T.CapsuleGeometry(0.016, 0.05, 6, 14), paint, 0.043, 0.045, -0.1, paintGun);
+  hopper.rotation.x = Math.PI / 2;
+  const feed = part(new T.CylinderGeometry(0.006, 0.006, 0.03, 10), polymer, 0.026, 0.045, -0.1, paintGun);
+  feed.rotation.z = Math.PI / 2;
   /*
-   * Механический прицел: целик с прорезью на планке и мушка в защитных «ушах»
-   * у дула. Вершина мушки и плечи целика стоят на одной высоте, и она же —
-   * высота линии прицела. Уши выше мушки: они прикрывают её от ударов и
-   * обрамляют картинку, не закрывая цель.
+   * Два прицела на одной линии, переключаются колесом (СКМ). Мушка — штатная
+   * у карабина, она стоит всегда; поднимается целик или коллиматор. Сложенный
+   * целик не торчит в окне коллиматора, а снятый коллиматор не закрывает
+   * механику рамкой.
+   *
+   * Целик — диоптр, как на настоящем карабине: кольцо на стойке у глаза.
+   * Смотришь сквозь кольцо, и мушка сама встаёт в его центр.
    */
   const paintIrons = new T.Group();
   paintIrons.name = 'paint-irons';
   paintGun.add(paintIrons);
-  for (const side of [-1, 1])
-    box(0.008, 0.042, 0.016, metal, side * 0.019, 0.122, paintSight.front, paintIrons);
-  box(0.0055, 0.022, 0.0055, metal, 0, 0.107, paintSight.front, paintIrons);
-  box(0.042, 0.014, 0.032, polymer, 0, 0.088, paintSight.rear, paintIrons);
-  for (const side of [-1, 1])
-    box(0.009, 0.026, 0.014, metal, side * 0.011, 0.105, paintSight.rear, paintIrons);
+  const peep = part(new T.TorusGeometry(0.0075, 0.0022, 8, 24), metal, 0, paintSight.y, paintSight.rear, paintIrons);
+  peep.renderOrder = 1002;
+  box(0.006, 0.012, 0.006, metal, 0, paintSight.y - 0.013, paintSight.rear, paintIrons);
   /*
-   * Коллиматор поверх той же линии. Окно широкое намеренно: узкая щель
-   * превращает прицеливание в подглядывание через прорезь, а смысл коллиматора
-   * в том, чтобы видеть поле боя целиком и держать точку на цели.
+   * Коллиматор на планке. Окно широкое намеренно: узкая щель превращает
+   * прицеливание в подглядывание через прорезь, а смысл коллиматора в том,
+   * чтобы видеть поле боя целиком и держать точку на цели.
    */
   const paintOptic = new T.Group();
   paintOptic.name = 'paint-optic';
   paintGun.add(paintOptic);
-  box(0.082, 0.016, 0.085, polymer, 0, 0.097, -0.175, paintOptic);
-  for (const side of [-1, 1])
-    box(0.009, 0.062, 0.014, polymer, side * 0.039, 0.131, -0.175, paintOptic);
-  box(0.092, 0.01, 0.09, polymer, 0, 0.165, -0.175, paintOptic);
+  // Коллиматор стоит на планке карабина (её верх — 0,118 над хватом).
+  const opticZ = -0.17;
+  const rail = 0.118;
+  box(0.034, 0.016, 0.05, polymer, 0, rail + 0.008, opticZ, paintOptic);
+  const housing = part(new T.TorusGeometry(0.024, 0.0045, 10, 28), polymer, 0, paintSight.y, opticZ, paintOptic);
+  housing.renderOrder = 1001;
+  const hood = part(new T.CylinderGeometry(0.0285, 0.0285, 0.03, 28, 1, true), polymer, 0, paintSight.y, opticZ - 0.015, paintOptic);
+  hood.rotation.x = Math.PI / 2;
   /*
    * Точка мелкая намеренно. С прежним радиусом она перекрывала около восьми
    * тысячных от расстояния до цели: на десяти метрах это восемь сантиметров —
    * голова бойца целиком. Прицеливаться по кляксе, которая больше того, во что
    * целишься, нельзя.
    */
-  const paintDot = part(
-    new T.SphereGeometry(0.0032, 8, 8),
-    dotGlow,
-    0,
-    paintSight.y,
-    -0.178,
-    paintOptic,
-  );
+  const paintDot = part(new T.SphereGeometry(0.0032, 8, 8), dotGlow, 0, paintSight.y, opticZ - 0.003, paintOptic);
   paintDot.renderOrder = 1002;
-  const paintGlass = part(
-    new T.PlaneGeometry(0.07, 0.056),
-    glass,
-    0,
-    0.131,
-    -0.163,
-    paintOptic,
-  );
-  paintGlass.rotation.x = 0.16;
+  const paintGlass = part(new T.CircleGeometry(0.023, 28), glass, 0, paintSight.y, opticZ + 0.004, paintOptic);
   paintGlass.renderOrder = 1003;
   sightLine(paintGun, paintSight);
 
-  // --- 2. КОНФЕТТИ-ДРОБОВИК: помпа с вентилируемой планкой ---
+  // --- 2. КОНФЕТТИ-ДРОБОВИК: помповое ружьё, хлопушки-патроны на прикладе ---
   const shotgunSight = WEAPON_SIGHTS.confetti;
-  box(0.125, 0.145, 0.38, metal, 0, 0, -0.13, shotgun);
-  barrel(0.048, 0.5, metal, 0, 0.045, -0.56, shotgun);
-  barrel(0.036, 0.42, polymer, 0, -0.022, -0.52, shotgun);
-  box(0.03, 0.014, 0.5, polymer, 0, 0.098, -0.56, shotgun);
-  for (let i = 0; i < 9; i++)
-    box(0.034, 0.02, 0.008, polymer, 0, 0.09, -0.76 + i * 0.05, shotgun);
-  const shotgunPump = box(0.105, 0.09, 0.19, grip, 0, -0.022, -0.41, shotgun);
-  for (let i = 0; i < 5; i++)
-    box(0.112, 0.012, 0.012, rubber, 0, -0.022, -0.48 + i * 0.035, shotgun);
-  box(0.072, 0.175, 0.1, grip, 0, -0.13, -0.01, shotgun).rotation.x = -0.22;
-  box(0.078, 0.095, 0.13, grip, 0, -0.075, 0.14, shotgun).rotation.x = 0.32;
-  box(0.082, 0.12, 0.04, rubber, 0, -0.105, 0.21, shotgun).rotation.x = 0.32;
-  const shotgunGuard = part(
-    new T.TorusGeometry(0.04, 0.008, 6, 14),
-    metal,
-    0,
-    -0.058,
-    -0.09,
-    shotgun,
-  );
-  shotgunGuard.rotation.x = Math.PI / 2;
   for (let s = 0; s < 3; s++) {
-    const shellMat = s === 0 ? accent : s === 1 ? paint : gold;
     const shell = part(
-      new T.CylinderGeometry(0.017, 0.017, 0.07, 12),
-      shellMat,
-      -0.082,
-      0.02 - s * 0.036,
-      -0.1,
+      new T.CylinderGeometry(0.0105, 0.0105, 0.05, 12),
+      s === 0 ? accent : s === 1 ? paint : gold,
+      -0.022,
+      0.0,
+      0.07 + s * 0.026,
       shotgun,
     );
-    shell.rotation.z = Math.PI / 2;
+    shell.rotation.x = Math.PI / 2;
   }
-  box(0.13, 0.055, 0.2, gold, 0, 0.002, -0.13, shotgun);
-  barrel(0.056, 0.06, gold, 0, 0.045, -0.79, shotgun);
-  // Кольцевой целик на коробке и золотая бусина на планке: смотришь сквозь
-  // кольцо, ловишь в него бусину — по этой паре и выставляется рука.
-  const ghostRing = ring(0.02, 0.005, gold, 0, shotgunSight.y, shotgunSight.rear, shotgun);
-  ghostRing.renderOrder = 1002;
-  box(0.01, 0.026, 0.01, gold, 0, 0.1, shotgunSight.front, shotgun);
-  const bead = part(
-    new T.SphereGeometry(0.0095, 10, 10),
-    gold,
-    0,
-    shotgunSight.y,
-    shotgunSight.front,
-    shotgun,
-  );
-  bead.renderOrder = 1002;
   sightLine(shotgun, shotgunSight);
 
-  // --- 3. СНАЙПЕРКА: продольно-скользящий затвор и настоящая оптика ---
+  // --- 3. СНАЙПЕРКА: линзы оптики модели ---
   const sniperSight = WEAPON_SIGHTS.sniper;
-  box(0.1, 0.115, 0.3, metal, 0, 0.02, -0.16, sniperRifle);
-  barrel(0.028, 0.76, metal, 0, 0.035, -0.62, sniperRifle);
-  barrel(0.042, 0.1, metal, 0, 0.035, -1.03, sniperRifle);
-  for (let i = 0; i < 3; i++)
-    box(0.096, 0.014, 0.012, metal, 0, 0.035, -1.06 + i * 0.03, sniperRifle);
-  box(0.09, 0.12, 0.5, grip, 0, -0.005, -0.06, sniperRifle);
-  box(0.085, 0.05, 0.22, grip, 0, 0.07, 0.03, sniperRifle);
-  box(0.07, 0.17, 0.09, grip, 0, -0.12, -0.02, sniperRifle).rotation.x = -0.25;
-  const sniperMag = box(0.062, 0.155, 0.125, grip, 0, -0.13, -0.19, sniperRifle);
-  box(0.09, 0.15, 0.04, rubber, 0, -0.01, 0.21, sniperRifle);
-  const sniperGuard = part(
-    new T.TorusGeometry(0.04, 0.008, 6, 14),
-    metal,
-    0,
-    -0.05,
-    -0.11,
-    sniperRifle,
-  );
-  sniperGuard.rotation.x = Math.PI / 2;
-  // Сошки сложены под стволом, а не торчат в поле зрения оптики.
-  for (const side of [-1, 1]) {
-    const leg = part(
-      new T.CylinderGeometry(0.008, 0.008, 0.22, 8),
-      polymer,
-      side * 0.022,
-      -0.05,
-      -0.78,
-      sniperRifle,
-    );
-    leg.rotation.x = 1.36;
-  }
-  barrel(0.03, 0.32, polymer, 0, sniperSight.y, -0.19, sniperRifle);
-  barrel(0.044, 0.09, polymer, 0, sniperSight.y, -0.39, sniperRifle);
-  barrel(0.04, 0.075, polymer, 0, sniperSight.y, -0.005, sniperRifle);
-  const sniperBolt = box(0.02, 0.02, 0.055, metal, 0.058, 0.045, -0.06, sniperRifle);
-  part(new T.SphereGeometry(0.018, 10, 10), metal, 0.086, 0.045, -0.06, sniperRifle);
-  for (const z of [-0.1, -0.28])
-    ring(0.033, 0.009, gold, 0, sniperSight.y, z, sniperRifle).renderOrder = 1002;
-  const turretTop = part(
-    new T.CylinderGeometry(0.019, 0.019, 0.034, 12),
-    gold,
-    0,
-    sniperSight.y + 0.04,
-    -0.19,
-    sniperRifle,
-  );
-  turretTop.renderOrder = 1002;
-  const turretSide = part(
-    new T.CylinderGeometry(0.019, 0.019, 0.034, 12),
-    gold,
-    0.048,
-    sniperSight.y,
-    -0.19,
-    sniperRifle,
-  );
-  turretSide.rotation.z = Math.PI / 2;
-  turretSide.renderOrder = 1002;
-  const sniperLens = part(
-    new T.CylinderGeometry(0.038, 0.038, 0.006, 20),
-    lensGlow,
-    0,
-    sniperSight.y,
-    sniperSight.front,
-    sniperRifle,
-  );
-  sniperLens.rotation.x = Math.PI / 2;
+  const sniperLens = disc(0.017, lensGlow, 0, sniperSight.y, sniperSight.front - 0.001, sniperRifle);
+  sniperLens.rotation.y = Math.PI;
   sniperLens.renderOrder = 1002;
-  const ocular = part(
-    new T.CylinderGeometry(0.033, 0.033, 0.005, 20),
-    glass,
-    0,
-    sniperSight.y,
-    sniperSight.rear,
-    sniperRifle,
-  );
-  ocular.rotation.x = Math.PI / 2;
+  const ocular = disc(0.016, glass, 0, sniperSight.y, sniperSight.rear + 0.001, sniperRifle);
   ocular.renderOrder = 1003;
   sightLine(sniperRifle, sniperSight);
 
-  // --- 4. ЛАЙКОМЁТ: пистолет с открытым целиком ---
+  // --- 4. ЛАЙКОМЁТ: пистолет с сердцем на затворе ---
   const likeSight = WEAPON_SIGHTS.like;
-  box(0.075, 0.125, 0.24, accent, 0, 0.015, -0.13, likeBlaster);
-  barrel(0.03, 0.2, gold, 0, 0.04, -0.27, likeBlaster);
-  box(0.06, 0.028, 0.2, gold, 0, 0.078, -0.14, likeBlaster);
-  barrel(0.04, 0.035, metal, 0, 0.04, -0.375, likeBlaster);
-  box(0.062, 0.145, 0.085, grip, 0, -0.105, -0.045, likeBlaster).rotation.x = -0.2;
-  const likeMag = barrel(0.028, 0.11, lensGlow, 0, -0.07, -0.16, likeBlaster);
-  likeMag.rotation.x = 0;
-  const likeHeartCrystal = part(
-    partyGeometry('hearts'),
-    accent,
-    0.055,
-    0.062,
-    -0.1,
-    likeBlaster,
-  );
-  likeHeartCrystal.scale.setScalar(0.5);
-  // Сердце ушло вбок: на прежнем месте, по центру над стволом, украшение
-  // закрывало ровно то, ради чего целятся.
-  for (const side of [-1, 1])
-    box(0.009, 0.02, 0.012, metal, side * 0.014, likeSight.y, likeSight.rear, likeBlaster);
-  box(0.008, 0.024, 0.01, gold, 0, likeSight.y, likeSight.front, likeBlaster);
-  ring(0.018, 0.004, metal, 0, likeSight.y, likeSight.front, likeBlaster).renderOrder = 1002;
+  // Сердце — сбоку на затворе: по центру над стволом оно закрыло бы целик.
+  const likeHeartCrystal = part(partyGeometry('hearts'), accent, 0.0155, 0.064, -0.06, likeBlaster);
+  likeHeartCrystal.rotation.y = Math.PI / 2;
+  likeHeartCrystal.scale.setScalar(0.16);
   sightLine(likeBlaster, likeSight);
 
-  // Arms and sleeves (attached to shared weapon group)
-  barrel(0.08, 0.28, sleeve, 0.07, -0.23, 0.17).rotation.z = -0.14;
-  box(0.1, 0.12, 0.14, skin, 0.055, -0.12, 0.03).rotation.z = -0.15;
-  barrel(0.075, 0.34, sleeve, -0.21, -0.21, -0.08).rotation.y = -0.85;
-  box(0.12, 0.09, 0.16, skin, -0.09, -0.09, -0.25);
-  for (let i = 0; i < 4; i++)
-    box(0.024, 0.06, 0.045, skin, -0.069 + i * 0.026, -0.055, -0.29);
+  /** Модели из файла вставляются, как только загрузятся. */
+  let modelsIn = false;
+  const insertModels = () => {
+    if (modelsIn) return;
+    const loaded = Object.entries(guns).map(([tool, gun]) => [gun, weaponModel(WEAPON_MODEL[tool])] as const);
+    if (loaded.some(([, model]) => !model)) return;
+    modelsIn = true;
+    for (const [gun, model] of loaded) {
+      // Материалы общие с моделями в мире — у рук свои копии, с ближней глубиной.
+      model!.traverse((o) => {
+        if (o instanceof T.Mesh) o.material = viewMaterial(o.material as T.Material);
+      });
+      asViewModel(model!);
+      gun.add(model!);
+    }
+  };
+  const viewCopies = new Map<T.Material, T.Material>();
+  const viewMaterial = (m: T.Material) => {
+    let copy = viewCopies.get(m);
+    if (!copy) {
+      copy = m.clone();
+      // Копия своя у рук: при закрытии мира её освобождают вместе с руками.
+      copy.userData.fighterShared = false;
+      viewCopies.set(m, copy);
+    }
+    return copy;
+  };
+
+  /*
+   * Кисти, пока нет рук человека (world-view-arms.ts): рукав и перчатка на
+   * рукоятке и на цевье. Ставятся по точкам хвата выбранного ствола.
+   */
+  const fallbackArms = new T.Group();
+  fallbackArms.name = 'fallback-arms';
+  weapon.add(fallbackArms);
+  const fallbackHand = (x: number) => {
+    const g = new T.Group();
+    box(0.07, 0.085, 0.1, skin, 0, 0, 0, g);
+    const arm = part(new T.CylinderGeometry(0.045, 0.05, 0.3, 14), sleeve, 0, -0.02, 0.19, g);
+    arm.rotation.x = Math.PI / 2 - 0.25;
+    g.position.x = x;
+    fallbackArms.add(g);
+    return g;
+  };
+  const fallbackRight = fallbackHand(0);
+  const fallbackLeft = fallbackHand(0);
+
   const tablet = new T.Group();
   group.add(tablet);
-  const frame = new T.Mesh(
-    new RoundedBoxGeometry(0.48, 0.34, 0.024, 2, 0.018),
-    grip,
-  );
+  const frame = new T.Mesh(new RoundedBoxGeometry(0.48, 0.34, 0.024, 2, 0.018), grip);
   tablet.add(frame);
-  const screen = new T.Mesh(
-    new T.PlaneGeometry(0.435, 0.285),
-    new T.MeshBasicMaterial({ color: '#91c3c3', depthTest: false }),
-  );
+  const screen = new T.Mesh(new T.PlaneGeometry(0.435, 0.285), new T.MeshBasicMaterial({ color: '#91c3c3' }));
   screen.position.z = 0.014;
   tablet.add(screen);
   for (let i = 0; i < 3; i++) {
     const card = new T.Mesh(
       new RoundedBoxGeometry(0.112, 0.16, 0.006, 1, 0.006),
-      new T.MeshBasicMaterial({
-        color: ['#fff0c9', '#e3b6b0', '#deedf0'][i],
-        depthTest: false,
-      }),
+      new T.MeshBasicMaterial({ color: ['#fff0c9', '#e3b6b0', '#deedf0'][i] }),
     );
     card.position.set(-0.143 + i * 0.143, -0.016, 0.022);
     tablet.add(card);
@@ -491,43 +318,28 @@ export function createFirstPersonHands(camera: T.Camera) {
   }
   tablet.rotation.x = -0.22;
   tablet.position.set(-0.1, -0.03, -0.17);
-  tablet.traverse((o) => {
-    if (o instanceof T.Mesh) {
-      o.renderOrder = 1001;
-      o.raycast = () => {};
-    }
-  });
 
   // Sticky Note Pad model in hands
   const stickyPad = new T.Group();
   group.add(stickyPad);
-  const padBack = new T.Mesh(
-    new RoundedBoxGeometry(0.24, 0.26, 0.016, 2, 0.012),
-    grip,
-  );
+  const padBack = new T.Mesh(new RoundedBoxGeometry(0.24, 0.26, 0.016, 2, 0.012), grip);
   stickyPad.add(padBack);
   const padPaperStack = new T.Mesh(
     new RoundedBoxGeometry(0.21, 0.22, 0.018, 1, 0.008),
-    new T.MeshBasicMaterial({ color: '#fef3c7', depthTest: false }),
+    new T.MeshBasicMaterial({ color: '#fef3c7' }),
   );
   padPaperStack.position.z = 0.012;
   stickyPad.add(padPaperStack);
   const padTopNote = new T.Mesh(
-    new RoundedBoxGeometry(0.19, 0.20, 0.005, 1, 0.006),
-    new T.MeshBasicMaterial({ color: '#8db9a1', depthTest: false }),
+    new RoundedBoxGeometry(0.19, 0.2, 0.005, 1, 0.006),
+    new T.MeshBasicMaterial({ color: '#8db9a1' }),
   );
   padTopNote.position.z = 0.022;
   stickyPad.add(padTopNote);
-  const pencil = barrel(0.012, 0.22, metal, 0.13, 0, 0.015, stickyPad);
+  const pencil = part(new T.CylinderGeometry(0.012, 0.012, 0.22, 16), metal, 0.13, 0, 0.015, stickyPad);
   pencil.rotation.z = Math.PI / 2;
   stickyPad.rotation.x = -0.25;
   stickyPad.position.set(-0.06, -0.06, -0.19);
-  stickyPad.traverse((o) => {
-    if (o instanceof T.Mesh) {
-      o.renderOrder = 1001;
-      o.raycast = () => {};
-    }
-  });
 
   let turnYaw = 0,
     turnPitch = 0,
@@ -536,24 +348,15 @@ export function createFirstPersonHands(camera: T.Camera) {
   let recoil = 0,
     equip = 0,
     lastTool = '';
+  // Кисти для гранаты и фонарика: те же перчатка и рукав, что у ствола.
   const grenadeHands = new T.Group();
   group.add(grenadeHands);
-  for (const child of weapon.children) {
-    if (
-      child instanceof T.Mesh &&
-      [skin, sleeve].includes(child.material as T.MeshStandardMaterial)
-    )
-      grenadeHands.add(child.clone());
-  }
+  const grenadeHand = fallbackRight.clone();
+  grenadeHand.position.set(0.03, -0.07, -0.19);
+  grenadeHands.add(grenadeHand);
   const grenade = makeGrenade('#f49fd6');
   grenade.position.set(0.03, -0.02, -0.2);
   group.add(grenade);
-  grenade.traverse((o) => {
-    if (o instanceof T.Mesh) {
-      (o.material as T.Material).depthTest = false;
-      o.renderOrder = 1001;
-    }
-  });
   // Фонарик (режим «Предатель»): корпус, головка с отражателем и линза. Луч и свет рисует
   // world-flashlight.ts из точки линзы — `muzzle('flashlight')`.
   const torch = new T.Group();
@@ -565,10 +368,7 @@ export function createFirstPersonHands(camera: T.Camera) {
   torchHead.rotation.x = Math.PI / 2;
   torchHead.position.z = -0.12;
   torch.add(torchHead);
-  const torchLens = new T.Mesh(
-    new T.CircleGeometry(0.031, 20),
-    new T.MeshBasicMaterial({ color: '#fff6d8', depthTest: false }),
-  );
+  const torchLens = new T.Mesh(new T.CircleGeometry(0.031, 20), new T.MeshBasicMaterial({ color: '#fff6d8' }));
   torchLens.position.z = -0.151;
   torchLens.rotation.y = Math.PI;
   torch.add(torchLens);
@@ -577,12 +377,18 @@ export function createFirstPersonHands(camera: T.Camera) {
   torch.add(torchButton);
   torch.position.set(0.02, -0.03, -0.2);
   torch.rotation.x = 0.06;
-  torch.traverse((o) => {
-    if (o instanceof T.Mesh) {
-      o.renderOrder = 1001;
-      o.raycast = () => {};
-    }
-  });
+
+  asViewModel(group);
+  // Предметы поверх оружия и рук, стекло и точка — поверх корпуса.
+  for (const item of [tablet, stickyPad, grenade, torch]) asViewModel(item, 1001);
+  paintDot.renderOrder = 1002;
+  sniperLens.renderOrder = 1002;
+  paintGlass.renderOrder = 1003;
+  ocular.renderOrder = 1003;
+
+  /** Где сейчас лежат кисти: для рук человека (world-view-arms.ts). */
+  const holdScratch = { right: new T.Vector3(), left: new T.Vector3() };
+  let heldTool = '';
 
   const muzzleScratch = new T.Vector3();
   return {
@@ -598,11 +404,7 @@ export function createFirstPersonHands(camera: T.Camera) {
         return torchLens.getWorldPosition(new T.Vector3());
       }
       const spec = WEAPON_SIGHTS[tool];
-      muzzleScratch.set(
-        spec ? spec.muzzle[0] : 0,
-        spec ? spec.muzzle[1] : 0.025,
-        spec ? spec.muzzle[2] : -0.69,
-      );
+      muzzleScratch.set(spec ? spec.muzzle[0] : 0, spec ? spec.muzzle[1] : 0.025, spec ? spec.muzzle[2] : -0.69);
       return group.localToWorld(muzzleScratch.clone());
     },
     /** Взгляд повернулся: оружие отстаёт от него, как настоящее с весом. */
@@ -610,15 +412,24 @@ export function createFirstPersonHands(camera: T.Camera) {
       turnYaw += yaw;
       turnPitch += pitch;
     },
+    /**
+     * Точки хвата в координатах группы рук: правая ладонь на рукоятке, левая на
+     * цевье. null — в руках не ствол (кисти рисует сам предмет).
+     */
+    grips() {
+      const id = WEAPON_MODEL[heldTool];
+      if (!id || !group.visible || !weapon.visible) return null;
+      holdScratch.right.set(0, 0, 0);
+      holdScratch.left.fromArray(WEAPON_SUPPORT[id]);
+      return holdScratch;
+    },
+    /** Руки человека взяли кисти на себя: запасные перчатки не нужны. */
+    set humanArms(on: boolean) {
+      fallbackArms.userData.hidden = on;
+      grenadeHand.userData.hidden = on;
+    },
     shoot: (weaponType = 'paint') => {
-      recoil =
-        weaponType === 'sniper'
-          ? 1.4
-          : weaponType === 'confetti'
-            ? 1.2
-            : weaponType === 'like'
-              ? 0.75
-              : 0.85;
+      recoil = weaponType === 'sniper' ? 1.4 : weaponType === 'confetti' ? 1.2 : weaponType === 'like' ? 0.75 : 0.85;
     },
     update(
       dt: number,
@@ -633,12 +444,10 @@ export function createFirstPersonHands(camera: T.Camera) {
       tabletInspect = 0,
       paintSight: PaintSight = DEFAULT_PAINT_SIGHT,
     ) {
+      insertModels();
+      heldTool = tool;
       group.visible = active && !(tool === 'sniper' && aim > 0.12);
-      weapon.visible =
-        tool === 'paint' ||
-        tool === 'confetti' ||
-        tool === 'sniper' ||
-        tool === 'like';
+      weapon.visible = tool === 'paint' || tool === 'confetti' || tool === 'sniper' || tool === 'like';
       paintGun.visible = tool === 'paint';
       // Поднят ровно один прицел: второй сложен и не лезет в картинку.
       paintIrons.visible = paintSight === 'irons';
@@ -649,6 +458,13 @@ export function createFirstPersonHands(camera: T.Camera) {
       tablet.visible = tool === 'pointer';
       stickyPad.visible = tool === 'sticky';
       torch.visible = tool === 'flashlight';
+      fallbackArms.visible = !fallbackArms.userData.hidden;
+      const support = WEAPON_SUPPORT[WEAPON_MODEL[tool] ?? ''];
+      if (support) {
+        fallbackRight.position.set(0.005, -0.03, 0.02);
+        fallbackLeft.position.fromArray(support).add(new T.Vector3(-0.01, -0.03, 0));
+        fallbackLeft.rotation.y = tool === 'like' ? 0.4 : 0.55;
+      }
       if (lastTool !== tool) {
         lastTool = tool;
         equip = 1;
@@ -663,34 +479,24 @@ export function createFirstPersonHands(camera: T.Camera) {
       lagYaw *= Math.exp(-11 * dt);
       lagPitch *= Math.exp(-11 * dt);
 
-      // Multi-phase procedural reload choreography
+      // Перезарядка: ствол уходит вниз и внутрь, рука досылает, затем возврат.
       let reloadRotX = 0,
         reloadRotY = 0,
         reloadRotZ = 0;
       let reloadPosY = 0,
         reloadPosZ = 0;
-
       if (reload > 0) {
         if (reload < 0.25) {
-          // Phase 1: Tilt inward and drop empty magazine
           const t1 = reload / 0.25;
           reloadRotZ = -0.42 * t1;
           reloadRotY = 0.25 * t1;
           reloadRotX = -0.15 * t1;
           reloadPosY = -0.06 * t1;
-          cartridge.position.y = -0.12 - t1 * 0.24;
-          sniperMag.position.y = -0.13 - t1 * 0.24;
-          likeMag.position.y = -0.07 - t1 * 0.22;
         } else if (reload < 0.62) {
-          // Phase 2: Insert fresh magazine and palm-slap lock
           const t2 = (reload - 0.25) / 0.37;
           reloadRotZ = -0.42 * (1 - t2 * 0.2);
           reloadRotY = 0.25;
           reloadRotX = -0.12;
-          const insert = Math.min(1, t2 * 1.35);
-          cartridge.position.y = -0.36 + insert * 0.24;
-          sniperMag.position.y = -0.37 + insert * 0.24;
-          likeMag.position.y = -0.29 + insert * 0.22;
           if (reload >= 0.52 && reload <= 0.62) {
             const slap = Math.sin(((reload - 0.52) / 0.1) * Math.PI);
             reloadPosY = slap * 0.045;
@@ -698,47 +504,28 @@ export function createFirstPersonHands(camera: T.Camera) {
             reloadRotX += slap * 0.12;
           }
         } else if (reload < 0.86) {
-          // Phase 3: Cocking handle / pump action / bolt cycle
           const t3 = (reload - 0.62) / 0.24;
           const rack = Math.sin(t3 * Math.PI);
-          cartridge.position.y = -0.12;
-          sniperMag.position.y = -0.13;
-          likeMag.position.y = -0.07;
           reloadRotZ = -0.33 * (1 - t3);
           reloadRotY = 0.2 * (1 - t3);
           reloadPosZ = -rack * 0.04;
-          shotgunPump.position.z = -0.41 + rack * 0.09;
-          sniperBolt.position.z = -0.06 + rack * 0.07;
-          sniperBolt.rotation.z = rack * 0.5;
+          // Помпа и затвор: левая рука дёргает цевьё на себя.
+          if (tool === 'confetti' || tool === 'sniper') fallbackLeft.position.z += rack * 0.08;
         } else {
-          // Phase 4: Smooth return to ready stance
           const t4 = (reload - 0.86) / 0.14;
-          cartridge.position.y = -0.12;
-          sniperMag.position.y = -0.13;
-          likeMag.position.y = -0.07;
-          shotgunPump.position.z = -0.41;
-          sniperBolt.position.z = -0.06;
-          sniperBolt.rotation.z = 0;
-          const settle = Math.sin(t4 * Math.PI) * 0.015;
-          reloadPosY = settle;
+          reloadPosY = Math.sin(t4 * Math.PI) * 0.015;
         }
-      } else {
-        cartridge.position.y = -0.12;
-        sniperMag.position.y = -0.13;
-        likeMag.position.y = -0.07;
-        shotgunPump.position.z = -0.41;
-        sniperBolt.position.z = -0.06;
-        sniperBolt.rotation.z = 0;
       }
 
       grenade.visible = tool === 'grenade';
       // Те же кисти держат и фонарик.
-      grenadeHands.visible = grenade.visible || torch.visible;
-      if (grenade.visible) setGrenadeStyle(grenade, variant, true);
+      grenadeHands.visible = (grenade.visible || torch.visible) && !grenadeHand.userData.hidden;
+      if (grenade.visible) {
+        setGrenadeStyle(grenade, variant, true);
+        asViewModel(grenade, 1001);
+      }
       if (tool === 'sticky') {
-        (padTopNote.material as T.MeshBasicMaterial).color.set(
-          ZONES.find((z) => z.id === variant)?.color || '#8db9a1',
-        );
+        (padTopNote.material as T.MeshBasicMaterial).color.set(ZONES.find((z) => z.id === variant)?.color || '#8db9a1');
       }
       if (tool === 'pointer') {
         if (tabletInspect > 0) {
@@ -746,10 +533,7 @@ export function createFirstPersonHands(camera: T.Camera) {
           tablet.position.y = T.MathUtils.lerp(-0.03, -0.01, tabletInspect);
           tablet.position.z = T.MathUtils.lerp(-0.17, -0.22, tabletInspect);
           tablet.rotation.x = T.MathUtils.lerp(-0.22, 0.04, tabletInspect);
-          const bootColor = new T.Color('#38bdf8').lerp(
-            new T.Color('#ffffff'),
-            Math.min(1, tabletInspect * 1.3),
-          );
+          const bootColor = new T.Color('#38bdf8').lerp(new T.Color('#ffffff'), Math.min(1, tabletInspect * 1.3));
           (screen.material as T.MeshBasicMaterial).color.copy(bootColor);
         } else {
           tablet.position.set(-0.1, -0.03, -0.17);
@@ -758,7 +542,6 @@ export function createFirstPersonHands(camera: T.Camera) {
         }
       }
       paint.color.set(color);
-      (hopper.material as T.MeshStandardMaterial).color.set(color);
 
       /*
        * Прицеливание. Рука уезжает не в подобранную на глаз точку, а ровно на
@@ -767,25 +550,19 @@ export function createFirstPersonHands(camera: T.Camera) {
        * прицельных приспособлений держатся по-прежнему.
        */
       const sight = WEAPON_SIGHTS[tool];
-      const isItem = tool === 'pointer' || tool === 'sticky' || tool === 'flashlight';
+      const isItem = tool === 'pointer' || tool === 'sticky' || tool === 'flashlight' || tool === 'grenade';
       const hipX = isItem ? 0.08 : HIP_HOLD.x;
+      const hipY = isItem ? -0.3 : HIP_HOLD.y;
+      const hipZ = isItem ? -0.52 : tool === 'like' ? -0.42 : HIP_HOLD.z;
       const aimX = sight ? 0 : hipX;
       const aimY = sight ? -sight.y : -0.115;
-      const aimZ = sight ? sight.z : HIP_HOLD.z;
-      const targetX =
-        tabletInspect > 0
-          ? T.MathUtils.lerp(hipX, 0, tabletInspect)
-          : T.MathUtils.lerp(hipX, aimX, aim);
-      const targetY =
-        tabletInspect > 0
-          ? T.MathUtils.lerp(-0.3, -0.16, tabletInspect)
-          : T.MathUtils.lerp(HIP_HOLD.y, aimY, aim);
+      const aimZ = sight ? sight.z : hipZ;
+      const targetX = tabletInspect > 0 ? T.MathUtils.lerp(hipX, 0, tabletInspect) : T.MathUtils.lerp(hipX, aimX, aim);
+      const targetY = tabletInspect > 0 ? T.MathUtils.lerp(-0.3, -0.16, tabletInspect) : T.MathUtils.lerp(hipY, aimY, aim);
       const targetZ =
         tabletInspect > 0
           ? T.MathUtils.lerp(-0.52, -0.38, tabletInspect)
-          : T.MathUtils.lerp(HIP_HOLD.z, aimZ, aim) +
-            recoil * 0.075 +
-            reloadPosZ;
+          : T.MathUtils.lerp(hipZ, aimZ, aim) + recoil * 0.05 + reloadPosZ;
 
       /*
        * Покачивание глушится прицеливанием до нуля. Раньше оставалась десятая
@@ -797,9 +574,7 @@ export function createFirstPersonHands(camera: T.Camera) {
       // Через прицел инерция слабее, но есть: при резком повороте мушка догоняет взгляд.
       const inertia = (1 - aim * 0.7) * (1 - tabletInspect);
       group.position.set(
-        targetX +
-          Math.sin(time * speed * 2.4) * Math.min(speed, 0.9) * 0.009 * sway +
-          lagYaw * 0.35 * inertia,
+        targetX + Math.sin(time * speed * 2.4) * Math.min(speed, 0.9) * 0.009 * sway + lagYaw * 0.35 * inertia,
         targetY +
           Math.cos(time * speed * 4.8) * Math.min(speed, 1) * 0.011 * sway +
           reloadPosY -
@@ -807,14 +582,16 @@ export function createFirstPersonHands(camera: T.Camera) {
           lagPitch * 0.3 * inertia,
         targetZ,
       );
+      // От бедра ствол чуть завален внутрь, как у держащего оружие у пояса; в прицеле — ровно.
+      const cant = (1 - aim) * (1 - tabletInspect) * (isItem ? 0 : 1);
       group.rotation.set(
-        recoil * 0.095 +
+        recoil * 0.07 +
           equip * 0.25 +
           reloadRotX +
           (tabletInspect > 0 ? -0.15 * tabletInspect : 0) +
           lagPitch * 0.8 * inertia,
         reloadRotY - lagYaw * 0.9 * inertia,
-        reloadRotZ + Math.sin(time * 0.8) * 0.005 * sway - lagYaw * 0.6 * inertia,
+        reloadRotZ + Math.sin(time * 0.8) * 0.005 * sway + cant * 0.05 - lagYaw * 0.6 * inertia,
       );
     },
   };
