@@ -187,6 +187,106 @@ function bake(group: T.Group) {
   group.add(mesh);
 }
 
+/* ---------- Бандана ---------- */
+
+/**
+ * Плоскость ленты в держателе головы (метры аватара, лицо к −Z): спереди она
+ * ложится на лоб над бровями, к затылку опускается — как настоящая повязка.
+ */
+const BAND_FRONT = 0.172,
+  BAND_BACK = 0.142,
+  BAND_DEPTH = 0.1;
+const bandY = (z: number) => T.MathUtils.lerp(BAND_FRONT, BAND_BACK, T.MathUtils.clamp((z + BAND_DEPTH) / (2 * BAND_DEPTH), 0, 1));
+/** Центр головы по глубине: вокруг него меряем, насколько далеко голова и волосы. */
+const BAND_CENTER_Z = -0.02;
+const BAND_BINS = 48;
+const BAND_HALF = 0.016;
+const BAND_GAP = 0.006;
+/** Лоб: сектор ±55° от направления взгляда (−Z), где волосы ленту не отодвигают. */
+const FRONT_SECTOR = Math.PI - (55 * Math.PI) / 180;
+
+/**
+ * Лента банданы по форме конкретной головы. Бандана процедурного бойца —
+ * жёсткое кольцо под шар-голову; на человеке оно висело в воздухе, волосы
+ * прорастали сквозь него, а лицо закрывало. Здесь на высоте ленты меряем по
+ * кругу, как далеко от центра доходят голова и волосы (в позе покоя), и ведём
+ * ленту чуть снаружи. Сзади — узел и два хвоста. `material` — личная бандана
+ * бойца (world-skins.ts): её цвет меняется вместе с выбором игрока.
+ */
+export function buildHeadband(socket: T.Object3D, head: T.SkinnedMesh, hair: T.SkinnedMesh[], material: T.Material) {
+  socket.updateWorldMatrix(true, false);
+  const toSocket = socket.matrixWorld.clone().invert();
+  const radius = new Float32Array(BAND_BINS);
+  const v = new T.Vector3();
+  for (const mesh of [head, ...hair]) {
+    const isHair = mesh !== head;
+    mesh.updateWorldMatrix(true, false);
+    const position = mesh.geometry.getAttribute('position');
+    for (let i = 0; i < position.count; i++) {
+      // Через скелет, а не сырые координаты: сжатая модель хранит их упакованными,
+      // и для сеток со скелетом пересчёт в метры зашит в кости.
+      mesh.getVertexPosition(i, v).applyMatrix4(mesh.matrixWorld).applyMatrix4(toSocket);
+      if (Math.abs(v.y - bandY(v.z)) > BAND_HALF + 0.006) continue;
+      const dz = v.z - BAND_CENTER_Z;
+      // Спереди лента ложится на лоб под чёлку и пряди у лица, а не огибает их.
+      if (isHair && Math.abs(Math.atan2(v.x, dz)) > FRONT_SECTOR) continue;
+      const bin = Math.floor(((Math.atan2(v.x, dz) + Math.PI) / (Math.PI * 2)) * BAND_BINS) % BAND_BINS;
+      radius[bin] = Math.max(radius[bin], Math.hypot(v.x, dz));
+    }
+  }
+  // Пустые секторы (редкая сетка) — по соседям; затем сглаживаем без провалов внутрь.
+  for (let pass = 0; pass < BAND_BINS; pass++)
+    for (let i = 0; i < BAND_BINS; i++)
+      if (!radius[i]) radius[i] = Math.max(radius[(i + BAND_BINS - 1) % BAND_BINS], radius[(i + 1) % BAND_BINS]);
+  // Лента натянута: во впадины между прядями она не проваливается. Каждый
+  // проход поднимает сектор до середины между соседями, не опуская выступы.
+  const smooth = Float32Array.from(radius);
+  for (let pass = 0; pass < 8; pass++)
+    for (let i = 0; i < BAND_BINS; i++)
+      smooth[i] = Math.max(smooth[i], (smooth[(i + BAND_BINS - 1) % BAND_BINS] + smooth[(i + 1) % BAND_BINS]) / 2);
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const at = (bin: number, dy: number) => {
+    const a = ((bin + 0.5) / BAND_BINS) * Math.PI * 2 - Math.PI;
+    const r = (smooth[bin % BAND_BINS] || 0.11) + BAND_GAP;
+    const x = Math.sin(a) * r,
+      z = BAND_CENTER_Z + Math.cos(a) * r;
+    return [x, bandY(z) + dy, z];
+  };
+  for (let i = 0; i <= BAND_BINS; i++) positions.push(...at(i, -BAND_HALF), ...at(i, BAND_HALF));
+  for (let i = 0; i < BAND_BINS; i++) {
+    const a = i * 2,
+      b = a + 1,
+      c = a + 2,
+      d = a + 3;
+    // Лицевая сторона наружу.
+    indices.push(a, c, b, b, c, d);
+  }
+  const ribbon = new T.BufferGeometry();
+  ribbon.setAttribute('position', new T.Float32BufferAttribute(positions, 3));
+  ribbon.setIndex(indices);
+  ribbon.computeVertexNormals();
+  const group = new T.Group();
+  group.name = 'human-bandana';
+  const band = new T.Mesh(ribbon, material);
+  band.castShadow = true;
+  group.add(band);
+  // Узел и хвосты — на затылке (сектор прямо за головой, +Z).
+  const back = at(BAND_BINS / 2, 0);
+  const knot = new T.Mesh(new T.SphereGeometry(0.019, 10, 8), material);
+  knot.position.set(back[0], back[1], back[2] + 0.008);
+  knot.scale.set(1.2, 0.9, 0.8);
+  group.add(knot);
+  for (const side of [-1, 1]) {
+    const tail = new T.Mesh(new RoundedBoxGeometry(0.024, 0.1, 0.006, 2, 0.003), material);
+    tail.position.set(back[0] + side * 0.018, back[1] - 0.05, back[2] + 0.014);
+    tail.rotation.set(0.25, 0, side * 0.22);
+    group.add(tail);
+  }
+  socket.add(group);
+  return group;
+}
+
 /* ---------- Облик по скину ---------- */
 
 export type HumanLook = {
@@ -200,6 +300,8 @@ export type HumanLook = {
   tactical: boolean;
   /** Причёска видна: под шлемом, маской и скафандром её нет, иначе она прорастает сквозь них. */
   hair: boolean;
+  /** Бандана: как у процедурного бойца — у всех, кроме «Космо» с куполом и «Экипажа». */
+  bandana: boolean;
 };
 
 const CREW = /^crew/;
@@ -209,21 +311,21 @@ const CREW = /^crew/;
  * `accent` — личный цвет банданы, которым красится и скафандр «Экипажа».
  */
 export function humanLook(skin: string, member: string, accent: string): HumanLook {
-  if (CREW.test(skin)) return { suit: accent, gear: '#6f7b88', cover: 0, tactical: false, hair: false };
+  if (CREW.test(skin)) return { suit: accent, gear: '#6f7b88', cover: 0, tactical: false, hair: false, bandana: false };
   switch (skin) {
     case 'ninja':
-      return { suit: '#1b1d22', gear: '#111317', cover: 1, tactical: false, hair: false };
+      return { suit: '#1b1d22', gear: '#111317', cover: 1, tactical: false, hair: false, bandana: true };
     case 'hazmat':
-      return { suit: '#d9b62b', gear: '#2a2d33', cover: 0, tactical: false, hair: false };
+      return { suit: '#d9b62b', gear: '#2a2d33', cover: 0, tactical: false, hair: false, bandana: true };
     case 'cosmo':
-      return { suit: '#e8ecf2', gear: '#8a95a3', cover: 0, tactical: false, hair: false };
+      return { suit: '#e8ecf2', gear: '#8a95a3', cover: 0, tactical: false, hair: false, bandana: false };
     case 'knight':
-      return { suit: '#6c737d', gear: '#3a3f46', cover: 0, tactical: false, hair: false };
+      return { suit: '#6c737d', gear: '#3a3f46', cover: 0, tactical: false, hair: false, bandana: true };
     case 'cyber':
-      return { suit: '#1e2230', gear: '#0e1016', cover: 0, tactical: false, hair: true };
+      return { suit: '#1e2230', gear: '#0e1016', cover: 0, tactical: false, hair: true, bandana: true };
     case 'classic':
-      return { suit: member, gear: '#23262d', cover: 0, tactical: false, hair: true };
+      return { suit: member, gear: '#23262d', cover: 0, tactical: false, hair: true, bandana: true };
     default:
-      return { suit: member, gear: '#1c1f26', cover: 0, tactical: true, hair: true };
+      return { suit: member, gear: '#1c1f26', cover: 0, tactical: true, hair: true, bandana: true };
   }
 }

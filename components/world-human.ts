@@ -1,7 +1,7 @@
 import * as T from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { AvatarMotion } from './world-avatar.ts';
-import { buildTacticalGear, humanLook, makeAdapter } from './world-human-gear.ts';
+import { buildHeadband, buildTacticalGear, humanLook, makeAdapter } from './world-human-gear.ts';
 
 /*
  * Бойцы-люди: скелетные модели Quaternius (CC0, public/models/humans, сборка —
@@ -276,6 +276,8 @@ type HumanRig = {
   moved: { obj: T.Object3D; parent: T.Object3D; position: T.Vector3; quaternion: T.Quaternion; scale: T.Vector3 }[];
   /** Снаряжение «Агента» (world-human-gear.ts). */
   tactical: T.Group[];
+  /** Своя бандана человека: лента поверх причёски и лента по голове. */
+  bandanas: { hair: T.Group; bare: T.Group } | null;
   /** Выбранная причёска и борода: прячутся под шлемами (world-human-gear.ts humanLook). */
   hairRoot: { visible: boolean };
   /** Скрытые на время детали процедурного бойца, которые у человека не нужны (тело-боб «Экипажа»). */
@@ -430,6 +432,7 @@ function attachHuman(avatar: T.Group, seed: string) {
     female: template === assets.bodies.female,
     moved: [],
     tactical: [],
+    bandanas: null,
     hairRoot: {
       get visible() {
         return hairShown;
@@ -540,14 +543,26 @@ export function mountHuman(avatar: T.Group, seed: string) {
     // Копия списка: переносим детей прямо во время обхода.
     const source = [...from.children, ...(joint === 'head' ? (from.getObjectByName('unmasked-head')?.children ?? []) : [])];
     for (const o of source)
-      if (o.name.startsWith('skin-') || o.name === 'avatar-bandana' || o.name === 'anonymous-bag') keep(o, adapter);
+      if (o.name.startsWith('skin-') || o.name === 'anonymous-bag') keep(o, adapter);
   }
-  // У процедурного бойца голова — шар, и визор «Экипажа» с банданой сидят на
-  // нём низко: визор на нижней половине, бандана на уровне глаз. На лице
-  // человека визор пришёлся бы на рот, а бандана — на глаза: поднимаем их.
-  for (const [name, lift] of [['skin-crew-body-head', 0.15], ['avatar-bandana', 0.13]] as const) {
-    const o = avatar.getObjectByName(name);
-    if (o) o.position.y += lift;
+  // У процедурного бойца голова — шар, и визор «Экипажа» сидит на нём низко, на
+  // нижней половине; на лице человека он пришёлся бы на рот — поднимаем к глазам.
+  const visor = avatar.getObjectByName('skin-crew-body-head');
+  if (visor) visor.position.y += 0.15;
+  // Бандана у человека своя — по форме его головы и причёски (world-human-gear.ts).
+  // Две ленты: поверх причёски и по голове, когда причёска спрятана под скином.
+  const head = r.boneSockets.get('head');
+  const bandanaMaterial = (avatar.getObjectByName('avatar-bandana')?.children.find((o) => o instanceof T.Mesh) as T.Mesh | undefined)?.material as T.Material | undefined;
+  if (head && bandanaMaterial) {
+    // Кости — в позе покоя, их матрицы нужны для точек кожи через скелет.
+    avatar.updateMatrixWorld(true);
+    const hair = r.group.getObjectByName('body')!.parent!.children.filter(
+      (o): o is T.SkinnedMesh => o instanceof T.SkinnedMesh && o.name.startsWith('hair-') && o.visible,
+    );
+    r.bandanas = {
+      hair: buildHeadband(head, r.body, hair, bandanaMaterial),
+      bare: buildHeadband(head, r.body, [], bandanaMaterial),
+    };
   }
   // Тело-боб «Экипажа» заменяет плоть процедурного бойца; у человека своё тело —
   // остаются ранец, визор и головные уборы, а костюм красится в цвет скафандра.
@@ -640,6 +655,10 @@ export function syncHuman(avatar: T.Group, want: boolean, seed: string, memberCo
     r.suit.suitCover.value = look.cover;
     for (const g of r.tactical) g.visible = look.tactical;
     r.hairRoot.visible = look.hair;
+    if (r.bandanas) {
+      r.bandanas.hair.visible = look.bandana && look.hair;
+      r.bandanas.bare.visible = look.bandana && !look.hair;
+    }
   }
   return true;
 }
