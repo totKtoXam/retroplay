@@ -49,7 +49,8 @@ const GHOST_FRAGMENT = /* glsl */ `
   varying float vHeight;
   void main() {
     float facing = abs(dot(normalize(vNormalView), normalize(vViewDir)));
-    float rim = pow(1.0 - facing, 2.2);
+    // |cos| из-за округления бывает чуть больше 1, а pow от отрицательного — NaN.
+    float rim = pow(max(1.0 - facing, 0.0), 2.2);
     vec3 col = uColor * (0.32 + 0.25 * facing) + uGlow * rim * 1.4;
     // Край ярче середины, хвост растворяется к кончику, по телу бежит слабая рябь.
     float shimmer = 0.9 + 0.1 * sin(vHeight * 18.0 - uTime * 4.0);

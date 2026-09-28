@@ -361,7 +361,31 @@ export function makeGrenade(color: string, variant = 'pinata') {
   const pin = new T.Mesh(new T.CylinderGeometry(0.004, 0.004, 0.05, 6).rotateZ(Math.PI / 2), metal);
   pin.position.set(-0.02, top + 0.02, 0);
   group.add(fuze, cap, lever, ring, pin);
+  group.traverse((o) => {
+    if (o instanceof T.Mesh) repairNormals(o.geometry);
+  });
   return group;
+}
+
+/**
+ * Сферы и тела вращения сходятся в полюсе в одну точку, и у вершин там
+ * нормаль нулевая. Нормализация нуля в шейдере — NaN, а свечение (bloom)
+ * размазывает NaN-пиксель в чёрный прямоугольник. Такой вершине ставим
+ * нормаль «от центра».
+ */
+function repairNormals(geometry: T.BufferGeometry) {
+  const normal = geometry.getAttribute('normal');
+  const position = geometry.getAttribute('position');
+  if (!normal || !position) return;
+  const n = new T.Vector3();
+  for (let i = 0; i < normal.count; i++) {
+    n.fromBufferAttribute(normal, i);
+    if (n.lengthSq() > 1e-10) continue;
+    n.fromBufferAttribute(position, i);
+    if (n.lengthSq() < 1e-10) n.set(0, 1, 0);
+    n.normalize();
+    normal.setXYZ(i, n.x, n.y, n.z);
+  }
 }
 
 export function setGrenadeStyle(

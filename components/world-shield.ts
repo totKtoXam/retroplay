@@ -69,7 +69,7 @@ export function createShieldBubble(): ShieldBubble {
       void main() {
         // Френель: к краю силуэта нормаль уходит от камеры — там щит и светится.
         float fresnel = 1.0 - abs(dot(normalize(vNormalW), normalize(vViewDir)));
-        float rim = pow(fresnel, 2.4);
+        float rim = pow(max(fresnel, 0.0), 2.4);
         // Ползущие вверх полосы: без них пузырь читается как застывшая плёнка,
         // а щит — штука временная, и двигаться он должен.
         float bands = 0.5 + 0.5 * sin(vNormalW.y * 24.0 - uTime * 2.6);

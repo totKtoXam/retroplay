@@ -144,3 +144,15 @@ test('setGrenadeStyle меняет вид гранаты в руках и осв
     if (o instanceof T.Mesh) assert.equal(o.renderOrder, 1001);
   });
 });
+
+test('grenade models have no zero normals (NaN in lighting turns into black squares under bloom)', async () => {
+  const { makeGrenade } = await import('../components/party-geometry.ts');
+  for (const variant of ['pinata', 'paintburst', 'snowglobe', 'heartburst', 'pixel', 'meteor']) {
+    makeGrenade('#64d4ef', variant).traverse((o) => {
+      if (!o.isMesh) return;
+      const n = o.geometry.getAttribute('normal');
+      const v = new T.Vector3();
+      for (let i = 0; i < n.count; i++) assert.ok(v.fromBufferAttribute(n, i).lengthSq() > 1e-10, `${variant}: нулевая нормаль`);
+    });
+  }
+});
