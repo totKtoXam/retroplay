@@ -468,8 +468,8 @@ export function WorldHud(props: WorldHudProps) {
               </div>
             </div>
             <div className="scope-info-right">
-              <span>FIREWORK</span>
-              <span>CAL: 75mm</span>
+              <span>ФЕЙЕРВЕРК</span>
+              <span>КАЛИБР 75 мм</span>
               <small className="scope-zoom-hint">Колесо: зум</small>
             </div>
           </div>

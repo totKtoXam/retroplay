@@ -13,10 +13,13 @@ import {
   Settings2,
   Globe,
   Lock,
+  Gamepad2,
   NotebookPen,
+  Rocket,
   Swords,
   Users,
   UserRound,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   Dialog,
@@ -27,6 +30,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { THEMES, PHASES, type RoomAccessType } from '@/lib/model';
 import { api, ready } from '@/lib/client';
+import { plural } from '@/lib/plural';
 import { defaultMapFor, mapsForMode, MODES, type GameMode } from '@/lib/maps/catalog';
 import { Choice } from './controls';
 import { AccountButton, AuthDialog } from './auth-panel';
@@ -85,6 +89,48 @@ const FILTERS: { value: RoomFilter; label: string }[] = [
   { value: 'active', label: 'Активные' },
   { value: 'archive', label: 'Завершённые' },
 ];
+/**
+ * Как режим выглядит в диалоге «Создать комнату». Режим без записи получает
+ * нейтральные тексты из MODES и общую иконку — лобби не нужно учить каждый
+ * новый режим отдельными условиями.
+ */
+const MODE_COPY: Partial<
+  Record<GameMode, { icon: LucideIcon; title: string; hint: string; cta: string }>
+> = {
+  retro: {
+    icon: NotebookPen,
+    title: 'Соберёмся на ретро?',
+    hint: 'Создайте отдельную комнату для этой встречи.',
+    cta: 'Создать комнату',
+  },
+  battle: {
+    icon: Swords,
+    title: 'Готовы к бою?',
+    hint: 'Выберите карту и позовите команду на матч.',
+    cta: 'Начать бой',
+  },
+  impostor: {
+    icon: Rocket,
+    title: 'Кто из экипажа — предатель?',
+    hint: 'Создайте комнату для партии: нужно от 4 до 15 игроков, боты тоже считаются.',
+    cta: 'Создать партию',
+  },
+};
+const modeCopy = (mode: GameMode) => {
+  const info = MODES.find((m) => m.id === mode);
+  return (
+    MODE_COPY[mode] ?? {
+      icon: Gamepad2,
+      title: info ? `Новая комната: ${info.title}` : 'Новая комната',
+      hint: info?.hint ?? 'Создайте комнату и позовите участников.',
+      cta: 'Создать комнату',
+    }
+  );
+};
+function ModeIcon({ mode }: { mode: GameMode }) {
+  const Icon = modeCopy(mode).icon;
+  return <Icon size={22} aria-hidden />;
+}
 const STATUS_LABELS: Record<PublicSummary['status'], string> = {
   available: 'Доступна',
   full: 'Заполнена',
@@ -409,7 +455,7 @@ export default function Lobby() {
             <UserRound size={18} /> {auth.user ? 'Аккаунт' : 'Вход и регистрация'}
           </button>
           <div className="nav-bottom">
-            <span className="version-tag">JINALY · EARLY ACCESS</span>
+            <span className="version-tag">JINALY · РАННИЙ ДОСТУП</span>
           </div>
         </nav>
         <section className="lobby-main">
@@ -537,7 +583,7 @@ export default function Lobby() {
                         {r.mine && r.notes !== null && (
                           <span>
                             <NotebookPen size={13} />
-                            {r.notes} идей
+                            {plural(r.notes, ['идея', 'идеи', 'идей'])}
                           </span>
                         )}
                         <span>
@@ -582,14 +628,8 @@ export default function Lobby() {
       </div>
       <Dialog open={create} onOpenChange={setCreate}>
         <DialogContent className="app-dialog">
-          <DialogTitle>
-            {gameMode === 'battle' ? 'Готовы к бою?' : 'Соберёмся на ретро?'}
-          </DialogTitle>
-          <DialogDescription>
-            {gameMode === 'battle'
-              ? 'Выберите карту и позовите команду на матч.'
-              : 'Создайте отдельную комнату для этой встречи.'}
-          </DialogDescription>
+          <DialogTitle>{modeCopy(gameMode).title}</DialogTitle>
+          <DialogDescription>{modeCopy(gameMode).hint}</DialogDescription>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -611,7 +651,7 @@ export default function Lobby() {
                     }}
                   >
                     <div className="access-choice-head">
-                      {m.id === 'battle' ? <Swords size={22} /> : <NotebookPen size={22} />}
+                      <ModeIcon mode={m.id} />
                       <strong>{m.title}</strong>
                     </div>
                     <small>{m.hint}</small>
@@ -739,11 +779,7 @@ export default function Lobby() {
               type="submit"
               disabled={busy}
             >
-              {busy
-                ? 'Создаём пространство…'
-                : gameMode === 'battle'
-                  ? 'Начать бой'
-                  : 'Собрать команду'}{' '}
+              {busy ? 'Создаём комнату…' : modeCopy(gameMode).cta}{' '}
               <ArrowUpRight size={17} />
             </button>
           </form>
@@ -788,13 +824,14 @@ export default function Lobby() {
           <div className="help-copy">
             <p>
               <b>В 3D:</b> нажмите «Играть». WASD — движение, пробел — прыжок, C
-              — сесть, дважды C — лечь. Ctrl — присесть, Shift — медленный шаг.
-              Мышь вращает камеру.
+              — сесть, дважды C — лечь. X — присесть (удерживать), Shift —
+              медленный шаг. Мышь вращает камеру, V — вид от первого или третьего
+              лица.
             </p>
             <p>
-              <b>Инструменты:</b> 1–3 и колесо меняют предмет в руках. Q, I или
-              средняя кнопка открывают снаряжение. Выбор — кликом. Подойдите к
-              доске и нажмите E.
+              <b>Инструменты:</b> цифры и колесо мыши меняют предмет в руках. Q, I
+              или удержание колёсика открывают снаряжение. Выбор — кликом.
+              Подойдите к доске и нажмите E.
             </p>
             <p>
               <b>Встреча:</b> ведущий переключает этапы, запускает таймер и
@@ -802,8 +839,9 @@ export default function Lobby() {
               самостоятельно.
             </p>
             <p>
-              <b>Tab:</b> участники, задержка, FPS. Esc возвращает курсор.
-              Обычная доска доступна даже без WebGL.
+              <b>Ё</b> (клавиша слева от 1) — участники, задержка, FPS. M — карта,
+              T / Y — рация своей команде / всем. Esc возвращает курсор. Для
+              комнаты нужен браузер с WebGL.
             </p>
           </div>
         </DialogContent>
