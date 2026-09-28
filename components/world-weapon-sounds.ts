@@ -193,6 +193,11 @@ export function createWeaponSounds(options: {
       if (name) play(name, at, false, volume);
     },
 
+    /** Граната стукнулась о стену или пол: тот же пластиковый щелчок, только ниже и глуше. */
+    knock(at: Point, volume = 1) {
+      play('flashlight', at, false, volume * 0.9, 0.5 + Math.random() * 0.12);
+    },
+
     /** Щелчок фонарика: включение звучит выше выключения, как у настоящей кнопки. */
     click(on: boolean, at: Point, own: boolean, volume = 1) {
       play('flashlight', at, own, volume, on ? 1.12 : 0.88);

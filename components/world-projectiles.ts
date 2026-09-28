@@ -2,7 +2,7 @@ import * as T from 'three';
 import type { Room, WorldEffect } from '@/lib/model';
 import { hitZone, inHitRange, type HitZone } from '@/lib/game-items';
 import { flightMs } from '@/lib/weapon-definition';
-import type { BoxCollider3D } from '@/lib/world-collision';
+import { grenadeAt, simulateGrenade, type GrenadeFlight, type GrenadeWorld } from '@/lib/grenade-physics';
 import type { Perspective } from '@/lib/game-camera';
 import {
   partyGeometry,
@@ -26,6 +26,10 @@ type Flight = {
   color: string;
   kind: string;
   author?: string;
+  /** Путь гранаты с отскоками; у остальных снарядов полёт прямой. */
+  grenade?: GrenadeFlight;
+  /** Сколько отскоков гранаты уже прозвучало. */
+  knocks?: number;
 };
 
 type Vfx = ReturnType<typeof createWorldVfx>;
@@ -49,9 +53,10 @@ export function createWorldProjectiles({
   splat,
   smearPlayerWithPaint,
   checkSceneryHit,
-  colliders,
+  world,
   onLaunch,
   onLand,
+  onBounce,
 }: {
   scene: T.Scene;
   latest: { readonly current: { room: Room } };
@@ -69,13 +74,19 @@ export function createWorldProjectiles({
     at: T.Vector3,
     normal: T.Vector3,
   ) => { point: T.Vector3; normal: T.Vector3 } | null;
-  /** Стены текущей карты: без них отметка попадания загоралась бы сквозь них. */
-  colliders: BoxCollider3D[];
+  /**
+   * Текущая карта: её стены не дают отметке попадания загореться сквозь них,
+   * а пол и стены — то, от чего отскакивает граната.
+   */
+  world: GrenadeWorld;
   /** Снаряд вылетел (свой или чужой) — для звука выстрела. Старые эффекты при входе в комнату не зовутся. */
   onLaunch?: (e: WorldEffect) => void;
   /** Снаряд долетел до точки — для звука попадания или взрыва. */
   onLand?: (kind: string, at: T.Vector3) => void;
+  /** Граната ударилась о стену или пол. */
+  onBounce?: (at: T.Vector3) => void;
 }) {
+  const { colliders } = world;
   const flights: Flight[] = [];
   /**
    * Уже проигранные выстрелы: id → когда увидели. Память обязана жить дольше,
@@ -85,6 +96,8 @@ export function createWorldProjectiles({
    */
   const seen = new Map<string, number>();
   const SEEN_TTL_MS = 25_000;
+  const scratch: [number, number, number] = [0, 0, 0];
+  const tumbleFrom = new T.Vector3();
   const paintGeo = new T.SphereGeometry(0.105, 7, 5);
   // Материалы шариков и сердечек переиспользуются: см. material-pool.ts.
   const ballMaterials = createMaterialPool(() => new T.MeshBasicMaterial());
@@ -139,12 +152,19 @@ export function createWorldProjectiles({
     projectile.position.copy(start);
     projectile.userData.transientProjectile = true;
     scene.add(projectile);
+    // Граната рвётся там, куда долетела и докатилась, — сервер считает тот же путь.
+    const grenade = e.kind === 'grenade' ? simulateGrenade(e.origin, e.target, world) : undefined;
+    if (grenade) target.fromArray(grenade.end);
+    const born = performance.now() - Math.max(0, Date.now() - e.at);
     flights.push({
       mesh: projectile,
       origin: start,
       target,
+      grenade,
+      // Отскоки, что случились до того, как мы увидели бросок, не звучат.
+      knocks: grenade?.bounces.filter((b) => b < performance.now() - born).length,
       normal,
-      born: performance.now() - Math.max(0, Date.now() - e.at),
+      born,
       // Столько же сервер ждёт, прежде чем ранить: урон приходит вместе со снарядом.
       duration: flightMs(e.kind, start.distanceTo(target)),
       variant: e.variant || 'classic',
@@ -160,13 +180,19 @@ export function createWorldProjectiles({
     for (let i = flights.length - 1; i >= 0; i--) {
       const f = flights[i],
         t = Math.min(1, (now - f.born) / f.duration);
-      f.mesh.position.lerpVectors(f.origin, f.target, t);
-      if (f.kind === 'grenade') {
-        f.mesh.position.y += Math.sin(t * Math.PI) * 3;
-        f.mesh.rotation.x = t * 10;
-        f.mesh.rotation.y = t * 7;
-        f.mesh.rotation.z = t * 14;
-      } else if (f.kind === 'sniper') {
+      if (f.grenade) {
+        const at = grenadeAt(f.grenade, now - f.born, scratch);
+        // Кувыркается, пока катится, и замирает, когда легла.
+        const moved = f.mesh.position.distanceTo(tumbleFrom.fromArray(at));
+        f.mesh.position.fromArray(at);
+        f.mesh.rotation.x += moved * 3.2;
+        f.mesh.rotation.z += moved * 2.1;
+        let knocks = f.knocks ?? 0;
+        for (; knocks < f.grenade.bounces.length && f.grenade.bounces[knocks] <= now - f.born; knocks++)
+          onBounce?.(f.mesh.position);
+        f.knocks = knocks;
+      } else f.mesh.position.lerpVectors(f.origin, f.target, t);
+      if (f.kind === 'sniper') {
         const dir = f.target.clone().sub(f.origin).normalize();
         f.mesh.quaternion.setFromUnitVectors(new T.Vector3(0, 0, 1), dir);
       }

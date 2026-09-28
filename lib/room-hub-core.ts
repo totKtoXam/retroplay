@@ -6,7 +6,9 @@ import { BotBrain } from './bot-brain.ts';
 import { BOT_PREFIX, isBotId, isBotLevel, MAX_BOTS, type BotSpec } from './bot-levels.ts';
 import { cooledDown, flightMs, isBlaster } from './weapon-definition.ts';
 import type { ToolMagazine } from './tool-magazine.ts';
+import { simulateGrenade } from './grenade-physics.ts';
 import {
+  blastCenter,
   calculatePelletsHit,
   effectDamage,
   effectStyle,
@@ -765,9 +767,12 @@ function revive(state: HubState, now: number) {
 }
 
 function applyHits(state: HubState, e: HubEffect, now: number) {
-  const colliders = getMap(state.room.map).colliders;
+  const map = getMap(state.room.map);
+  const colliders = map.colliders;
   const origin = e.origin || [0, 0, 0];
-  const target = e.target || [0, 0, 0];
+  const aim = e.target || [0, 0, 0];
+  // Граната рвётся не в точке прицела, а там, куда долетела и докатилась к концу запала.
+  const target = e.kind === 'grenade' ? simulateGrenade(origin, aim, map).end : aim;
   const author = state.members.get(e.author);
   const authorImmune = !!author && isImmune(state, author, now);
   for (const p of state.members.values()) {
@@ -800,6 +805,10 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
     } else if (e.kind === 'sniper') {
       // Снайперка убивает с одного выстрела в голову и в туловище, по конечностям — ранит.
       damage = zone === 'limb' ? SNIPER_LIMB_DAMAGE : 100;
+    } else if (e.kind === 'grenade') {
+      // Чем ближе к взрыву, тем больнее.
+      const center = blastCenter(pose);
+      damage = effectDamage(e.kind, Math.hypot(center[0] - target[0], center[1] - target[1], center[2] - target[2]));
     } else {
       const distance = Math.hypot(target[0] - origin[0], target[1] - origin[1], target[2] - origin[2]);
       damage = effectDamage(e.kind, distance);

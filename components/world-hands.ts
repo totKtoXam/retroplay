@@ -529,6 +529,10 @@ export function createFirstPersonHands(camera: T.Camera) {
     }
   });
 
+  let turnYaw = 0,
+    turnPitch = 0,
+    lagYaw = 0,
+    lagPitch = 0;
   let recoil = 0,
     equip = 0,
     lastTool = '';
@@ -601,6 +605,11 @@ export function createFirstPersonHands(camera: T.Camera) {
       );
       return group.localToWorld(muzzleScratch.clone());
     },
+    /** Взгляд повернулся: оружие отстаёт от него, как настоящее с весом. */
+    look(yaw: number, pitch: number) {
+      turnYaw += yaw;
+      turnPitch += pitch;
+    },
     shoot: (weaponType = 'paint') => {
       recoil =
         weaponType === 'sniper'
@@ -646,6 +655,13 @@ export function createFirstPersonHands(camera: T.Camera) {
       }
       equip = Math.max(0, equip - dt * 5);
       recoil *= Math.exp(-15 * dt);
+      // Инерция: рывок мышью отбрасывает оружие назад, пружина возвращает его на место.
+      lagYaw = T.MathUtils.clamp(lagYaw + turnYaw * 0.6, -0.08, 0.08);
+      lagPitch = T.MathUtils.clamp(lagPitch + turnPitch * 0.6, -0.06, 0.06);
+      turnYaw = 0;
+      turnPitch = 0;
+      lagYaw *= Math.exp(-11 * dt);
+      lagPitch *= Math.exp(-11 * dt);
 
       // Multi-phase procedural reload choreography
       let reloadRotX = 0,
@@ -778,22 +794,27 @@ export function createFirstPersonHands(camera: T.Camera) {
        * ровно тогда, когда точность и нужна.
        */
       const sway = (1 - aim) * (1 - tabletInspect);
+      // Через прицел инерция слабее, но есть: при резком повороте мушка догоняет взгляд.
+      const inertia = (1 - aim * 0.7) * (1 - tabletInspect);
       group.position.set(
         targetX +
-          Math.sin(time * speed * 2.4) * Math.min(speed, 0.9) * 0.009 * sway,
+          Math.sin(time * speed * 2.4) * Math.min(speed, 0.9) * 0.009 * sway +
+          lagYaw * 0.35 * inertia,
         targetY +
           Math.cos(time * speed * 4.8) * Math.min(speed, 1) * 0.011 * sway +
           reloadPosY -
-          equip * 0.22,
+          equip * 0.22 +
+          lagPitch * 0.3 * inertia,
         targetZ,
       );
       group.rotation.set(
         recoil * 0.095 +
           equip * 0.25 +
           reloadRotX +
-          (tabletInspect > 0 ? -0.15 * tabletInspect : 0),
-        reloadRotY,
-        reloadRotZ + Math.sin(time * 0.8) * 0.005 * sway,
+          (tabletInspect > 0 ? -0.15 * tabletInspect : 0) +
+          lagPitch * 0.8 * inertia,
+        reloadRotY - lagYaw * 0.9 * inertia,
+        reloadRotZ + Math.sin(time * 0.8) * 0.005 * sway - lagYaw * 0.6 * inertia,
       );
     },
   };

@@ -78,7 +78,8 @@ const fire = (
   kind,
   variant,
   origin: [0, 1.1, 4],
-  target: [0, 1.1, 0],
+  // Граната летит по физике (lib/grenade-physics.ts): такой бросок кладёт её у ног жертвы.
+  target: kind === 'grenade' ? [0, -8.22, 0.376] : [0, 1.1, 0],
   normal: [0, 0, 1],
   color: '#ff647c',
 });
@@ -132,11 +133,11 @@ await wait(Math.max(1500, (await member()).immuneRemaining || 0) + 80);
 const grenade = fire('grenade', 'pinata');
 await req(host, path, grenade);
 assert.equal((await member()).hp, 100, 'grenade fuse is delayed');
-await wait(1150);
+await wait(1850);
 await Promise.all([req(host, path), req(guest, path), req(host, path)]);
 assert.equal(
   (await member()).hp,
-  55,
+  39,
   'concurrent polls resolve grenade only once',
 );
 const effects = (await req(guest, path)).data.effects;

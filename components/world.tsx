@@ -70,6 +70,8 @@ import { CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import { WeaponPrediction } from '@/lib/weapon-prediction';
 import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
 import { GRENADE_COOLDOWN_MS, isBlaster } from '@/lib/weapon-definition';
+import { simulateGrenade } from '@/lib/grenade-physics';
+import { aimedSpread, recoilKick, spreadScale, ViewRecoil, type Handling } from '@/lib/weapon-recoil';
 import {
   blocksCamera,
   blocksProjectile,
@@ -951,6 +953,10 @@ export default function World(props: Props) {
     });
     let grenadeAiming = false;
     let continuousShots = 0;
+    // Отдача уводит сам взгляд; разброс зависит от того, как игрок двигался в прошлом кадре.
+    const viewRecoil = new ViewRecoil();
+    let lastMoving = false,
+      lastAirborne = false;
     const keys = new Set<string>(),
       ray = new T.Raycaster(),
       mouse = new T.Vector2(0, 0);
@@ -1019,6 +1025,8 @@ export default function World(props: Props) {
       opacity: 0.85,
     });
     const trajectoryLine = new T.Line(trajectoryGeo, trajectoryMat);
+    // Точки линии меняются каждый кадр, а сфера для отсечения считается один раз.
+    trajectoryLine.frustumCulled = false;
     trajectoryLine.visible = false;
     scene.add(trajectoryLine);
 
@@ -1136,12 +1144,13 @@ export default function World(props: Props) {
       splat: vfx.splat,
       smearPlayerWithPaint: vfx.smearPlayerWithPaint,
       checkSceneryHit,
-      colliders: map.colliders,
+      world: map,
       onLaunch: (e) => {
         const [x, y, z] = e.origin ?? [];
         if (z !== undefined) weaponSounds.fire(e.kind, [x, y, z], e.author === latest.current.room.self, weaponVolume());
       },
       onLand: (kind, at) => weaponSounds.impact(kind, [at.x, at.y, at.z], weaponVolume()),
+      onBounce: (at) => weaponSounds.knock([at.x, at.y, at.z], weaponVolume()),
     });
     const { flights, spawn } = projectiles;
     let lastReportedRounds = { ...magazine.current.rounds };
@@ -1206,6 +1215,19 @@ export default function World(props: Props) {
     const isImmune = () => {
       return immuneExpireRef.current > performance.now();
     };
+    /** Откуда вылетает снаряд: из ствола в первом лице, от плеча — в третьем. */
+    const weaponOrigin = (tool: string) =>
+      perspectiveRef.current === 'first'
+        ? hands.muzzle(tool)
+        : pos
+            .clone()
+            .add(
+              new T.Vector3(
+                Math.cos(player.cameraYaw) * 0.38,
+                player.stance === 'lie' ? 0.5 : player.stance === 'sit' ? 1.05 : 1.5,
+                -Math.sin(player.cameraYaw) * 0.38,
+              ),
+            );
     const shoot = () => {
       if (latest.current.room.match?.phase === 'freeze') return;
       const p = latest.current;
@@ -1253,25 +1275,27 @@ export default function World(props: Props) {
           ? new T.Vector2(0, 0)
           : mouse.clone()
       );
-      if (tool === 'paint' && !aimHeld) {
-        const spread = Math.min(0.048, 0.016 + continuousShots * 0.0032);
-        continuousShots++;
+      const handling: Handling = {
+        moving: lastMoving,
+        airborne: lastAirborne,
+        stance: player.stance,
+        aiming: !!aimHeld,
+      };
+      // Номер выстрела в очереди: по нему идёт рисунок отдачи и растёт разброс.
+      const shotIndex = tool === 'paint' ? continuousShots++ : (continuousShots = 0);
+      // Снайперка от бедра никогда не бьёт точно в центр: промах — хотя бы на треть разброса.
+      const noScope = tool === 'sniper' && !aimHeld;
+      const spread = aimHeld
+        ? aimedSpread(tool, handling)
+        : tool === 'paint'
+          ? Math.min(0.048, 0.016 + shotIndex * 0.0032) * spreadScale(handling)
+          : noScope
+            ? 0.2 * spreadScale(handling)
+            : 0;
+      if (spread > 0) {
         const ang = Math.random() * Math.PI * 2;
-        const mag = Math.sqrt(Math.random()) * spread;
+        const mag = (noScope ? 0.35 + Math.random() * 0.65 : Math.sqrt(Math.random())) * spread;
         screenCoord.add(new T.Vector2(Math.cos(ang) * mag, Math.sin(ang) * mag));
-      } else if (tool === 'sniper' && !aimHeld) {
-        const isMoving =
-          keys.has('KeyW') ||
-          keys.has('KeyA') ||
-          keys.has('KeyS') ||
-          keys.has('KeyD');
-        const spread = 0.2 + (isMoving ? 0.09 : 0);
-        const ang = Math.random() * Math.PI * 2;
-        const mag = (0.35 + Math.random() * 0.65) * spread;
-        screenCoord.add(new T.Vector2(Math.cos(ang) * mag, Math.sin(ang) * mag));
-        continuousShots = 0;
-      } else {
-        continuousShots = 0;
       }
 
       ray.setFromCamera(screenCoord, camera);
@@ -1315,22 +1339,7 @@ export default function World(props: Props) {
       const normal = hit?.face
         ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
         : new T.Vector3(0, 1, 0);
-      const origin =
-        perspectiveRef.current === 'first'
-          ? hands.muzzle(tool)
-          : pos
-            .clone()
-            .add(
-              new T.Vector3(
-                Math.cos(player.cameraYaw) * 0.38,
-                player.stance === 'lie'
-                  ? 0.5
-                  : player.stance === 'sit'
-                    ? 1.05
-                    : 1.5,
-                -Math.sin(player.cameraYaw) * 0.38,
-              ),
-            );
+      const origin = weaponOrigin(tool);
       // Ствол не должен стрелять через препятствие, находящееся ближе центра прицела.
       const muzzleRay = new T.Raycaster(
         camera.position,
@@ -1463,6 +1472,7 @@ export default function World(props: Props) {
       }
       avatarShoot(avatar);
       hands.shoot(tool);
+      viewRecoil.kick(recoilKick(tool, shotIndex, handling));
       prediction.current.remember(e.id, 'fire', isBlaster(tool) ? tool : undefined, now);
       void p.onFire(e).then((reply) => {
         applyWeaponReply(reply);
@@ -1818,6 +1828,7 @@ export default function World(props: Props) {
           ? Math.max(0.12, 1 / (SNIPER_ZOOM_LEVELS[sniperZoomIndexRef.current] * 0.75))
           : 1;
         const sens = latest.current.sensitivity * zoomScale;
+        const pitchBefore = player.pitch;
         player.cameraYaw = wrapAngle(player.cameraYaw - mx * 0.0023 * sens);
         player.pitch = T.MathUtils.clamp(
           player.pitch +
@@ -1828,6 +1839,7 @@ export default function World(props: Props) {
           -1.35,
           1.4,
         );
+        hands.look(-mx * 0.0023 * sens, player.pitch - pitchBefore);
       }
     };
     const wheel = (e: WheelEvent) => {
@@ -2104,38 +2116,18 @@ export default function World(props: Props) {
           .intersectObjects(trajTargets, false)
           .find((h) => h.distance < 50 && h.distance > 0.1);
         const arcTarget = hit ? hit.point : ray.ray.at(25, new T.Vector3());
-        const arcOrigin =
-          perspectiveRef.current === 'first'
-            ? hands.group.localToWorld(new T.Vector3(0, 0.025, -0.69))
-            : pos.clone().add(new T.Vector3(0, 1.4, 0));
-
-        const pts: T.Vector3[] = [];
-        for (let k = 0; k <= 24; k++) {
-          const t = k / 24;
-          const pt = arcOrigin.clone().lerp(arcTarget, t);
-          pt.y += Math.sin(t * Math.PI) * 3;
-          pts.push(pt);
-        }
-        trajectoryLine.geometry.setFromPoints(pts);
+        // Тот же полёт, что посчитают сервер и все клиенты: с отскоками и качением.
+        const arc = simulateGrenade(weaponOrigin('grenade').toArray(), arcTarget.toArray(), map);
+        trajectoryLine.geometry.setFromPoints(arc.path.map((q) => new T.Vector3(...q)));
         trajectoryLine.visible = true;
 
-        landingMarker.position.copy(arcTarget);
-        if (hit?.face) {
-          const norm = hit.face.normal
-            .clone()
-            .transformDirection(hit.object.matrixWorld);
-          landingMarker.position.addScaledVector(norm, 0.02);
-          landingMarker.quaternion.setFromUnitVectors(
-            new T.Vector3(0, 0, 1),
-            norm,
-          );
-        } else {
-          landingMarker.position.y = Math.max(0.02, arcTarget.y);
-          landingMarker.quaternion.setFromUnitVectors(
-            new T.Vector3(0, 0, 1),
-            new T.Vector3(0, 1, 0),
-          );
-        }
+        // Метка — там, где граната рванёт; лежит она к этому времени или ещё летит.
+        landingMarker.position.fromArray(arc.end);
+        landingMarker.position.y = Math.max(0.02, arc.end[1] - 0.06);
+        landingMarker.quaternion.setFromUnitVectors(
+          new T.Vector3(0, 0, 1),
+          new T.Vector3(0, 1, 0),
+        );
         landingMarker.visible = true;
       } else if (trajectoryLine.visible) {
         trajectoryLine.visible = false;
@@ -2205,6 +2197,13 @@ export default function World(props: Props) {
         eyeHeight(player.stance),
         1 - Math.exp(-10 * dt),
       );
+      lastMoving = moving;
+      lastAirborne = pos.y - groundY > 0.08;
+      {
+        const kick = viewRecoil.step(dt);
+        player.pitch = T.MathUtils.clamp(player.pitch + kick.pitch, -1.35, 1.4);
+        player.cameraYaw = wrapAngle(player.cameraYaw + kick.yaw);
+      }
       const mode = perspectiveRef.current;
       const view = cameraFrame(
         pos,
