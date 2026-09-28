@@ -3,11 +3,11 @@ import * as T from 'three';
 /**
  * Космос за иллюминаторами корабля (режим «Предатель»).
  *
- * Стекло иллюминатора — не картинка, а окно в бесконечность: шейдер берёт направление от камеры
- * к точке стекла и по нему считает, что видно снаружи. Звёзды, туманность, Млечный Путь, планеты
- * с атмосферой и кольцами и само солнце посчитаны прямо в этом направлении. Поэтому вид остаётся
- * резким на любом разрешении и честно смещается, когда подходишь к окну и смотришь вбок: космос
- * бесконечно далеко, и параллакса у него нет. Геометрию в стенах вырезать не нужно.
+ * Иллюминаторы сквозные: за стеклом — настоящий внешний корпус соседних отсеков
+ * (world-ship-hull.ts), а за ним — небесная сфера. Её шейдер по направлению от камеры считает
+ * звёзды, туманность, Млечный Путь, планеты с атмосферой и кольцами и само солнце. Поэтому вид
+ * остаётся резким на любом разрешении: космос бесконечно далеко, и параллакса у него нет, а
+ * отсеки корабля смещаются, когда подходишь к окну и смотришь вбок.
  *
  * Солнце здесь — единственное светило. Его направление `SPACE_SUN` общее для окна и для света в
  * отсеках: иллюминаторы, смотрящие на солнце, пускают внутрь луч и кладут на пол светлое пятно
@@ -233,7 +233,7 @@ vec3 space(vec3 d) {
 }
 `;
 
-/** Юниформы с планетами и солнцем: общие для всех окон, время тикает у одного объекта. */
+/** Юниформы с планетами и солнцем. */
 function spaceUniforms() {
   return {
     uTime: { value: 0 },
@@ -246,47 +246,39 @@ function spaceUniforms() {
 }
 
 /**
- * Стекло иллюминатора. У краёв стекло чуть темнее рамы, сверху по нему идёт слабый блик от ламп
- * отсека: без этого окно выглядело бы дырой в стене, а не стеклом.
+ * Космос вокруг корабля — небесная сфера. Иллюминаторы сквозные: за стеклом видны
+ * настоящие соседние отсеки (world-ship-hull.ts), а там, где их нет, — эта сфера.
+ * Направление считается от камеры, поэтому сфера может стоять где угодно, лишь бы
+ * накрывала корабль: космос остаётся бесконечно далёким.
+ *
+ * Рисуется после всего непрозрачного мира (`renderOrder`), без записи глубины: тяжёлый
+ * шейдер считается только в пикселях, куда ничего ближе не легло, — то есть в окнах.
  */
-export function createSpaceWindowMaterial() {
+export function createSpaceSkyMaterial() {
   const material = new T.ShaderMaterial({
-    uniforms: T.UniformsUtils.merge([T.UniformsLib.fog, spaceUniforms()]),
-    fog: true,
+    uniforms: spaceUniforms(),
     vertexShader: /* glsl */ `
-      #include <fog_pars_vertex>
       varying vec3 vWorld;
-      varying vec2 vUv;
       void main() {
-        vUv = uv;
         vec4 world = modelMatrix * vec4(position, 1.0);
         vWorld = world.xyz;
-        vec4 mvPosition = viewMatrix * world;
-        gl_Position = projectionMatrix * mvPosition;
-        #include <fog_vertex>
+        gl_Position = projectionMatrix * viewMatrix * world;
       }
     `,
     fragmentShader: /* glsl */ `
-      #include <fog_pars_fragment>
       varying vec3 vWorld;
-      varying vec2 vUv;
       ${SPACE_GLSL}
       void main() {
-        vec3 d = normalize(vWorld - cameraPosition);
-        vec3 col = space(d);
-        float edge = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
-        col *= 0.72 + 0.28 * smoothstep(0.0, 0.07, edge);
-        // Слабое отражение ламп отсека в нижней части стекла.
-        // pow от отрицательного — NaN: на краю стекла интерполяция чуть выходит за 1.
-        col += vec3(0.05, 0.07, 0.09) * pow(max(1.0 - vUv.y, 0.0), 3.0) * 0.25;
+        vec3 col = space(normalize(vWorld - cameraPosition));
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
-        #include <fog_fragment>
       }
     `,
+    side: T.BackSide,
+    depthWrite: false,
   });
-  material.name = 'space-window';
+  material.name = 'space-sky';
   return material;
 }
 
@@ -413,7 +405,7 @@ export function createSunShaftMaterial() {
   return material;
 }
 
-/** Анимация окон и лучей: у всех общий ход времени. */
+/** Анимация космоса и лучей: у всех общий ход времени. */
 export function animateSpace(materials: T.ShaderMaterial[], seconds: number) {
   for (const m of materials) if (m.uniforms.uTime) m.uniforms.uTime.value = seconds;
 }

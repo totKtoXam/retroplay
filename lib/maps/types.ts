@@ -115,6 +115,12 @@ export type MapRoof = Bounds & {
  * Purely visual detail (door frame, window, pipe, wall screen): no collision, so it must
  * stay out of the way — on a wall or above head height. Front faces +z rotated by `yaw`.
  */
+/**
+ * Модуль внешнего корпуса: прямоугольник пола отсека или коридора, снаружи обшитый
+ * бронёй. `kind` — что пристроено снаружи (двигатели, антенна, купол…), по id отсека.
+ */
+export type HullModule = { minX: number; minZ: number; maxX: number; maxZ: number; kind: string };
+
 export type MapDecor = {
   kind: string;
   x: number;
@@ -218,6 +224,11 @@ export type ArenaDef = {
   vents?: MapVent[];
   /** Visual-only details: door frames, windows, pipes. */
   decor?: MapDecor[];
+  /**
+   * Карта — корабль в открытом космосе: снаружи строится корпус по этим модулям, окна
+   * сквозные, за ними — космос и другие отсеки, а земли под кораблём нет.
+   */
+  hull?: HullModule[];
 };
 
 export type GameMap = {

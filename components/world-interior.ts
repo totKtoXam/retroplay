@@ -27,11 +27,12 @@ import {
 } from './world-interior-textures';
 import {
   animateSpace,
-  createSpaceWindowMaterial,
+  createSpaceSkyMaterial,
   createSunPatchMaterial,
   createSunShaftMaterial,
   sunbeamGeometry,
 } from './world-space';
+import { createShipHull } from './world-ship-hull';
 
 /**
  * Интерьер помещений по меткам `art` из ArenaDef: вместо цветной коробки или цилиндра
@@ -190,6 +191,48 @@ export function createInterior(def: ArenaDef) {
   };
   worldUV.set(ceiling, floorUV(CEILING_TILE));
 
+  /*
+   * Корабль в космосе (`def.hull`): иллюминаторы сквозные. Стена на месте окна
+   * собирается из кусков вокруг проёма, за стеклом — внешний корпус соседних отсеков
+   * и небесная сфера с космосом (world-ship-hull.ts, world-space.ts).
+   */
+  const portholes = def.hull ? (def.decor ?? []).filter((dc) => dc.kind === 'window') : [];
+  const wallWithHoles = (b: MapBox) => {
+    const alongX = b.w >= b.d;
+    const lo = alongX ? b.x - b.w / 2 : b.z - b.d / 2,
+      hi = alongX ? b.x + b.w / 2 : b.z + b.d / 2;
+    const bottom = b.y - b.h / 2,
+      top = b.y + b.h / 2;
+    const holes = portholes
+      .filter((dc) => Math.abs(dc.x - b.x) <= b.w / 2 + 1e-3 && Math.abs(dc.z - b.z) <= b.d / 2 + 1e-3)
+      .map((dc) => ({ a0: (alongX ? dc.x : dc.z) - dc.w / 2, a1: (alongX ? dc.x : dc.z) + dc.w / 2, y0: dc.y - dc.h / 2, y1: dc.y + dc.h / 2 }))
+      .sort((p, q) => p.a0 - q.a0);
+    const piece = (a0: number, a1: number, y0: number, y1: number) => {
+      if (a1 - a0 < 1e-3 || y1 - y0 < 1e-3) return;
+      const a = (a0 + a1) / 2;
+      box(wall, alongX ? a1 - a0 : b.w, y1 - y0, alongX ? b.d : a1 - a0, alongX ? a : b.x, (y0 + y1) / 2, alongX ? b.z : a);
+    };
+    let cursor = lo;
+    for (const h of holes) {
+      piece(cursor, h.a0, bottom, top);
+      piece(h.a0, h.a1, bottom, h.y0);
+      piece(h.a0, h.a1, h.y1, top);
+      cursor = h.a1;
+    }
+    piece(cursor, hi, bottom, top);
+  };
+  const glass = material('glass', () =>
+    new T.MeshStandardMaterial({
+      color: '#b9dcf2',
+      transparent: true,
+      opacity: 0.1,
+      roughness: 0.04,
+      metalness: 0.2,
+      depthWrite: false,
+      side: T.DoubleSide,
+    }),
+  );
+
   // --- Модели на месте коробок. Начало координат — пол под центром, перед смотрит в +z ---
   const accent = { console: '#58d0ff', panel: '#ff4040' };
   const buildBox = (b: MapBox) => {
@@ -203,7 +246,8 @@ export function createInterior(def: ArenaDef) {
     switch (kind) {
       case 'wall': {
         place(0, 0, 0);
-        box(wall, b.w, b.h, b.d, b.x, b.y, b.z);
+        if (portholes.length) wallWithHoles(b);
+        else box(wall, b.w, b.h, b.d, b.x, b.y, b.z);
         break;
       }
       case 'floor': {
@@ -421,7 +465,6 @@ export function createInterior(def: ArenaDef) {
   });
 
   // --- Иллюминаторы: стекло с космосом и солнечные лучи сквозь него (components/world-space.ts) ---
-  let spaceWindow: T.ShaderMaterial | null = null;
   const shaftMaterial = createSunShaftMaterial();
   const patchMaterials = new Map<number, T.ShaderMaterial>();
   // Лучи и пятна строятся сразу в мировых координатах, поэтому копятся отдельно от `parts`.
@@ -451,10 +494,13 @@ export function createInterior(def: ArenaDef) {
       }
       case 'window': {
         const frame = steel();
-        // Внутри корабля за окном настоящий космос; на других картах окно — прежняя картинка.
-        if (def.indoor) {
-          spaceWindow ??= createSpaceWindowMaterial();
-          plane(spaceWindow, w, h, 0, 0, FACE + 0.012);
+        // На корабле окно сквозное: стекло в проёме, откосы до обшивки снаружи. На других
+        // картах окно — прежняя картинка со звёздами.
+        if (def.hull) {
+          plane(glass, w, h, 0, 0, 0);
+          const depth = 0.36;
+          for (const sy of [-1, 1]) box(frame, w, 0.03, depth, 0, sy * (h / 2 + 0.015), -0.02);
+          for (const sx of [-1, 1]) box(frame, 0.03, h, depth, sx * (w / 2 + 0.015), 0, -0.02);
         } else plane(screen('stars', starfieldTexture, 0.9), w, h, 0, 0, FACE + 0.012);
         // Толстая скруглённая рама с болтами: большой иллюминатор, а не щель в стене.
         for (const sy of [-1, 1]) box(frame, w + 0.36, 0.18, 0.2, 0, sy * (h / 2 + 0.09), FACE + 0.07);
@@ -462,7 +508,7 @@ export function createInterior(def: ArenaDef) {
         for (const sx of [-1, 1])
           for (const sy of [-1, 1]) cyl(dark(), 0.06, 0.06, 0.04, sx * (w / 2 + 0.09), sy * (h / 2 + 0.09), FACE + 0.18, 10, Math.PI / 2);
         const bars = Math.max(0, Math.floor(w / 1.8));
-        for (let i = 1; i <= bars; i++) box(frame, 0.07, h, 0.1, -w / 2 + (i * w) / (bars + 1), 0, FACE + 0.05);
+        for (let i = 1; i <= bars; i++) box(frame, 0.07, h, def.hull ? 0.34 : 0.1, -w / 2 + (i * w) / (bars + 1), 0, def.hull ? -0.02 : FACE + 0.05);
         box(dark(), w + 0.5, 0.08, 0.32, 0, -h / 2 - 0.2, FACE + 0.14);
         if (def.indoor) {
           const normal = new T.Vector3(Math.sin(dc.yaw ?? 0), 0, Math.cos(dc.yaw ?? 0));
@@ -503,6 +549,27 @@ export function createInterior(def: ArenaDef) {
 
   const group = new T.Group();
   group.name = 'interior';
+  // Снаружи корабля: корпус по модулям и небесная сфера с космосом.
+  const hull = def.hull
+    ? createShipHull(def.hull, def.boxes.filter((b) => family(b.art) === 'wall'), portholes)
+    : null;
+  const sky = def.hull ? createSpaceSkyMaterial() : null;
+  if (hull) group.add(hull.group);
+  if (sky) {
+    // Сфера накрывает корабль (до 60 м от центра), а её дальняя сторона всегда ближе
+    // дальней плоскости камеры (350 м): иначе за кораблём зияла бы чёрная дыра.
+    const sphere = new T.Mesh(new T.SphereGeometry(150, 32, 16), sky);
+    const { minX, maxX, minZ, maxZ } = def.bounds;
+    sphere.position.set((minX + maxX) / 2, 0, (minZ + maxZ) / 2);
+    // После всего непрозрачного мира: тяжёлый шейдер считается только в пикселях окон.
+    sphere.renderOrder = 980;
+    sphere.frustumCulled = false;
+    sphere.raycast = () => {};
+    sphere.userData.presentationOnly = true;
+    sphere.userData.noCameraCollision = true;
+    sphere.userData.projectileCollision = 'ignore';
+    group.add(sphere);
+  }
   // Свет солнца: отдельные меши, помеченные как «только картинка» — пакеты ресурсов их не
   // перекрашивают, камера о них не спотыкается, теней они не бросают.
   const sunMesh = (geos: T.BufferGeometry[], mat: T.Material) => {
@@ -529,9 +596,10 @@ export function createInterior(def: ArenaDef) {
     worldUV.get(mat)?.(merged);
     const mesh = new T.Mesh(merged, mat);
     const m = mat as T.MeshStandardMaterial;
-    if (mat === spaceWindow) {
-      // Стекло с космосом светится само: тени ему не нужны, а пакет ресурсов не должен его заменить.
+    if (mat === glass) {
+      // Стекло держит камеру: иначе камера третьего лица выходила бы сквозь окно за борт.
       mesh.userData.presentationOnly = true;
+      mesh.renderOrder = 985;
       group.add(mesh);
       continue;
     }
@@ -548,7 +616,8 @@ export function createInterior(def: ArenaDef) {
   return {
     group,
     animate(time: number) {
-      animateSpace(spaceWindow ? [spaceWindow, shaftMaterial] : [shaftMaterial], time);
+      animateSpace(sky ? [sky, shaftMaterial] : [shaftMaterial], time);
+      hull?.animate(time);
       reactorGlow.emissiveIntensity = 1.5 + Math.sin(time * 2.2) * 0.4;
       if (reactorMap) reactorMap.offset.y = (time * 0.25) % 1;
       scannerMat.emissiveIntensity = 1.1 + Math.sin(time * 4) * 0.35;
@@ -562,7 +631,8 @@ export function createInterior(def: ArenaDef) {
       });
       cache.forEach((m) => m.dispose());
       textures.forEach((t) => t.dispose());
-      spaceWindow?.dispose();
+      sky?.dispose();
+      hull?.dispose();
       shaftMaterial.dispose();
       patchMaterials.forEach((m) => m.dispose());
     },

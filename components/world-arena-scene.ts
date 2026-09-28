@@ -104,11 +104,14 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
     side: T.BackSide,
     depthWrite: false,
   });
-  scene.add(new T.Mesh(new T.SphereGeometry(Math.max(180, span * 2), 24, 16), skyMaterial));
+  // Корабль в космосе (`def.hull`): неба и земли нет — вокруг космос (components/world-interior.ts).
+  if (!def.hull) scene.add(new T.Mesh(new T.SphereGeometry(Math.max(180, span * 2), 24, 16), skyMaterial));
 
   // Ground inside the walls and a wider backdrop outside them.
-  add(new T.BoxGeometry(maxX - minX, 0.2, maxZ - minZ), def.groundColor, cx, -0.1, cz, def.groundMaterial);
-  add(new T.BoxGeometry(span + 200, 0.2, span + 200), def.outsideColor ?? '#6f7f63', cx, -0.14, cz);
+  if (!def.hull) {
+    add(new T.BoxGeometry(maxX - minX, 0.2, maxZ - minZ), def.groundColor, cx, -0.1, cz, def.groundMaterial);
+    add(new T.BoxGeometry(span + 200, 0.2, span + 200), def.outsideColor ?? '#6f7f63', cx, -0.14, cz);
+  }
   // Коробки и цилиндры с меткой `art` рисует интерьер (текстуры и модели), остальные — сцена,
   // с материалом поверхности, если он задан.
   const interior = def.boxes.some((b) => b.art) || def.decor?.length ? createInterior(def) : undefined;
