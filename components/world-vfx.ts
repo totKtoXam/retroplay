@@ -340,7 +340,19 @@ export function createWorldVfx({
         closest = i;
       }
     }
+    // Вершины общие, как у самого тела: нормали сглажены, и пятно не выглядит гранёным.
     const out: number[] = [];
+    const faces: number[] = [];
+    const remap = new Map<number, number>();
+    const vertex = (k: number) => {
+      let n = remap.get(k);
+      if (n === undefined) {
+        n = remap.size;
+        remap.set(k, n);
+        out.push(posed[k * 3], posed[k * 3 + 1], posed[k * 3 + 2]);
+      }
+      return n;
+    };
     const tris = index ? index.count : count;
     const idx = (k: number) => (index ? index.getX(k) : k);
     const n2 = near * near;
@@ -355,10 +367,11 @@ export function createWorldVfx({
         return dx * dx + dy * dy + dz * dz < n2;
       });
       if (!inside) continue;
-      for (const k of [a, b, c]) out.push(posed[k * 3], posed[k * 3 + 1], posed[k * 3 + 2]);
+      faces.push(vertex(a), vertex(b), vertex(c));
     }
     const geometry = new T.BufferGeometry();
     geometry.setAttribute('position', new T.Float32BufferAttribute(out, 3));
+    geometry.setIndex(faces);
     geometry.computeVertexNormals();
     let bone = mesh.skeleton.bones[0];
     if (closest >= 0 && skinIndex && skinWeight) {
