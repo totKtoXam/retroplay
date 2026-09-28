@@ -7,6 +7,7 @@ import { stanceHeight, type GameMap } from '../lib/maps/types.ts';
 import { wrapAngle } from '../lib/game-camera.ts';
 import { followCameraHeading } from './world-avatar.ts';
 import { windPush } from '../lib/weather.ts';
+import { KNOCK_DECAY } from '../lib/melee.ts';
 
 /**
  * The local player of the world engine: where the body is, how fast it falls,
@@ -63,6 +64,9 @@ export function createWorldPlayer({
     crouchHeld = false,
     beforeCrouch: 'stand' | 'sit' | 'lie' = 'stand';
   let accumulated = 0;
+  /** Толчок от удара молотом, м/с; гаснет с `KNOCK_DECAY` (lib/melee.ts). */
+  let knockX = 0,
+    knockZ = 0;
 
   // Body height follows the stance, so crouching or lying fits through low openings.
   const blocked = (x: number, z: number, y = pos.y, stance = currentStance) =>
@@ -110,10 +114,18 @@ export function createWorldPlayer({
     crouchHeld = false;
     onStance(currentStance);
   };
+  /** Удар молотом: тело отлетает и чуть подпрыгивает, стены держат как при ходьбе. */
+  const knock = (x: number, y: number, z: number) => {
+    if (isDead()) return;
+    knockX += x;
+    knockZ += z;
+    if (y > 0) vy = Math.max(vy, y);
+  };
   /** The server put us on a spawn point of the room's map. */
   const teleport = (x: number, y: number, z: number) => {
     pos.set(x, y, z);
     vy = 0;
+    knockX = knockZ = 0;
     currentStance = 'stand';
     accumulated = 0;
     onStance('stand');
@@ -122,6 +134,7 @@ export function createWorldPlayer({
   const correctPosition = (pose: Pose) => {
     pos.set(pose.x, pose.y, pose.z);
     vy = 0;
+    knockX = knockZ = 0;
     accumulated = 0;
     currentStance = pose.stance;
     onStance(currentStance);
@@ -191,6 +204,14 @@ export function createWorldPlayer({
       });
       vx += push.x;
       vz += push.z;
+    }
+    if (knockX || knockZ) {
+      vx += knockX;
+      vz += knockZ;
+      const fade = Math.exp(-KNOCK_DECAY * dt);
+      knockX *= fade;
+      knockZ *= fade;
+      if (Math.hypot(knockX, knockZ) < 0.05) knockX = knockZ = 0;
     }
     if (vx || vz) {
       const nx = T.MathUtils.clamp(pos.x + vx * dt, map.bounds.minX, map.bounds.maxX),
@@ -288,6 +309,7 @@ export function createWorldPlayer({
 
   return {
     pos,
+    knock,
     get stance() {
       return currentStance;
     },

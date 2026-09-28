@@ -1,4 +1,5 @@
 import { makeGrenade, setGrenadeStyle } from './party-geometry.ts';
+import { meleeStyle } from '../lib/melee.ts';
 import * as T from 'three';
 import { buildAgentSkin } from './world-agent.ts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -500,6 +501,21 @@ export function createAvatar(color: string) {
   grenade.visible = false;
   grenade.position.set(0, -0.3, 0.03);
   elbows[1].add(grenade);
+  /*
+   * Ближний бой в чужих руках: зажат в правом кулаке и торчит вперёд. Как и у
+   * стволов, силуэт вместо подписи — розовый молот, узкий нож, длинный багет.
+   * У кулаков в руке ничего нет.
+   */
+  const melee = pivot(elbows[1], 'held-melee', 0, -0.3, 0.03);
+  melee.visible = false;
+  const hammer = pivot(melee, 'held-melee-hammer', 0, 0, 0);
+  add(hammer, new T.CylinderGeometry(0.028, 0.03, 0.5, 8), '#ffd166', 0, 0, -0.2).rotation.x = Math.PI / 2;
+  add(hammer, new T.CylinderGeometry(0.1, 0.1, 0.3, 12), '#ff84c8', 0, 0, -0.46).rotation.z = Math.PI / 2;
+  const knife = pivot(melee, 'held-melee-knife', 0, 0, 0);
+  box(knife, '#232838', 0, 0, -0.06, 0.05, 0.05, 0.13);
+  box(knife, '#d7dee6', 0, 0.005, -0.23, 0.014, 0.05, 0.22);
+  const baguette = pivot(melee, 'held-melee-baguette', 0, 0, 0);
+  add(baguette, new T.CapsuleGeometry(0.055, 0.56, 4, 8), '#d99a4e', 0, 0, -0.28).rotation.x = Math.PI / 2;
   setAvatarStyle(avatar, false);
   return avatar;
 }
@@ -567,6 +583,8 @@ export function animateAvatar(
     r.tablet.visible = false;
     const g = avatar.getObjectByName('held-grenade');
     if (g) g.visible = false;
+    const held = avatar.getObjectByName('held-melee');
+    if (held) held.visible = false;
     return;
   }
 
@@ -621,6 +639,15 @@ export function animateAvatar(
   if (grenade) {
     grenade.visible = m.tool === 'grenade';
     if (grenade.visible) setGrenadeStyle(grenade, m.variant || 'pinata');
+  }
+  const melee = avatar.getObjectByName('held-melee');
+  if (melee) {
+    melee.visible = m.tool === 'melee' && !m.working && !m.inventory;
+    if (melee.visible) {
+      const held = meleeStyle(m.variant);
+      for (const id of ['hammer', 'knife', 'baguette'])
+        melee.getObjectByName(`held-melee-${id}`)!.visible = held === id;
+    }
   }
   const armed = ['paint', 'confetti', 'grenade', 'sniper', 'flashlight'].includes(m.tool);
   for (let i = 0; i < 2; i++) {

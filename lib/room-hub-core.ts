@@ -7,7 +7,7 @@ import { BOT_PREFIX, isBotId, isBotLevel, MAX_BOTS, type BotSpec } from './bot-l
 import { cooledDown, flightMs, isBlaster } from './weapon-definition.ts';
 import type { ToolMagazine } from './tool-magazine.ts';
 import { simulateGrenade } from './grenade-physics.ts';
-import { fromBehind, meleeDamage, meleeStats } from './melee.ts';
+import { fromBehind, knockDistance, knockImpulse, meleeDamage, meleeStats } from './melee.ts';
 import {
   blastCenter,
   calculatePelletsHit,
@@ -118,6 +118,9 @@ export type HubMember = {
   /** Recent poses of the current life, oldest first, for lag compensation. */
   track: { at: number; pose: Pose }[];
   moveBudget: number;
+  /** Запас движения на отлёт от удара молотом, м; действует до `knockUntil`. */
+  knockBudget?: number;
+  knockUntil?: number;
   riseBudget?: number;
   /** Changes only when the server corrects a rejected position. */
   positionRevision?: number;
@@ -415,6 +418,8 @@ export function applyPresence(
   const dt = m.lastMoveAt ? Math.max(0, now - m.lastMoveAt) / 1000 : Infinity;
   m.lastMoveAt = now;
   m.moveBudget = Math.min(MOVE_BUDGET, m.moveBudget + MOVE_SPEED * dt);
+  // Отлёт от молота быстрее бега: на это время сервер знает про добавку к запасу.
+  const knock = (m.knockUntil ?? 0) > now ? (m.knockBudget ?? 0) : 0;
   const from = m.pose;
   const step = Math.hypot(pose.x - from.x, pose.z - from.z);
   // Separate upward allowance: jumping cannot be used to bypass horizontal checks.
@@ -422,7 +427,9 @@ export function applyPresence(
   m.riseBudget = Math.min(1.5, (m.riseBudget ?? 1.5) + 6.5 * dt);
   const rise = pose.y - from.y;
   const verticalAllowed = rise <= m.riseBudget && -rise <= 1.5 + 26 * Math.min(dt, 0.5);
-  const allowed = ghost ? step <= m.moveBudget : moveAllowed(map, from, pose, step, m.moveBudget);
+  const allowed = ghost
+    ? step <= m.moveBudget + knock
+    : moveAllowed(map, from, pose, step, m.moveBudget + knock);
   if (!verticalAllowed || !allowed) {
     if (!m.refusedSince) m.refusedSince = now;
     m.positionRevision = (m.positionRevision ?? 0) + 1;
@@ -433,7 +440,9 @@ export function applyPresence(
   }
   m.riseBudget = Math.max(0, m.riseBudget - Math.max(0, rise));
   m.refusedSince = 0;
-  m.moveBudget = Math.max(0, m.moveBudget - step);
+  const fromKnock = Math.min(knock, step);
+  if (fromKnock) m.knockBudget = knock - fromKnock;
+  m.moveBudget = Math.max(0, m.moveBudget - (step - fromKnock));
   m.pose = pose;
   recordPose(m, now);
   // Spawn protection lasts until the first move, then the room's few seconds more.
@@ -790,6 +799,44 @@ function revive(state: HubState, now: number) {
   return changed;
 }
 
+/**
+ * Молот отбрасывает выжившую жертву. Живому игроку — толчок (эффект `knock`) и
+ * запас движения на отлёт: двигает его собственный клиент, стены проверяются как
+ * всегда. Бота двигает сервер: сдвигаем позу сразу, до первой преграды.
+ */
+function knockBack(state: HubState, p: HubMember, e: HubEffect, now: number) {
+  const speed = meleeStats(e.variant).knockback;
+  const impulse = speed > 0 && e.origin ? knockImpulse(e.origin, p.pose, speed) : null;
+  if (!impulse) return;
+  const distance = knockDistance(speed);
+  if (isBotId(p.id)) {
+    const map = getMap(state.room.map);
+    for (const share of [1, 0.5, 0.25]) {
+      const d = distance * share;
+      const to = { ...p.pose, x: p.pose.x + (impulse[0] / speed) * d, z: p.pose.z + (impulse[2] / speed) * d };
+      if (!moveAllowed(map, p.pose, to, d, Infinity)) continue;
+      p.pose = to;
+      recordPose(p, now);
+      break;
+    }
+    return;
+  }
+  p.knockBudget = (p.knockUntil ?? 0) > now ? (p.knockBudget ?? 0) + distance * 1.4 : distance * 1.4 + 0.4;
+  p.knockUntil = now + 1500;
+  state.effects.push({
+    id: uid(),
+    kind: 'knock',
+    victim: p.id,
+    normal: impulse,
+    author: e.author,
+    at: now,
+    resolveAt: 0,
+    applied: true,
+    rewindTo: 0,
+    seq: ++state.seq,
+  });
+}
+
 function applyHits(state: HubState, e: HubEffect, now: number) {
   const map = getMap(state.room.map);
   const colliders = map.colliders;
@@ -866,6 +913,7 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
     if (p.hp > damage) {
       p.hp = Math.max(0, p.hp - damage);
       p.recentDamage[e.author] = now;
+      if (e.kind === 'melee') knockBack(state, p, e, now);
       continue;
     }
     let assister: string | undefined;

@@ -1254,6 +1254,8 @@ export default function World(props: Props) {
               ),
             );
     let lastSwing = -Infinity;
+    /** Толчки, что уже отыграны: эффект лежит в комнате ещё 15 секунд. */
+    const knocked = new Set<string>();
     /**
      * Удар ближнего боя: от глаз туда, куда смотрит прицел, на длину руки с
      * оружием; упёрлись в стену ближе — удар по стене. Через прицел, а не по
@@ -1630,7 +1632,19 @@ export default function World(props: Props) {
         setActive(false);
       },
       kit,
-      fire: spawn,
+      fire: (e: WorldEffect) => {
+        // Толчок от молота — только своему телу и только свежий: старый уже отыгран.
+        if (e.kind !== 'knock') return spawn(e);
+        if (
+          e.victim !== latest.current.room.self ||
+          knocked.has(e.id) ||
+          Date.now() + clockOffset.current - e.at > 1500 ||
+          !e.normal
+        )
+          return;
+        knocked.add(e.id);
+        player.knock(e.normal[0], e.normal[1], e.normal[2]);
+      },
       refreshTargets: rebuildSceneryTargets,
       orbit: (d) => {
         player.cameraYaw = wrapAngle(player.cameraYaw + d);

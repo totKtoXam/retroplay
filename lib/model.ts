@@ -174,7 +174,8 @@ export const TOOL_HINTS: Record<string, string> = {
 };
 export type WorldEffect = {
   id: string;
-  kind: 'paint' | 'confetti' | 'grenade' | 'sniper' | 'like' | 'melee' | 'kill';
+  /** `knock` — толчок жертве удара молотом: `victim` отлетает со скоростью `normal`. */
+  kind: 'paint' | 'confetti' | 'grenade' | 'sniper' | 'like' | 'melee' | 'kill' | 'knock';
   variant?: string;
   origin?: number[];
   target?: number[];

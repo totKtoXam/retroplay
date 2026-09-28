@@ -27,18 +27,42 @@ export type MeleeStats = {
   width: number;
   /** Урон в спину; нож в спину убивает. */
   backstab: number;
+  /** Толчок жертве, м/с по горизонтали; 0 — не отбрасывает. */
+  knockback: number;
 };
 
 export const MELEE_STATS: Record<MeleeId, MeleeStats> = {
   // Тяжёлый и широкий: промахнуться трудно, но замах долгий.
-  hammer: { damage: 45, cooldown: 800, windup: 280, reach: 2.3, width: 0.4, backstab: 70 },
+  hammer: { damage: 45, cooldown: 800, windup: 280, reach: 2.3, width: 0.4, backstab: 70, knockback: 7 },
   // Быстрый и короткий; в спину — сразу насмерть.
-  knife: { damage: 40, cooldown: 450, windup: 110, reach: 1.8, width: 0.12, backstab: 100 },
+  knife: { damage: 40, cooldown: 450, windup: 110, reach: 1.8, width: 0.12, backstab: 100, knockback: 0 },
   // Длинный и тяжёлый, чуть медленнее ножа и сильнее молота.
-  baguette: { damage: 55, cooldown: 750, windup: 250, reach: 2.4, width: 0.3, backstab: 80 },
+  baguette: { damage: 55, cooldown: 750, windup: 250, reach: 2.4, width: 0.3, backstab: 80, knockback: 0 },
   // Всегда под рукой: слабые, зато частые.
-  fists: { damage: 25, cooldown: 380, windup: 90, reach: 1.5, width: 0.18, backstab: 38 },
+  fists: { damage: 25, cooldown: 380, windup: 90, reach: 1.5, width: 0.18, backstab: 38, knockback: 0 },
 };
+
+/**
+ * Отбрасывание. Позицию ведёт клиент жертвы, а сервер её проверяет: сервер
+ * шлёт жертве толчок и на время отлёта расширяет ей запас движения, клиент
+ * гасит толчок с этой скоростью, упираясь в стены как при обычной ходьбе.
+ */
+export const KNOCK_DECAY = 6;
+/** Толчок подбрасывает, м/с вверх. */
+export const KNOCK_LIFT = 3;
+/** Сколько пролетит жертва от толчка скоростью `speed`: ∫ v·e^(−kt) dt = v/k. */
+export const knockDistance = (speed: number) => speed / KNOCK_DECAY;
+
+/** Толчок от удара: от атакующего к жертве по горизонтали. */
+export function knockImpulse(attacker: number[], victim: { x: number; z: number }, speed: number) {
+  let dx = victim.x - attacker[0],
+    dz = victim.z - attacker[2];
+  const len = Math.hypot(dx, dz);
+  if (len < 1e-6) return null;
+  dx /= len;
+  dz /= len;
+  return [dx * speed, KNOCK_LIFT, dz * speed];
+}
 
 export const isMelee = (value: unknown): value is MeleeId =>
   typeof value === 'string' && Object.hasOwn(MELEE_STATS, value);
