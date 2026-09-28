@@ -277,33 +277,37 @@ const AMMO_SEGMENT_LIMIT = 20;
 const AMMO_LOW_SHARE = 0.25;
 
 /**
- * Патроны в правом нижнем углу. Без плашки и без подсказок: клавиши игрок
- * выучивает за первый бой, а название оружия и так видно по слоту в панели
- * предметов и по модели в руках.
+ * Патроны в правом нижнем углу: в магазине — сколько осталось, в запасе — «∞»:
+ * магазинов, как и гранат «в рюкзаке», бесконечно, кончается только то, что в
+ * руках. Без плашки и без подсказок: клавиши игрок выучивает за первый бой, а
+ * название оружия и так видно по слоту в панели предметов и по модели в руках.
  */
 export function AmmoIndicator(props: {
   rounds: number;
   capacity: number;
   reloading: boolean;
+  /** Доля перезарядки 0…1: шкала наполняется, пока магазин (или граната) готовится. */
+  progress?: number;
+  label?: string;
 }) {
   const display = useAmmoDisplay();
   const capacity = Math.max(1, props.capacity);
   const left = Math.min(capacity, Math.max(0, props.rounds));
-  const low = !props.reloading && left <= Math.ceil(capacity * AMMO_LOW_SHARE);
+  // У гранаты «в руках» всегда одна: краснеть ей незачем.
+  const low = !props.reloading && capacity > 1 && left <= Math.ceil(capacity * AMMO_LOW_SHARE);
+  const fill = props.reloading && props.progress !== undefined ? props.progress : left / capacity;
   return (
     // `output` вместо div: в графическом виде на экране нет ни одной буквы,
     // и без живой области с подписью скринридеру нечего сообщить.
     <output
       className={`hud-ammo ${display === 'graphic' ? 'is-graphic' : 'is-numbers'} ${props.reloading ? 'is-reloading' : ''} ${low ? 'is-low' : ''}`}
-      style={
-        { '--ammo-fill': `${(left / capacity) * 100}%` } as React.CSSProperties
-      }
+      style={{ '--ammo-fill': `${fill * 100}%` } as React.CSSProperties}
       aria-label={
-        props.reloading ? 'Перезарядка' : `Патроны: ${left} из ${capacity}`
+        props.label ?? (props.reloading ? 'Перезарядка' : `Патроны: ${left} из ${capacity}, запас бесконечен`)
       }
     >
       {display === 'graphic' ? (
-        capacity > AMMO_SEGMENT_LIMIT ? (
+        capacity > AMMO_SEGMENT_LIMIT || props.progress !== undefined ? (
           <span className="hud-ammo-gauge" aria-hidden="true">
             <i />
           </span>
@@ -317,7 +321,7 @@ export function AmmoIndicator(props: {
       ) : (
         <>
           <strong>{left}</strong>
-          <small>/{capacity}</small>
+          <small>/∞</small>
         </>
       )}
     </output>
@@ -325,12 +329,11 @@ export function AmmoIndicator(props: {
 }
 
 /**
- * Перезарядка гранаты: бросать её можно раз в 10 секунд. Пока ждём — шкала
- * наполняется и идёт отсчёт секунд, готова — полная шкала. Без этого долгая
- * пауза выглядела бы так, будто бросок сломался.
+ * Граната — как магазин на один заряд: в руке одна, в «рюкзаке» бесконечно.
+ * После броска следующую достают 10 секунд — это её перезарядка: в руке 0,
+ * индикатор мигает, как у оружия, и шкала наполняется.
  */
 export function GrenadeRecharge(props: { readyAt: number; cooldown: number }) {
-  const display = useAmmoDisplay();
   const [now, setNow] = useState(() => performance.now());
   const waiting = props.readyAt > now;
   useEffect(() => {
@@ -346,29 +349,14 @@ export function GrenadeRecharge(props: { readyAt: number; cooldown: number }) {
     };
   }, [props.readyAt]);
   const left = Math.max(0, props.readyAt - now);
-  const share = waiting ? 1 - left / props.cooldown : 1;
   return (
-    <output
-      className={`hud-ammo ${display === 'graphic' ? 'is-graphic' : 'is-numbers'} ${waiting ? 'is-charging' : ''}`}
-      style={{ '--ammo-fill': `${share * 100}%` } as React.CSSProperties}
-      aria-label={waiting ? `Граната через ${Math.ceil(left / 1000)} с` : 'Граната готова'}
-    >
-      {display === 'graphic' ? (
-        <span className="hud-ammo-gauge" aria-hidden="true">
-          <i />
-        </span>
-      ) : waiting ? (
-        <>
-          <strong>{Math.ceil(left / 1000)}</strong>
-          <small>с</small>
-        </>
-      ) : (
-        <>
-          <strong>1</strong>
-          <small>/1</small>
-        </>
-      )}
-    </output>
+    <AmmoIndicator
+      rounds={waiting ? 0 : 1}
+      capacity={1}
+      reloading={waiting}
+      progress={waiting ? 1 - left / props.cooldown : undefined}
+      label={waiting ? `Граната через ${Math.ceil(left / 1000)} с` : 'Граната в руке, запас бесконечен'}
+    />
   );
 }
 

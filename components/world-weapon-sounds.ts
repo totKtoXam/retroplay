@@ -193,6 +193,11 @@ export function createWeaponSounds(options: {
       if (name) play(name, at, false, volume);
     },
 
+    /** Спуск без выстрела: магазин пуст или идёт перезарядка — сухой щелчок, только своему игроку. */
+    dry(volume = 1) {
+      play('flashlight', [0, 0, 0], true, volume * 0.7, 1.45 + Math.random() * 0.1);
+    },
+
     /** Граната стукнулась о стену или пол: тот же пластиковый щелчок, только ниже и глуше. */
     knock(at: Point, volume = 1) {
       play('flashlight', at, false, volume * 0.9, 0.5 + Math.random() * 0.12);

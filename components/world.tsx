@@ -657,8 +657,15 @@ export default function World(props: Props) {
   const [showAgent, setShowAgent] = useState(false);
   const [rounds, setRounds] = useState({ ...CAPACITY }),
     [reloading, setReloading] = useState(false),
+    // Когда показали «Перезарядка» посреди экрана (Date.now()); 0 — подсказки нет.
+    [reloadHint, setReloadHint] = useState(0),
     [grenadeReadyAt, setGrenadeReadyAt] = useState(0),
     [aiming, setAiming] = useState(false);
+  useEffect(() => {
+    if (!reloadHint) return;
+    const hide = setTimeout(() => setReloadHint(0), 900);
+    return () => clearTimeout(hide);
+  }, [reloadHint]);
   const aimModes = props.aimModes || readAimModes();
   const aimModesRef = useRef<WeaponAimModes>(aimModes);
   useEffect(() => {
@@ -1205,6 +1212,19 @@ export default function World(props: Props) {
       }
     };
     let lastGrenade = -Infinity;
+    let lastDryFire = -Infinity;
+    /**
+     * Спуск нажат, а стрелять нечем — идёт перезарядка (или новую гранату ещё
+     * достают): сухой щелчок и «Перезарядка» посреди экрана. Краскомёт при
+     * зажатой кнопке зовёт это каждый кадр, поэтому не чаще раза в 400 мс.
+     */
+    const reloadingFeedback = () => {
+      const now = performance.now();
+      if (now - lastDryFire < 400) return;
+      lastDryFire = now;
+      weaponSounds.dry(weaponVolume());
+      setReloadHint(Date.now());
+    };
     // `shots` only feeds the aria-live announcement; avoid a full component
     // re-render on every single shot by throttling the state flush.
     let shotsFired = 0;
@@ -1245,7 +1265,10 @@ export default function World(props: Props) {
       const now = performance.now();
       const wasReloading = magazine.current.reloading;
       if (tool === 'grenade') {
-        if (now - lastGrenade < GRENADE_COOLDOWN_MS) return;
+        if (now - lastGrenade < GRENADE_COOLDOWN_MS) {
+          reloadingFeedback();
+          return;
+        }
         lastGrenade = now;
         setGrenadeReadyAt(now + GRENADE_COOLDOWN_MS);
       }
@@ -1256,6 +1279,7 @@ export default function World(props: Props) {
         if (magazine.current.reloading) {
           setReloading(true);
           if (!wasReloading) sendWeaponControl('reload', tool as Blaster);
+          reloadingFeedback();
         }
         if (tool === 'sniper') {
           aimHeld = false;
@@ -1930,6 +1954,11 @@ export default function World(props: Props) {
         left = true;
         const t = GAME_TOOLS[latest.current.tool]?.id;
         if (t === 'grenade') {
+          // Новую гранату ещё достают: целиться нечем.
+          if (performance.now() - lastGrenade < GRENADE_COOLDOWN_MS) {
+            reloadingFeedback();
+            return;
+          }
           grenadeAiming = true;
           trajectoryLine.visible = true;
           landingMarker.visible = true;
@@ -2286,6 +2315,7 @@ export default function World(props: Props) {
           applyAvatarSkin(avatar, localSkinId, localBandanaColor, localBandanaMat);
         }
       }
+      hands.setGrenadeLoaded(now - lastGrenade >= GRENADE_COOLDOWN_MS);
       hands.update(
         dt,
         now / 1000,
@@ -2786,6 +2816,11 @@ export default function World(props: Props) {
       {/* Вид индикатора (цифры или графика) выбирается в настройках, поэтому
           разметка и подписка на настройку живут в world-hud.tsx. Место —
           слева от панели предметов: правый нижний угол занят миникартой. */}
+      {reloadHint > 0 && (
+        <output key={reloadHint} className="hud-reload-hint">
+          Перезарядка
+        </output>
+      )}
       {current?.id === 'grenade' && (
         <GrenadeRecharge readyAt={grenadeReadyAt} cooldown={GRENADE_COOLDOWN_MS} />
       )}

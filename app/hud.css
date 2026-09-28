@@ -435,10 +435,47 @@
     opacity: 0.32;
   }
 }
-/* Граната перезаряжается 10 секунд: мигать всё это время было бы назойливо —
-   шкала просто приглушена, пока наполняется. */
-.world-container .hud-ammo.is-charging {
-  opacity: 0.6;
+
+/* «Перезарядка» посреди экрана: спуск нажат, а стрелять нечем. Чуть ниже
+   прицела — чтобы не закрыть его, но попасть туда, куда игрок и так смотрит. */
+.world-container .hud-reload-hint {
+  position: absolute;
+  top: calc(50% + 44px);
+  left: 50%;
+  z-index: 7;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: rgba(10, 14, 22, 0.55);
+  color: #ffd166;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+  user-select: none;
+  animation: hud-reload-hint 0.9s ease-out forwards;
+}
+@keyframes hud-reload-hint {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 4px);
+  }
+  12%,
+  70% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .world-container .hud-reload-hint {
+    animation: none;
+  }
 }
 
 /* Старая `.ammo-panel` прятала карточку предмета, пока в руках ствол; правило

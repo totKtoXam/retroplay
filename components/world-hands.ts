@@ -536,6 +536,8 @@ export function createFirstPersonHands(camera: T.Camera) {
   let recoil = 0,
     equip = 0,
     lastTool = '';
+  /** Граната в руке; после броска рука пуста, пока из «рюкзака» не достанут следующую. */
+  let grenadeLoaded = true;
   const grenadeHands = new T.Group();
   group.add(grenadeHands);
   for (const child of weapon.children) {
@@ -604,6 +606,11 @@ export function createFirstPersonHands(camera: T.Camera) {
         spec ? spec.muzzle[2] : -0.69,
       );
       return group.localToWorld(muzzleScratch.clone());
+    },
+    /** Есть ли граната в руке. Новую достают — рука заново поднимается, как при смене оружия. */
+    setGrenadeLoaded(loaded: boolean) {
+      if (loaded && !grenadeLoaded && lastTool === 'grenade') equip = 1;
+      grenadeLoaded = loaded;
     },
     /** Взгляд повернулся: оружие отстаёт от него, как настоящее с весом. */
     look(yaw: number, pitch: number) {
@@ -731,9 +738,9 @@ export function createFirstPersonHands(camera: T.Camera) {
         sniperBolt.rotation.z = 0;
       }
 
-      grenade.visible = tool === 'grenade';
+      grenade.visible = tool === 'grenade' && grenadeLoaded;
       // Те же кисти держат и фонарик.
-      grenadeHands.visible = grenade.visible || torch.visible;
+      grenadeHands.visible = tool === 'grenade' || torch.visible;
       if (grenade.visible) setGrenadeStyle(grenade, variant, true);
       if (tool === 'sticky') {
         (padTopNote.material as T.MeshBasicMaterial).color.set(
