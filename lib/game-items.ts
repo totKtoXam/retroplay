@@ -69,9 +69,26 @@ export const SNIPER_LIMB_DAMAGE = 45;
 /** Остальное оружие: по рукам и ногам урон ниже, чем по туловищу. */
 export const LIMB_DAMAGE_SCALE = 0.6;
 
+/** Радиус взрыва гранаты, м. */
+export const GRENADE_BLAST_RADIUS = 4.2;
+
+/** Центр тела для взрыва: на него считается дистанция и перекрытие стеной. */
+export const blastCenter = (pose: { x: number; y: number; z: number; stance: string }) => [
+  pose.x,
+  pose.y + (pose.stance === 'lie' ? 0.35 : pose.stance === 'sit' ? 0.8 : 1.1),
+  pose.z,
+];
+
+/**
+ * Урон. У дробовика `distance` — от ствола до цели, у гранаты — от взрыва до
+ * центра тела: вплотную 80, на краю радиуса 15.
+ */
 export const effectDamage = (kind: string, distance?: number) => {
   if (kind === 'like') return 0;
-  if (kind === 'grenade') return 45;
+  if (kind === 'grenade') {
+    if (distance === undefined) return 45;
+    return Math.round(15 + 65 * Math.max(0, 1 - distance / GRENADE_BLAST_RADIUS));
+  }
   if (kind === 'sniper') return 75;
   if (kind === 'paint') return 20;
   if (kind === 'confetti') {
@@ -234,13 +251,9 @@ export function inHitRange(
   colliders?: BoxCollider3D[],
 ): boolean {
   if (kind === 'grenade') {
-    const center = [
-      pose.x,
-      pose.y + (pose.stance === 'lie' ? 0.35 : pose.stance === 'sit' ? 0.8 : 1.1),
-      pose.z,
-    ];
+    const center = blastCenter(pose);
     const reach = Math.hypot(...center.map((v, i) => v - target[i]));
-    if (reach >= 4.2) return false;
+    if (reach >= GRENADE_BLAST_RADIUS) return false;
     // The blast does not go through walls.
     const wall = rayCastWorldObstacle(target, center, colliders);
     return !wall || wall.distance >= reach - 0.35;
