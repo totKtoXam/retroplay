@@ -10,8 +10,11 @@ export const isBlaster = (value: unknown): value is Blaster =>
   typeof value === 'string' && Object.hasOwn(WEAPONS, value);
 /** Гранату можно бросать раз в 10 секунд; выстрелы из другого оружия этот отсчёт не сбивают. */
 export const GRENADE_COOLDOWN_MS = 10_000;
-/** Граната взрывается через столько после броска: столько же длится её дуга у клиентов. */
-export const GRENADE_FUSE_MS = 1100;
+/**
+ * Граната взрывается через столько после броска — где бы ни была: в полёте,
+ * после отскоков или уже лёжа (lib/grenade-physics.ts). Столько же длится её полёт у клиентов.
+ */
+export const GRENADE_FUSE_MS = 1800;
 export const weaponCooldown = (kind: string) =>
   isBlaster(kind) ? WEAPONS[kind].cooldown : kind === 'grenade' ? GRENADE_COOLDOWN_MS : 90;
 /**

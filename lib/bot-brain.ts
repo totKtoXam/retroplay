@@ -19,6 +19,7 @@ import { stanceHeight, type GameMap } from './maps/types.ts';
 import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
 import { WEAPONS, cooledDown, isBlaster, weaponCooldown, type Blaster } from './weapon-definition.ts';
 import { memberWeapon } from './weapon-authority.ts';
+import { aimGrenadeAt } from './grenade-physics.ts';
 import { BOT_LEVELS, type BotLevel, type BotLevelRules, type BotSpec } from './bot-levels.ts';
 
 // -------------------------------------------------------------- постоянные
@@ -735,7 +736,8 @@ export class BotBrain {
       }
     }
     if (this.tool === 'sniper' && target.dist < 3) return {};
-    if (this.tool === 'grenade' && (target.dist < 5 || target.dist > 22)) return {};
+    // Дальше ~18 м граната к концу запала ещё в воздухе.
+    if (this.tool === 'grenade' && (target.dist < 5 || target.dist > 18)) return {};
     if (!cooledDown(me, this.tool, now)) return {};
     const eye = eyeHeight(me.pose.stance);
     const origin = [me.pose.x, me.pose.y + eye, me.pose.z];
@@ -749,11 +751,11 @@ export class BotBrain {
     const yaw = wrapAngle(this.aimYaw + this.gauss() * sigma);
     const pitch = clamp(this.aimPitch + this.gauss() * sigma, -1.3, 1.35);
     const dir = viewDir(yaw, pitch);
-    // Граната летит в точку, а не по лучу взгляда: у неё своя дуга.
-    const reach = this.tool === 'grenade' ? dist : Math.min(dist + 6, 74);
+    // Граната: бот выбирает, где ей лечь, и бросает с тем углом, что её туда приведёт.
+    const reach = Math.min(dist + 6, 74);
     const end =
       this.tool === 'grenade'
-        ? [aim[0] + this.gauss() * sigma * dist, target.y, aim[2] + this.gauss() * sigma * dist]
+        ? aimGrenadeAt(origin, [aim[0] + this.gauss() * sigma * dist, target.y, aim[2] + this.gauss() * sigma * dist])
         : [origin[0] + dir[0] * reach, origin[1] + dir[1] * reach, origin[2] + dir[2] * reach];
     // Очередь: несколько выстрелов подряд, потом пауза на доводку прицела.
     const [fastMin, fastMax] = CADENCE[this.tool];

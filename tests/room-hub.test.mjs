@@ -1,4 +1,5 @@
-import { WEAPONS } from '../lib/weapon-definition.ts';
+import { GRENADE_FUSE_MS, WEAPONS } from '../lib/weapon-definition.ts';
+import { aimGrenadeAt } from '../lib/grenade-physics.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -245,13 +246,24 @@ test('clients cannot set their own HP through presence', () => {
 
 test('a grenade explodes after its fuse and is resolved only once', () => {
   const h = duel();
-  fireEffect(h, 'a', shot('grenade', { variant: 'pinata' }), T);
-  resolveCombat(h, T + 1099);
+  // Бросок, после которого граната ляжет у ног жертвы.
+  const target = aimGrenadeAt([0, 1.1, 4], [0, 0, 0]);
+  fireEffect(h, 'a', shot('grenade', { variant: 'pinata', target }), T);
+  resolveCombat(h, T + GRENADE_FUSE_MS - 1);
   assert.equal(h.members.get('v').hp, 100, 'grenade fuse is delayed');
-  resolveCombat(h, T + 1100);
-  resolveCombat(h, T + 1150);
-  assert.equal(h.members.get('v').hp, 55);
-  assert.equal(effectsSince(h, T + 1150)[0].variant, 'pinata');
+  resolveCombat(h, T + GRENADE_FUSE_MS);
+  resolveCombat(h, T + GRENADE_FUSE_MS + 50);
+  const hp = h.members.get('v').hp;
+  assert.ok(hp > 20 && hp < 50, `a grenade at the feet hurts a lot, hp ${hp}`);
+  assert.equal(effectsSince(h, T + GRENADE_FUSE_MS + 50)[0].variant, 'pinata');
+});
+
+test('a grenade explodes where it lands, not where it was aimed', () => {
+  const h = duel();
+  // Прицел — прямо в жертву, но граната пролетит над ней и укатится дальше радиуса взрыва.
+  fireEffect(h, 'a', shot('grenade', { origin: [0, 1.1, 4], target: [0, 1.5, 0] }), T);
+  resolveCombat(h, T + GRENADE_FUSE_MS);
+  assert.equal(h.members.get('v').hp, 100);
 });
 
 test('expired effects cannot damage a participant returning later', () => {
@@ -349,7 +361,7 @@ test('lag compensation rewinds at most 250 ms and never for grenades', () => {
   assert.equal(aimed.members.get('v').hp, 80, 'clamped to 250 ms: x = 1.824');
   // Граната бьёт по тем, кто стоит рядом в миг взрыва.
   const g = fireEffect(h, 'a', shot('grenade', { seenAt: T }), T + 2000);
-  assert.equal(g.effect.rewindTo, T + 3100);
+  assert.equal(g.effect.rewindTo, T + 2000 + GRENADE_FUSE_MS);
 });
 
 test('repeated teleports are refused and publish a correction instead of trusting the client', () => {
