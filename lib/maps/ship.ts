@@ -441,4 +441,10 @@ export const SHIP: ArenaDef = {
   vents: SHIP_VENTS,
   decor: [...DOORS, ...WINDOWS, ...WALL_DETAILS],
   zones: SHIP_ROOMS.map(({ id, name, minX, minZ, maxX, maxZ }) => ({ id, name, minX, minZ, maxX, maxZ })),
+  // Снаружи корабль — станция из модулей: каждый отсек и коридор обшит бронёй, и из
+  // иллюминаторов видны соседние отсеки и переходы между ними.
+  hull: [
+    ...SHIP_ROOMS.map(({ id, minX, minZ, maxX, maxZ }) => ({ kind: id, minX, minZ, maxX, maxZ })),
+    ...CORRIDORS.map((c) => ({ kind: 'corridor', ...c })),
+  ],
 };

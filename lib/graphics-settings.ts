@@ -2,12 +2,22 @@ export type GraphicsSettings = {
   scale: number; shadows: 0 | 512 | 1024 | 2048 | 4096;
   textures: 512 | 1024 | 2048; anisotropy: 1 | 4 | 8 | 16;
   bloom: boolean; antialias: boolean; exposure: number; detail: number;
+  /** Модели бойцов: люди, люди облегчённые (упрощённые тела, реже анимация вдали) или классические. */
+  characters: CharacterModels;
 };
+export type CharacterModels = 'human' | 'human-lite' | 'classic';
+export const CHARACTER_MODELS: { id: CharacterModels; label: string }[] = [
+  { id: 'human', label: 'Люди' },
+  { id: 'human-lite', label: 'Люди облегчённые' },
+  { id: 'classic', label: 'Классические' },
+];
+/** Модели бойцов без своих настроек графики — по основному профилю качества. */
+export const defaultCharacters = (quality: string): CharacterModels => (quality === 'low' ? 'human-lite' : 'human');
 export const GRAPHICS_PRESETS: Record<string, GraphicsSettings> = {
-  low: { scale: .75, shadows: 0, textures: 512, anisotropy: 1, bloom: false, antialias: true, exposure: 1, detail: 1 },
-  medium: { scale: 1, shadows: 1024, textures: 1024, anisotropy: 4, bloom: true, antialias: true, exposure: 1, detail: 2 },
-  high: { scale: 1, shadows: 2048, textures: 2048, anisotropy: 8, bloom: true, antialias: true, exposure: 1, detail: 3 },
-  ultra: { scale: 1.25, shadows: 4096, textures: 2048, anisotropy: 16, bloom: true, antialias: true, exposure: 1, detail: 4 },
+  low: { scale: .75, shadows: 0, textures: 512, anisotropy: 1, bloom: false, antialias: true, exposure: 1, detail: 1, characters: 'human-lite' },
+  medium: { scale: 1, shadows: 1024, textures: 1024, anisotropy: 4, bloom: true, antialias: true, exposure: 1, detail: 2, characters: 'human' },
+  high: { scale: 1, shadows: 2048, textures: 2048, anisotropy: 8, bloom: true, antialias: true, exposure: 1, detail: 3, characters: 'human' },
+  ultra: { scale: 1.25, shadows: 4096, textures: 2048, anisotropy: 16, bloom: true, antialias: true, exposure: 1, detail: 4, characters: 'human' },
 };
 export const GRAPHICS_KEY = 'jinaly-graphics-v1';
 export function normalizeGraphics(value: unknown): GraphicsSettings {
@@ -19,7 +29,8 @@ export function normalizeGraphics(value: unknown): GraphicsSettings {
   return { scale: number('scale', .5, 1.5), shadows: choice('shadows', [0,512,1024,2048,4096]) as GraphicsSettings['shadows'],
     textures: choice('textures', [512,1024,2048]) as GraphicsSettings['textures'], anisotropy: choice('anisotropy', [1,4,8,16]) as GraphicsSettings['anisotropy'],
     bloom: typeof v.bloom === 'boolean' ? v.bloom : d.bloom, antialias: typeof v.antialias === 'boolean' ? v.antialias : d.antialias,
-    exposure: number('exposure', .6, 1.5), detail: Math.round(number('detail', 1, 4)) };
+    exposure: number('exposure', .6, 1.5), detail: Math.round(number('detail', 1, 4)),
+    characters: CHARACTER_MODELS.some((c) => c.id === v.characters) ? v.characters as CharacterModels : d.characters };
 }
 export type GraphicsCheck = { fps: number; p95: number; width: number; height: number; at: number; settings: string };
 export function recommendation(check: GraphicsCheck) {

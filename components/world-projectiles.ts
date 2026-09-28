@@ -6,13 +6,8 @@ import { meleeStats } from '@/lib/melee';
 import { rayCastWorldObstacle } from '@/lib/world-collision';
 import { grenadeAt, simulateGrenade, type GrenadeFlight, type GrenadeWorld } from '@/lib/grenade-physics';
 import type { Perspective } from '@/lib/game-camera';
-import {
-  partyGeometry,
-  grenadeParty,
-  fireworkParty,
-  makeGrenade,
-  makeFireworkRocket,
-} from './party-geometry';
+import { makeGrenade, makeFireworkRocket } from './party-geometry';
+import { spriteAtlas } from './world-vfx-textures';
 import { avatarShoot } from './world-avatar';
 import type { createWorldVfx } from './world-vfx';
 import { createMaterialPool, type MaterialPool } from './material-pool';
@@ -77,6 +72,7 @@ export function createWorldProjectiles({
   onLaunch,
   onLand,
   onBounce,
+  vfx,
 }: {
   scene: T.Scene;
   latest: { readonly current: { room: Room } };
@@ -105,6 +101,11 @@ export function createWorldProjectiles({
   onLand?: (kind: string, at: T.Vector3) => void;
   /** Граната ударилась о стену или пол. */
   onBounce?: (at: T.Vector3) => void;
+  /**
+   * Вспышка у ствола и след снаряда (world-vfx.ts). Без них выстрелы идут
+   * без вспышки, ракета — без искр и дыма, запал гранаты не искрит.
+   */
+  vfx?: Pick<Vfx, 'muzzleFlash' | 'trail'>;
 }) {
   const { colliders } = world;
   const flights: Flight[] = [];
@@ -119,12 +120,93 @@ export function createWorldProjectiles({
   const SEEN_TTL_MS = 25_000;
   const scratch: [number, number, number] = [0, 0, 0];
   const tumbleFrom = new T.Vector3();
-  const paintGeo = new T.SphereGeometry(0.105, 7, 5);
-  // Материалы шариков и сердечек переиспользуются: см. material-pool.ts.
-  const ballMaterials = createMaterialPool(() => new T.MeshBasicMaterial());
-  const heartMaterials = createMaterialPool(
-    () => new T.MeshBasicMaterial({ color: '#ff647c', side: T.DoubleSide }),
+  // Скретч покадрового обновления: без аллокаций на каждый снаряд в кадре.
+  const flightDir = new T.Vector3(),
+    trailFrom = new T.Vector3(),
+    forward = new T.Vector3(0, 0, 1),
+    up = new T.Vector3(0, 1, 0);
+  const paintGeo = new T.SphereGeometry(0.105, 12, 8);
+  /**
+   * Шлейф шарика: тонкий конус за ним, от яркого у шарика к прозрачному на
+   * хвосте (цвет вершин при аддитивном смешивании: чёрный — невидимый).
+   * Основание — в центре шарика, хвост — на z = -1; длину задаёт масштаб.
+   */
+  const trailGeo = new T.ConeGeometry(1, 1, 8, 1, true);
+  trailGeo.rotateX(-Math.PI / 2).translate(0, 0, -0.5);
+  {
+    const position = trailGeo.getAttribute('position');
+    const colors = new Float32Array(position.count * 3);
+    for (let i = 0; i < position.count; i++) {
+      const k = 1 + position.getZ(i);
+      colors.fill(k * k, i * 3, i * 3 + 3);
+    }
+    trailGeo.setAttribute('color', new T.BufferAttribute(colors, 3));
+  }
+  /** Сердечко «лайка»: объёмное, со скруглённым краем. Одна геометрия на все. */
+  const heartShape = new T.Shape();
+  heartShape.moveTo(0, -0.11);
+  heartShape.bezierCurveTo(-0.23, 0.04, -0.08, 0.17, 0, 0.065);
+  heartShape.bezierCurveTo(0.08, 0.17, 0.23, 0.04, 0, -0.11);
+  const heartGeo = new T.ExtrudeGeometry(heartShape, {
+    depth: 0.04,
+    bevelEnabled: true,
+    bevelThickness: 0.025,
+    bevelSize: 0.02,
+    bevelSegments: 2,
+    curveSegments: 8,
+  }).center();
+  // Материалы шариков, шлейфов и сердечек переиспользуются: см. material-pool.ts.
+  // Шарик глянцевый и чуть светится своим цветом: читается и на тёмной карте.
+  const ballMaterials = createMaterialPool(
+    () => new T.MeshStandardMaterial({ roughness: 0.16, metalness: 0 }),
   );
+  const trailMaterials = createMaterialPool(
+    () =>
+      new T.MeshBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        depthWrite: false,
+        blending: T.AdditiveBlending,
+        side: T.DoubleSide,
+        opacity: 0.45,
+      }),
+  );
+  const heartMaterials = createMaterialPool(
+    () =>
+      new T.MeshStandardMaterial({
+        color: '#ff4d6d',
+        emissive: '#ff2d55',
+        emissiveIntensity: 0.45,
+        roughness: 0.25,
+      }),
+  );
+  /** Пламя сопла ракеты: светящийся спрайт, материал общий на все ракеты. */
+  let exhaust: { material: T.SpriteMaterial; texture: T.Texture } | null = null;
+  const exhaustSprite = () => {
+    if (!exhaust) {
+      const texture = spriteAtlas();
+      // Плитка свечения из атласа (левая верхняя).
+      texture.repeat.set(0.5, 0.5);
+      texture.offset.set(0, 0.5);
+      exhaust = {
+        texture,
+        material: new T.SpriteMaterial({
+          map: texture,
+          color: new T.Color(2.4, 1.6, 0.8),
+          blending: T.AdditiveBlending,
+          depthWrite: false,
+          transparent: true,
+        }),
+      };
+    }
+    const sprite = new T.Sprite(exhaust.material);
+    sprite.userData.sharedMaterial = true;
+    sprite.userData.sharedGeometry = true;
+    sprite.raycast = () => {};
+    sprite.position.z = -0.3;
+    sprite.scale.setScalar(0.32);
+    return sprite;
+  };
   const pooled = <M extends T.Material>(
     geometry: T.BufferGeometry,
     pool: MaterialPool<M>,
@@ -137,6 +219,17 @@ export function createWorldProjectiles({
   const ball = (color: string, geometry: T.BufferGeometry = paintGeo) => {
     const mesh = pooled(geometry, ballMaterials);
     mesh.material.color.set(color);
+    mesh.material.emissive.set(color).multiplyScalar(0.3);
+    const trail = pooled(trailGeo, trailMaterials);
+    trail.material.color.set(color);
+    trail.raycast = () => {};
+    // Толщина шлейфа — по радиусу снаряда: у дробины он тоньше и короче.
+    if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+    trail.userData.radius = (geometry.boundingSphere?.radius ?? 0.1) * 0.55;
+    trail.userData.length = geometry === paintGeo ? 1.3 : 0.8;
+    trail.scale.setScalar(0.0001);
+    trail.name = 'trail';
+    mesh.add(trail);
     return mesh;
   };
   const spawn = (e: WorldEffect) => {
@@ -180,9 +273,13 @@ export function createWorldProjectiles({
         : e.kind === 'sniper'
           ? makeFireworkRocket(e.color)
           : e.kind === 'like'
-            ? pooled(partyGeometry('hearts'), heartMaterials)
+            ? pooled(heartGeo, heartMaterials)
             : ball(e.color);
+    if (e.kind === 'sniper') projectile.add(exhaustSprite());
     projectile.position.copy(start);
+    // Вспышка у ствола — и у своего выстрела, и у чужого; у старых эффектов её нет.
+    if (now - e.at < 300 && e.kind !== 'grenade')
+      vfx?.muzzleFlash(start, flightDir.copy(target).sub(start), e.color, now, e.kind);
     projectile.userData.transientProjectile = true;
     scene.add(projectile);
     // Граната рвётся там, куда долетела и докатилась, — сервер считает тот же путь.
@@ -270,10 +367,32 @@ export function createWorldProjectiles({
         for (; knocks < f.grenade.bounces.length && f.grenade.bounces[knocks] <= now - f.born; knocks++)
           onBounce?.(f.mesh.position);
         f.knocks = knocks;
-      } else f.mesh.position.lerpVectors(f.origin, f.target, t);
-      if (f.kind === 'sniper') {
-        const dir = f.target.clone().sub(f.origin).normalize();
-        f.mesh.quaternion.setFromUnitVectors(new T.Vector3(0, 0, 1), dir);
+        // Горящий запал искрит, пока граната летит и катится.
+        if (moved > 1e-3) vfx?.trail(tumbleFrom, f.mesh.position, f.color, now, 'grenade');
+      } else {
+        trailFrom.copy(f.mesh.position);
+        f.mesh.position.lerpVectors(f.origin, f.target, t);
+        flightDir.subVectors(f.target, f.origin);
+        const length = flightDir.length();
+        if (length > 1e-6) flightDir.divideScalar(length);
+        f.mesh.quaternion.setFromUnitVectors(forward, flightDir);
+        if (f.kind === 'sniper') {
+          // Искры и дымная нить вдоль пройденного за кадр отрезка: ракета
+          // долетает за пару кадров, и этот след и есть трассер салюта.
+          if (t > 0) vfx?.trail(trailFrom, f.mesh.position, f.color, now, 'sniper');
+          for (const c of f.mesh.children) if (c instanceof T.Sprite) c.scale.setScalar(0.26 + Math.random() * 0.16);
+        } else if (f.kind === 'like') {
+          // Сердечко покачивается и крутится, а не летит плашмя.
+          f.mesh.rotateZ(Math.sin(now * 0.02) * 0.4);
+          f.mesh.rotateY(now * 0.012);
+        } else {
+          // Шлейф шарика растёт от ствола до полной длины.
+          const trail = f.mesh.getObjectByName('trail');
+          if (trail) {
+            const r = trail.userData.radius as number;
+            trail.scale.set(r, r, Math.max(0.0001, Math.min(trail.userData.length as number, t * length)));
+          }
+        }
       }
       if (t >= 1) {
         // Звук — только у свежих приземлений: догнанные при входе в комнату летят «мгновенно».
@@ -397,28 +516,25 @@ export function createWorldProjectiles({
                 scene,
                 1,
               );
-            }
+              // Брызги летят от стены, а не вверх из точки.
+              burst(sceneryHit.point, f.color, f.born + f.duration, 'paint', sceneryHit.normal);
+            } else burst(f.target, f.color, f.born + f.duration, 'paint', f.normal);
           }
         } else {
           if (f.kind === 'grenade') {
-            burst(f.target, f.color, f.born + f.duration, 'shard');
-            burst(f.target, '#ffd166', f.born + f.duration, 'ribbon');
-            burst(
-              f.target,
-              f.color,
-              f.born + f.duration,
-              grenadeParty(f.variant),
-            );
+            // Граната рвётся, лёжа там, куда докатилась: волна идёт по полу.
+            burst(f.target, f.color, f.born + f.duration, `grenade:${f.variant}`, f.grenade ? up : f.normal);
           } else {
             burst(
               f.target,
               f.color,
               f.born + f.duration,
               f.kind === 'sniper'
-                ? fireworkParty(f.variant)
+                ? `firework:${f.variant}`
                 : f.kind === 'like'
-                  ? 'hearts'
-                  : f.variant,
+                  ? 'pop:hearts'
+                  : `pop:${f.variant}`,
+              f.normal,
             );
           }
           if (f.kind === 'grenade' && f.variant === 'paintburst') {
@@ -446,15 +562,12 @@ export function createWorldProjectiles({
         }
         f.mesh.removeFromParent();
         f.mesh.traverse((o) => {
-          if (o instanceof T.Mesh) {
+          if (o instanceof T.Mesh || o instanceof T.Sprite) {
             const pool = o.userData.materialPool as MaterialPool<T.Material> | undefined;
             if (pool) pool.release(o.material as T.Material);
-            else (o.material as T.Material).dispose();
-            if (
-              f.kind === 'grenade' ||
-              f.kind === 'sniper' ||
-              f.kind === 'like'
-            )
+            else if (!o.userData.sharedMaterial) (o.material as T.Material).dispose();
+            // Своя геометрия — только у гранаты и ракеты; шарики, шлейфы и сердечки делят общую.
+            if ((f.kind === 'grenade' || f.kind === 'sniper') && !o.userData.sharedGeometry)
               o.geometry.dispose();
           }
         });
@@ -464,8 +577,13 @@ export function createWorldProjectiles({
   };
   const dispose = () => {
     paintGeo.dispose();
+    trailGeo.dispose();
+    heartGeo.dispose();
     ballMaterials.dispose();
+    trailMaterials.dispose();
     heartMaterials.dispose();
+    exhaust?.material.dispose();
+    exhaust?.texture.dispose();
   };
   return { flights, spawn, update, dispose, ball };
 }

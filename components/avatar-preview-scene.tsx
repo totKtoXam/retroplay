@@ -7,8 +7,11 @@ import {
   animateAvatar,
   setAvatarStyle,
   setAvatarAnonymous,
+  fighterShared,
 } from './world-avatar';
 import { applyAvatarSkin, attachCustomSkins } from './world-skins';
+import { useGraphicsSettings } from '../hooks/use-graphics-settings';
+import { hasHuman, loadHumanAssets, syncHuman, unmountHuman } from './world-human';
 
 /** Статический просмотр: кадр рисуется только при повороте или изменении размера. */
 export function AvatarPreview({
@@ -17,14 +20,19 @@ export function AvatarPreview({
   anonymous = false,
   skin = 'agent',
   bandanaColor = '#3b82f6',
+  seed,
 }: {
   color: string;
   anime: boolean;
   anonymous?: boolean;
   skin?: string;
   bandanaColor?: string;
+  /** id игрока: по нему в игре выбирается облик человека (тело и причёска) — в превью тот же. */
+  seed?: string;
 }) {
   const resourcePack = useResourcePack();
+  // Модели бойцов — как в настройках графики игры (по умолчанию люди).
+  const humans = (useGraphicsSettings()?.characters ?? 'human') !== 'classic';
   const mount = useRef<HTMLDivElement>(null),
     turn = useRef<(angle: number) => void>(() => {});
   /**
@@ -79,22 +87,26 @@ export function AvatarPreview({
     setAvatarAnonymous(avatar, anonymous);
     // Те же накладки, что и в игре: без них превью не знало ни о скинах, ни о бандане.
     const skins = attachCustomSkins(avatar);
-    for (let i = 0; i < 45; i++)
-      animateAvatar(
-        avatar,
-        {
-          speed: 0,
-          strafe: 0,
-          forward: 1,
-          airborne: false,
-          velocityY: 0,
-          stance: 'stand',
-          tool: 'other',
-          pitch: 0,
-        },
-        1 / 30,
-        0,
-      );
+    // Превью статично: прогоняем полторы секунды стойки, чтобы поза успокоилась.
+    const settle = () => {
+      for (let i = 0; i < 45; i++)
+        animateAvatar(
+          avatar,
+          {
+            speed: 0,
+            strafe: 0,
+            forward: 1,
+            airborne: false,
+            velocityY: 0,
+            stance: 'stand',
+            tool: 'other',
+            pitch: 0,
+          },
+          1 / 30,
+          i / 30,
+        );
+    };
+    settle();
     const disk = new T.Mesh(
       new T.CylinderGeometry(0.65, 0.75, 0.06, 40),
       new T.MeshStandardMaterial({ color: '#9aaea6', roughness: 1 }),
@@ -104,10 +116,21 @@ export function AvatarPreview({
     const render = () => renderer.render(scene, camera);
     applyLook.current = (nextSkin, nextColor) => {
       applyAvatarSkin(avatar, nextSkin, nextColor, skins.bandanaMat);
+      // Человек перекрашивает костюм под скин (world-human-gear.ts humanLook).
+      if (hasHuman(avatar)) syncHuman(avatar, true, seed ?? color, color);
       render();
     };
     applyLook.current(look.current.skin, look.current.bandanaColor);
     let disposed = false;
+    // Человек надевается, когда догрузятся модели; до тех пор виден боец из деталей.
+    if (humans)
+      void loadHumanAssets()
+        .then(() => {
+          if (disposed || !syncHuman(avatar, true, seed ?? color, color)) return;
+          settle();
+          render();
+        })
+        .catch(() => {});
     let releasePack: (() => void) | undefined;
     if (resourcePack === 'realistic-bodycam') {
       void Promise.all([import('./resource-packs/realistic/materials'), import('./resource-packs/realistic/characters')]).then(([{ createRealisticMaterials }, { dressFieldCharacter }]) => {
@@ -191,6 +214,8 @@ export function AvatarPreview({
       turn.current = () => {};
       applyLook.current = () => {};
       skins.dispose();
+      // Геометрия и текстуры людей общие — снимаем человека до чистки сцены.
+      unmountHuman(avatar);
       const geometries = new Set<T.BufferGeometry>(),
         materials = new Set<T.Material>();
       scene.traverse((o) => {
@@ -201,12 +226,13 @@ export function AvatarPreview({
           );
         }
       });
-      geometries.forEach((g) => g.dispose());
-      materials.forEach((m) => m.dispose());
+      // Общее с шаблоном бойца нужно игре и следующему превью.
+      geometries.forEach((g) => fighterShared(g) || g.dispose());
+      materials.forEach((m) => fighterShared(m) || m.dispose());
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [color, anime, anonymous, resourcePack]);
+  }, [color, anime, anonymous, resourcePack, humans, seed]);
   useEffect(() => {
     look.current = { skin, bandanaColor };
     applyLook.current(skin, bandanaColor);

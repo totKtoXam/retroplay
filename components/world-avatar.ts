@@ -3,6 +3,9 @@ import { meleeStyle } from '../lib/melee.ts';
 import * as T from 'three';
 import { buildAgentSkin } from './world-agent.ts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { animateHuman, hasHuman, humanShoot } from './world-human.ts';
+import { attachCustomSkins } from './world-skins.ts';
+import { WORLD_WEAPON_PIVOT, dressWorldWeapons } from './world-weapon-models.ts';
 
 export type AvatarMotion = {
   speed: number;
@@ -45,8 +48,182 @@ type Rig = {
 };
 const rigs = new WeakMap<T.Group, Rig>();
 
+/*
+ * Шаблон бойца. Процедурный боец тяжёлый: одних деталей скина «Агента» —
+ * 150 тыс. вершин, а сборка со скинами занимала ~40 мс на каждого игрока, и у
+ * каждого была своя копия геометрии. Теперь боец собирается один раз —
+ * шаблоном (или загружается файлом, world-fighter-file.ts), — а каждый новый
+ * боец — копия шаблона: геометрия и постоянные материалы общие, свои у бойца
+ * только материалы с его цветом.
+ *
+ * Цвет игрока не запекается в вершины: детали его цвета помечены атрибутом
+ * `tint`, а сам цвет подаёт материал бойца (tintedSkinMaterial).
+ */
+/** Цвет-метка, которым шаблон собирается вместо цвета игрока. */
+export const TINT_KEY = '#ff00fe';
+/** Постоянный материал обводки аниме-стиля: один на всех бойцов. */
+export const fighterOutlineMaterial = new T.ShaderMaterial({
+  side: T.BackSide,
+  vertexShader:
+    'void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position+normal*.009,1.0);}',
+  fragmentShader: 'void main(){gl_FragColor=vec4(.24,.22,.34,1.0);}',
+});
+fighterOutlineMaterial.userData.fighterShared = true;
+
+/**
+ * Материал тела бойца: цвета деталей из вершин, а детали цвета игрока
+ * (атрибут `tint`) красятся в `userData.tint`. Подмена стиля (world-art.ts)
+ * переносит onBeforeCompile в «мультяшный» материал — цвет не теряется.
+ */
+export function tintedSkinMaterial(color = '#ffffff') {
+  const m = new T.MeshStandardMaterial({ color: '#ffffff', vertexColors: true, roughness: 0.8 });
+  const tint = { value: new T.Color(color) };
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.tintColor = tint;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float tint;\nvarying float vTint;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTint = tint;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 tintColor;\nvarying float vTint;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(vec3(1.0), tintColor, vTint);');
+  };
+  m.customProgramCacheKey = () => 'fighter-tint-v1';
+  return m;
+}
+
+/**
+ * Общая с шаблоном геометрия или материал: у всех копий бойцов одни и те же.
+ * Чистка ушедшего бойца или сцены их не освобождает — иначе видеокарта
+ * заново загружала бы их для каждого оставшегося.
+ */
+export const fighterShared = (resource: { userData: Record<string, unknown> }) => !!resource.userData.fighterShared;
+
+/** Шаблон, из которого копируются бойцы; файл (если загружен) подменяет процедурный. */
+let template: T.Group | null = null;
+export function setFighterTemplate(next: T.Group) {
+  template = next;
+}
+/** Собрать шаблон процедурно: боец цвета-метки со всеми скинами. */
+export function buildFighterTemplate(dressSkins: (avatar: T.Group) => void) {
+  const avatar = buildAvatar(TINT_KEY);
+  dressSkins(avatar);
+  // Аксессуары скинов в копиях скрыты, пока applyAvatarSkin не выберет нужные.
+  avatar.traverse((o) => {
+    if (o.name.startsWith('skin-') || o.name === 'avatar-bandana') o.visible = false;
+  });
+  avatar.traverse((o) => {
+    if (o instanceof T.Mesh) {
+      o.geometry.userData.fighterShared = true;
+      const list = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of list) if (!m.userData.perFighter) m.userData.fighterShared = true;
+    }
+  });
+  return avatar;
+}
+
+/** Боец цвета `color`: копия шаблона с собственными материалами цвета. */
 export function createAvatar(color: string) {
   if (color === '#368c78') color = '#657ac9';
+  template ??= buildFighterTemplate((a) => attachCustomSkins(a));
+  return instantiate(template, color);
+}
+
+/**
+ * Ближний бой в чужих руках: зажат в правом кулаке и торчит вперёд. Как и у стволов,
+ * силуэт вместо подписи — розовый молот, узкий нож, длинный багет. У кулаков в руке
+ * ничего нет. Геометрия и материалы общие у всех бойцов, копия у каждого — только узлы.
+ */
+let meleeParts: { geometry: T.BufferGeometry; material: T.Material; at: [number, number, number]; rot: [number, number, number]; id: string }[] | null = null;
+function heldMelee() {
+  if (!meleeParts) {
+    const mat = (color: string) => {
+      const m = new T.MeshStandardMaterial({ color, roughness: 0.6 });
+      m.userData.fighterShared = true;
+      return m;
+    };
+    const shared = <G extends T.BufferGeometry>(g: G) => {
+      g.userData.fighterShared = true;
+      return g;
+    };
+    meleeParts = [
+      { id: 'hammer', geometry: shared(new T.CylinderGeometry(0.028, 0.03, 0.5, 8)), material: mat('#ffd166'), at: [0, 0, -0.2], rot: [Math.PI / 2, 0, 0] },
+      { id: 'hammer', geometry: shared(new T.CylinderGeometry(0.1, 0.1, 0.3, 12)), material: mat('#ff84c8'), at: [0, 0, -0.46], rot: [0, 0, Math.PI / 2] },
+      { id: 'knife', geometry: shared(new T.BoxGeometry(0.05, 0.05, 0.13)), material: mat('#232838'), at: [0, 0, -0.06], rot: [0, 0, 0] },
+      { id: 'knife', geometry: shared(new T.BoxGeometry(0.014, 0.05, 0.22)), material: mat('#d7dee6'), at: [0, 0.005, -0.23], rot: [0, 0, 0] },
+      { id: 'baguette', geometry: shared(new T.CapsuleGeometry(0.055, 0.56, 4, 8)), material: mat('#d99a4e'), at: [0, 0, -0.28], rot: [Math.PI / 2, 0, 0] },
+    ];
+  }
+  const melee = new T.Group();
+  melee.name = 'held-melee';
+  melee.visible = false;
+  melee.position.set(0, -0.3, 0.03);
+  for (const id of ['hammer', 'knife', 'baguette']) {
+    const g = new T.Group();
+    g.name = `held-melee-${id}`;
+    melee.add(g);
+  }
+  for (const part of meleeParts) {
+    const mesh = new T.Mesh(part.geometry, part.material);
+    mesh.position.set(...part.at);
+    mesh.rotation.set(...part.rot);
+    mesh.castShadow = true;
+    melee.getObjectByName(`held-melee-${part.id}`)!.add(mesh);
+  }
+  return melee;
+}
+
+function instantiate(source: T.Group, color: string) {
+  const avatar = source.clone(true);
+  const skin = tintedSkinMaterial(color);
+  skin.userData.perFighter = true;
+  avatar.traverse((o) => {
+    if (!(o instanceof T.Mesh)) return;
+    const m = o.material as T.Material;
+    if (m.userData.fighterSkin) o.material = skin;
+    // Функции-заглушки луча не копируются вместе с объектом.
+    if (o.name === 'anime-outline') o.raycast = () => {};
+  });
+  const find = (name: string) => avatar.getObjectByName(name) as T.Group;
+  const legs = [find('legL'), find('legR')],
+    knees = [find('kneeL'), find('kneeR')],
+    arms = [find('armL'), find('armR')],
+    elbows = [find('elbowL'), find('elbowR')];
+  // Граната у каждого своя: её вид (setGrenadeStyle) меняется прямо в её материалах.
+  const grenade = makeGrenade('#f49fd6');
+  grenade.name = 'held-grenade';
+  grenade.visible = false;
+  grenade.position.set(0, -0.3, 0.03);
+  elbows[1].add(grenade);
+  elbows[1].add(heldMelee());
+  avatar.userData.color = color;
+  rigs.set(avatar, {
+    root: find('rig'),
+    chest: find('chest'),
+    head: find('head'),
+    legs,
+    knees,
+    arms,
+    elbows,
+    scarf: find('scarf'),
+    coat: find('coat-tail'),
+    gun: find('gun'),
+    tablet: find('tablet'),
+    classic: find('classic-detail'),
+    anime: find('anime-detail'),
+    phase: 0,
+    speed: 0,
+    airborne: false,
+    landing: 0,
+    recoil: 0,
+    equip: 0,
+    tool: '',
+  });
+  setAvatarStyle(avatar, false);
+  return avatar;
+}
+
+/** Процедурная сборка бойца — источник шаблона (и файла с ним). */
+function buildAvatar(color: string) {
   const avatar = new T.Group(),
     root = new T.Group();
   root.name = 'rig';
@@ -391,40 +568,12 @@ export function createAvatar(color: string) {
   for (let i = 0; i < 3; i++)
     box(tablet, '#e7f5ff', -0.02, 0.073, -0.2 + i * 0.09, 0.22, 0.005, 0.025);
   const disposeAgentMaterials = buildAgentSkin(avatar, color);
-  rigs.set(avatar, {
-    root,
-    chest,
-    head,
-    legs,
-    knees,
-    arms,
-    elbows,
-    scarf,
-    coat,
-    gun,
-    tablet,
-    classic,
-    anime,
-    phase: 0,
-    speed: 0,
-    airborne: false,
-    landing: 0,
-    recoil: 0,
-    equip: 0,
-    tool: '',
-  });
-  // Цвет запекается в вершины: одна отрисовка на сустав вместо десятков отдельных деталей.
-  const skin = new T.MeshStandardMaterial({
-    color: '#ffffff',
-    vertexColors: true,
-    roughness: 0.8,
-  });
-  const outlineMaterial = new T.ShaderMaterial({
-    side: T.BackSide,
-    vertexShader:
-      'void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position+normal*.009,1.0);}',
-    fragmentShader: 'void main(){gl_FragColor=vec4(.24,.22,.34,1.0);}',
-  });
+  // Цвет запекается в вершины: одна отрисовка на сустав вместо десятков
+  // отдельных деталей. Детали цвета игрока (здесь — цвета-метки) помечаются
+  // атрибутом `tint`: их цвет подаёт материал конкретного бойца.
+  const skin = tintedSkinMaterial();
+  skin.userData.fighterSkin = true;
+  const tintHex = new T.Color(color).getHexString();
   const joints: T.Group[] = [];
   avatar.traverse((o) => {
     if (o instanceof T.Group) joints.push(o);
@@ -441,13 +590,16 @@ export function createAvatar(color: string) {
         : p.geometry.clone();
       geo.applyMatrix4(p.matrix);
       const color = (p.material as T.MeshStandardMaterial).color;
-      const colors = new Float32Array(geo.attributes.position.count * 3);
+      const tinted = color.getHexString() === tintHex;
+      const count = geo.attributes.position.count;
+      const colors = new Float32Array(count * 3);
       for (let i = 0; i < colors.length; i += 3) {
-        colors[i] = color.r;
-        colors[i + 1] = color.g;
-        colors[i + 2] = color.b;
+        colors[i] = tinted ? 1 : color.r;
+        colors[i + 1] = tinted ? 1 : color.g;
+        colors[i + 2] = tinted ? 1 : color.b;
       }
       geo.setAttribute('color', new T.BufferAttribute(colors, 3));
+      geo.setAttribute('tint', new T.BufferAttribute(new Float32Array(count).fill(tinted ? 1 : 0), 1));
       return geo;
     });
     const geometry = mergeGeometries(geos);
@@ -460,7 +612,7 @@ export function createAvatar(color: string) {
     const shape = new T.Mesh(geometry, skin);
     shape.castShadow = true;
     joint.add(shape);
-    const outline = new T.Mesh(geometry, outlineMaterial);
+    const outline = new T.Mesh(geometry, fighterOutlineMaterial);
     outline.name = 'anime-outline';
     outline.visible = false;
     outline.raycast = () => {};
@@ -496,27 +648,7 @@ export function createAvatar(color: string) {
   smile.position.set(0, -0.035, 0.264);
   bag.add(smile);
   head.add(bag);
-  const grenade = makeGrenade('#f49fd6');
-  grenade.name = 'held-grenade';
-  grenade.visible = false;
-  grenade.position.set(0, -0.3, 0.03);
-  elbows[1].add(grenade);
-  /*
-   * Ближний бой в чужих руках: зажат в правом кулаке и торчит вперёд. Как и у
-   * стволов, силуэт вместо подписи — розовый молот, узкий нож, длинный багет.
-   * У кулаков в руке ничего нет.
-   */
-  const melee = pivot(elbows[1], 'held-melee', 0, -0.3, 0.03);
-  melee.visible = false;
-  const hammer = pivot(melee, 'held-melee-hammer', 0, 0, 0);
-  add(hammer, new T.CylinderGeometry(0.028, 0.03, 0.5, 8), '#ffd166', 0, 0, -0.2).rotation.x = Math.PI / 2;
-  add(hammer, new T.CylinderGeometry(0.1, 0.1, 0.3, 12), '#ff84c8', 0, 0, -0.46).rotation.z = Math.PI / 2;
-  const knife = pivot(melee, 'held-melee-knife', 0, 0, 0);
-  box(knife, '#232838', 0, 0, -0.06, 0.05, 0.05, 0.13);
-  box(knife, '#d7dee6', 0, 0.005, -0.23, 0.014, 0.05, 0.22);
-  const baguette = pivot(melee, 'held-melee-baguette', 0, 0, 0);
-  add(baguette, new T.CapsuleGeometry(0.055, 0.56, 4, 8), '#d99a4e', 0, 0, -0.28).rotation.x = Math.PI / 2;
-  setAvatarStyle(avatar, false);
+  // Граната в шаблон не входит — её добавляет каждому бойцу instantiate.
   return avatar;
 }
 
@@ -543,6 +675,7 @@ export function setAvatarAnonymous(avatar: T.Group, value: boolean) {
 export function avatarShoot(avatar: T.Group) {
   const r = rigs.get(avatar);
   if (r) r.recoil = 1;
+  humanShoot(avatar, r?.tool);
 }
 
 /** Одни суставы и переходы для своего персонажа и сетевых аватаров. */
@@ -554,6 +687,24 @@ export function animateAvatar(
 ) {
   const r = rigs.get(avatar);
   if (!r) return;
+  if (hasHuman(avatar)) {
+    // Боец-человек (world-human.ts): процедурное тело скрыто, двигается человек.
+    // Отсюда нужен только выбор предмета в руках — сами предметы висят в держателях у кистей.
+    r.tool = m.tool;
+    showHeldItem(avatar, r, m);
+    if (m.hp === 0) {
+      // Погибший роняет всё, что держал.
+      r.gun.visible = r.tablet.visible = false;
+      const grenade = avatar.getObjectByName('held-grenade');
+      if (grenade) grenade.visible = false;
+      const melee = avatar.getObjectByName('held-melee');
+      if (melee) melee.visible = false;
+    }
+    r.gun.position.set(0, 0, 0);
+    r.gun.rotation.set(0, 0, 0);
+    animateHuman(avatar, m, dt, time);
+    return;
+  }
   const follow = (a: number, b: number, rate = 12) =>
     T.MathUtils.lerp(a, b, 1 - Math.exp(-rate * dt));
   const airborne = m.airborne;
@@ -635,20 +786,6 @@ export function animateAvatar(
   r.head.rotation.y = follow(r.head.rotation.y, targetHeadRotY);
   r.head.rotation.z = follow(r.head.rotation.z, Math.sin(time * 1.5) * 0.018);
 
-  const grenade = avatar.getObjectByName('held-grenade');
-  if (grenade) {
-    grenade.visible = m.tool === 'grenade';
-    if (grenade.visible) setGrenadeStyle(grenade, m.variant || 'pinata');
-  }
-  const melee = avatar.getObjectByName('held-melee');
-  if (melee) {
-    melee.visible = m.tool === 'melee' && !m.working && !m.inventory;
-    if (melee.visible) {
-      const held = meleeStyle(m.variant);
-      for (const id of ['hammer', 'knife', 'baguette'])
-        melee.getObjectByName(`held-melee-${id}`)!.visible = held === id;
-    }
-  }
   const armed = ['paint', 'confetti', 'grenade', 'sniper', 'flashlight'].includes(m.tool);
   for (let i = 0; i < 2; i++) {
     const side = i ? 1 : -1,
@@ -746,19 +883,8 @@ export function animateAvatar(
   }
   r.gun.rotation.x =
     -r.arms[1].rotation.x - r.elbows[1].rotation.x - m.pitch * 0.6;
-  r.gun.visible = armed && m.tool !== 'grenade' && !m.working && !m.inventory;
   r.gun.position.z = follow(r.gun.position.z, -0.03 + r.recoil * 0.08);
-
-  const gunPaint = r.gun.getObjectByName('gun-paint');
-  if (gunPaint) gunPaint.visible = m.tool === 'paint';
-  const gunShotgun = r.gun.getObjectByName('gun-shotgun');
-  if (gunShotgun) gunShotgun.visible = m.tool === 'confetti';
-  const gunSniper = r.gun.getObjectByName('gun-sniper');
-  if (gunSniper) gunSniper.visible = m.tool === 'sniper';
-  const gunTorch = r.gun.getObjectByName('gun-torch');
-  if (gunTorch) gunTorch.visible = m.tool === 'flashlight';
-
-  r.tablet.visible = !!m.working || !!m.inventory || m.tool === 'pointer';
+  showHeldItem(avatar, r, m);
   r.scarf.rotation.x = follow(
     r.scarf.rotation.x,
     -stride * 0.45 + Math.sin(time * 5) * 0.08 * stride,
@@ -767,6 +893,35 @@ export function animateAvatar(
     r.coat.rotation.x,
     -stride * 0.28 + wave * 0.08 * stride,
   );
+}
+
+/** Что в руках: граната, одна из моделей оружия или планшет. */
+function showHeldItem(avatar: T.Group, r: Rig, m: AvatarMotion) {
+  const grenade = avatar.getObjectByName('held-grenade');
+  if (grenade) {
+    grenade.visible = m.tool === 'grenade';
+    if (grenade.visible) setGrenadeStyle(grenade, m.variant || 'pinata');
+  }
+  const melee = avatar.getObjectByName('held-melee');
+  if (melee) {
+    melee.visible = m.tool === 'melee' && !m.working && !m.inventory;
+    if (melee.visible) {
+      const held = meleeStyle(m.variant);
+      for (const id of ['hammer', 'knife', 'baguette'])
+        melee.getObjectByName(`held-melee-${id}`)!.visible = held === id;
+    }
+  }
+  const armed = ['paint', 'confetti', 'grenade', 'sniper', 'like', 'flashlight'].includes(m.tool);
+  r.gun.visible = armed && m.tool !== 'grenade' && !m.working && !m.inventory;
+  // Модели оружия из файла заменяют процедурные стволы, как только загрузятся.
+  dressWorldWeapons(r.gun);
+  for (const [tool, name] of Object.entries(WORLD_WEAPON_PIVOT)) {
+    const pivot = r.gun.getObjectByName(name);
+    if (pivot) pivot.visible = m.tool === tool;
+  }
+  const gunTorch = r.gun.getObjectByName('gun-torch');
+  if (gunTorch) gunTorch.visible = m.tool === 'flashlight';
+  r.tablet.visible = !!m.working || !!m.inventory || m.tool === 'pointer';
 }
 
 export function followCameraHeading(

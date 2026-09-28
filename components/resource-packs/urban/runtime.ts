@@ -4,10 +4,10 @@ import type { RoomState } from '../../../lib/model.ts';
 import type { GraphicsSettings } from '../../../lib/graphics-settings.ts';
 export { prepareUrbanScans } from './materials.ts';
 import { createUrbanMaterials } from './materials.ts';
-import { createUrbanDistrict, createUrbanSuit, createUrbanTool, createUrbanFacade } from './assets.ts';
+import { createUrbanDistrict, createUrbanSuit, createUrbanFacade } from './assets.ts';
 /** This pack owns its resources; it never mutates geometry, physics, room state or animation clocks. */
 export function createUrbanPresentation(scene:T.Scene,hands:T.Group,settings:GraphicsSettings,renderer:T.WebGLRenderer) {
-  const m=createUrbanMaterials(settings), district=createUrbanDistrict(scene,m,settings.detail),tool=createUrbanTool(hands,m);
+  const m=createUrbanMaterials(settings), district=createUrbanDistrict(scene,m,settings.detail);
   const replacements=new Map<T.Mesh,{original:T.Material|T.Material[];next:T.Material|T.Material[]}>();
   const clones=new Map<T.Material,T.Material>();
   const facades: {dispose():void}[] = [];
@@ -73,5 +73,5 @@ export function createUrbanPresentation(scene:T.Scene,hands:T.Group,settings:Gra
   }
   return {sync,light,textureBytes:m.textureBytes,impact(_at:T.Vector3,_color:string){},
     update(_dt:number,camera:T.Camera,_state:RoomState){district.update(camera);return exposure;},
-    dispose(){facades.forEach(f=>f.dispose());actors.forEach(a=>a.dispose());tool.dispose();district.dispose();replacements.forEach((r,o)=>{o.material=r.original;});clones.forEach(c=>c.dispose());lights.forEach((v,l)=>{l.color.copy(v.color);l.intensity=v.intensity;});scene.fog=fog;scene.background=background;scene.environment=environment;scene.environmentIntensity=environmentIntensity;reflection.dispose();m.dispose();}};
+    dispose(){facades.forEach(f=>f.dispose());actors.forEach(a=>a.dispose());district.dispose();replacements.forEach((r,o)=>{o.material=r.original;});clones.forEach(c=>c.dispose());lights.forEach((v,l)=>{l.color.copy(v.color);l.intensity=v.intensity;});scene.fog=fog;scene.background=background;scene.environment=environment;scene.environmentIntensity=environmentIntensity;reflection.dispose();m.dispose();}};
 }

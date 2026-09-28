@@ -4,7 +4,8 @@ import { createFieldVfx } from './vfx.ts';
 import type { RoomState } from '../../../lib/model.ts';
 import { createRealisticMaterials, type Surface } from './materials.ts';
 import { createFieldEnvironment } from './environment.ts';
-import { dressFieldCharacter, dressFieldWeapons } from './characters.ts';
+import { dressFieldCharacter } from './characters.ts';
+import { viewModelMaterial } from '../../world-hands.ts';
 
 type MaterialPair = {
   original: T.Material | T.Material[];
@@ -26,7 +27,6 @@ export function createRealisticPresentation(
   >();
   const actors = new Map<T.Group, ReturnType<typeof dressFieldCharacter>>();
   const extras = createFieldEnvironment(scene, library, quality, stations);
-  const weapons = dressFieldWeapons(hands, library);
   const lightDefaults = new Map<
     T.Light,
     { color: T.Color; intensity: number }
@@ -171,6 +171,9 @@ export function createRealisticPresentation(
       replacement.normalScale.set(0.23, 0.23);
       replacement.roughnessMap = resource.roughnessMap;
       replacement.roughness = 0.95;
+      // Руки и оружие рисуются со своей ближней глубиной (world-hands.ts):
+      // копия материала шейдер не наследует, возвращаем его.
+      if (original.userData.viewModel) viewModelMaterial(replacement);
       handMaterials.set(original, replacement);
     }
     const replacement = handMaterials.get(original)!;
@@ -244,7 +247,6 @@ export function createRealisticPresentation(
     dispose() {
       actors.forEach((a) => a.dispose());
       actors.clear();
-      weapons.dispose();
       extras.dispose();
       replacements.forEach(({ original }, mesh) => {
         mesh.material = original;

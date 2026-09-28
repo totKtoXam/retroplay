@@ -3,12 +3,14 @@ import { isOnline, type Room } from '@/lib/model';
 import { isBlocked3D, rayCastWorldObstacle } from '@/lib/world-collision';
 import type { GameMap } from '@/lib/maps/types';
 import type { WorldKit } from './world-map-scene';
-import { animateAvatar, setAvatarAnonymous } from './world-avatar';
+import { animateAvatar, fighterShared, setAvatarAnonymous } from './world-avatar';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { modeOf } from '@/lib/maps/catalog';
 import { createFlashlightBeam, type FlashlightBeam } from './world-flashlight';
 import { createShieldBubble, type ShieldBubble } from './world-shield';
 import { createGhostForm, setGhostLook, type GhostForm } from './world-ghost';
+import { syncHuman, unmountHuman, updateHumanLod } from './world-human';
+import type { CharacterModels } from '@/lib/graphics-settings';
 import { knockPath } from '@/lib/melee';
 
 /**
@@ -35,6 +37,7 @@ export function createWorldRemotePlayers({
   map,
   hidden,
   onDied,
+  characters,
 }: {
   scene: T.Scene;
   kit: WorldKit;
@@ -45,6 +48,8 @@ export function createWorldRemotePlayers({
   hidden?: (pose: { x: number; y: number; z: number }) => boolean;
   /** Игрок только что погиб: смыть с его аватара краску. */
   onDied?: (remote: T.Group) => void;
+  /** Модели бойцов из настроек графики и точка, от которой считать расстояние (камера). */
+  characters?: () => { mode: CharacterModels; eye: T.Vector3 };
 }) {
   const remoteAvatars = new Map<string, T.Group>(),
     remoteBandanaMats = new Map<string, T.MeshStandardMaterial>(),
@@ -135,6 +140,8 @@ export function createWorldRemotePlayers({
     liveRemoteIds = new Set<string>();
   let remoteKey = '';
   const retireRemote = (id: string, remote: T.Group) => {
+    // Геометрия человека общая на всех бойцов: снимаем его до общей чистки аватара.
+    unmountHuman(remote);
     remote.removeFromParent();
     retiredAvatars.push(remote);
     remoteAvatars.delete(id);
@@ -162,11 +169,14 @@ export function createWorldRemotePlayers({
         o.material.map?.dispose();
         o.material.dispose();
       } else if (o instanceof T.Mesh) {
-        o.geometry.dispose();
+        // Геометрия и постоянные материалы бойца общие с шаблоном (world-avatar.ts).
+        if (!fighterShared(o.geometry)) o.geometry.dispose();
         const materials = Array.isArray(o.material)
           ? o.material
           : [o.material];
-        materials.forEach((m) => m.dispose());
+        materials.forEach((m) => {
+          if (!fighterShared(m)) m.dispose();
+        });
       }
     });
   };
@@ -242,6 +252,10 @@ export function createWorldRemotePlayers({
         );
       // Update remote skin if changed
       applyAvatarSkin(remote, member.hat || member.skin || 'agent', colorOf(member), remoteBandanaMats.get(member.id));
+      // Люди вместо бойцов из деталей (world-human.ts), если так выбрано в настройках графики.
+      const look = characters?.();
+      if (look && syncHuman(remote, look.mode !== 'classic', member.id, colorOf(member)))
+        updateHumanLod(remote, remote.position.distanceTo(look.eye), look.mode === 'human-lite');
       const ally = isAlly(member);
       const mode = modeOf(latest.current.room.state);
       // В «Предателе» здоровья нет, а призраков (их видят только призраки) отмечаем, чтобы

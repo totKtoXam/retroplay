@@ -30,7 +30,7 @@ import { useResourcePack } from '../hooks/use-resource-pack';
 import { createVisualProvider } from './resource-packs/provider';
 import { createFieldOptics } from './resource-packs/realistic/post';
 import { useGraphicsSettings } from '../hooks/use-graphics-settings';
-import { GRAPHICS_PRESETS } from '../lib/graphics-settings';
+import { defaultCharacters, GRAPHICS_PRESETS } from '../lib/graphics-settings';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { visualBudget } from '../lib/resource-packs';
@@ -45,6 +45,10 @@ import {
   createPlayerFlashlight,
 } from './world-flashlight';
 import { createGhostForm, setGhostLook, type GhostForm } from './world-ghost';
+import { humanOutfit, syncHuman, unmountHuman, updateHumanLod } from './world-human';
+import { preloadFighterModel } from './world-fighter-file';
+import { preloadWeaponModels } from './world-weapon-models';
+import { createViewArms } from './world-view-arms';
 import {
   dayMix,
   dayPosition,
@@ -88,7 +92,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { animateAvatar, avatarShoot } from './world-avatar';
+import { animateAvatar, avatarShoot, fighterShared } from './world-avatar';
 import {
   MousePointer2,
   MoveUp,
@@ -277,6 +281,14 @@ function animateRef(
     else if (shouldContinue()) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
+}
+
+// Шаблон бойца (оружие, скины) — файлом, пока собирается остальное: бойцы
+// копируются из него, а не собираются каждый заново (world-fighter-file.ts).
+if (typeof window !== 'undefined') {
+  void preloadFighterModel();
+  // Модели оружия — для рук от первого лица и для бойцов в мире.
+  void preloadWeaponModels();
 }
 
 export default function World(props: Props) {
@@ -805,6 +817,7 @@ export default function World(props: Props) {
     });
     scene.add(camera);
     const hands = createFirstPersonHands(camera);
+    const viewArms = createViewArms(camera, hands);
     // Свой фонарик светит от дула туда, куда смотрит игрок (кадр ставит его ниже).
     const flashlight = createPlayerFlashlight(scene);
     const flashlightOrigin = new T.Vector3(),
@@ -892,7 +905,10 @@ export default function World(props: Props) {
     // Обзор в «Предателе»: дальше радиуса и за стенами других игроков не видно. Сервер
     // позиции всё равно присылает — это правило игры, а не защита от читов.
     const visionEye = new T.Vector3();
+    /** Модели бойцов: из настроек графики, иначе по профилю качества. */
+    const characterMode = () => graphicsRef.current?.characters ?? defaultCharacters(props.quality);
     const remotePlayers = createWorldRemotePlayers({
+      characters: () => ({ mode: characterMode(), eye: camera.position }),
       scene,
       kit,
       quality: props.quality,
@@ -1163,6 +1179,8 @@ export default function World(props: Props) {
       },
       onLand: (kind, at) => weaponSounds.impact(kind, [at.x, at.y, at.z], weaponVolume()),
       onBounce: (at) => weaponSounds.knock([at.x, at.y, at.z], weaponVolume()),
+      // Вспышка у дула, искры ракеты и фитиля гранаты.
+      vfx,
     });
     const { flights, spawn } = projectiles;
     let lastReportedRounds = { ...magazine.current.rounds };
@@ -2255,6 +2273,11 @@ export default function World(props: Props) {
       const myDeathTime = deadTimers.get(latest.current.room.self);
       const isMyDeathRecent = myHp === 0 && now - (myDeathTime || now) < 3800;
 
+      // Свой боец — тем же человеком, что его видят другие. В первом лице он не
+      // виден, и анимировать его каждый кадр незачем.
+      const characters = characterMode();
+      if (syncHuman(avatar, characters !== 'classic', latest.current.room.self, myMember?.color || '#718cdd'))
+        updateHumanLod(avatar, perspectiveRef.current === 'first' ? 60 : 0, characters === 'human-lite');
       animateAvatar(
         avatar,
         {
@@ -2403,6 +2426,20 @@ export default function World(props: Props) {
         tabletInspectRef.current,
         selection.current.paintSight,
       );
+      // Руки от первого лица — руки своего бойца-человека, его цвета костюма.
+      // В классическом облике бойцов остаются простые перчатки.
+      {
+        const outfit = characters !== 'classic' ? humanOutfit(avatar) : null;
+        viewArms.update(
+          GAME_TOOLS[latest.current.tool]?.id || 'other',
+          outfit
+            ? { female: outfit.female, suit: outfit.suit, gear: outfit.gear }
+            : characters !== 'classic'
+              ? { female: false, suit: myMember?.color || '#718cdd', gear: '#1c1f26' }
+              : null,
+          dt,
+        );
+      }
       const sniperFov = SNIPER_ZOOM_FOVS[sniperZoomIndexRef.current];
       const baseTargetFov =
         GAME_TOOLS[latest.current.tool]?.id === 'sniper'
@@ -2657,17 +2694,23 @@ export default function World(props: Props) {
       canvas.removeEventListener('auxclick', context);
       canvas.removeEventListener('webglcontextlost', context);
       visuals.dispose();
+      // Геометрия и текстуры людей общие для всех бойцов и сцен — общая чистка ниже их не трогает.
+      unmountHuman(avatar);
+      viewArms.dispose();
+      for (const remote of remoteAvatars.values()) unmountHuman(remote);
       scene.traverse((o) => {
         if (
           o instanceof T.Mesh ||
           o instanceof T.Points ||
           o instanceof T.Sprite
         ) {
-          if ('geometry' in o) o.geometry.dispose();
+          // Общее с шаблоном бойца остаётся для следующей сцены (world-avatar.ts).
+          if ('geometry' in o && !fighterShared(o.geometry)) o.geometry.dispose();
           const materials = Array.isArray(o.material)
             ? o.material
             : [o.material];
           materials.forEach((m) => {
+            if (fighterShared(m)) return;
             if ('map' in m && m.map) (m.map as T.Texture).dispose();
             m.dispose();
           });
@@ -3092,6 +3135,7 @@ export default function World(props: Props) {
               }
               anime={props.room.state.visualStyle === 'anime'}
               anonymous={!!props.room.state.anonymousPlayers}
+              seed={props.room.self}
             />
           )}
           <div className="equipment-items">

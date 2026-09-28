@@ -785,3 +785,58 @@ export const scannerTexture = () =>
     g.lineTo(w / 2, h / 2 + 110);
     g.stroke();
   });
+
+/**
+ * Обшивка корабля снаружи: листы металла разного оттенка со швами и заклёпками, редкие
+ * люки, решётки и полосы разметки. Плитка — 4 × 4 м, лист — метр: вблизи из окна видна
+ * фактура, издалека — пятнистая броня, а не однотонная коробка.
+ */
+export function hullTexture() {
+  return paint(512, 512, (g, w, h, rnd) => {
+    const cell = 128;
+    fill(g, '#5d6673', 0, 0, w, h);
+    for (let y = 0; y < h; y += cell / 2)
+      for (let x = 0; x < w; x += cell) {
+        // Листы уложены вразбежку, как кирпичная кладка: рядами по половине высоты.
+        const shift = (y / (cell / 2)) % 2 ? cell / 2 : 0;
+        const tone = 88 + Math.floor(rnd() * 34);
+        const px = (x + shift) % w;
+        for (const ox of px + cell > w ? [px, px - w] : [px]) {
+          fill(g, `rgb(${tone - 6},${tone},${tone + 10})`, ox, y, cell, cell / 2);
+          bevel(g, ox, y, cell, cell / 2, 'rgba(255,255,255,0.12)', 'rgba(0,0,0,0.45)', 2);
+          g.fillStyle = 'rgba(20,24,30,0.55)';
+          for (let i = 6; i < cell; i += 14) {
+            g.fillRect(ox + i, y + 4, 2, 2);
+            g.fillRect(ox + i, y + cell / 2 - 6, 2, 2);
+          }
+        }
+      }
+    // Люки, решётки и полосы разметки на случайных листах.
+    for (let k = 0; k < 7; k++) {
+      const x = Math.floor(rnd() * 4) * cell + 16,
+        y = Math.floor(rnd() * 8) * (cell / 2) + 10;
+      const kind = k % 3;
+      if (kind === 0) {
+        fill(g, '#3a4049', x, y, 56, 36);
+        bevel(g, x, y, 56, 36, 'rgba(255,255,255,0.18)', 'rgba(0,0,0,0.6)', 3);
+      } else if (kind === 1) {
+        for (let i = 0; i < 6; i++) fill(g, '#2c3139', x, y + i * 6, 70, 3);
+      } else {
+        for (let i = 0; i < 5; i++) {
+          g.fillStyle = i % 2 ? '#1f2328' : '#c9a227';
+          g.beginPath();
+          g.moveTo(x + i * 12, y);
+          g.lineTo(x + i * 12 + 12, y);
+          g.lineTo(x + i * 12, y + 12);
+          g.lineTo(x + i * 12 - 12, y + 12);
+          g.fill();
+        }
+      }
+    }
+    // Потёки и нагар: обшивка не новая.
+    for (let k = 0; k < 40; k++) {
+      g.fillStyle = `rgba(20,20,24,${0.04 + rnd() * 0.06})`;
+      g.fillRect(rnd() * w, rnd() * h, 2 + rnd() * 3, 20 + rnd() * 60);
+    }
+  }, 23);
+}

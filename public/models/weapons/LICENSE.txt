@@ -1,0 +1,15 @@
+Модели оружия — Quaternius, Ultimate Guns Pack, лицензия CC0 1.0 Universal
+(общественное достояние): https://creativecommons.org/publicdomain/zero/1.0/
+https://quaternius.com/packs/ultimategun.html
+
+  weapons.glb
+    weapon-marker  — Assault Rifle (карабин): краскомёт
+    weapon-shotgun — Shotgun (помповое ружьё): конфетти-дробовик
+    weapon-sniper  — Sniper Rifle: снайперка
+    weapon-pistol  — Pistol: лайкомёт
+
+Файл собран скриптом scripts/build-weapon-models.mjs: модели развёрнуты стволом
+к −Z, приведены к настоящему размеру в метрах, начало координат перенесено в
+точку хвата правой рукой, всё сжато EXT_meshopt_compression.
+
+Автор: Quaternius — https://quaternius.com, https://www.patreon.com/quaternius

@@ -1,5 +1,5 @@
 'use client';
-import { GRAPHICS_PRESETS, type GraphicsSettings } from '../lib/graphics-settings';
+import { CHARACTER_MODELS, GRAPHICS_PRESETS, type CharacterModels, type GraphicsSettings } from '../lib/graphics-settings';
 import { setGraphicsSettings, useGraphicsSettings } from '../hooks/use-graphics-settings';
 export function GraphicsPanel() {
   const custom = useGraphicsSettings();
@@ -11,6 +11,8 @@ export function GraphicsPanel() {
     <div className="graphics-presets">{Object.keys(GRAPHICS_PRESETS).map(p => <button type="button" key={p} aria-pressed={!!custom && JSON.stringify(custom) === JSON.stringify(GRAPHICS_PRESETS[p])} onClick={() => setGraphicsSettings(GRAPHICS_PRESETS[p])}>{p}</button>)}</div>
     <label className="field">Масштаб изображения: {Math.round(value.scale * 100)}%<input type="range" min=".5" max="1.5" step=".05" value={value.scale} onChange={e => patch({ scale: Number(e.target.value) })}/></label>
     <small>100% — размер игровой области в CSS-пикселях; выше — более чёткое и тяжёлое изображение.</small>
+    <label className="field">Модели бойцов<select value={value.characters} onChange={e => patch({ characters: e.target.value as CharacterModels })}>{CHARACTER_MODELS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</select></label>
+    <small>Люди — живые фигуры со скелетом и анимациями. Облегчённые — те же люди, но с упрощёнными телами, и дальние двигаются реже: для слабых компьютеров. Классические — прежние бойцы из деталей.</small>
     <div className="graphics-grid">{select('shadows', 'Разрешение теней', [0,512,1024,2048,4096])}{select('textures', 'Текстуры Urban', [512,1024,2048])}{select('anisotropy', 'Анизотропная фильтрация', [1,4,8,16])}{select('detail', 'Детализация Urban (1–4)', [1,2,3,4])}</div>
     <label className="field">Экспозиция: {value.exposure.toFixed(2)}<input type="range" min=".6" max="1.5" step=".05" value={value.exposure} onChange={e => patch({ exposure: Number(e.target.value) })}/></label>
     <label><input type="checkbox" checked={value.antialias} onChange={e => patch({ antialias: e.target.checked })}/> Сглаживание FXAA</label>

@@ -1,6 +1,9 @@
 import * as T from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
+/** Модели предметов в руках, которые не меняются вместе с обликом. */
+const HELD = new Set(['gun-shotgun', 'gun-sniper', 'gun-torch', 'tablet']);
+
 /** Авторская модель «AERO»: отдельные поверхности одежды на существующем скелете. */
 export function buildAgentSkin(avatar: T.Group, accent: string) {
   const joints: T.Group[] = [];
@@ -8,6 +11,10 @@ export function buildAgentSkin(avatar: T.Group, accent: string) {
     if (o instanceof T.Group) joints.push(o);
   });
   for (const joint of joints) {
+    // Предметы в руках — не одежда: их модели видны при любом облике бойца.
+    // Раньше они уходили в legacy-skin вместе с телом и в обычном стиле
+    // пропадали, и у всех было одно оружие — AERO.
+    if (HELD.has(joint.name)) continue;
     const meshes = joint.children.filter((o) => o instanceof T.Mesh);
     if (!meshes.length) continue;
     const legacy = new T.Group();
@@ -315,7 +322,8 @@ export function buildAgentSkin(avatar: T.Group, accent: string) {
       );
     ellipsoid(elbow, ink, side * 0.057, -0.29, -0.01, 0.025, 0.04, 0.035);
   }
-  const weapon = surface('gun');
+  // Маркер AERO — облик краскомёта «Агента»; у остального оружия свои модели.
+  const weapon = surface('gun-paint');
   box(weapon, ink, 0, 0.025, 0.005, 0.1, 0.21, 0.1);
   box(weapon, armor, 0, 0.16, -0.1, 0.13, 0.14, 0.42, 0.018);
   box(weapon, accent, 0, 0.19, -0.33, 0.14, 0.08, 0.06, 0.014);

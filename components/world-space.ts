@@ -3,11 +3,11 @@ import * as T from 'three';
 /**
  * Космос за иллюминаторами корабля (режим «Предатель»).
  *
- * Стекло иллюминатора — не картинка, а окно в бесконечность: шейдер берёт направление от камеры
- * к точке стекла и по нему считает, что видно снаружи. Звёзды, туманность, Млечный Путь, планеты
- * с атмосферой и кольцами и само солнце посчитаны прямо в этом направлении. Поэтому вид остаётся
- * резким на любом разрешении и честно смещается, когда подходишь к окну и смотришь вбок: космос
- * бесконечно далеко, и параллакса у него нет. Геометрию в стенах вырезать не нужно.
+ * Иллюминаторы сквозные: за стеклом — настоящий внешний корпус соседних отсеков
+ * (world-ship-hull.ts), а за ним — небесная сфера. Её шейдер по направлению от камеры считает
+ * звёзды, туманность, Млечный Путь, планеты с атмосферой и кольцами и само солнце. Поэтому вид
+ * остаётся резким на любом разрешении: космос бесконечно далеко, и параллакса у него нет, а
+ * отсеки корабля смещаются, когда подходишь к окну и смотришь вбок.
  *
  * Солнце здесь — единственное светило. Его направление `SPACE_SUN` общее для окна и для света в
  * отсеках: иллюминаторы, смотрящие на солнце, пускают внутрь луч и кладут на пол светлое пятно
@@ -109,7 +109,9 @@ vec3 starLayer(vec3 d, float scale, float density, float size, float bright) {
 vec3 sky(vec3 d) {
   // Млечный Путь — полоса вдоль большого круга, в ней гуще звёзды и туманность.
   vec3 galaxy = normalize(vec3(0.3, 0.82, 0.48));
-  float band = exp(-pow(dot(d, galaxy) / 0.28, 2.0));
+  // Квадрат — умножением: pow от отрицательного основания в GLSL не определён (NaN).
+  float bandX = dot(d, galaxy) / 0.28;
+  float band = exp(-bandX * bandX);
   float dust = fbm(d * 5.0 + 7.0);
   vec3 col = vec3(0.004, 0.006, 0.014);
   col += band * (0.02 + 0.12 * dust) * vec3(0.55, 0.52, 0.85);
@@ -130,8 +132,12 @@ vec3 sunLight(vec3 d) {
   float ang = acos(clamp(dot(d, uSun), -1.0, 1.0));
   vec3 t = normalize(cross(uSun, vec3(0.0, 1.0, 0.0)));
   vec3 b = cross(uSun, t);
-  float phi = atan(dot(d, b), dot(d, t));
-  float rays = pow(0.5 + 0.5 * sin(phi * 11.0 + sin(phi * 3.0) * 2.0), 6.0) * exp(-ang * 7.0) * 0.5;
+  // Точно в центре солнца угол лучей не определён: atan(0, 0) на части видеокарт
+  // даёт NaN, а свечение (bloom) размазывает один такой пиксель в мигающий
+  // чёрный прямоугольник во весь экран.
+  vec2 q = vec2(dot(d, b), dot(d, t));
+  float phi = dot(q, q) > 1e-12 ? atan(q.x, q.y) : 0.0;
+  float rays = pow(max(0.5 + 0.5 * sin(phi * 11.0 + sin(phi * 3.0) * 2.0), 0.0), 6.0) * exp(-ang * 7.0) * 0.5;
   vec3 col = smoothstep(0.046, 0.041, ang) * vec3(7.0, 6.4, 5.2);
   col += exp(-ang * 26.0) * vec3(2.2, 1.6, 0.9);
   col += exp(-ang * 9.0) * vec3(0.5, 0.33, 0.18) * 0.35;
@@ -197,7 +203,7 @@ vec3 space(vec3 d) {
       float light = smoothstep(-0.06, 0.35, ndl) * 1.15 + 0.012;
       vec3 surf = surface(kind, n, a) * light;
       // Край диска подсвечен атмосферой, ночная сторона — чуть-чуть, отражённым светом.
-      float fres = pow(1.0 - max(dot(n, -d), 0.0), 3.0);
+      float fres = pow(clamp(1.0 - dot(n, -d), 0.0, 1.0), 3.0);
       surf += haze * fres * 0.55 * smoothstep(-0.2, 0.5, ndl);
       col = surf;
     }
@@ -227,7 +233,7 @@ vec3 space(vec3 d) {
 }
 `;
 
-/** Юниформы с планетами и солнцем: общие для всех окон, время тикает у одного объекта. */
+/** Юниформы с планетами и солнцем. */
 function spaceUniforms() {
   return {
     uTime: { value: 0 },
@@ -240,46 +246,39 @@ function spaceUniforms() {
 }
 
 /**
- * Стекло иллюминатора. У краёв стекло чуть темнее рамы, сверху по нему идёт слабый блик от ламп
- * отсека: без этого окно выглядело бы дырой в стене, а не стеклом.
+ * Космос вокруг корабля — небесная сфера. Иллюминаторы сквозные: за стеклом видны
+ * настоящие соседние отсеки (world-ship-hull.ts), а там, где их нет, — эта сфера.
+ * Направление считается от камеры, поэтому сфера может стоять где угодно, лишь бы
+ * накрывала корабль: космос остаётся бесконечно далёким.
+ *
+ * Рисуется после всего непрозрачного мира (`renderOrder`), без записи глубины: тяжёлый
+ * шейдер считается только в пикселях, куда ничего ближе не легло, — то есть в окнах.
  */
-export function createSpaceWindowMaterial() {
+export function createSpaceSkyMaterial() {
   const material = new T.ShaderMaterial({
-    uniforms: T.UniformsUtils.merge([T.UniformsLib.fog, spaceUniforms()]),
-    fog: true,
+    uniforms: spaceUniforms(),
     vertexShader: /* glsl */ `
-      #include <fog_pars_vertex>
       varying vec3 vWorld;
-      varying vec2 vUv;
       void main() {
-        vUv = uv;
         vec4 world = modelMatrix * vec4(position, 1.0);
         vWorld = world.xyz;
-        vec4 mvPosition = viewMatrix * world;
-        gl_Position = projectionMatrix * mvPosition;
-        #include <fog_vertex>
+        gl_Position = projectionMatrix * viewMatrix * world;
       }
     `,
     fragmentShader: /* glsl */ `
-      #include <fog_pars_fragment>
       varying vec3 vWorld;
-      varying vec2 vUv;
       ${SPACE_GLSL}
       void main() {
-        vec3 d = normalize(vWorld - cameraPosition);
-        vec3 col = space(d);
-        float edge = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
-        col *= 0.72 + 0.28 * smoothstep(0.0, 0.07, edge);
-        // Слабое отражение ламп отсека в нижней части стекла.
-        col += vec3(0.05, 0.07, 0.09) * pow(1.0 - vUv.y, 3.0) * 0.25;
+        vec3 col = space(normalize(vWorld - cameraPosition));
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
-        #include <fog_fragment>
       }
     `,
+    side: T.BackSide,
+    depthWrite: false,
   });
-  material.name = 'space-window';
+  material.name = 'space-sky';
   return material;
 }
 
@@ -390,7 +389,7 @@ export function createSunShaftMaterial() {
       void main() {
         // Ярче всего луч чуть отступив от стекла; у самого стекла и к полу он гаснет, чтобы, подойдя
         // к окну, не смотреть на космос сквозь светлую пелену.
-        float fade = smoothstep(0.0, 0.18, vUv.y) * pow(1.0 - vUv.y, 1.6) * smoothstep(0.0, 0.15, vUv.x) * smoothstep(1.0, 0.85, vUv.x);
+        float fade = smoothstep(0.0, 0.18, vUv.y) * pow(max(1.0 - vUv.y, 0.0), 1.6) * smoothstep(0.0, 0.15, vUv.x) * smoothstep(1.0, 0.85, vUv.x);
         float haze = 0.75 + 0.5 * noise3(vWorld * 1.4 + vec3(0.0, uTime * 0.12, uTime * 0.05));
         float motes = smoothstep(0.93, 0.99, noise3(vWorld * 9.0 + vec3(uTime * 0.2, uTime * 0.08, 0.0))) * 0.6;
         vec3 col = vec3(1.0, 0.86, 0.62) * (0.03 * haze + motes * 0.14) * fade;
@@ -406,7 +405,7 @@ export function createSunShaftMaterial() {
   return material;
 }
 
-/** Анимация окон и лучей: у всех общий ход времени. */
+/** Анимация космоса и лучей: у всех общий ход времени. */
 export function animateSpace(materials: T.ShaderMaterial[], seconds: number) {
   for (const m of materials) if (m.uniforms.uTime) m.uniforms.uTime.value = seconds;
 }
