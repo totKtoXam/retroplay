@@ -1635,15 +1635,12 @@ export default function World(props: Props) {
       fire: (e: WorldEffect) => {
         // Толчок от молота — только своему телу и только свежий: старый уже отыгран.
         if (e.kind !== 'knock') return spawn(e);
-        if (
-          e.victim !== latest.current.room.self ||
-          knocked.has(e.id) ||
-          Date.now() + clockOffset.current - e.at > 1500 ||
-          !e.normal
-        )
+        if (knocked.has(e.id) || Date.now() + clockOffset.current - e.at > 1500 || !e.normal || !e.victim)
           return;
         knocked.add(e.id);
-        player.knock(e.normal[0], e.normal[1], e.normal[2]);
+        // Отлетает своё тело; чужого — показываем сразу, не дожидаясь его поз.
+        if (e.victim === latest.current.room.self) player.knock(e.normal[0], e.normal[1], e.normal[2]);
+        else remotePlayers.knock(e.victim, e.normal, performance.now());
       },
       refreshTargets: rebuildSceneryTargets,
       orbit: (d) => {

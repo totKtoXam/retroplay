@@ -1,6 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fromBehind, MELEE, MELEE_STATS, meleeDamage, meleeStyle } from '../lib/melee.ts';
+import {
+  fromBehind,
+  knockDistance,
+  knockPath,
+  KNOCK_GRAVITY,
+  KNOCK_LIFT,
+  MELEE,
+  MELEE_STATS,
+  meleeDamage,
+  meleeStyle,
+} from '../lib/melee.ts';
 import { effectStyle } from '../lib/game-items.ts';
 import { cooledDown, flightMs } from '../lib/weapon-definition.ts';
 
@@ -33,4 +43,15 @@ test('the swing lands after the windup and each weapon keeps its own pace', () =
   const m = { lastShot: 0 };
   assert.equal(cooledDown(m, 'melee', MELEE_STATS.knife.cooldown, 'knife'), true);
   assert.equal(cooledDown(m, 'melee', MELEE_STATS.knife.cooldown, 'hammer'), false, 'the hammer is slower');
+});
+
+test('observers draw the knockback along the same curve the victim flies', () => {
+  const speed = MELEE_STATS.hammer.knockback;
+  assert.equal(knockPath(0).reach, 0);
+  // Почти весь путь пройден к концу предсказания (0,7 с) — дальше аватар ведут позы.
+  assert.ok(knockPath(0.7).reach * speed > 0.95 * knockDistance(speed));
+  assert.ok(knockPath(10).reach * speed <= knockDistance(speed) + 1e-9);
+  // Подскок: вверх и обратно на землю.
+  assert.ok(knockPath(0.1).height > 0);
+  assert.equal(knockPath((2 * KNOCK_LIFT) / KNOCK_GRAVITY + 0.01).height, 0);
 });

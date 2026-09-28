@@ -50,8 +50,18 @@ export const MELEE_STATS: Record<MeleeId, MeleeStats> = {
 export const KNOCK_DECAY = 6;
 /** Толчок подбрасывает, м/с вверх. */
 export const KNOCK_LIFT = 3;
+/** Ускорение падения, как у самого игрока (components/world-player.ts). */
+export const KNOCK_GRAVITY = 13;
 /** Сколько пролетит жертва от толчка скоростью `speed`: ∫ v·e^(−kt) dt = v/k. */
 export const knockDistance = (speed: number) => speed / KNOCK_DECAY;
+/**
+ * Где отброшенный через `t` секунд: смещение по горизонтали на единицу скорости
+ * толчка и высота подскока. Так наблюдатели рисуют отлёт чужого игрока.
+ */
+export const knockPath = (t: number, lift = KNOCK_LIFT) => ({
+  reach: (1 - Math.exp(-KNOCK_DECAY * t)) / KNOCK_DECAY,
+  height: Math.max(0, lift * t - (KNOCK_GRAVITY / 2) * t * t),
+});
 
 /** Толчок от удара: от атакующего к жертве по горизонтали. */
 export function knockImpulse(attacker: number[], victim: { x: number; z: number }, speed: number) {
