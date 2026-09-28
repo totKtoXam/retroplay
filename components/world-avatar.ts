@@ -1,4 +1,5 @@
 import { makeGrenade, setGrenadeStyle } from './party-geometry.ts';
+import { meleeStyle } from '../lib/melee.ts';
 import * as T from 'three';
 import { buildAgentSkin } from './world-agent.ts';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -127,6 +128,50 @@ export function createAvatar(color: string) {
   return instantiate(template, color);
 }
 
+/**
+ * Ближний бой в чужих руках: зажат в правом кулаке и торчит вперёд. Как и у стволов,
+ * силуэт вместо подписи — розовый молот, узкий нож, длинный багет. У кулаков в руке
+ * ничего нет. Геометрия и материалы общие у всех бойцов, копия у каждого — только узлы.
+ */
+let meleeParts: { geometry: T.BufferGeometry; material: T.Material; at: [number, number, number]; rot: [number, number, number]; id: string }[] | null = null;
+function heldMelee() {
+  if (!meleeParts) {
+    const mat = (color: string) => {
+      const m = new T.MeshStandardMaterial({ color, roughness: 0.6 });
+      m.userData.fighterShared = true;
+      return m;
+    };
+    const shared = <G extends T.BufferGeometry>(g: G) => {
+      g.userData.fighterShared = true;
+      return g;
+    };
+    meleeParts = [
+      { id: 'hammer', geometry: shared(new T.CylinderGeometry(0.028, 0.03, 0.5, 8)), material: mat('#ffd166'), at: [0, 0, -0.2], rot: [Math.PI / 2, 0, 0] },
+      { id: 'hammer', geometry: shared(new T.CylinderGeometry(0.1, 0.1, 0.3, 12)), material: mat('#ff84c8'), at: [0, 0, -0.46], rot: [0, 0, Math.PI / 2] },
+      { id: 'knife', geometry: shared(new T.BoxGeometry(0.05, 0.05, 0.13)), material: mat('#232838'), at: [0, 0, -0.06], rot: [0, 0, 0] },
+      { id: 'knife', geometry: shared(new T.BoxGeometry(0.014, 0.05, 0.22)), material: mat('#d7dee6'), at: [0, 0.005, -0.23], rot: [0, 0, 0] },
+      { id: 'baguette', geometry: shared(new T.CapsuleGeometry(0.055, 0.56, 4, 8)), material: mat('#d99a4e'), at: [0, 0, -0.28], rot: [Math.PI / 2, 0, 0] },
+    ];
+  }
+  const melee = new T.Group();
+  melee.name = 'held-melee';
+  melee.visible = false;
+  melee.position.set(0, -0.3, 0.03);
+  for (const id of ['hammer', 'knife', 'baguette']) {
+    const g = new T.Group();
+    g.name = `held-melee-${id}`;
+    melee.add(g);
+  }
+  for (const part of meleeParts) {
+    const mesh = new T.Mesh(part.geometry, part.material);
+    mesh.position.set(...part.at);
+    mesh.rotation.set(...part.rot);
+    mesh.castShadow = true;
+    melee.getObjectByName(`held-melee-${part.id}`)!.add(mesh);
+  }
+  return melee;
+}
+
 function instantiate(source: T.Group, color: string) {
   const avatar = source.clone(true);
   const skin = tintedSkinMaterial(color);
@@ -149,6 +194,7 @@ function instantiate(source: T.Group, color: string) {
   grenade.visible = false;
   grenade.position.set(0, -0.3, 0.03);
   elbows[1].add(grenade);
+  elbows[1].add(heldMelee());
   avatar.userData.color = color;
   rigs.set(avatar, {
     root: find('rig'),
@@ -651,6 +697,8 @@ export function animateAvatar(
       r.gun.visible = r.tablet.visible = false;
       const grenade = avatar.getObjectByName('held-grenade');
       if (grenade) grenade.visible = false;
+      const melee = avatar.getObjectByName('held-melee');
+      if (melee) melee.visible = false;
     }
     r.gun.position.set(0, 0, 0);
     r.gun.rotation.set(0, 0, 0);
@@ -686,6 +734,8 @@ export function animateAvatar(
     r.tablet.visible = false;
     const g = avatar.getObjectByName('held-grenade');
     if (g) g.visible = false;
+    const held = avatar.getObjectByName('held-melee');
+    if (held) held.visible = false;
     return;
   }
 
@@ -813,6 +863,11 @@ export function animateAvatar(
       elbow = 0.93 + r.recoil * 0.25;
       armZ = -side * 0.13;
     }
+    // Ближний бой: правая рука взлетает и рубит вперёд на каждом ударе.
+    if (m.tool === 'melee' && !prone && i === 1) {
+      arm = 0.45 + r.recoil * 1.7;
+      elbow = 0.55 - r.recoil * 0.35;
+    }
     if (m.reload) {
       const reload = Math.sin(m.reload * Math.PI);
       arm = i ? 0.7 : 0.4 + reload * 0.7;
@@ -846,6 +901,15 @@ function showHeldItem(avatar: T.Group, r: Rig, m: AvatarMotion) {
   if (grenade) {
     grenade.visible = m.tool === 'grenade';
     if (grenade.visible) setGrenadeStyle(grenade, m.variant || 'pinata');
+  }
+  const melee = avatar.getObjectByName('held-melee');
+  if (melee) {
+    melee.visible = m.tool === 'melee' && !m.working && !m.inventory;
+    if (melee.visible) {
+      const held = meleeStyle(m.variant);
+      for (const id of ['hammer', 'knife', 'baguette'])
+        melee.getObjectByName(`held-melee-${id}`)!.visible = held === id;
+    }
   }
   const armed = ['paint', 'confetti', 'grenade', 'sniper', 'like', 'flashlight'].includes(m.tool);
   r.gun.visible = armed && m.tool !== 'grenade' && !m.working && !m.inventory;

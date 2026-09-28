@@ -168,6 +168,8 @@ export function createWeaponSounds(options: {
 
     /** Выстрел или бросок из точки `from`. */
     fire(kind: string, from: Point, own: boolean, volume = 1) {
+      // Взмах: тот же свист броска, только выше и короче.
+      if (kind === 'melee') return play('grenade-throw', from, own, volume * 0.8, 1.45 + Math.random() * 0.15);
       const name: WeaponSound | null =
         kind === 'grenade'
           ? 'grenade-throw'
@@ -182,6 +184,8 @@ export function createWeaponSounds(options: {
 
     /** Снаряд долетел до `at`: краска шлёпнулась, пиньята взорвалась, фейерверк разорвался. */
     impact(kind: string, at: Point, volume = 1) {
+      // Удар по телу: глухой низкий шлепок.
+      if (kind === 'melee') return play('paint-splat', at, false, volume * 1.6, 0.55 + Math.random() * 0.1);
       const name: WeaponSound | null =
         kind === 'grenade'
           ? 'grenade-burst'
@@ -191,6 +195,11 @@ export function createWeaponSounds(options: {
               ? 'paint-splat'
               : null;
       if (name) play(name, at, false, volume);
+    },
+
+    /** Спуск без выстрела: магазин пуст или идёт перезарядка — сухой щелчок, только своему игроку. */
+    dry(volume = 1) {
+      play('flashlight', [0, 0, 0], true, volume * 0.7, 1.45 + Math.random() * 0.1);
     },
 
     /** Граната стукнулась о стену или пол: тот же пластиковый щелчок, только ниже и глуше. */

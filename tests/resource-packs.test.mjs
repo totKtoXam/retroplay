@@ -196,3 +196,19 @@ test('Decorative geometry cannot change camera obstacles or shooting; instancing
   assert.equal(scene.children.length, 1);
   library.dispose();
 });
+test('the realistic uniform keeps melee weapons in the hand', () => {
+  const library = createRealisticMaterials('low');
+  const avatar = createAvatar('#8196dd');
+  const skin = dressFieldCharacter(avatar, library);
+  for (const variant of ['hammer', 'knife', 'baguette']) {
+    const motion = { speed: 0, strafe: 0, forward: 0, airborne: false, velocityY: 0, stance: 'stand', tool: 'melee', variant, pitch: 0 };
+    animateAvatar(avatar, motion, 1 / 30, 0);
+    const held = avatar.getObjectByName(`held-melee-${variant}`);
+    assert.equal(visibleInWorld(held), true, variant);
+    held.traverse((o) => {
+      if (o instanceof T.Mesh) assert.notEqual(o.material.visible, false, `${variant} is drawn`);
+    });
+  }
+  skin.dispose();
+  library.dispose();
+});

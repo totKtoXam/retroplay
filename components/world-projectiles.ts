@@ -2,6 +2,8 @@ import * as T from 'three';
 import type { Room, WorldEffect } from '@/lib/model';
 import { hitZone, inHitRange, type HitZone } from '@/lib/game-items';
 import { flightMs } from '@/lib/weapon-definition';
+import { meleeStats } from '@/lib/melee';
+import { rayCastWorldObstacle } from '@/lib/world-collision';
 import { grenadeAt, simulateGrenade, type GrenadeFlight, type GrenadeWorld } from '@/lib/grenade-physics';
 import type { Perspective } from '@/lib/game-camera';
 import { makeGrenade, makeFireworkRocket } from './party-geometry';
@@ -25,6 +27,24 @@ type Flight = {
   grenade?: GrenadeFlight;
   /** Сколько отскоков гранаты уже прозвучало. */
   knocks?: number;
+};
+
+/** Удар ближнего боя: снаряда нет, есть миг, когда оружие дошло до цели. */
+type Swing = {
+  origin: number[];
+  target: number[];
+  due: number;
+  variant: string;
+  color: string;
+  author: string;
+};
+
+/** Чем брызжет удар: молот — звёздами, багет — крошками, нож — искрами, кулак — звёздами. */
+const SWING_BURST: Record<string, string> = {
+  hammer: 'stars',
+  baguette: 'classic',
+  knife: 'shard',
+  fists: 'stars',
 };
 
 type Vfx = ReturnType<typeof createWorldVfx>;
@@ -89,6 +109,7 @@ export function createWorldProjectiles({
 }) {
   const { colliders } = world;
   const flights: Flight[] = [];
+  const swings: Swing[] = [];
   /**
    * Уже проигранные выстрелы: id → когда увидели. Память обязана жить дольше,
    * чем сервер держит эффект (EFFECT_TTL_MS = 15 с), иначе в перестрелке
@@ -231,6 +252,18 @@ export function createWorldProjectiles({
     if (seen.size > 300)
       for (const [id, at] of seen)
         if (now - at > SEEN_TTL_MS) seen.delete(id);
+    if (e.kind === 'melee') {
+      swings.push({
+        origin: e.origin,
+        target: e.target,
+        // Столько же сервер ждёт, прежде чем ранить: замах.
+        due: performance.now() - Math.max(0, now - e.at) + meleeStats(e.variant).windup,
+        variant: e.variant || 'hammer',
+        color: e.color,
+        author: e.author,
+      });
+      return;
+    }
     const start = new T.Vector3(...e.origin),
       target = new T.Vector3(...e.target),
       normal = new T.Vector3(...e.normal).normalize();
@@ -270,10 +303,56 @@ export function createWorldProjectiles({
       author: e.author,
     });
   };
+  /**
+   * Удар дошёл: по кому попал — брызги и глухой шлепок, свой удар ещё и отмечен
+   * зоной. Мимо, но в стену — стук. Урон, как и у выстрелов, приходит с сервера.
+   */
+  const land = (s: Swing, now: number, currentStance: 'stand' | 'sit' | 'lie') => {
+    const fresh = now - s.due < 800;
+    const width = meleeStats(s.variant).width;
+    const self = latest.current.room.self;
+    let hitAt: number[] | null = null;
+    if (s.author !== self) {
+      const me = { x: pos.x, y: pos.y, z: pos.z, stance: currentStance };
+      if (inHitRange('melee', s.origin, s.target, me, colliders, width)) hitAt = [pos.x, pos.y + 1.2, pos.z];
+    }
+    if (!hitAt)
+      for (const member of latest.current.room.members) {
+        if (member.id === self || member.id === s.author) continue;
+        const remote = remoteAvatars.get(member.id);
+        if (!remote || !remote.visible) continue;
+        const pose = {
+          x: member.pose.x,
+          y: member.pose.y,
+          z: member.pose.z,
+          yaw: member.pose.yaw,
+          stance: member.pose.stance,
+        };
+        if (!inHitRange('melee', s.origin, s.target, pose, colliders, width)) continue;
+        hitAt = [member.pose.x, member.pose.y + 1.2, member.pose.z];
+        if (s.author === self) hitMarker.current(hitZone(s.origin, s.target, pose));
+        break;
+      }
+    if (hitAt) {
+      const at = new T.Vector3(...hitAt);
+      burst(at, s.color, s.due, SWING_BURST[s.variant] ?? 'stars');
+      if (fresh) onLand?.('melee', at);
+    } else if (fresh) {
+      const wall = rayCastWorldObstacle(s.origin, s.target, colliders);
+      const reach = Math.hypot(...s.target.map((v, i) => v - s.origin[i]));
+      // Клиент укорачивает удар до стены, в которую упёрся взгляд.
+      if (wall || reach < meleeStats(s.variant).reach - 0.05) onBounce?.(new T.Vector3(...s.target));
+    }
+  };
   const update = (
     now: number,
     currentStance: 'stand' | 'sit' | 'lie',
   ) => {
+    for (let i = swings.length - 1; i >= 0; i--)
+      if (now >= swings[i].due) {
+        land(swings[i], now, currentStance);
+        swings.splice(i, 1);
+      }
     for (let i = flights.length - 1; i >= 0; i--) {
       const f = flights[i],
         t = Math.min(1, (now - f.born) / f.duration);

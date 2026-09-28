@@ -16,6 +16,7 @@ import { viewModelMaterial } from './world-hands.ts';
 type Hands = {
   group: T.Group;
   grips(): { right: T.Vector3; left: T.Vector3 } | null;
+  itemHold(tool: string): T.Vector3 | null;
   humanArms: boolean;
 };
 
@@ -234,7 +235,7 @@ export function createViewArms(camera: T.Camera, hands: Hands) {
       if (!rig && look) rig = build(camera, look.female);
       if (!rig) return;
       const grips = hands.grips();
-      const item = tool === 'grenade' || tool === 'flashlight';
+      const item = tool === 'grenade' || tool === 'flashlight' || tool === 'melee';
       const show = !!look && hands.group.visible && (!!grips || item);
       rig.root.visible = show;
       hands.humanArms = show;
@@ -271,7 +272,9 @@ export function createViewArms(camera: T.Camera, hands: Hands) {
         placeHand(rig, 0, left, lFingers, lThumb, poleLeft, 0.05);
       } else {
         // Граната и фонарик: правая держит предмет, левая опущена за кадр.
-        const held = hands.group.localToWorld(scratch.right.set(0.03, -0.045, -0.19));
+        // Граната, фонарик и оружие ближнего боя: правая держит предмет и идёт за ним
+        // в замахе и ударе, левая опущена за кадр.
+        const held = hands.itemHold(tool) ?? hands.group.localToWorld(scratch.right.set(0.03, -0.045, -0.19));
         placeHand(rig, 1, held, _fwd.clone().addScaledVector(_up, -0.5), _up.clone(), poleRight, 0.04);
         const rest = camera.localToWorld(scratch.left.set(-0.28, -0.6, 0.05));
         placeHand(rig, 0, rest, _up.clone().negate(), _fwd.clone(), poleLeft, 0.05);

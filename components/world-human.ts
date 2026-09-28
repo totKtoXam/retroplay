@@ -536,6 +536,8 @@ export function mountHuman(avatar: T.Group, seed: string) {
   move('gun', r.sockets.gun);
   move('tablet', r.sockets.tablet);
   move('held-grenade', r.sockets.grenade);
+  // Молот, нож или багет держатся в том же кулаке, что и граната.
+  move('held-melee', r.sockets.grenade);
   // Аксессуары скинов, бандана и мешок анонима — через переходники на голову и
   // грудь человека, со своими местными координатами (world-human-gear.ts).
   const keep = (o: T.Object3D, to: T.Object3D) => {
@@ -699,7 +701,8 @@ export function humanShoot(avatar: T.Object3D, tool?: string) {
   const r = humans.get(avatar);
   if (!r) return;
   r.recoil = 1;
-  if (tool === 'grenade') r.throwing = 1;
+  // Бросок гранаты и удар в ближнем бою — одна дуга руки из-за плеча вперёд.
+  if (tool === 'grenade' || tool === 'melee') r.throwing = 1;
 }
 
 /* ---------- Анимация ---------- */
@@ -832,7 +835,7 @@ export function animateHuman(avatar: T.Group, m: AvatarMotion, dt: number, time:
   for (const s of b.spine) rotateWorld(s, avatarUp, -r.hipYaw / 3);
   const tool = m.tool;
   const armed = ARMED.has(tool) && !m.working && !m.inventory;
-  const holding = armed || tool === 'grenade' || !!m.working || !!m.inventory || tool === 'pointer';
+  const holding = armed || tool === 'grenade' || tool === 'melee' || !!m.working || !!m.inventory || tool === 'pointer';
   r.aimPitch = follow(r.aimPitch, m.pitch, 14);
   // Правая ось аватара в мире: вокруг неё корпус наклоняется к прицелу.
   avatar.getWorldQuaternion(_q);
@@ -860,7 +863,7 @@ function holdItem(avatar: T.Group, r: HumanRig, m: AvatarMotion, armed: boolean,
   const { gun, tablet, grenade } = r.sockets;
   gun.visible = armed;
   tablet.visible = !!m.working || !!m.inventory || m.tool === 'pointer';
-  grenade.visible = m.tool === 'grenade';
+  grenade.visible = m.tool === 'grenade' || m.tool === 'melee';
   if (!holding) return;
   avatar.updateWorldMatrix(true, false);
   const toAvatar = _m.copy(avatar.matrixWorld).invert();

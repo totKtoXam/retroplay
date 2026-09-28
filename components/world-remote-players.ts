@@ -11,6 +11,15 @@ import { createShieldBubble, type ShieldBubble } from './world-shield';
 import { createGhostForm, setGhostLook, type GhostForm } from './world-ghost';
 import { syncHuman, unmountHuman, updateHumanLod } from './world-human';
 import type { CharacterModels } from '@/lib/graphics-settings';
+import { knockPath } from '@/lib/melee';
+
+/**
+ * Сколько секунд аватар отброшенного молотом летит по предсказанию, а не по
+ * позам с сервера: за это время толчок почти погас, а позы жертвы, которая
+ * узнала о толчке на пинг позже нас, уже догнали место приземления.
+ */
+const KNOCK_VISUAL_S = 0.7;
+const BODY_RADIUS = 0.32;
 
 /** Цвета сторон: боец и его метка окрашены в цвет команды, а не личный. */
 const TEAM_COLORS: Record<string, string> = { red: '#ff5d52', blue: '#5aa9ff' };
@@ -63,6 +72,29 @@ export function createWorldRemotePlayers({
         lastTime: number;
       }
     >();
+  /** Отлёт от молота: откуда, с какой скоростью и когда начался (performance.now). */
+  const knocks = new Map<
+    string,
+    { x: number; y: number; z: number; vx: number; vy: number; vz: number; start: number }
+  >();
+  /**
+   * Чужого игрока ударили молотом. Его клиент отлетит, но его позы придут к нам
+   * лишь через пинг жертвы и наш — без предсказания аватар стоял бы и потом
+   * рывком догонял. Летим сразу, по той же кривой, что и у самой жертвы.
+   */
+  const knock = (id: string, impulse: number[], now: number) => {
+    const remote = remoteAvatars.get(id);
+    if (!remote) return;
+    knocks.set(id, {
+      x: remote.position.x,
+      y: remote.position.y - 0.27,
+      z: remote.position.z,
+      vx: impulse[0],
+      vy: impulse[1],
+      vz: impulse[2],
+      start: now,
+    });
+  };
   /** Цвет игрока на поле: в бою — цвет его команды, на встрече — личный. */
   const colorOf = (member: { team?: string; color: string }) =>
     (modeOf(latest.current.room.state) === 'battle' &&
@@ -124,6 +156,7 @@ export function createWorldRemotePlayers({
     labels.delete(id);
     remoteBandanaMats.delete(id);
     remoteMotion.delete(id);
+    knocks.delete(id);
     deadTimers.delete(id);
     remoteKey = Array.from(remoteAvatars.keys()).join(',');
   };
@@ -305,7 +338,7 @@ export function createWorldRemotePlayers({
       );
       let targetX = p.x;
       let targetZ = p.z;
-      const targetY = p.y + 0.27;
+      let targetY = p.y + 0.27;
 
       if (p.moving && (p.speed || 0) > 0) {
         const spd = p.speed || 3.4;
@@ -327,6 +360,29 @@ export function createWorldRemotePlayers({
         }
       }
 
+      const flight = knocks.get(member.id);
+      const flightS = flight ? (now - flight.start) / 1000 : Infinity;
+      if (flight && (flightS > KNOCK_VISUAL_S || isRemoteDead)) knocks.delete(member.id);
+      else if (flight) {
+        const { reach, height } = knockPath(flightS, flight.vy);
+        let fx = flight.x + flight.vx * reach,
+          fz = flight.z + flight.vz * reach;
+        const wall = rayCastWorldObstacle(
+          [flight.x, flight.y + 0.9, flight.z],
+          [fx, flight.y + 0.9, fz],
+          map.colliders,
+        );
+        if (wall) {
+          // Тело упирается в стену плечом, а не центром.
+          const len = Math.hypot(fx - flight.x, fz - flight.z) || 1;
+          const back = Math.min(BODY_RADIUS, wall.distance);
+          fx = wall.point[0] - ((fx - flight.x) / len) * back;
+          fz = wall.point[2] - ((fz - flight.z) / len) * back;
+        }
+        targetX = fx;
+        targetZ = fz;
+        targetY = flight.y + 0.27 + height;
+      }
       const distSq =
         (remote.position.x - targetX) ** 2 +
         (remote.position.z - targetZ) ** 2;
@@ -351,7 +407,7 @@ export function createWorldRemotePlayers({
           speed: p.speed ?? (p.moving ? 3.4 : 0),
           strafe: p.strafe || 0,
           forward: p.forward ?? 1,
-          airborne: p.y > map.groundHeight(p.x, p.z, p.y) + 0.08,
+          airborne: p.y > map.groundHeight(p.x, p.z, p.y) + 0.08 || flightS < KNOCK_VISUAL_S / 2,
           velocityY: 0,
           stance: p.stance,
           tool: p.tool || 'other',
@@ -384,6 +440,7 @@ export function createWorldRemotePlayers({
       return remoteKey;
     },
     update,
+    knock,
     disposeRetired,
   };
 }

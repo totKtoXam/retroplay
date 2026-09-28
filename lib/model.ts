@@ -151,6 +151,7 @@ export const GAME_TOOLS = [
   { id: 'sniper', label: 'Снайперка', key: '4' },
   { id: 'like', label: 'Лайкомёт', key: '7' },
   { id: 'flashlight', label: 'Фонарик', key: '1' },
+  { id: 'melee', label: 'Ближний бой', key: '5' },
 ];
 export const TOOL_HINTS: Record<string, string> = {
   paint: 'ЛКМ — выстрел краской · ПКМ — точный прицел',
@@ -167,12 +168,14 @@ export const TOOL_HINTS: Record<string, string> = {
   pointer: 'ЛКМ или E — заглянуть в планшет и открыть доску',
   like: 'ЛКМ — выстрел лайком · попадание в стикер на доске добавляет +1 голос',
   flashlight: 'ЛКМ или F — включить или выключить фонарик',
+  melee: 'ЛКМ — удар · в спину сильнее, нож в спину убивает · СКМ — выбрать оружие',
   text: 'Текстовый блок на доске',
   image: 'Изображение или ссылка',
 };
 export type WorldEffect = {
   id: string;
-  kind: 'paint' | 'confetti' | 'grenade' | 'sniper' | 'like' | 'kill';
+  /** `knock` — толчок жертве удара молотом: `victim` отлетает со скоростью `normal`. */
+  kind: 'paint' | 'confetti' | 'grenade' | 'sniper' | 'like' | 'melee' | 'kill' | 'knock';
   variant?: string;
   origin?: number[];
   target?: number[];

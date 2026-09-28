@@ -1,4 +1,5 @@
 import { rayCastWorldObstacle, type BoxCollider3D } from './world-collision.ts';
+import { meleeStyle } from './melee.ts';
 
 export const PAINTS = [
   ['coral', 'Коралл', '#ff647c'],
@@ -46,6 +47,7 @@ export type WheelItem = {
 };
 export const effectStyle = (kind: string, value: unknown) => {
   if (kind === 'like') return 'hearts';
+  if (kind === 'melee') return meleeStyle(value);
   if (kind === 'sniper')
     return FIREWORKS.find((v) => v.id === value)?.id || 'salute';
   if (kind === 'grenade')
@@ -249,6 +251,8 @@ export function inHitRange(
   pose: { x: number; y: number; z: number; yaw?: number; stance: string },
   /** The room map's walls; defaults to the hub. */
   colliders?: BoxCollider3D[],
+  /** Насколько удар шире луча: взмах молотом задевает и то, что чуть в стороне. */
+  extraRadius = 0,
 ): boolean {
   if (kind === 'grenade') {
     const center = blastCenter(pose);
@@ -282,7 +286,7 @@ export function inHitRange(
   }
 
   const closest = segmentSegmentClosest(origin, target, spineBottom, spineTop);
-  if (closest.dist >= hitRadius) {
+  if (closest.dist >= hitRadius + extraRadius) {
     return false;
   }
 

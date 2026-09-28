@@ -8,6 +8,7 @@ import {
   type WeaponSight,
 } from '../lib/weapon-sights.ts';
 import { WEAPON_MODEL, WEAPON_SUPPORT, preloadWeaponModels, weaponModel } from './world-weapon-models.ts';
+import { meleeStats, meleeStyle } from '../lib/melee.ts';
 import * as T from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -349,6 +350,8 @@ export function createFirstPersonHands(camera: T.Camera) {
     equip = 0,
     lastTool = '';
   // Кисти для гранаты и фонарика: те же перчатка и рукав, что у ствола.
+  /** Граната в руке; после броска рука пуста, пока из «рюкзака» не достанут следующую. */
+  let grenadeLoaded = true;
   const grenadeHands = new T.Group();
   group.add(grenadeHands);
   const grenadeHand = fallbackRight.clone();
@@ -390,7 +393,81 @@ export function createFirstPersonHands(camera: T.Camera) {
   const holdScratch = { right: new T.Vector3(), left: new T.Vector3() };
   let heldTool = '';
 
-  const muzzleScratch = new T.Vector3();
+  /*
+   * Ближний бой. Кисти — те же, что держат гранату; в руке надувной молот,
+   * нож, багет или ничего (кулаки). Всё вертикально в правой руке, верх
+   * наклонён вперёд — так замах читается и в первом лице.
+   */
+  const meleeRig = new T.Group();
+  meleeRig.name = 'melee-rig';
+  group.add(meleeRig);
+  // Кисть — та же запасная перчатка; с руками человека (world-view-arms.ts) её прячем.
+  const meleeHands = grenadeHands.children.map((child) => child.clone());
+  meleeHands.forEach((h) => meleeRig.add(h));
+  const meleeMat = (color: string, roughness = 0.6, metalness = 0) =>
+    new T.MeshStandardMaterial({ color, roughness, metalness });
+  const vinyl = meleeMat('#ff84c8', 0.28);
+  const vinylStripe = meleeMat('#ffd166', 0.3);
+  const crumb = meleeMat('#d99a4e', 0.92);
+  const crust = meleeMat('#a8652f', 0.95);
+  const MELEE_REST = new T.Vector3(0.1, -0.1, -0.3);
+  const meleeModel = (name: string) => {
+    const g = new T.Group();
+    g.name = `melee-${name}`;
+    g.position.copy(MELEE_REST);
+    g.rotation.x = -0.45;
+    meleeRig.add(g);
+    return g;
+  };
+  const hammer = meleeModel('hammer');
+  part(new T.CylinderGeometry(0.016, 0.018, 0.34, 12), vinylStripe, 0, 0.12, 0, hammer);
+  const hammerHead = part(new T.CylinderGeometry(0.075, 0.075, 0.22, 20), vinyl, 0, 0.3, 0, hammer);
+  hammerHead.rotation.z = Math.PI / 2;
+  for (const x of [-0.08, 0.08]) {
+    const band = part(new T.TorusGeometry(0.075, 0.009, 6, 20), vinylStripe, x, 0.3, 0, hammer);
+    band.rotation.y = Math.PI / 2;
+  }
+  const knife = meleeModel('knife');
+  box(0.03, 0.1, 0.032, grip, 0, 0.03, 0, knife);
+  box(0.05, 0.012, 0.04, metal, 0, 0.085, 0, knife);
+  part(new T.BoxGeometry(0.008, 0.16, 0.03), metal, 0, 0.17, 0.004, knife);
+  const baguette = meleeModel('baguette');
+  part(new T.CapsuleGeometry(0.034, 0.44, 6, 14), crumb, 0, 0.2, 0, baguette);
+  for (let i = 0; i < 4; i++) {
+    const cut = part(new T.BoxGeometry(0.05, 0.008, 0.012), crust, 0, 0.06 + i * 0.1, 0.03, baguette);
+    cut.rotation.z = 0.5;
+  }
+  // Как и всё в руках — со своей ближней глубиной (viewModelMaterial).
+  asViewModel(meleeRig, 1001);
+  /** Когда начался удар (`performance.now()`) и чем; Infinity — не бьём. */
+  let swingStart = -Infinity,
+    swingWith = 'hammer';
+  const lerp = T.MathUtils.lerp;
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+  /**
+   * Поза удара через `t` мс после нажатия: замах до касания (`windup` — ровно
+   * тогда сервер и считает попадание), короткий удар, возврат. Молот и багет
+   * рубят сверху вниз, нож колет вперёд, кулак бьёт прямым.
+   */
+  const swingPose = (variant: string, t: number) => {
+    const windup = meleeStats(variant).windup;
+    const a = clamp01(t / windup),
+      b = clamp01((t - windup) / 90),
+      c = clamp01((t - windup - 90) / 240);
+    const ease = (k: number) => k * k * (3 - 2 * k);
+    if (variant === 'hammer' || variant === 'baguette') {
+      const rx = t < windup ? 0.9 * ease(a) : t < windup + 90 ? lerp(0.9, -1.15, ease(b)) : lerp(-1.15, 0, ease(c));
+      const rz = t < windup ? -0.35 * ease(a) : t < windup + 90 ? lerp(-0.35, 0.25, b) : lerp(0.25, 0, ease(c));
+      return { rx, rz, px: 0, pz: 0 };
+    }
+    const reach = variant === 'knife' ? 0.24 : 0.2;
+    const pz = t < windup ? 0.06 * ease(a) : t < windup + 90 ? lerp(0.06, -reach, ease(b)) : lerp(-reach, 0, ease(c));
+    const px = variant === 'fists' ? (t < windup + 90 ? -0.07 * ease(b) : lerp(-0.07, 0, ease(c))) : 0;
+    return { rx: 0, rz: 0, px, pz };
+  };
+
+  const muzzleScratch = new T.Vector3(),
+    itemScratch = new T.Vector3();
   return {
     group,
     /**
@@ -406,6 +483,11 @@ export function createFirstPersonHands(camera: T.Camera) {
       const spec = WEAPON_SIGHTS[tool];
       muzzleScratch.set(spec ? spec.muzzle[0] : 0, spec ? spec.muzzle[1] : 0.025, spec ? spec.muzzle[2] : -0.69);
       return group.localToWorld(muzzleScratch.clone());
+    },
+    /** Есть ли граната в руке. Новую достают — рука заново поднимается, как при смене оружия. */
+    setGrenadeLoaded(loaded: boolean) {
+      if (loaded && !grenadeLoaded && lastTool === 'grenade') equip = 1;
+      grenadeLoaded = loaded;
     },
     /** Взгляд повернулся: оружие отстаёт от него, как настоящее с весом. */
     look(yaw: number, pitch: number) {
@@ -427,6 +509,24 @@ export function createFirstPersonHands(camera: T.Camera) {
     set humanArms(on: boolean) {
       fallbackArms.userData.hidden = on;
       grenadeHand.userData.hidden = on;
+      meleeHands.forEach((h) => (h.visible = !on));
+    },
+    /**
+     * Где правая кисть держит предмет без прицела (граната, фонарик, молот, нож,
+     * багет) — в мире. null — такого предмета в руке нет.
+     */
+    itemHold(tool: string) {
+      const held =
+        tool === 'grenade' ? grenade : tool === 'flashlight' ? torch : tool === 'melee' ? ([hammer, knife, baguette].find((m) => m.visible) ?? hammer) : null;
+      if (!held || !group.visible) return null;
+      held.updateWorldMatrix(true, false);
+      // Кисть — у основания рукояти: у молота, ножа и багета это их начало координат.
+      return held.localToWorld(itemScratch.set(0, tool === 'melee' ? 0.02 : -0.02, tool === 'melee' ? 0 : 0.03));
+    },
+    /** Удар ближнего боя: замах, удар и возврат рисует `update`. */
+    swing(variant: string) {
+      swingStart = performance.now();
+      swingWith = meleeStyle(variant);
     },
     shoot: (weaponType = 'paint') => {
       recoil = weaponType === 'sniper' ? 1.4 : weaponType === 'confetti' ? 1.2 : weaponType === 'like' ? 0.75 : 0.85;
@@ -517,9 +617,19 @@ export function createFirstPersonHands(camera: T.Camera) {
         }
       }
 
-      grenade.visible = tool === 'grenade';
+      grenade.visible = tool === 'grenade' && grenadeLoaded;
+      meleeRig.visible = tool === 'melee';
+      if (meleeRig.visible) {
+        const held = meleeStyle(variant);
+        hammer.visible = held === 'hammer';
+        knife.visible = held === 'knife';
+        baguette.visible = held === 'baguette';
+        const pose = swingPose(swingWith, performance.now() - swingStart);
+        meleeRig.rotation.set(pose.rx, 0, pose.rz);
+        meleeRig.position.set(pose.px, 0, pose.pz);
+      }
       // Те же кисти держат и фонарик.
-      grenadeHands.visible = (grenade.visible || torch.visible) && !grenadeHand.userData.hidden;
+      grenadeHands.visible = (tool === 'grenade' || torch.visible) && !grenadeHand.userData.hidden;
       if (grenade.visible) {
         setGrenadeStyle(grenade, variant, true);
         asViewModel(grenade, 1001);

@@ -1,5 +1,6 @@
 import { GRENADE_FUSE_MS, WEAPONS } from '../lib/weapon-definition.ts';
 import { aimGrenadeAt } from '../lib/grenade-physics.ts';
+import { MELEE_STATS, knockDistance } from '../lib/melee.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -264,6 +265,87 @@ test('a grenade explodes where it lands, not where it was aimed', () => {
   fireEffect(h, 'a', shot('grenade', { origin: [0, 1.1, 4], target: [0, 1.5, 0] }), T);
   resolveCombat(h, T + GRENADE_FUSE_MS);
   assert.equal(h.members.get('v').hp, 100);
+});
+
+test('a melee hit lands after the windup and hurts only the nearest victim', () => {
+  // Обе жертвы смотрят на атакующего: yaw = π — взгляд на +z.
+  const h = hub(
+    member('a', { pose: stand(0, 1.5) }),
+    member('v', { pose: { ...stand(0, 0), yaw: Math.PI } }),
+    member('w', { pose: { ...stand(0, -1), yaw: Math.PI } }),
+  );
+  const swing = { kind: 'melee', variant: 'hammer', origin: [0, 1.9, 1.5], target: [0, 1.4, -0.7] };
+  const r = fireEffect(h, 'a', shot('melee', swing), T);
+  assert.equal(r.effect.resolveAt, T + MELEE_STATS.hammer.windup);
+  resolveCombat(h, T + MELEE_STATS.hammer.windup - 1);
+  assert.equal(h.members.get('v').hp, 100, 'the hammer is still swinging');
+  resolveCombat(h, T + MELEE_STATS.hammer.windup);
+  assert.ok(h.members.get('v').hp < 100, 'the nearest is hit');
+  assert.equal(h.members.get('w').hp, 100, 'the one behind is shielded by the first');
+});
+
+test('the hammer knocks a player back: the server allows the flight faster than a run', () => {
+  const h = hub(member('a', { pose: stand(0, 1.5) }), member('v', { pose: { ...stand(0, 0), yaw: Math.PI } }));
+  const swing = { kind: 'melee', variant: 'hammer', origin: [0, 1.9, 1.5], target: [0, 1.4, -0.7] };
+  const r = fire(h, 'a', T, 'melee', swing);
+  const hitAt = r.effect.resolveAt;
+  const knock = h.effects.find((e) => e.kind === 'knock');
+  assert.ok(knock, 'the victim is told to fly');
+  assert.equal(knock.victim, 'v');
+  assert.ok(knock.normal[2] < 0 && Math.abs(knock.normal[0]) < 1e-9, 'away from the attacker (−z)');
+  assert.ok(knock.normal[1] > 0, 'with a little hop');
+  // Жертва бежала: запас движения исчерпан. Отлёт на всю дистанцию за 0,1 с
+  // быстрее бега — без толчка сервер бы его отверг.
+  const v = h.members.get('v');
+  v.moveBudget = 0;
+  v.lastMoveAt = hitAt;
+  const flown = knockDistance(MELEE_STATS.hammer.knockback);
+  applyPresence(v, { pose: stand(0, -flown), life: 0 }, hitAt + 100);
+  assert.equal(v.pose.z, -flown);
+  // Кулак толчка не даёт: тот же отлёт после него отвергнут.
+  const plain = hub(member('a', { pose: stand(0, 1.5) }), member('v', { pose: { ...stand(0, 0), yaw: Math.PI } }));
+  fire(plain, 'a', T, 'melee', { ...swing, variant: 'fists', target: [0, 1.4, -0.2] });
+  assert.equal(plain.effects.some((e) => e.kind === 'knock'), false);
+  const w = plain.members.get('v');
+  w.moveBudget = 0;
+  w.lastMoveAt = T + 100;
+  applyPresence(w, { pose: stand(0, -flown), life: 0 }, T + 200);
+  assert.equal(w.pose.z, 0);
+});
+
+test('a bot hit by the hammer is pushed by the server itself', () => {
+  const bot = 'bot-0123456789ab';
+  const h = hub(member('a', { pose: stand(0, 1.5) }), member(bot, { pose: { ...stand(0, 0), yaw: Math.PI } }));
+  fire(h, 'a', T, 'melee', { kind: 'melee', variant: 'hammer', origin: [0, 1.9, 1.5], target: [0, 1.4, -0.7] });
+  const pushed = h.members.get(bot);
+  assert.ok(pushed.hp < 100);
+  assert.ok(Math.abs(pushed.pose.z + knockDistance(MELEE_STATS.hammer.knockback)) < 1e-9, `z ${pushed.pose.z}`);
+  assert.equal(h.effects.some((e) => e.kind === 'knock'), false, 'bots have no client to tell');
+});
+
+test('a knife in the back kills; face to face it only wounds', () => {
+  const stab = { kind: 'melee', variant: 'knife', origin: [0, 1.9, 1.2], target: [0, 1.3, -0.4] };
+  // yaw = 0 — взгляд на −z: атакующий на +z стоит у жертвы за спиной.
+  const back = hub(member('a', { pose: stand(0, 1.2) }), member('v', { pose: { ...stand(0, 0), yaw: 0 } }));
+  fire(back, 'a', T, 'melee', stab);
+  assert.equal(back.members.get('v').hp, 0);
+  const face = hub(member('a', { pose: stand(0, 1.2) }), member('v', { pose: { ...stand(0, 0), yaw: Math.PI } }));
+  fire(face, 'a', T, 'melee', stab);
+  assert.equal(face.members.get('v').hp, 100 - MELEE_STATS.knife.damage);
+});
+
+test('a melee strike must start at the attacker and stay within reach', () => {
+  const h = duel();
+  // Начало удара у жертвы, а не у себя: так «били» бы через всю карту.
+  assert.throws(
+    () => fireEffect(h, 'a', shot('melee', { variant: 'fists', origin: [0, 1.9, 0.5], target: [0, 1.4, 0] }), T),
+    /слишком далеко/,
+  );
+  // Дальше длины руки с оружием.
+  assert.throws(
+    () => fireEffect(h, 'a', shot('melee', { variant: 'fists', origin: [0, 1.9, 4], target: [0, 1.4, 0] }), T),
+    /слишком далеко/,
+  );
 });
 
 test('expired effects cannot damage a participant returning later', () => {
