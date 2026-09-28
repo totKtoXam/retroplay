@@ -71,6 +71,7 @@ import { WeaponPrediction } from '@/lib/weapon-prediction';
 import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
 import { GRENADE_COOLDOWN_MS, isBlaster } from '@/lib/weapon-definition';
 import { simulateGrenade } from '@/lib/grenade-physics';
+import { MELEE, meleeStats } from '@/lib/melee';
 import { aimedSpread, recoilKick, spreadScale, ViewRecoil, type Handling } from '@/lib/weapon-recoil';
 import {
   blocksCamera,
@@ -310,6 +311,7 @@ export default function World(props: Props) {
   const [confettiStyle, setConfettiStyle] = useState('classic');
   const [grenadeStyle, setGrenadeStyle] = useState('pinata');
   const [fireworkStyle, setFireworkStyle] = useState('salute');
+  const [meleeStyle, setMeleeStyle] = useState('hammer');
   const [tabletZone, setTabletZone] = useState('good');
   const [paintSight, setPaintSight] = useState<PaintSight>(DEFAULT_PAINT_SIGHT);
   useEffect(() => {
@@ -321,6 +323,7 @@ export default function World(props: Props) {
       setConfettiStyle(readChoice(PREF_KEYS.confettiStyle, CONFETTI.map((c) => c.id), 'classic'));
       setGrenadeStyle(readChoice(PREF_KEYS.grenadeStyle, GRENADES.map((g) => g.id), 'pinata'));
       setFireworkStyle(readChoice(PREF_KEYS.fireworkStyle, FIREWORKS.map((f) => f.id), 'salute'));
+      setMeleeStyle(readChoice(PREF_KEYS.meleeStyle, MELEE.map((m) => m.id), 'hammer'));
     };
     sync();
     window.addEventListener('storage', sync);
@@ -378,6 +381,7 @@ export default function World(props: Props) {
     confettiStyle,
     grenadeStyle,
     fireworkStyle,
+    meleeStyle,
     tabletZone,
     paintSight,
   });
@@ -386,10 +390,11 @@ export default function World(props: Props) {
       confettiStyle,
       grenadeStyle,
       fireworkStyle,
+      meleeStyle,
       tabletZone,
       paintSight,
     };
-  }, [confettiStyle, grenadeStyle, fireworkStyle, tabletZone, paintSight]);
+  }, [confettiStyle, grenadeStyle, fireworkStyle, meleeStyle, tabletZone, paintSight]);
   /** Changing the room's map rebuilds the engine with that map's scene and collision. */
   const mapId = props.room.state.map ?? 'hub';
   const minimapMap = useMemo(() => getMap(mapId), [mapId]);
@@ -1248,12 +1253,52 @@ export default function World(props: Props) {
                 -Math.sin(player.cameraYaw) * 0.38,
               ),
             );
+    let lastSwing = -Infinity;
+    /**
+     * Удар ближнего боя: от глаз туда, куда смотрит прицел, на длину руки с
+     * оружием; упёрлись в стену ближе — удар по стене. Через прицел, а не по
+     * повороту головы, чтобы и в третьем лице бить туда, где перекрестие.
+     */
+    const swing = () => {
+      const p = latest.current;
+      const variant = selection.current.meleeStyle;
+      const stats = meleeStats(variant);
+      const now = performance.now();
+      if (now - lastSwing < stats.cooldown) return;
+      lastSwing = now;
+      const eye = new T.Vector3(pos.x, pos.y + eyeHeight(player.stance), pos.z);
+      ray.setFromCamera(new T.Vector2(0, 0), camera);
+      const dir = ray.ray.at(30, new T.Vector3()).sub(eye).normalize();
+      const reachEnd = eye.clone().addScaledVector(dir, stats.reach);
+      const wall = rayCastWorldObstacle(eye.toArray(), reachEnd.toArray(), map.colliders);
+      const target = wall ? new T.Vector3(...wall.point) : reachEnd;
+      const e: WorldEffect = {
+        id: uid(),
+        kind: 'melee',
+        origin: eye.toArray(),
+        target: target.toArray(),
+        normal: dir.clone().negate().toArray(),
+        color: MELEE.find((m) => m.id === variant)?.color ?? '#ff84c8',
+        variant,
+        author: p.room.self,
+        at: Date.now(),
+      };
+      spawn(e);
+      avatarShoot(avatar);
+      hands.swing(variant);
+      prediction.current.remember(e.id, 'fire', undefined, now);
+      void p.onFire(e).then((reply) => {
+        applyWeaponReply(reply);
+        if (!reply.ok && !weaponDisposed) setCaptureError('Удар не принят: ' + (reply.reason ?? 'состояние комнаты'));
+      }).catch((error) => weaponFailure(e.id, error));
+    };
     const shoot = () => {
       if (latest.current.room.match?.phase === 'freeze') return;
       const p = latest.current;
       if (p.blocked || middle || isDead() || isImmune() || p.room.state.archived)
         return;
       const tool = GAME_TOOLS[p.tool]?.id;
+      if (tool === 'melee') return swing();
       if (
         tool !== 'paint' &&
         tool !== 'confetti' &&
@@ -1966,7 +2011,8 @@ export default function World(props: Props) {
           t === 'paint' ||
           t === 'confetti' ||
           t === 'sniper' ||
-          t === 'like'
+          t === 'like' ||
+          t === 'melee'
         ) {
           shoot();
         } else if (t === 'flashlight') {
@@ -2119,7 +2165,8 @@ export default function World(props: Props) {
       );
       if (left && enabled() && !middle && !latest.current.blocked) {
         const t = GAME_TOOLS[latest.current.tool]?.id;
-        if (t === 'paint') shoot();
+        // Краскомёт стреляет очередью, ближний бой бьёт, пока держат кнопку.
+        if (t === 'paint' || t === 'melee') shoot();
       }
       if (grenadeAiming && GAME_TOOLS[latest.current.tool]?.id === 'grenade') {
         ray.setFromCamera(
@@ -2207,7 +2254,10 @@ export default function World(props: Props) {
           velocityY: player.vy,
           stance: player.stance,
           tool: GAME_TOOLS[latest.current.tool]?.id || 'pointer',
-          variant: selection.current.grenadeStyle,
+          variant:
+            GAME_TOOLS[latest.current.tool]?.id === 'melee'
+              ? selection.current.meleeStyle
+              : selection.current.grenadeStyle,
           pitch: player.pitch,
           working: latest.current.working,
           crouching: player.crouching,
@@ -2336,7 +2386,9 @@ export default function World(props: Props) {
         GAME_TOOLS[latest.current.tool]?.id === 'pointer' ||
           GAME_TOOLS[latest.current.tool]?.id === 'sticky'
           ? selection.current.tabletZone
-          : selection.current.grenadeStyle,
+          : GAME_TOOLS[latest.current.tool]?.id === 'melee'
+            ? selection.current.meleeStyle
+            : selection.current.grenadeStyle,
         tabletInspectRef.current,
         selection.current.paintSight,
       );
@@ -2463,13 +2515,17 @@ export default function World(props: Props) {
             'confetti',
             'grenade',
             'sniper',
+            'melee',
             'sticky',
             'pointer',
             'flashlight',
           ].includes(GAME_TOOLS[latest.current.tool]?.id)
             ? GAME_TOOLS[latest.current.tool].id
             : 'other',
-          variant: selection.current.grenadeStyle,
+          variant:
+            GAME_TOOLS[latest.current.tool]?.id === 'melee'
+              ? selection.current.meleeStyle
+              : selection.current.grenadeStyle,
           working: latest.current.working || middle,
           crouching: player.crouching,
           aiming: aimHeld,
@@ -2710,6 +2766,13 @@ export default function World(props: Props) {
                     selected: fireworkStyle,
                     items: FIREWORKS,
                   }
+                : current.id === 'melee'
+                ? {
+                    id: 'melee',
+                    title: 'Ближний бой',
+                    selected: meleeStyle,
+                    items: MELEE,
+                  }
                 : current.id === 'sticky'
                   ? {
                       id: 'sticky',
@@ -2925,6 +2988,8 @@ export default function World(props: Props) {
                 ? GRENADES.find((g) => g.id === grenadeStyle)?.icon
                 : current.id === 'sniper'
                   ? FIREWORKS.find((f) => f.id === fireworkStyle)?.icon
+                  : current.id === 'melee'
+                  ? MELEE.find((m) => m.id === meleeStyle)?.icon
                   : current.id === 'sticky'
                     ? ZONES.find((z) => z.id === tabletZone)?.emoji || '📝'
                     : '📱'}
@@ -2937,6 +3002,8 @@ export default function World(props: Props) {
               ? GRENADES.find((g) => g.id === grenadeStyle)?.label
               : current.id === 'sniper'
                 ? FIREWORKS.find((f) => f.id === fireworkStyle)?.label
+                : current.id === 'melee'
+                ? MELEE.find((m) => m.id === meleeStyle)?.label
                 : current.id === 'sticky'
                   ? ZONES.find((z) => z.id === tabletZone)?.short || 'Стикер'
                   : 'Открыть доску ↗'}
@@ -2962,6 +3029,9 @@ export default function World(props: Props) {
             } else if (current.id === 'sniper') {
               setFireworkStyle(id);
               writePref(PREF_KEYS.fireworkStyle, id);
+            } else if (current.id === 'melee') {
+              setMeleeStyle(id);
+              writePref(PREF_KEYS.meleeStyle, id);
             }
             else if (current.id === 'sticky') setTabletZone(id);
             else if (current.id === 'pointer') openTabletInWorld();

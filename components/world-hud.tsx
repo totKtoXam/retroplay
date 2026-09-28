@@ -273,6 +273,8 @@ function useAmmoDisplay(): AmmoDisplay {
  * Выше порога рисуем сплошную шкалу — она не зависит от размера магазина.
  */
 const AMMO_SEGMENT_LIMIT = 20;
+/** Лента убийств: у ближнего боя в `tool` — само оружие. */
+const MELEE_KILL_ICON: Record<string, string> = { hammer: '🔨', knife: '🔪', baguette: '🥖', fists: '👊' };
 /** Доля магазина, ниже которой индикатор краснеет: пора перезаряжаться. */
 const AMMO_LOW_SHARE = 0.25;
 
@@ -720,6 +722,8 @@ export function WorldHud(props: WorldHudProps) {
                   ? '🎯💀'
                   : msg.tool === 'grenade'
                     ? '💣'
+                    : msg.tool && MELEE_KILL_ICON[msg.tool]
+                      ? MELEE_KILL_ICON[msg.tool]
                     : msg.tool === 'confetti'
                       ? '🎉'
                       : msg.tool === 'sniper'

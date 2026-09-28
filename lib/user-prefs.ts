@@ -9,6 +9,7 @@ export const PREF_KEYS = {
   confettiStyle: 'jinaly-confetti-style',
   grenadeStyle: 'jinaly-grenade-style',
   fireworkStyle: 'jinaly-firework-style',
+  meleeStyle: 'jinaly-melee-style',
 } as const;
 
 export function readPref(key: string): string | null {

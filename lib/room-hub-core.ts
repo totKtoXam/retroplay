@@ -7,6 +7,7 @@ import { BOT_PREFIX, isBotId, isBotLevel, MAX_BOTS, type BotSpec } from './bot-l
 import { cooledDown, flightMs, isBlaster } from './weapon-definition.ts';
 import type { ToolMagazine } from './tool-magazine.ts';
 import { simulateGrenade } from './grenade-physics.ts';
+import { fromBehind, meleeDamage, meleeStats } from './melee.ts';
 import {
   blastCenter,
   calculatePelletsHit,
@@ -82,8 +83,13 @@ const FREEZE_MS = 5_000;
 const ENDED_MS = 12_000;
 /** Server-side body radius: below the client's 0.32 so rounded poses near walls still pass. */
 const BODY_RADIUS = 0.25;
-const EFFECT_KINDS = ['paint', 'confetti', 'grenade', 'sniper', 'like'];
-const TOOLS = ['paint', 'confetti', 'grenade', 'sniper', 'pointer', 'flashlight', 'other'];
+const EFFECT_KINDS = ['paint', 'confetti', 'grenade', 'sniper', 'like', 'melee'];
+const TOOLS = ['paint', 'confetti', 'grenade', 'sniper', 'melee', 'pointer', 'flashlight', 'other'];
+/**
+ * Удар бьёт от глаз бойца: дальше этого от его позы начало удара быть не может.
+ * Запас на то, что поза на сервере отстаёт от бегущего игрока на пинг.
+ */
+const MELEE_ORIGIN_SLACK = 1.5;
 
 export type Cursor = { x: number; y: number; mode: 'board' | '3d' };
 export type HubMember = {
@@ -481,13 +487,31 @@ export function fireEffect(
     Math.hypot(target[0] - origin[0], target[1] - origin[1], target[2] - origin[2]) > 75
   )
     throw Error('Предмет слишком далеко');
+  if (kind === 'melee') {
+    // Ближний бой — только от своего тела и на длину руки с оружием: иначе удар
+    // можно было бы «начать» рядом с жертвой в другом конце карты.
+    const reach = meleeStats(op.variant).reach;
+    const dy = origin[1] - shooter.pose.y;
+    if (
+      Math.hypot(origin[0] - shooter.pose.x, origin[2] - shooter.pose.z) > MELEE_ORIGIN_SLACK ||
+      dy < -0.3 ||
+      dy > 2.3 ||
+      Math.hypot(target[0] - origin[0], target[1] - origin[1], target[2] - origin[2]) > reach + 0.3
+    )
+      throw Error('Предмет слишком далеко');
+  }
   const id = typeof op.id === 'string' && /^[a-f0-9-]{36}$/.test(op.id) ? op.id : uid();
   if (state.effects.some((e) => e.id === id)) return { ok: false, reason: 'duplicate' };
-  if (!cooledDown(shooter, kind, now)) return { ok: false, reason: 'cooldown' };
+  if (!cooledDown(shooter, kind, now, typeof op.variant === 'string' ? op.variant : undefined))
+    return { ok: false, reason: 'cooldown' };
   if (isBlaster(kind) && !memberWeapon(shooter).magazine.fire(kind, now))
     return { ok: false, reason: 'magazine' };
   // Урон — когда снаряд долетит до точки прицела, как его полёт видят клиенты.
-  const flight = flightMs(kind, Math.hypot(target[0] - origin[0], target[1] - origin[1], target[2] - origin[2]));
+  const flight = flightMs(
+    kind,
+    Math.hypot(target[0] - origin[0], target[1] - origin[1], target[2] - origin[2]),
+    typeof op.variant === 'string' ? op.variant : undefined,
+  );
   // Стрелок целился в то, что видел (seenAt); за время полёта цель могла уйти с линии.
   const seen = kind === 'grenade' || !finite(op.seenAt) ? now : clamp(op.seenAt, now - MAX_REWIND_MS, now);
   const effect: HubEffect = {
@@ -773,15 +797,33 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
   const aim = e.target || [0, 0, 0];
   // Граната рвётся не в точке прицела, а там, куда долетела и докатилась к концу запала.
   const target = e.kind === 'grenade' ? simulateGrenade(origin, aim, map).end : aim;
+  // Удар достаётся одному — ближайшему на линии взмаха: сквозь одного не бьют второго.
+  let meleeVictim: string | undefined;
+  if (e.kind === 'melee') {
+    const width = meleeStats(e.variant).width;
+    let nearest = Infinity;
+    for (const p of state.members.values()) {
+      if (p.id === e.author || p.hp <= 0 || p.seen <= now - ONLINE_MS) continue;
+      const pose = poseAt(p, e.rewindTo);
+      if (!inHitRange('melee', origin, target, pose, colliders, width)) continue;
+      const d = Math.hypot(pose.x - origin[0], pose.z - origin[2]);
+      if (d < nearest) {
+        nearest = d;
+        meleeVictim = p.id;
+      }
+    }
+  }
   const author = state.members.get(e.author);
   const authorImmune = !!author && isImmune(state, author, now);
   for (const p of state.members.values()) {
     if (p.id === e.author || p.hp <= 0 || p.seen <= now - ONLINE_MS) continue;
     const pose = poseAt(p, e.rewindTo);
     const hit =
-      e.kind === 'confetti'
-        ? calculatePelletsHit(origin, target, pose, 8, colliders).pelletsHit > 0
-        : inHitRange(e.kind, origin, target, pose, colliders);
+      e.kind === 'melee'
+        ? p.id === meleeVictim
+        : e.kind === 'confetti'
+          ? calculatePelletsHit(origin, target, pose, 8, colliders).pelletsHit > 0
+          : inHitRange(e.kind, origin, target, pose, colliders);
     // After a respawn a player can neither take nor deal damage.
     if (!hit || authorImmune || isImmune(state, p, now)) continue;
     // Безвредное (лайк) не ранит и не убивает даже попаданием в голову.
@@ -792,7 +834,10 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
     const head = zone === 'head';
     let damage: number;
     let pelletsHit: number | undefined;
-    if (e.kind === 'confetti') {
+    if (e.kind === 'melee') {
+      // Голова и спина больнее, но насмерть с одного удара — только нож в спину.
+      damage = meleeDamage(e.variant, zone, fromBehind(origin, pose));
+    } else if (e.kind === 'confetti') {
       const pellets = calculatePelletsHit(origin, target, pose, 8, colliders);
       pelletsHit = pellets.pelletsHit;
       damage = head
@@ -854,7 +899,8 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
       assister,
       assisterName: assisterMember?.name,
       color: author?.color || '#ff647c',
-      tool: e.kind,
+      // У ближнего боя в ленте — само оружие: молот, нож, багет или кулаки.
+      tool: e.kind === 'melee' ? (e.variant ?? 'hammer') : e.kind,
       headshot: head,
       teamkill: friendly || undefined,
       scoped: e.scoped,

@@ -699,6 +699,11 @@ export function animateAvatar(
       elbow = 0.93 + r.recoil * 0.25;
       armZ = -side * 0.13;
     }
+    // Ближний бой: правая рука взлетает и рубит вперёд на каждом ударе.
+    if (m.tool === 'melee' && !prone && i === 1) {
+      arm = 0.45 + r.recoil * 1.7;
+      elbow = 0.55 - r.recoil * 0.35;
+    }
     if (m.reload) {
       const reload = Math.sin(m.reload * Math.PI);
       arm = i ? 0.7 : 0.4 + reload * 0.7;

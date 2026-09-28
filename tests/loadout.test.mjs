@@ -12,7 +12,7 @@ import { GAME_TOOLS } from '../lib/model.ts';
 test('inventory holds only the items of its mode', () => {
   const ids = (mode) => slotsFor(mode).map((s) => GAME_TOOLS[s.index].id);
   assert.deepEqual(ids('retro'), ['pointer', 'sticky', 'paint', 'confetti', 'like']);
-  assert.deepEqual(ids('battle'), ['paint', 'confetti', 'grenade', 'sniper']);
+  assert.deepEqual(ids('battle'), ['paint', 'confetti', 'grenade', 'sniper', 'melee']);
   // Keys are 1..N in both modes, with no duplicates and no gaps.
   for (const mode of ['retro', 'battle'])
     assert.deepEqual(
@@ -37,7 +37,8 @@ test('the wheel cycles within the mode and wraps around', () => {
       retro[(i + retro.length - 1) % retro.length],
     );
   assert.equal(cycleSlot('battle', 0, 1), 1);
-  assert.equal(cycleSlot('battle', 11, 1), 0, 'the last weapon wraps to the first');
+  assert.equal(cycleSlot('battle', 11, 1), 14, 'melee follows the sniper');
+  assert.equal(cycleSlot('battle', 14, 1), 0, 'the last weapon wraps to the first');
   // An item from the other mode falls back to the first slot of this one.
   assert.equal(cycleSlot('battle', 9, 1), 1);
 });
@@ -46,7 +47,8 @@ test('number keys equip this mode only; other keys change nothing', () => {
   assert.equal(slotForDigit('battle', 'Digit1'), 0);
   assert.equal(slotForDigit('battle', 'Digit3'), 10);
   assert.equal(slotForDigit('battle', 'Digit4'), 11);
-  assert.equal(slotForDigit('battle', 'Digit5'), undefined, 'battle has four items');
+  assert.equal(slotForDigit('battle', 'Digit5'), 14, 'melee is the fifth item');
+  assert.equal(slotForDigit('battle', 'Digit6'), undefined, 'battle has five items');
   assert.equal(slotForDigit('retro', 'Digit1'), 9, 'the tablet comes first');
   assert.equal(slotForDigit('retro', 'Digit5'), 12);
   for (const code of ['Digit0', 'Digit8', 'Digit9', 'KeyE'])
