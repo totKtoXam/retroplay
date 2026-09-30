@@ -7,6 +7,7 @@ export type PhaseActionId =
   | 'phase'
   | 'vote.start'
   | 'vote.end'
+  | 'reveal.all'
   | 'open.vote'
   | 'open.group'
   | 'open.results';
@@ -42,6 +43,8 @@ export type PhaseFacts = {
   nextVoteLimit: number;
   groups: number;
   actions: number;
+  /** Заметок, скрытых приватным написанием: их ведущий может открыть разом. */
+  sealed?: number;
 };
 
 const next = (phase: number, label: string): PhaseAction => ({
@@ -95,9 +98,15 @@ export function phaseGuide(f: PhaseFacts): PhaseGuide {
         action: next(1, 'Начать сбор идей'),
       };
     case 1:
+      if (f.sealed)
+        return {
+          hint: `Скрытых идей: ${f.sealed}. Откройте их, когда все допишут`,
+          action: { id: 'reveal.all', label: 'Открыть все идеи' },
+          secondary: next(2, 'Перейти к группировке'),
+        };
       return {
         hint: f.privateWriting
-          ? 'Идеи скрыты: каждый раскрывает свои заметки сам'
+          ? 'Идеи скрыты, пока их не откроете вы или авторы'
           : 'Идеи видны всем сразу',
         action: next(2, 'Перейти к группировке'),
       };

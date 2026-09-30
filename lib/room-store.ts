@@ -117,3 +117,51 @@ export function applyUndo(current: RoomState, before: RoomPatch | RoomState): Ro
   next.notes = [...notes, ...byId.values()];
   return next;
 }
+
+/** Какие действия можно вернуть тостом «Удалено · Отменить» (`restore`). */
+export const RESTORABLE_ACTIONS = ['note.delete', 'group.delete'] as const;
+
+/**
+ * Вернуть удалённое одним действием из истории, даже если после него комнату
+ * успели изменить: в отличие от `applyUndo`, трогает только удалённые карточки
+ * или тему и не откатывает чужие правки. `patch` — запись истории этого
+ * удаления, `action` — его тип. Бросает, если возвращать нечего.
+ */
+export function restoreDeleted(
+  current: RoomState,
+  patch: RoomPatch | RoomState,
+  action: string,
+): RoomState {
+  if (current.archived) throw Error('Встреча завершена. Ведущий может открыть её снова.');
+  if ((patch as RoomPatch).v !== 2 || !(RESTORABLE_ACTIONS as readonly string[]).includes(action))
+    throw Error('Это действие нельзя вернуть');
+  const p = patch as RoomPatch;
+  const next = structuredClone(current);
+  const present = new Set(next.notes.map((n) => n.id));
+  let restored = 0;
+  if (action === 'note.delete') {
+    // Удалённая карточка и её связи: в записи они есть, в комнате их уже нет.
+    for (const [id, note] of Object.entries(p.notes)) {
+      if (!note || present.has(id)) continue;
+      if (next.notes.length >= 600) throw Error('В комнате уже 600 объектов');
+      next.notes.push(structuredClone(note));
+      restored++;
+    }
+  } else {
+    const before = Array.isArray(p.state.groups) ? (p.state.groups as RoomState['groups']) : [];
+    const have = new Set(next.groups.map((g) => g.id));
+    const back = before.filter((g) => !have.has(g.id));
+    if (next.groups.length + back.length > 40) throw Error('Достигнут лимит тем');
+    next.groups.push(...structuredClone(back));
+    const ids = new Set(back.map((g) => g.id));
+    // Карточки, которые тема отпустила при удалении: вернуть, если их с тех пор
+    // не переложили в другую тему.
+    for (const n of next.notes) {
+      const old = p.notes[n.id];
+      if (old && ids.has(old.group) && n.group === '') n.group = old.group;
+    }
+    restored = back.length;
+  }
+  if (!restored) throw Error('Уже возвращено или вернуть нельзя');
+  return next;
+}

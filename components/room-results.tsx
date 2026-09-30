@@ -51,10 +51,15 @@ export function ResultsPanel({
     <div className="results-panel">
       <section className="results-section" aria-labelledby="results-top">
         <h3 id="results-top">Главное по голосам</h3>
-        {round?.active && (
+        {round?.active ? (
           <p className="muted">
             Раунд ещё идёт: до его завершения вы видите только свои голоса.
           </p>
+        ) : (
+          s.rounds.length > 1 && (
+            // Повторный раунд — это пересмотр решения, поэтому считается последний.
+            <p className="muted">По последнему раунду из {s.rounds.length}.</p>
+          )
         )}
         {top.length ? (
           <ol className="results-top">

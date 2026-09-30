@@ -6,6 +6,7 @@ import {
   assembleState,
   diffForUndo,
   planWrite,
+  restoreDeleted,
   type NoteRow,
 } from '@/lib/room-store';
 import { applyOperation, publicState, type RoomState } from '@/lib/model';
@@ -99,6 +100,18 @@ export async function commitOperation(
           'Отмена доступна только для вашего последнего действия, пока комнату не изменил другой участник',
         );
       updated = applyUndo(current, JSON.parse(last.before));
+    } else if (op.type === 'restore') {
+      // Тост «Удалено · Отменить»: вернуть своё удаление по версии записи истории,
+      // даже если после него комнату меняли другие (lib/room-store.ts, restoreDeleted).
+      const version = Number(op.version);
+      if (!Number.isInteger(version)) throw Error('Нечего возвращать');
+      const row = await db()
+        .prepare('SELECT author,before,action FROM history WHERE room=? AND version=?')
+        .bind(id, version)
+        .first<{ author: string; before: string; action: string }>();
+      if (!row || row.author !== self)
+        throw Error('Вернуть можно только своё удаление, пока оно есть в истории');
+      updated = restoreDeleted(current, JSON.parse(row.before), row.action);
     } else updated = applyOperation(current, op, self, r.host);
     const write = planWrite(r.state, rows, updated);
     const guard = 'EXISTS(SELECT 1 FROM rooms WHERE id=? AND version=?)';
