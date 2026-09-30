@@ -71,12 +71,29 @@ function ReactorHold({ held, onHold }: { held: number; onHold: () => void }) {
   }, [holding, onHold]);
   return (
     <div className="impostor-hold">
-      <p className="impostor-task-hint">Держат стабилизаторы: {held} / 2 — нужен второй игрок у другого пульта</p>
+      <p className="impostor-task-hint">Держат стабилизаторы: {held} / 2 — нужен второй игрок у другого пульта. Держите кнопку мышью, пальцем или пробелом.</p>
       <button
+        type="button"
         className="impostor-hold-button"
+        aria-pressed={holding}
         onPointerDown={() => setHolding(true)}
         onPointerUp={() => setHolding(false)}
         onPointerLeave={() => setHolding(false)}
+        onPointerCancel={() => setHolding(false)}
+        // С клавиатуры держат пробел или Enter — как рычаг в мини-игре «Удержание».
+        onKeyDown={(e) => {
+          if (e.key !== ' ' && e.key !== 'Enter') return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (!e.repeat) setHolding(true);
+        }}
+        onKeyUp={(e) => {
+          if (e.key !== ' ' && e.key !== 'Enter') return;
+          e.preventDefault();
+          e.stopPropagation();
+          setHolding(false);
+        }}
+        onBlur={() => setHolding(false)}
       >
         {holding ? 'Держу…' : 'Удерживайте'}
       </button>
