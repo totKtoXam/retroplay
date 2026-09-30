@@ -2,6 +2,9 @@
 import { useEffect, useRef } from 'react';
 import type { GameMap } from '@/lib/maps/types';
 import type { MinimapBlip } from '@/lib/minimap-blips';
+import { PREF_KEYS } from '@/lib/user-prefs';
+import { teamCss } from '@/lib/team-colors';
+import { usePrefValue } from './settings-player';
 /** Снимок кадра: своя поза приходит из движка, чужие — из последнего состояния комнаты. */
 export type MinimapFrame = { x: number; z: number; yaw: number; blips: MinimapBlip[] };
 
@@ -23,10 +26,37 @@ const COLORS = {
   water: 'rgba(80, 150, 200, 0.42)',
   self: '#ffffff',
   spot: 'rgba(255, 255, 255, 0.92)',
-  red: '#ff6b7a',
-  blue: '#6ba8ff',
+  /** Команды — оранжевые и синие (lib/team-colors), идентификаторы прежние. */
+  red: teamCss('red'),
+  blue: teamCss('blue'),
   ally: '#6ee7a8',
+  /** Тёмная обводка знаков в режиме для дальтоников: форма читается на любом полу. */
+  outline: 'rgba(8, 13, 25, 0.9)',
 };
+
+/**
+ * Знак бойца на плане. Обычно — кружок; в режиме для дальтоников союзник —
+ * ромб, враг — треугольник остриём вверх (как знаки над бойцами в мире), чтобы
+ * сторона читалась формой, а не только цветом.
+ */
+function blipPath(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, shape: 'dot' | 'ally' | 'enemy') {
+  ctx.beginPath();
+  if (shape === 'ally') {
+    // Ромб на той же площади выглядит мельче круга — чуть больше по диагонали.
+    const d = r * 1.35;
+    ctx.moveTo(x, y - d);
+    ctx.lineTo(x + d, y);
+    ctx.lineTo(x, y + d);
+    ctx.lineTo(x - d, y);
+    ctx.closePath();
+  } else if (shape === 'enemy') {
+    const d = r * 1.45;
+    ctx.moveTo(x, y - d);
+    ctx.lineTo(x + d * 0.95, y + d * 0.7);
+    ctx.lineTo(x - d * 0.95, y + d * 0.7);
+    ctx.closePath();
+  } else ctx.arc(x, y, r, 0, Math.PI * 2);
+}
 
 /**
  * Пересчёт мировых метров в пиксели холста. Статический слой и точки бойцов
@@ -164,6 +194,13 @@ export function WorldMinimap(props: {
   labels?: boolean;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  // Режим для дальтоников читается в каждом кадре через ref: переключение в
+  // настройках применяется сразу и не пересобирает статический слой.
+  const colorblind = usePrefValue(PREF_KEYS.colorblind) === '1';
+  const shapes = useRef(colorblind);
+  useEffect(() => {
+    shapes.current = colorblind;
+  }, [colorblind]);
   // Кадр берёт свежий `read` через ref, чтобы смена коллбэка не перезапускала
   // цикл отрисовки и не перерисовывала статический слой заново.
   const read = useRef(props.read);
@@ -218,8 +255,14 @@ export function WorldMinimap(props: {
       for (const blip of data.blips) {
         const r = (blip.enemy ? 3.6 : 3) * dpr * unit;
         ctx.globalAlpha = blip.dead ? 0.3 : (blip.fresh ?? 1);
-        ctx.beginPath();
-        ctx.arc(p.toX(blip.x), p.toZ(blip.z), r, 0, Math.PI * 2);
+        const shaped = shapes.current;
+        blipPath(
+          ctx,
+          p.toX(blip.x),
+          p.toZ(blip.z),
+          r,
+          shaped ? (blip.enemy ? 'enemy' : 'ally') : 'dot',
+        );
         ctx.fillStyle =
           blip.team === 'red' ? COLORS.red : blip.team === 'blue' ? COLORS.blue : COLORS.ally;
         ctx.fill();
@@ -228,6 +271,11 @@ export function WorldMinimap(props: {
         if (blip.enemy) {
           ctx.strokeStyle = COLORS.spot;
           ctx.lineWidth = 1.4 * dpr * unit;
+          ctx.stroke();
+        } else if (shaped) {
+          // Тёмный контур отделяет ромб союзника от светлых стен и пола.
+          ctx.strokeStyle = COLORS.outline;
+          ctx.lineWidth = 1.2 * dpr * unit;
           ctx.stroke();
         }
         ctx.globalAlpha = 1;

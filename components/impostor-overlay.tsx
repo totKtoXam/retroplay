@@ -23,7 +23,7 @@ import {
 } from '@/lib/impostor-client';
 import type { ImpostorReply } from './use-room-sync';
 import { TASK_GAMES } from './impostor-tasks';
-import ImpostorRules from './impostor-rules';
+import ImpostorRules, { useDialogFocus } from './impostor-rules';
 import ImpostorDeath from './impostor-death';
 import { createImpostorSounds } from './impostor-sounds';
 import { impostorSoundEvents } from '@/lib/impostor-sound-events';
@@ -310,6 +310,14 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
     return () => window.removeEventListener('keydown', onKey, true);
   }, [rulesOpen]);
 
+  // Окна саботажа, ремонта и мини-игры держат фокус внутри себя, пока открыты.
+  const sabotageDialog = useRef<HTMLDialogElement>(null);
+  const repairDialog = useRef<HTMLDialogElement>(null);
+  const gameDialog = useRef<HTMLDialogElement>(null);
+  useDialogFocus(sabotageDialog, openMenu);
+  useDialogFocus(repairDialog, !!openRepair);
+  useDialogFocus(gameDialog, !!openGame);
+
   const nameOf = (id: string) => view?.players.find((p) => p.id === id)?.name ?? 'Игрок';
 
   if (!view) return null;
@@ -511,7 +519,7 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
       {/* ---- Меню саботажа ---- */}
       {openMenu && (
         <div className="impostor-modal">
-          <div className="impostor-card">
+          <dialog open ref={sabotageDialog} className="impostor-card" aria-modal="true" aria-label="Саботаж" tabIndex={-1}>
             <header>
               <strong>Саботаж</strong>
               <button className="impostor-close" onClick={() => setSabotageMenu(false)} aria-label="Закрыть">
@@ -541,14 +549,21 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
             {view.sabotageReadyAt > now && (
               <p className="impostor-muted">Следующий саботаж через {secondsLeft(view.sabotageReadyAt, now)} с</p>
             )}
-          </div>
+          </dialog>
         </div>
       )}
 
       {/* ---- Ремонт аварии ---- */}
       {openRepair && (
         <div className="impostor-modal">
-          <div className="impostor-card">
+          <dialog
+            open
+            ref={repairDialog}
+            className="impostor-card"
+            aria-modal="true"
+            aria-label={openRepair.title}
+            tabIndex={-1}
+          >
             <header>
               <strong>{openRepair.title}</strong>
               <button className="impostor-close" onClick={() => setRepair(null)} aria-label="Закрыть">
@@ -563,14 +578,21 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
                 return <Game onDone={onRepairDone} />;
               })()
             )}
-          </div>
+          </dialog>
         </div>
       )}
 
       {/* ---- Мини-игра ---- */}
       {openGame && (
         <div className="impostor-modal">
-          <div className="impostor-card">
+          <dialog
+            open
+            ref={gameDialog}
+            className="impostor-card"
+            aria-modal="true"
+            aria-label={openGame.title}
+            tabIndex={-1}
+          >
             <header>
               <strong>{openGame.title}</strong>
               <button className="impostor-close" onClick={() => setTask(null)} aria-label="Закрыть">
@@ -585,7 +607,7 @@ export default function ImpostorOverlay({ room, host, serverNow, pose, send, onB
                 return <Game onDone={onGameDone} />;
               })()
             )}
-          </div>
+          </dialog>
         </div>
       )}
 

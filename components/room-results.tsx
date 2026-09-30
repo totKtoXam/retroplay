@@ -1,7 +1,10 @@
 'use client';
 import { Vote } from 'lucide-react';
+import type { CSSProperties } from 'react';
 import type { Note, RoomState } from '@/lib/model';
-import { topVoted } from '@/lib/room-export';
+import { festivePalette, festiveVars } from '@/lib/festive';
+import { actionItems, topVoted } from '@/lib/room-export';
+import { ResultsHero } from './results-hero';
 import {
   ActionsPanel,
   ArchiveSection,
@@ -15,6 +18,9 @@ import {
  * история с отменой и завершение. Раньше всё это лежало разделами в
  * «Настройках», и путь «от голосования к экспорту» шёл через меню, куда на
  * встрече никто не заглядывает. Открывается из шапки и кнопкой этапа «Итоги».
+ *
+ * Сверху — праздничная шапка мира (results-hero.tsx) с цифрами встречи; акцент
+ * панели (полоски голосов, номер лидера) — цвет мира из lib/festive.ts.
  */
 export function ResultsPanel({
   s,
@@ -46,9 +52,16 @@ export function ResultsPanel({
   onToggleArchive: () => void;
 }) {
   const top = topVoted(s, 5);
+  const max = top[0]?.votes || 1;
   const round = s.rounds.at(-1);
+  const actions = actionItems(s);
+  const done = actions.filter((n) => n.done).length;
   return (
-    <div className="results-panel">
+    <div
+      className="results-panel"
+      style={festiveVars(festivePalette(s.theme)) as CSSProperties}
+    >
+      <ResultsHero s={s} />
       <section className="results-section" aria-labelledby="results-top">
         <h3 id="results-top">Главное по голосам</h3>
         {round?.active ? (
@@ -66,8 +79,16 @@ export function ResultsPanel({
             {top.map(({ note, votes }) => (
               <li key={note.id}>
                 <button type="button" onClick={() => onOpenNote(note)}>
-                  <span className="results-top-text">
-                    {note.text || 'Без текста'}
+                  <span className="results-top-body">
+                    <span className="results-top-text">
+                      {note.text || 'Без текста'}
+                    </span>
+                    {/* Доля от лидера: длина полоски — подсказка, число справа. */}
+                    <span className="results-bar" aria-hidden="true">
+                      <span
+                        style={{ '--share': votes / max } as CSSProperties}
+                      />
+                    </span>
                   </span>
                   <b aria-label={`голосов: ${votes}`}>{votes}</b>
                 </button>
@@ -87,7 +108,14 @@ export function ResultsPanel({
         </button>
       </section>
       <section className="results-section" aria-labelledby="results-actions">
-        <h3 id="results-actions">План действий</h3>
+        <h3 id="results-actions">
+          План действий
+          {actions.length > 0 && (
+            <span className="results-count">
+              выполнено {done} из {actions.length}
+            </span>
+          )}
+        </h3>
         <ActionsPanel
           s={s}
           onAddAction={onAddAction}

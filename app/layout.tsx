@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './tokens.css';
 import './globals.css';
 import '../components/resource-packs/packs.css';
@@ -24,6 +24,15 @@ export const metadata: Metadata = {
   title: 'Jinaly — ретроспективы в 3D',
   description:
     'Командные ретроспективы в 3D-мире Казахстана и на общей онлайн-доске.',
+};
+/**
+ * viewport-fit=cover: страница занимает весь экран телефона, под вырезом и полосой
+ * жестов тоже, а элементы у краёв отступают на env(safe-area-inset-*).
+ */
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 export default function RootLayout({
   children,

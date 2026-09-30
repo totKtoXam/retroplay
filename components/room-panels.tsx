@@ -64,6 +64,15 @@ import {
   MAX_BOTS_PER_ADD,
   type BotLevel,
 } from '@/lib/bot-levels';
+import { TEAM_LOOKS, teamName } from '@/lib/team-colors';
+import {
+  ColorblindSetting,
+  CrosshairSetting,
+  FovSetting,
+  HudScaleSetting,
+  StatsSetting,
+  SfxVolumeSetting,
+} from './settings-player';
 
 /** Справка комнаты: клавиши текущего режима — из общей раскладки lib/keymap.ts. */
 export function HelpPanel({ mode }: { mode: GameMode }) {
@@ -788,9 +797,7 @@ export function MatchBar({
           <small>
             {match.winner === 'draw'
               ? 'ничья'
-              : match.winner === 'red'
-                ? 'победа красных'
-                : 'победа синих'}
+              : `победа ${TEAM_LOOKS[match.winner === 'red' ? 'red' : 'blue'].genitive}`}
           </small>
         )}
       </span>
@@ -1175,7 +1182,6 @@ function ImpostorSettingsSection({
 }
 
 const LEVEL_OPTIONS = BOT_LEVEL_IDS.map((id) => ({ value: id, label: BOT_LEVELS[id].label }));
-const TEAM_NAMES: Record<string, string> = { red: 'красные', blue: 'синие' };
 
 /**
  * Серверные боты комнаты. Ими управляет сам сервер комнаты: ведущий только
@@ -1231,8 +1237,8 @@ export function BotsPanel({
               onChange={setTeam}
               options={[
                 { value: 'auto', label: 'В меньшую команду' },
-                { value: 'red', label: 'Красные' },
-                { value: 'blue', label: 'Синие' },
+                { value: 'red', label: teamName('red') },
+                { value: 'blue', label: teamName('blue') },
               ]}
             />
           )}
@@ -1286,7 +1292,7 @@ export function BotsPanel({
                   <small>
                     {impostor
                       ? IMPOSTOR_BOT_LEVELS[b.level].hint.split(':')[0]
-                      : `${side ? TEAM_NAMES[side] : 'сторона при входе'}${m ? ` · ${m.kills ?? 0}/${m.deaths ?? 0}/${m.assists ?? 0}` : ''}`}
+                      : `${side ? teamName(side).toLowerCase() : 'сторона при входе'}${m ? ` · ${m.kills ?? 0}/${m.deaths ?? 0}/${m.assists ?? 0}` : ''}`}
                   </small>
                 </span>
                 <Choice
@@ -1408,6 +1414,8 @@ export function GraphicsSection({
           },
         ]}
       />
+      <HudScaleSetting />
+      <StatsSetting />
       <AmmoDisplayChoice />
       <ResourcePackPicker />
     </>
@@ -1458,6 +1466,10 @@ export function ControlsSection({
         value={invertCamera}
         onChange={onInvertCameraChange}
       />
+      <FovSetting />
+      <SfxVolumeSetting />
+      <CrosshairSetting />
+      <ColorblindSetting />
       <div className="aim-settings-section">
         <span className="field-label">Прицеливание (ПКМ)</span>
         <div className="aim-settings-list">

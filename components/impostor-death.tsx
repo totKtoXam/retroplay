@@ -4,7 +4,7 @@
 // падает, остаётся кость — и надпись «Вас убили». Короткая (около трёх секунд) и закрывается
 // кликом. Цвет убийцы приходит только самой жертве (`killedBy` в снимке партии): она уже
 // призрак и говорит лишь с призраками, так что тайна для живых не страдает.
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
 import { Crewmate } from './impostor-rules';
 
 /** Удар ножом: свист рассечённого воздуха и глухой удар. Без файлов — Web Audio. */
@@ -58,8 +58,10 @@ export default function ImpostorDeath({
     const timer = setTimeout(onDone, 3400);
     return () => clearTimeout(timer);
   }, [onDone]);
+  // Подпись кнопки заменяет её содержимое, поэтому пояснение про призрака связываем отдельно.
+  const hintId = useId();
   return (
-    <button className="impostor-death" onClick={onDone} aria-label="Вас убили — закрыть">
+    <button className="impostor-death" onClick={onDone} aria-label="Вас убили — закрыть" aria-describedby={hintId}>
       <div className="impostor-death-stage" aria-hidden="true">
         <div className="impostor-death-killer">
           <Crewmate color={killerColor} knife size={120} />
@@ -78,7 +80,7 @@ export default function ImpostorDeath({
       </div>
       <div className="impostor-death-text">
         <strong>Вас убили</strong>
-        <span>Теперь вы призрак: проходите сквозь стены и доделайте задания — экипаж ещё может победить</span>
+        <span id={hintId}>Теперь вы призрак: проходите сквозь стены и доделайте задания — экипаж ещё может победить</span>
       </div>
     </button>
   );

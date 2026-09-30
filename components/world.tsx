@@ -65,14 +65,12 @@ import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { slotsFor, slotForDigit, cycleSlot } from '@/lib/loadout';
-import { modeOf, type GameMode } from '@/lib/maps/catalog';
-
-/** Подсказка на карточке «Кликните, чтобы играть»: в каждом режиме ЛКМ делает своё. */
-const START_HINTS: Partial<Record<GameMode, string>> = {
-  retro: 'Esc — свободный курсор · ЛКМ — предмет в руках · E у доски — открыть',
-  battle: 'Esc — свободный курсор · ЛКМ — стрелять · R — перезарядка',
-  impostor: 'Esc — свободный курсор · E — использовать · F — фонарик',
-};
+import { modeOf } from '@/lib/maps/catalog';
+import { aimFov, viewFov } from '@/lib/hud-prefs';
+import { POINTER_RELOCK_WINDOW_MS, damageSource, inRelockWindow } from '@/lib/hud-feedback';
+import { useHudPrefs, useTouchOnly } from './hud-prefs';
+import type { DamageHit, HudMarkZone } from './hud-feedback';
+import { HudGraphicsLost, HudPause, HudStartCard, type DeathInfo } from './hud-states';
 import { amGhost, impostorFrozen, inGame, inVentNow, minimapShows, visionRadius } from '@/lib/impostor-client';
 import { createFootsteps } from './world-footsteps';
 import { createWeaponSounds } from './world-weapon-sounds';
@@ -101,7 +99,6 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { animateAvatar, avatarShoot, fighterShared } from './world-avatar';
 import {
-  MousePointer2,
   MoveUp,
   Crosshair,
   Users,
@@ -189,6 +186,7 @@ export type KillMessage = {
   scoped?: boolean;
   noScope?: boolean;
   pelletsHit?: number;
+  teamkill?: boolean;
   at: number;
 };
 export type PersonalAlert = {
@@ -197,51 +195,6 @@ export type PersonalAlert = {
   type: 'kill' | 'assist' | 'death';
   key: string | number;
 };
-export type HitEffect = {
-  color: string;
-  key: number;
-};
-/** Запасной цвет вспышки, когда чужих выстрелов рядом не нашлось. */
-const FALLBACK_HIT_COLOR = '#ff647c';
-/**
- * Сервер не сообщает, чей именно выстрел снял здоровье, поэтому цвет вспышки
- * выбираем сами: среди свежих чужих эффектов берём тот, чья точка попадания
- * ближе всего к нам, при равной близости — более поздний. Граната взрывается
- * через 1100 мс после выстрела, отсюда и ширина окна.
- */
-export function hitGlowColor(
-  effects: WorldEffect[] | undefined,
-  selfId: string,
-  me: Person | undefined,
-  now = Date.now(),
-) {
-  const enemy = (effects || []).filter(
-    (e) => e.kind !== 'kill' && e.author !== selfId && !!e.color,
-  );
-  if (enemy.length === 0) return FALLBACK_HIT_COLOR;
-  // Окно на всякий случай может оказаться пустым (расхождение часов) — тогда
-  // смотрим на весь список, он и так ограничен временем жизни эффектов.
-  const fresh = enemy.filter((e) => now - e.at <= 1800);
-  const pool = fresh.length > 0 ? fresh : enemy;
-  const center = me ? [me.pose.x, me.pose.y + 0.95, me.pose.z] : null;
-  let best = pool[0];
-  let bestDist = Infinity;
-  for (const e of pool) {
-    const d =
-      center && e.target
-        ? Math.hypot(
-            e.target[0] - center[0],
-            e.target[1] - center[1],
-            e.target[2] - center[2],
-          )
-        : 0;
-    if (d < bestDist || (d === bestDist && e.at > best.at)) {
-      bestDist = d;
-      best = e;
-    }
-  }
-  return best.color || FALLBACK_HIT_COLOR;
-}
 function readPerspective(): Perspective {
   try {
     return localStorage.getItem('jinaly-perspective') === 'first'
@@ -289,6 +242,9 @@ function animateRef(
   };
   requestAnimationFrame(step);
 }
+
+/** Сколько держится дуга урона; анимация угасания в app/hud.css той же длины. */
+const DAMAGE_ARC_MS = 1200;
 
 // Шаблон бойца (оружие, скины) — файлом, пока собирается остальное: бойцы
 // копируются из него, а не собираются каждый заново (world-fighter-file.ts).
@@ -466,6 +422,20 @@ export default function World(props: Props) {
   const dead = self?.hp === 0;
   const [killfeed, setKillfeed] = useState<KillMessage[]>([]);
   const [personalAlert, setPersonalAlert] = useState<PersonalAlert | null>(null);
+  // Кто и чем убил: карточка смерти держит это до возрождения.
+  const [deathInfo, setDeathInfo] = useState<DeathInfo | null>(null);
+  // Единственное, что HUD объявляет скринридеру: своё убийство и своя смерть.
+  const [announce, setAnnounce] = useState('');
+  // Отметка своего попадания: голова, корпус, конечность — и убийство.
+  const [hitMark, setHitMark] = useState<{ zone: HudMarkZone; key: number } | null>(null);
+  const hitMarker = useRef((zone: HitZone) => {
+    setHitMark({ zone, key: Date.now() });
+  });
+  useEffect(() => {
+    if (!hitMark) return;
+    const timer = setTimeout(() => setHitMark(null), hitMark.zone === 'kill' ? 1000 : 700);
+    return () => clearTimeout(timer);
+  }, [hitMark]);
   const seenKillsRef = useRef<Set<string>>(new Set());
   const initialKillsProcessed = useRef(false);
 
@@ -499,21 +469,22 @@ export default function World(props: Props) {
             scoped: e.scoped,
             noScope: e.noScope,
             pelletsHit: e.pelletsHit,
+            teamkill: e.teamkill,
             at: e.at || now,
           };
           newKills.push(item);
 
-          if (item.killer === props.room.self) {
+          if (item.killer === props.room.self && item.victim !== props.room.self) {
             queueMicrotask(() => {
               let text = `ВЫ УСТРАНИЛИ: ${item.victimName}`;
               if (item.tool === 'sniper' && item.noScope) {
                 text = item.headshot
-                  ? `ВЫ УСТРАНИЛИ NO-SCOPE В ГОЛОВУ! 🎯🔥💀 ${item.victimName}`
-                  : `ВЫ УСТРАНИЛИ NO-SCOPE! 🎯🔥 ${item.victimName}`;
+                  ? `БЕЗ ПРИЦЕЛА И В ГОЛОВУ: ${item.victimName}`
+                  : `УСТРАНЁН БЕЗ ПРИЦЕЛА: ${item.victimName}`;
               } else if (item.headshot) {
-                text = `ВЫ УСТРАНИЛИ В ГОЛОВУ! 💀 ${item.victimName}`;
+                text = `ВЫ УСТРАНИЛИ В ГОЛОВУ: ${item.victimName}`;
               } else if (item.tool === 'confetti' && (item.pelletsHit || 0) >= 7) {
-                text = `ВЫ УСТРАНИЛИ В УПОР! 💥🎉 ${item.victimName}`;
+                text = `ВЫ УСТРАНИЛИ В УПОР: ${item.victimName}`;
               }
               setPersonalAlert({
                 type: 'kill',
@@ -521,6 +492,9 @@ export default function World(props: Props) {
                 sub: item.assisterName ? `Помог: ${item.assisterName}` : undefined,
                 key: `kill-${Date.now()}-${Math.random()}`,
               });
+              // Верхняя ступень хитмаркера: убийство видно у прицела, не только в ленте.
+              setHitMark({ zone: 'kill', key: Date.now() });
+              setAnnounce(`Вы устранили: ${item.victimName}`);
             });
           } else if (item.assister === props.room.self) {
             queueMicrotask(() => {
@@ -532,21 +506,31 @@ export default function World(props: Props) {
               });
             });
           } else if (item.victim === props.room.self) {
+            // Своя смерть — карточкой до конца отсчёта (HudDeathCard), а не
+            // оповещением на 3,5 секунды. Дистанцию считаем сейчас: к моменту
+            // возрождения убийца уйдёт.
+            const me = engine.current?.player.pos;
+            // Позы — из последнего снимка: эффект срабатывает на новые эффекты, а не на позы.
+            const pose = latest.current.room.members.find((m) => m.id === item.killer)?.pose;
+            const distance =
+              me && pose && item.killer !== props.room.self
+                ? Math.hypot(pose.x - me.x, pose.y - me.y, pose.z - me.z)
+                : undefined;
             queueMicrotask(() => {
-              let text = `ВАС УСТРАНИЛ: ${item.killerName}`;
-              if (item.tool === 'sniper' && item.noScope) {
-                text = item.headshot
-                  ? `NO-SCOPE В ГОЛОВУ! ВАС УСТРАНИЛ: ${item.killerName} 🎯🔥💀`
-                  : `NO-SCOPE! ВАС УСТРАНИЛ: ${item.killerName} 🎯🔥`;
-              } else if (item.headshot) {
-                text = `ХЕДШОТ! ВАС УСТРАНИЛ В ГОЛОВУ: ${item.killerName}`;
-              }
-              setPersonalAlert({
-                type: 'death',
-                text,
-                sub: item.assisterName ? `Помощь: ${item.assisterName}` : undefined,
-                key: `death-${Date.now()}-${Math.random()}`,
+              setDeathInfo({
+                killer: item.killer,
+                killerName: item.killerName,
+                tool: item.tool,
+                headshot: item.headshot,
+                noScope: item.tool === 'sniper' && item.noScope,
+                teamkill: item.teamkill,
+                distance,
               });
+              setAnnounce(
+                item.killer === props.room.self
+                  ? 'Вы погибли'
+                  : `Вас устранил: ${item.killerName}`,
+              );
             });
           }
         }
@@ -577,25 +561,14 @@ export default function World(props: Props) {
     return () => clearTimeout(timer);
   }, [personalAlert]);
 
-  const [hitEffect, setHitEffect] = useState<HitEffect | null>(null);
-  // Каждая вспышка получает свой ключ: HUD перемонтирует виньетку и анимация
-  // начинается заново, поэтому подряд идущие попадания видно все до одного.
-  const glowKeyRef = useRef(0);
-  const triggerHitGlow = (color: string) => {
-    glowKeyRef.current += 1;
-    setHitEffect({ color, key: glowKeyRef.current });
-  };
-
-  // Отметка своего попадания: голова, корпус или конечность.
-  const [hitMark, setHitMark] = useState<{ zone: HitZone; key: number } | null>(null);
-  const hitMarker = useRef((zone: HitZone) => {
-    setHitMark({ zone, key: Date.now() });
-  });
-  useEffect(() => {
-    if (!hitMark) return;
-    const timer = setTimeout(() => setHitMark(null), 700);
-    return () => clearTimeout(timer);
-  }, [hitMark]);
+  // Попадания по игроку для дуг урона. Каждое со своим ключом: подряд идущие
+  // попадания видно все, а не одно перезапущенное.
+  const [damageHits, setDamageHits] = useState<(DamageHit & { at: number })[]>([]);
+  const damageKeyRef = useRef(0);
+  const damageView = useCallback(() => {
+    const player = engine.current?.player;
+    return player ? { x: player.pos.x, z: player.pos.z, yaw: player.cameraYaw } : null;
+  }, []);
 
   const [shieldSeconds, setShieldSeconds] = useState(0);
   const immuneExpireRef = useRef(0);
@@ -665,19 +638,37 @@ export default function World(props: Props) {
     const prev = prevHpRef.current;
     prevHpRef.current = currentHp;
     if (currentHp >= prev) return;
-    triggerHitGlow(hitGlowColor(props.room.effects, props.room.self, self));
-  }, [currentHp, self, props.room.effects, props.room.self]);
+    damageKeyRef.current += 1;
+    const hit = {
+      key: damageKeyRef.current,
+      at: performance.now(),
+      source: damageSource(props.room.effects, props.room.self, self, props.room.members),
+    };
+    // Не больше четырёх дуг: под шквалом огня края экрана не должны гореть сплошь.
+    setDamageHits((list) => [...list, hit].slice(-4));
+  }, [currentHp, self, props.room.effects, props.room.self, props.room.members]);
 
   useEffect(() => {
-    if (!hitEffect) return;
-    const t = setTimeout(() => {
-      setHitEffect(null);
-    }, 1000);
+    if (!damageHits.length) return;
+    const oldest = damageHits[0];
+    const t = setTimeout(
+      () => setDamageHits((list) => list.filter((h) => h.key !== oldest.key)),
+      Math.max(0, oldest.at + DAMAGE_ARC_MS - performance.now()),
+    );
     return () => clearTimeout(t);
-  }, [hitEffect]);
+  }, [damageHits]);
+  // Возродился — карточка убийцы больше не нужна. Только на переходе: эффект
+  // убийства может прийти на снимок раньше, чем обнулится своё здоровье.
+  const wasDeadRef = useRef(dead);
+  useEffect(() => {
+    if (wasDeadRef.current && !dead) setDeathInfo(null);
+    wasDeadRef.current = dead;
+  }, [dead]);
   const [weaponState] = useState(() => new WeaponPrediction());
   const prediction = useRef(weaponState);
   const magazine = useRef(weaponState.magazine);
+  // Доля перезарядки для кольца у патронов: читается каждый кадр, без ре-рендера.
+  const readReload = useCallback(() => magazine.current.progress(performance.now()), []);
   const [showAgent, setShowAgent] = useState(false);
   const [rounds, setRounds] = useState({ ...CAPACITY }),
     [reloading, setReloading] = useState(false),
@@ -685,11 +676,28 @@ export default function World(props: Props) {
     [reloadHint, setReloadHint] = useState(0),
     [grenadeReadyAt, setGrenadeReadyAt] = useState(0),
     [aiming, setAiming] = useState(false);
+  // Пока «Перезарядка» у прицела, индикатор ветра под ней прячется: у них один
+  // слот, и кадр рендера читает это из ref, а не из состояния React.
+  const reloadHintRef = useRef(false);
   useEffect(() => {
+    reloadHintRef.current = reloadHint > 0;
     if (!reloadHint) return;
     const hide = setTimeout(() => setReloadHint(0), 900);
     return () => clearTimeout(hide);
   }, [reloadHint]);
+  // Настройки игрока: поле зрения и громкость нужны кадру рендера — через ref.
+  const hudPrefs = useHudPrefs();
+  const hudPrefsRef = useRef(hudPrefs);
+  useEffect(() => {
+    hudPrefsRef.current = hudPrefs;
+  }, [hudPrefs]);
+  const touchOnly = useTouchOnly();
+  // Игрок уже был в игре: Esc дальше открывает паузу, а не карточку первого входа.
+  const [played, setPlayed] = useState(false);
+  // Браузер ещё не отдаёт мышь после Esc — повторяем захват и просим секунду.
+  const [captureWait, setCaptureWait] = useState(false);
+  // Видеокарта сбросила WebGL-контекст: ждём восстановления.
+  const [glLost, setGlLost] = useState(false);
   const aimModes = props.aimModes || readAimModes();
   const aimModesRef = useRef<WeaponAimModes>(aimModes);
   useEffect(() => {
@@ -698,9 +706,7 @@ export default function World(props: Props) {
   const [, setLocked] = useState(false),
     [radial, setRadial] = useState(false),
     [near, setNear] = useState(''),
-    [stance, setStance] = useState('stand'),
     [active, setActive] = useState(false),
-    [shots, setShots] = useState(0),
     [captureError, setCaptureError] = useState('');
   // Табло счёта: «ё» держим — табло видно; ЛКМ при зажатой «ё» «залипает» —
   // табло остаётся с курсором мыши, выход только по Esc.
@@ -1002,7 +1008,8 @@ export default function World(props: Props) {
       // `isDead` is declared further down; wrap it so the player factory does
       // not read it before its initializer has run.
       isDead: () => isDead(),
-      onStance: setStance,
+      // Поза нужна только самому движку: объявлять её скринридеру незачем.
+      onStance: () => {},
       // Под крышей ветра нет: иначе игрока сносило бы посреди комнаты.
       wind: () => (windOn() && !underRoof(roof, pos.x, pos.y + 1, pos.z) ? weather.wind : null),
       ghost: () => amGhost(latest.current.room.impostor),
@@ -1162,8 +1169,10 @@ export default function World(props: Props) {
       listener: () => ({ x: camera.position.x, y: camera.position.y, z: camera.position.z, yaw: player.cameraYaw }),
       occluded: (from, to) => !!rayCastWorldObstacle([...from], [...to], map.colliders)?.hit,
     });
-    // В хабе на ретроспективе выстрелы тише, как и шаги.
-    const weaponVolume = () => (modeOf(latest.current.room.state) === 'retro' ? 0.6 : 1);
+    // В хабе на ретроспективе выстрелы тише, как и шаги. Сверху — громкость
+    // эффектов из настроек игрока (выстрелы, попадания, щелчки, шаги).
+    const weaponVolume = () =>
+      (modeOf(latest.current.room.state) === 'retro' ? 0.6 : 1) * hudPrefsRef.current.sfxVolume;
     /** Включён ли фонарик у других игроков — по прошлому кадру, чтобы щёлкнуть на смене. */
     const remoteLights = new Map<string, boolean>();
     const projectiles = createWorldProjectiles({
@@ -1255,10 +1264,6 @@ export default function World(props: Props) {
       weaponSounds.dry(weaponVolume());
       setReloadHint(Date.now());
     };
-    // `shots` only feeds the aria-live announcement; avoid a full component
-    // re-render on every single shot by throttling the state flush.
-    let shotsFired = 0;
-    let lastShotsFlush = 0;
     const isDead = () =>
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.hp === 0;
@@ -1480,7 +1485,7 @@ export default function World(props: Props) {
               if (targetNote) {
                 void p.onOp?.({ type: 'vote', id: targetNote.id, force: true });
                 setPersonalAlert({
-                  text: '💖 +1 ГОЛОС!',
+                  text: '+1 ГОЛОС',
                   sub: targetNote.text
                     ? `"${targetNote.text.slice(0, 30)}"`
                     : 'Стикер',
@@ -1575,12 +1580,13 @@ export default function World(props: Props) {
         if (!reply.ok && !weaponDisposed) setCaptureError('Выстрел не принят: ' + (reply.reason ?? 'состояние комнаты'));
       }).catch((error) => weaponFailure(e.id, error));
       if (tool === 'sniper' && magazine.current.rounds.sniper === 0) beginReload();
-      shotsFired++;
-      if (now - lastShotsFlush >= 500) {
-        lastShotsFlush = now;
-        setShots(shotsFired);
-      }
     };
+    /** Когда игрок вышел из захвата мыши (performance.now()). */
+    let pointerExitAt = -Infinity;
+    let relockTimer = 0;
+    let lockAttempt = 0;
+    /** Неудача текущей попытки захвата — её же зовёт событие pointerlockerror. */
+    let lockFailed: (() => void) | null = null;
     const capture = () => {
       // Клик по миру — жест игрока: теперь браузер разрешит звук шагов.
       footsteps.resume();
@@ -1589,23 +1595,54 @@ export default function World(props: Props) {
         return;
       canvas.focus();
       setCaptureError('');
+      clearTimeout(relockTimer);
       const fallback = () => {
         softLook = true;
         activeControl = true;
         setActive(true);
+        setPlayed(true);
         setCaptureError(
           'Захват мыши недоступен · зажмите кнопку мыши, чтобы осмотреться · Esc — курсор',
         );
       };
-      skipNextMove = true;
-      try {
-        if (!canvas.requestPointerLock)
-          throw new Error('Захват мыши недоступен');
-        const result = canvas.requestPointerLock();
-        void Promise.resolve(result).catch(fallback);
-      } catch {
-        fallback();
-      }
+      /*
+       * Сразу после Esc браузер около секунды отказывает в захвате мыши. Это не
+       * «захват недоступен», а пауза: в первые полторы секунды после выхода
+       * просим секунду и повторяем попытку сами — клик ещё считается жестом
+       * игрока. Не вышло и со второго раза — тогда уже обзор зажатой кнопкой.
+       */
+      const attempt = (retried: boolean) => {
+        const id = ++lockAttempt;
+        const failed = () => {
+          if (id !== lockAttempt || weaponDisposed || document.pointerLockElement === canvas) return;
+          lockAttempt++;
+          const now = performance.now();
+          if (!retried && inRelockWindow(pointerExitAt, now)) {
+            setCaptureWait(true);
+            relockTimer = window.setTimeout(
+              () => {
+                if (!weaponDisposed && !latest.current.blocked) attempt(true);
+                else setCaptureWait(false);
+              },
+              Math.max(200, pointerExitAt + POINTER_RELOCK_WINDOW_MS - now),
+            );
+            return;
+          }
+          setCaptureWait(false);
+          fallback();
+        };
+        lockFailed = failed;
+        skipNextMove = true;
+        try {
+          if (!canvas.requestPointerLock)
+            throw new Error('Захват мыши недоступен');
+          const result = canvas.requestPointerLock();
+          void Promise.resolve(result).catch(failed);
+        } catch {
+          failed();
+        }
+      };
+      attempt(false);
     };
     engine.current = {
       visuals,
@@ -2115,25 +2152,50 @@ export default function World(props: Props) {
       activeControl = captured;
       setLocked(captured);
       setActive(captured);
-      if (captured) skipNextMove = true;
-      else {
+      if (captured) {
+        skipNextMove = true;
+        clearTimeout(relockTimer);
+        lockFailed = null;
+        setCaptureWait(false);
+        setPlayed(true);
+      } else {
+        pointerExitAt = performance.now();
         softLook = false;
         dragLook = false;
         clear();
       }
     };
+    // Старые браузеры сообщают об отказе в захвате только событием, без промиса.
+    const lockError = () => lockFailed?.();
     const context = (e: Event) => e.preventDefault();
+    /*
+     * Потеря WebGL-контекста: видеокарта сбросила графику (сон ноутбука, смена
+     * драйвера, нехватка памяти). preventDefault — просьба к браузеру вернуть
+     * контекст; Three.js сам пересоздаёт свои ресурсы по webglcontextrestored,
+     * нам остаётся показать, что происходит, и перерисовать тени.
+     */
+    const contextLost = (e: Event) => {
+      e.preventDefault();
+      setGlLost(true);
+    };
+    const contextRestored = () => {
+      renderer.shadowMap.needsUpdate = true;
+      resize();
+      setGlLost(false);
+    };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onUp);
     window.addEventListener('mousemove', onMouse);
     window.addEventListener('mouseup', onMouseUp);
     window.addEventListener('blur', onBlur);
     document.addEventListener('pointerlockchange', changed);
+    document.addEventListener('pointerlockerror', lockError);
     canvas.addEventListener('wheel', wheel, { passive: false });
     canvas.addEventListener('mousedown', onDown);
     canvas.addEventListener('contextmenu', context);
     canvas.addEventListener('auxclick', context);
-    canvas.addEventListener('webglcontextlost', context);
+    canvas.addEventListener('webglcontextlost', contextLost);
+    canvas.addEventListener('webglcontextrestored', contextRestored);
     let life =
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.life || 0;
@@ -2448,24 +2510,26 @@ export default function World(props: Props) {
         );
       }
       const sniperFov = SNIPER_ZOOM_FOVS[sniperZoomIndexRef.current];
+      // Поле зрения из настроек игрока (lib/hud-prefs.ts): третье лицо и
+      // прицеливание держат прежние пропорции к нему. Оптика снайперки — свои
+      // кратности, от настройки не зависят.
+      const restFov = viewFov(hudPrefsRef.current.fov, mode);
       const baseTargetFov =
         GAME_TOOLS[latest.current.tool]?.id === 'sniper'
           ? mode === 'first'
             ? sniperFov
             : sniperFov + 6
-          : mode === 'first'
-            ? 56
-            : 50;
+          : aimFov(hudPrefsRef.current.fov, mode);
       const targetFov =
         tabletInspectRef.current > 0
-          ? T.MathUtils.lerp(mode === 'first' ? 80 : 68, 52, tabletInspectRef.current)
+          ? T.MathUtils.lerp(restFov, 52, tabletInspectRef.current)
           : baseTargetFov;
       const fov = T.MathUtils.lerp(
         camera.fov,
         tabletInspectRef.current > 0
           ? targetFov
           : T.MathUtils.lerp(
-            mode === 'first' ? 80 : 68,
+            restFov,
             targetFov,
             aimBlend,
           ),
@@ -2545,7 +2609,7 @@ export default function World(props: Props) {
             grounded: Math.abs(pos.y - groundY) < 0.15 && !amGhost(impostorView) && !isDead(),
           },
           others,
-          modeOf(room.state) === 'retro' ? 0.5 : 1,
+          (modeOf(room.state) === 'retro' ? 0.5 : 1) * hudPrefsRef.current.sfxVolume,
         );
       }
       projectiles.update(now, player.stance);
@@ -2627,8 +2691,15 @@ export default function World(props: Props) {
       // число — скорость. Пишем прямо в DOM: React-рендер каждый кадр не нужен.
       const indicator = windIndicator.current;
       if (indicator) {
-        const show = windOn() && !isDead() && !latest.current.blocked;
+        // У «Перезарядки» и ветра один слот под прицелом: пока идёт подсказка,
+        // ветер ждёт.
+        const show = windOn() && !isDead() && !latest.current.blocked && !reloadHintRef.current;
         indicator.hidden = !show;
+        // В бою без оптики ветер — фон: приглушаем. С оптикой снайперки снос
+        // решает выстрел, и индикатор снова в полную силу.
+        const scoped = GAME_TOOLS[latest.current.tool]?.id === 'sniper' && aimHeld;
+        const quiet = modeOf(latest.current.room.state) === 'battle' && !scoped;
+        if (indicator.dataset.quiet !== String(quiet)) indicator.dataset.quiet = String(quiet);
         if (show) {
           const wind = weather.wind;
           const relative = windRelative(wind, player.cameraYaw);
@@ -2695,11 +2766,14 @@ export default function World(props: Props) {
       window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('blur', onBlur);
       document.removeEventListener('pointerlockchange', changed);
+      document.removeEventListener('pointerlockerror', lockError);
+      clearTimeout(relockTimer);
       canvas.removeEventListener('wheel', wheel);
       canvas.removeEventListener('mousedown', onDown);
       canvas.removeEventListener('contextmenu', context);
       canvas.removeEventListener('auxclick', context);
-      canvas.removeEventListener('webglcontextlost', context);
+      canvas.removeEventListener('webglcontextlost', contextLost);
+      canvas.removeEventListener('webglcontextrestored', contextRestored);
       visuals.dispose();
       // Геометрия и текстуры людей общие для всех бойцов и сцен — общая чистка ниже их не трогает.
       unmountHuman(avatar);
@@ -2860,19 +2934,29 @@ export default function World(props: Props) {
                       ],
                     },
         ];
+  const match = props.room.match;
+  // Матч в разгаре: по игроку стреляют, в том числе пока он в паузе.
+  const matchLive = gameMode === 'battle' && (!match || match.phase === 'live');
+  // Идёт бой: второстепенное (часы, ветер без оптики, панель кадров) приглушено.
+  const inCombat = matchLive && !dead;
+  // Курсор свободен, и ничего другого поверх мира не открыто.
+  const freeCursor =
+    !active && !radial && !contextWheel && !dead && !props.blocked && !scorePinned && !tabletInWorld;
   return (
     <div
-      className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''}`}
+      className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''} ${inCombat ? 'in-combat' : ''} ${hudPrefs.colorblind ? 'is-colorblind' : ''}`}
+      style={{ '--hud-scale': hudPrefs.hudScale } as React.CSSProperties}
     >
       <div ref={mount} className="world-canvas" data-visual-pack={packStatus === 'ready' ? resourcePack : 'default'} />
       <div ref={windIndicator} className="wind-indicator" hidden aria-label="Ветер" title="Ветер: куда сносит пули и игрока, скорость и балл по шкале Бофорта">
         <span className="wind-indicator-arrow" aria-hidden="true" />
         <b />
       </div>
-      {packStatus === 'ready' && resourcePack === 'realistic-bodycam' && <div className="field-camera-mark" aria-hidden="true"><span>JNL / FIELD 01</span><span>● LIVE VIEW · {perspective === 'first' ? 'FPP' : 'TPP'}</span></div>}
+      {packStatus === 'ready' && resourcePack === 'realistic-bodycam' && <div className="field-camera-mark" aria-hidden="true"><span>НАТЕЛЬНАЯ КАМЕРА 01</span><span>● ЗАПИСЬ · {perspective === 'first' ? 'ОТ 1-ГО ЛИЦА' : 'ОТ 3-ГО ЛИЦА'}</span></div>}
       {packStatus === 'loading' && <output className="pack-status">Подготовка визуального пакета…</output>}
-      {packStatus === 'error' && <div role="alert" className="pack-status">Пакет не загрузился. Игра продолжается с Default.</div>}
-      {urbanSlow && slowUrban && <output className="pack-status">Urban Realism: частота кадров ниже 28 FPS. <button type="button" onClick={props.onGraphics}>Настроить графику</button></output>}
+      {packStatus === 'error' && <div role="alert" className="pack-status">Пакет не загрузился. Игра продолжается в обычном виде.</div>}
+      {urbanSlow && slowUrban && <output className="pack-status">Пакет «Urban Realism»: меньше 28 кадров в секунду. <button type="button" onClick={props.onGraphics}>Настроить графику</button></output>}
+      {glLost && <HudGraphicsLost />}
       <WorldHud
         mode={gameMode}
         room={props.room}
@@ -2889,12 +2973,17 @@ export default function World(props: Props) {
         aiming={aiming}
         dead={dead}
         sniperZoomIndex={sniperZoomIndex}
-        hitEffect={hitEffect}
+        damageHits={damageHits}
+        damageView={damageView}
         hitMark={hitMark}
         shieldSeconds={shieldSeconds}
         killfeed={killfeed}
         personalAlert={personalAlert}
         respawnSeconds={respawnSeconds}
+        respawnTotal={props.room.state.respawnSeconds ?? 5}
+        waitsForRound={gameMode === 'battle' && match?.mode === 'rounds'}
+        deathInfo={deathInfo}
+        prefs={hudPrefs}
         voice={props.voice}
         freezeSeconds={Math.max(
           0,
@@ -2914,23 +3003,25 @@ export default function World(props: Props) {
           closeTabletInWorld={closeTabletInWorld}
         />
       )}
-      {!active && !radial && !contextWheel && !dead && !props.blocked && !scorePinned && (
-        <div className="camera-onboarding">
-          <MousePointer2 size={24} />
-          <div>
-            <strong>Кликните, чтобы играть</strong>
-            <span>Двигайте мышь — камера следует за вами.</span>
-            <small>
-              {START_HINTS[modeOf(props.room.state)] ??
-                'Esc — свободный курсор · ЛКМ — действие'}
-            </small>
-            {captureError && <small role="alert">{captureError}</small>}
-          </div>
-          <button className="play-capture" onClick={lock}>
-            Играть
-          </button>
-        </div>
-      )}
+      {/* Первый вход — карточка «Кликните, чтобы играть»; дальше Esc — пауза. */}
+      {freeCursor &&
+        (played && !touchOnly ? (
+          <HudPause
+            mode={gameMode}
+            vulnerable={matchLive}
+            waiting={captureWait}
+            error={captureError}
+            onResume={lock}
+          />
+        ) : (
+          <HudStartCard
+            mode={gameMode}
+            touchOnly={touchOnly}
+            waiting={captureWait}
+            error={captureError}
+            onPlay={lock}
+          />
+        ))}
       {near && active && !radial && !props.blocked && (
         <button className="interact-prompt" onClick={() => props.onZone(near)}>
           <kbd>E</kbd>
@@ -2942,9 +3033,9 @@ export default function World(props: Props) {
           разметка и подписка на настройку живут в world-hud.tsx. Место —
           слева от панели предметов: правый нижний угол занят миникартой. */}
       {reloadHint > 0 && (
-        <output key={reloadHint} className="hud-reload-hint">
+        <div key={reloadHint} className="hud-reload-hint" aria-hidden="true">
           Перезарядка
-        </output>
+        </div>
       )}
       {current?.id === 'grenade' && (
         <GrenadeRecharge readyAt={grenadeReadyAt} cooldown={GRENADE_COOLDOWN_MS} />
@@ -2954,6 +3045,7 @@ export default function World(props: Props) {
           rounds={rounds[current.id as Blaster]}
           capacity={CAPACITY[current.id as Blaster]}
           reloading={reloading}
+          readProgress={readReload}
         />
       )}
       {/* В «Предателе» план крупнее и с названиями отсеков: по ним договариваются на собраниях. */}
@@ -3115,7 +3207,7 @@ export default function World(props: Props) {
         >
           <header>
             <div>
-              <span className="eyebrow">JINALY / LOADOUT</span>
+              <span className="eyebrow">JINALY / СНАРЯЖЕНИЕ</span>
               <DialogTitle>Снаряжение</DialogTitle>
             </div>
             <button
@@ -3205,9 +3297,11 @@ export default function World(props: Props) {
           <Users />В сети
         </button>
       </div>
-      <output className="sr-only">
-        Выстрелов: {shots}. Поза: {stance}.
-      </output>
+      {/* Скринридеру — только своё убийство и своя смерть: счётчик выстрелов и
+          поза в постоянной живой области зачитывались поверх всего боя. */}
+      <p className="sr-only" aria-live="polite">
+        {announce}
+      </p>
     </div>
   );
 }

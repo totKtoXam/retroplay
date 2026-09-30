@@ -12,6 +12,7 @@ import { createGhostForm, setGhostLook, type GhostForm } from './world-ghost';
 import { syncHuman, unmountHuman, updateHumanLod } from './world-human';
 import type { CharacterModels } from '@/lib/graphics-settings';
 import { knockPath } from '@/lib/melee';
+import { ALLY_MARK, ENEMY_MARK, isTeam, teamCss } from '@/lib/team-colors';
 
 /**
  * Сколько секунд аватар отброшенного молотом летит по предсказанию, а не по
@@ -20,9 +21,6 @@ import { knockPath } from '@/lib/melee';
  */
 const KNOCK_VISUAL_S = 0.7;
 const BODY_RADIUS = 0.32;
-
-/** Цвета сторон: боец и его метка окрашены в цвет команды, а не личный. */
-const TEAM_COLORS: Record<string, string> = { red: '#ff5d52', blue: '#5aa9ff' };
 
 /**
  * Remote player avatars of the world engine: creation/retirement, name
@@ -95,11 +93,14 @@ export function createWorldRemotePlayers({
       start: now,
     });
   };
-  /** Цвет игрока на поле: в бою — цвет его команды, на встрече — личный. */
+  /**
+   * Цвет игрока на поле: в бою — цвет его команды (оранжевые и синие,
+   * lib/team-colors), и тело, и бандана, и метка; на встрече — личный.
+   */
   const colorOf = (member: { team?: string; color: string }) =>
-    (modeOf(latest.current.room.state) === 'battle' &&
-      TEAM_COLORS[member.team ?? '']) ||
-    member.color;
+    modeOf(latest.current.room.state) === 'battle' && isTeam(member.team)
+      ? teamCss(member.team)
+      : member.color;
   /** Своя ли это сторона (в свободной игре все «свои»). */
   const isAlly = (member: { team?: string }) => {
     if (modeOf(latest.current.room.state) !== 'battle') return true;
@@ -264,7 +265,9 @@ export function createWorldRemotePlayers({
       const inParty = impostor?.players.find((p) => p.id === member.id);
       const ghostMark =
         impostor && impostor.phase !== 'lobby' && impostor.phase !== 'ended' && (!inParty || !inParty.alive) ? '👻 ' : '';
-      const mark = mode === 'battle' ? (ally ? '▲ ' : '✖ ') : ghostMark;
+      // Ромб — свой, треугольник — чужой: те же знаки, что на миникарте в режиме
+      // для дальтоников, поэтому сторона читается формой, а не только цветом.
+      const mark = mode === 'battle' ? `${ally ? ALLY_MARK : ENEMY_MARK} ` : ghostMark;
       const caption = mode === 'impostor'
         ? latest.current.room.state.anonymousPlayers
           ? mark || 'Участник'

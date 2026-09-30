@@ -71,3 +71,143 @@
     justify-content: center;
   }
 }
+
+/* --- Настройки игрока (components/settings-player.tsx, план UX/UI 3.4) --- */
+
+/* Ползунок: подпись слева, значение справа — видно, что именно двигаешь. */
+.player-range-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.player-range-head output {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  color: var(--jin-text);
+}
+/* Общий .field input рисует рамку и поля текстового поля — ползунку они не
+   нужны. Кольцо фокуса остаётся от .field input:focus. */
+.player-range input[type='range'] {
+  padding: 0;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  accent-color: var(--jin-accent);
+  cursor: pointer;
+}
+
+.player-crosshair {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0;
+}
+.player-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.player-fieldset > legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-size: var(--fs-md);
+  font-weight: 550;
+}
+.player-value {
+  font-weight: var(--weight-regular);
+  color: var(--jin-text-muted);
+}
+
+/* Вид прицела: три карточки с превью. Настоящие радиокнопки поверх карточек —
+   стрелки, Tab и скринридер работают как у обычной группы переключателей. */
+.player-seg {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.player-seg-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  border: 1px solid var(--jin-border-strong);
+  border-radius: var(--rd-md);
+  background: var(--jin-surface-2);
+  color: var(--jin-text-muted);
+  font-size: var(--fs-xs);
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast),
+    background var(--dur-fast);
+}
+.player-seg-item:hover {
+  border-color: var(--jin-accent);
+}
+.player-seg-item.is-on {
+  border-color: var(--jin-accent);
+  box-shadow: inset 0 0 0 1px var(--jin-accent);
+  background: var(--jin-accent-soft);
+  color: var(--jin-text);
+  font-weight: var(--weight-semibold);
+}
+.player-seg-item input,
+.player-swatch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  appearance: none;
+  cursor: pointer;
+}
+.player-seg-item:has(input:focus-visible),
+.player-swatch:has(input:focus-visible) {
+  outline: 3px solid var(--jin-accent);
+  outline-offset: 2px;
+}
+/* Превью на «небе и земле»: сразу видно, как цвет читается и на светлом, и на
+   тёмном. Цвета сцены — не тема: превью одинаково в светлой и тёмной. */
+.crosshair-preview {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--rd-sm);
+  background: linear-gradient(180deg, #8fb3d9 0 50%, #4f5d49 50% 100%);
+}
+
+/* Цвет прицела: кружки, выбранный — с кольцом (форма, а не только оттенок). */
+.player-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.player-swatch {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--rd-full);
+  cursor: pointer;
+}
+.player-swatch-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--rd-full);
+  border: 1px solid var(--jin-border-strong);
+}
+.player-swatch:has(input:checked) .player-swatch-dot {
+  box-shadow:
+    0 0 0 2px var(--jin-surface),
+    0 0 0 4px var(--jin-accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-seg-item {
+    transition: none;
+  }
+}

@@ -349,3 +349,12 @@
     transition: none;
   }
 }
+
+/* Тач-цели: инструменты доски без WebGL — 44px на экране с грубым указателем. */
+@media (pointer: coarse) {
+  .rbf-tool,
+  .rbf-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

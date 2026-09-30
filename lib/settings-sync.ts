@@ -24,6 +24,13 @@ export const SYNCED_SETTING_KEYS = [
   'jinaly-confetti-style',
   'jinaly-grenade-style',
   'jinaly-firework-style',
+  // Этап 3.4 плана UX/UI: личное, переезжает с аккаунтом. Масштаб HUD — нет:
+  // он зависит от экрана устройства, как графика.
+  'jinaly-fov',
+  'jinaly-sfx-volume',
+  'jinaly-crosshair-style',
+  'jinaly-crosshair-color',
+  'jinaly-colorblind',
 ] as const;
 
 /** Шлётся в окно, когда настройки с аккаунта записаны в localStorage. */

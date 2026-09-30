@@ -184,3 +184,163 @@
 .keys-help-compact {
   gap: 8px;
 }
+
+/* ==========================================================================
+   Этап 5 плана UX/UI: праздничные миры (lib/festive.ts, components/room-cover.tsx)
+   ========================================================================== */
+
+/* --- Сцена мира: цвета приходят переменными --festive-* из lib/festive.ts -- */
+.fx-bg {
+  fill: var(--festive-bg);
+}
+.fx-ground {
+  fill: var(--festive-ground);
+}
+.fx-accent {
+  fill: var(--festive-accent);
+}
+.fx-pattern {
+  fill: var(--festive-pattern);
+}
+.fx-s-accent,
+.fx-s-pattern,
+.fx-s-ink {
+  fill: none;
+}
+.fx-s-accent {
+  stroke: var(--festive-accent);
+}
+.fx-s-pattern {
+  stroke: var(--festive-pattern);
+}
+.fx-s-ink {
+  stroke: var(--festive-ink);
+}
+.world-scene {
+  display: block;
+  overflow: visible;
+  width: 100%;
+  height: 100%;
+}
+/* В тёмной теме сцена гаснет, как сумерки, а бейджи поверх остаются яркими. */
+html[data-theme='dark'] .world-scene {
+  filter: brightness(0.78) saturate(0.9);
+}
+
+/* --- Обложка карточки: сцена во весь размер, бейджи по углам ---------------- */
+.room-cover.room-cover-art {
+  /* Кадр сцены 320 × 140, но не выше прежних 137px: на широкой карточке
+     (одна колонка на планшете) сцена показывает больше степи, а не растёт. */
+  height: auto;
+  aspect-ratio: 320 / 140;
+  max-height: 137px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  overflow: hidden;
+  background: var(--festive-bg);
+}
+.room-cover-art > .world-scene {
+  position: absolute;
+  inset: 0;
+}
+.cover-chips-end {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+/* Бейджи лежат на поверхности интерфейса, а не на сцене: читаются на любом
+   мире в обеих темах (--jin-text на --jin-surface). */
+.cover-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 3px var(--space-2);
+  border-radius: var(--rd-sm);
+  background: var(--jin-surface);
+  color: var(--jin-text);
+  box-shadow: var(--shadow-sm);
+  font-size: var(--fs-2xs);
+  font-weight: var(--weight-semibold);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.cover-chip-icon {
+  justify-content: center;
+  min-width: 22px;
+  padding: 3px var(--space-1-5);
+}
+.cover-chip svg {
+  flex-shrink: 0;
+  color: var(--jin-text-muted);
+}
+.cover-mode svg {
+  color: var(--jin-accent);
+}
+/* Цвет точки — подсказка, смысл несёт подпись рядом. */
+.cover-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: var(--rd-full);
+  background: var(--jin-accent);
+}
+.cover-status[data-status='available'] .cover-dot {
+  background: var(--hud-success);
+}
+.cover-status[data-status='in_progress'] .cover-dot {
+  background: var(--team-orange);
+}
+.cover-status[data-status='full'] .cover-dot {
+  background: var(--hud-danger);
+}
+.cover-status[data-status='closed'] .cover-dot {
+  background: var(--jin-text-faint);
+}
+
+/* --- Появление карточек: короткая волна слева направо ---------------------- */
+@media (prefers-reduced-motion: no-preference) {
+  .room-grid > .room-card {
+    animation: lobby-card-in var(--dur-slow) var(--ease-emphasis) both;
+    animation-delay: calc(var(--card-index, 0) * 40ms);
+  }
+}
+@keyframes lobby-card-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+/* --- Пустые состояния: иллюстрация в стиле обложек, цвета интерфейса ------- */
+.empty-art {
+  display: block;
+  width: 176px;
+  height: 88px;
+  margin-bottom: var(--space-4);
+}
+.ea-soft {
+  fill: var(--jin-border);
+}
+.ea-surface {
+  fill: var(--jin-surface);
+}
+.ea-line {
+  fill: none;
+  stroke: var(--jin-text-faint);
+}
+.ea-accent-s {
+  stroke: var(--jin-accent);
+}
+.empty-rooms-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}

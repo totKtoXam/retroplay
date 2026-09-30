@@ -7,7 +7,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 30;
+  z-index: var(--z-hud-float);
   color: #eef3fb;
   font-size: 14px;
 }
@@ -83,7 +83,7 @@
 .impostor-tasks {
   position: absolute;
   top: 150px;
-  left: 16px;
+  left: calc(16px + env(safe-area-inset-left, 0px));
   width: min(290px, calc(100vw - 32px));
   padding: 10px 12px;
 }
@@ -144,8 +144,8 @@
 .impostor-actions {
   position: absolute;
   /* Левее крупной миникарты режима и выше панели предметов по центру снизу. */
-  right: 286px;
-  bottom: 96px;
+  right: calc(286px + env(safe-area-inset-right, 0px));
+  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   display: flex;
   gap: 10px;
 }
@@ -177,7 +177,7 @@
   position: absolute;
   top: 4px;
   right: 6px;
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   opacity: 0.7;
 }
 
@@ -186,7 +186,7 @@
   /* Над затемнением собрания: ведущий может прервать партию из любой фазы. */
   z-index: 2;
   top: 64px;
-  right: 16px;
+  right: calc(16px + env(safe-area-inset-right, 0px));
   padding: 4px 10px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -287,6 +287,14 @@
   max-height: calc(100% - 32px);
   overflow: auto;
   padding: 14px 16px;
+}
+/* Окна режима — <dialog open>: снимаем стили браузера (абсолютная позиция,
+   системные цвета), остальное задаёт .impostor-card. */
+dialog.impostor-card {
+  position: static;
+  height: auto;
+  margin: 0;
+  color: inherit;
 }
 .impostor-card header,
 .impostor-card footer {
@@ -389,7 +397,7 @@
   border: 1px solid rgba(0, 0, 0, 0.35);
 }
 .impostor-badge {
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   color: #86efac;
 }
 .impostor-votes {
@@ -1019,7 +1027,7 @@
 .impostor-rules-link {
   float: right;
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   text-transform: none;
   letter-spacing: 0;
@@ -1400,11 +1408,34 @@
     font-size: 12px;
   }
   .impostor-actions {
-    bottom: 96px;
-    right: 8px;
+    bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+    right: calc(8px + env(safe-area-inset-right, 0px));
   }
   .impostor-action {
     width: 70px;
     height: 70px;
+  }
+}
+
+/* Тач-цели: на экране с грубым указателем кнопки режима и мини-игр — от 44px.
+   Ссылка «правила · I» стоит в строке текста и остаётся строчной. */
+@media (pointer: coarse) {
+  .impostor-layer button:not(.impostor-rules-link):not(.impostor-death) {
+    min-height: 44px;
+  }
+  .impostor-close,
+  .impostor-plug,
+  .impostor-leaf,
+  .impostor-asteroid {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .impostor-plug,
+  .impostor-leaf {
+    width: 44px;
+    height: 44px;
+  }
+  .impostor-align-track {
+    height: 44px;
   }
 }
