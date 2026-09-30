@@ -8,42 +8,15 @@ import {
   useCallback,
   lazy,
   Suspense,
-  Fragment,
   useSyncExternalStore,
 } from 'react';
 import {
-  ArrowLeft,
   Plus,
-  Users,
-  Link2,
-  Repeat,
-  Mic,
-  MicOff,
   Check,
   StickyNote,
-  Timer,
-  Vote,
   Flag,
-  Box,
-  ChevronRight,
-  Copy,
-  Trash2,
   Eye,
-  Bell,
   X,
-  Wifi,
-  Monitor,
-  Send,
-  Lock,
-  Gauge,
-  MousePointer2,
-  Swords,
-  Bot,
-  Sun,
-  ShieldCheck,
-  UserRound,
-  ListChecks,
-  Dices,
 } from 'lucide-react';
 import {
   Dialog,
@@ -60,19 +33,16 @@ import {
 import {
   ZONES,
   GAME_TOOLS,
-  FORM_NOTE_KINDS,
   isActionKind,
   isOnline,
   isPresent,
-  kdaRatio,
-  monitorGroups,
-  noteKindLabel,
   templateZones,
   zoneShort,
   zoneTitle,
   type Note,
   type Pose,
 } from '@/lib/model';
+import { relockWorld } from '@/lib/pointer-lock';
 import { api, download, parseCSV } from '@/lib/client';
 import {
   exportCsvRows,
@@ -83,51 +53,35 @@ import {
 } from '@/lib/room-export';
 import { phaseGuide, type PhaseAction } from '@/lib/room-phase';
 import { setMusicVoiceActive } from '@/lib/soundtrack';
-import { Choice, Toggle } from './controls';
 import { Card } from './board';
 import { useResourcePack } from '../hooks/use-resource-pack';
-import { readAimModes, type WeaponAimModes } from '@/lib/aim-settings';
-import { PREF_KEYS, readChoice, readPref, writePref } from '@/lib/user-prefs';
 import { SETTINGS_APPLIED_EVENT } from '@/lib/settings-sync';
-import { PAINTS } from '@/lib/game-items';
 import {
-  AccessSection,
-  ControlsSection,
-  GraphicsSection,
   GroupPanel,
   JoinRequestsPanel,
-  ProfileSection,
   SharePanel,
   TimerPanel,
   ToolsPanel,
   VotePanel,
-  MatchBar,
-  ModePanel,
-  BotsPanel,
-  WidgetsPanel,
-  WorldPanel,
-  FPS_LIMITS,
   type HistoryEntry,
 } from './room-panels';
 import { useConfirm } from './room-confirm';
-import { ConnectionIndicator } from './room-status';
 import { UndoToast } from './room-toast';
 import { ResultsPanel } from './room-results';
-import { RoomMenu } from './room-menu';
-import { SettingsShell, type SettingsGroup } from './settings-shell';
-import { WorldQuickChip } from './world-quick-chip';
-import { MusicPlayer } from './music-player';
-import { GameClock } from './game-clock';
 import { SidePicker } from './side-picker';
 import { PhaseBar } from './phase-bar';
 import RoomBoardFallback from './room-board-fallback';
-import { teamName } from '@/lib/team-colors';
 import { useRoomSync } from './use-room-sync';
 import GameChat from './game-chat';
 import { useVoiceChat } from './use-voice-chat';
 import { MAP_CATALOG, MODES, modeOf } from '@/lib/maps/catalog';
 import { defaultSlot, hasSlot, slotsFor } from '@/lib/loadout';
-import { BOT_LEVELS } from '@/lib/bot-levels';
+import { useLocalPrefs } from './use-local-prefs';
+import { RoomJoinScreen, RoomLoadingScreen } from './room-join-screen';
+import { RoomHeader } from './room-header';
+import { RoomMonitor } from './room-monitor';
+import { RoomNoteEditor, type Draft } from './room-note-editor';
+import { RoomSettings } from './room-settings';
 
 const World = lazy(() => import('./world'));
 // Как и мир, интерфейс «Предателя» тянет геометрию карт — грузится отдельно и только в этом режиме.
@@ -145,39 +99,35 @@ const kinds: Record<string, string> = {
   action: 'action',
   like: 'sticky',
 };
-type Draft = {
-  id?: string;
-  kind: string;
-  text: string;
-  zone: string;
-  color: string;
-  url: string;
-  x: number;
-  y: number;
-  owner: string;
-  due: string;
-  group: string;
-  tags: string;
-  hidden: boolean;
-  locked: boolean;
-  done: boolean;
-  width: number;
-  height: number;
-  rotation: number;
-};
 /** Адрес страницы внутри комнаты не меняется — подписываться не на что. */
 const noSubscribe = () => () => {};
 
 export default function RoomApp({ id }: { id: string }) {
   const resourcePack = useResourcePack();
-  const [fpsLimit, setFpsLimit] = useState(60);
+  const {
+    fpsLimit,
+    setFpsLimit,
+    sensitivity,
+    setSensitivity,
+    invertCamera,
+    setInvertCamera,
+    aimModes,
+    setAimModes,
+    paintColor,
+    quality,
+    setQuality,
+    sound,
+    selectedSkin,
+    setSelectedSkin,
+    selectedBandanaColor,
+    setSelectedBandanaColor,
+    loadDeviceSettings,
+    changeSound,
+    changePaintColor,
+  } = useLocalPrefs();
   const [editingTitle, setEditingTitle] = useState(false);
   const [quickSticky, setQuickSticky] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const [sensitivity, setSensitivity] = useState(1),
-    [invertCamera, setInvertCamera] = useState(false);
-  const [aimModes, setAimModes] = useState<WeaponAimModes>(() => readAimModes());
-  const [paintColor, setPaintColor] = useState('#bc91f5');
   const [joinRequestSent, setJoinRequestSent] = useState(false),
     [retryAfterReject, setRetryAfterReject] = useState(false),
     [name, setName] = useState(''),
@@ -193,7 +143,6 @@ export default function RoomApp({ id }: { id: string }) {
     [selectedZone, setSelectedZone] = useState(''),
     [draft, setDraft] = useState<Draft | null>(null),
     [comment, setComment] = useState(''),
-    [quality, setQuality] = useState('balanced'),
     [fps, setFps] = useState(0),
     [monitor, setMonitor] = useState(false),
     // Экран режима «Предатель» (мини-игра, собрание) держит курсор — мир не слушает ввод.
@@ -205,7 +154,6 @@ export default function RoomApp({ id }: { id: string }) {
     [seconds, setSeconds] = useState('300'),
     [voteLimit, setVoteLimit] = useState('5'),
     [groupTitle, setGroupTitle] = useState(''),
-    [sound, setSound] = useState(false),
     [spinner, setSpinner] = useState(''),
     [spinOptions, setSpinOptions] = useState(''),
     [celebrate, setCelebrate] = useState(''),
@@ -217,13 +165,7 @@ export default function RoomApp({ id }: { id: string }) {
     [undoBusy, setUndoBusy] = useState(false),
     [historyOpen, setHistoryOpen] = useState(false),
     // Главная кнопка этапа ждёт ответа сервера.
-    [guideBusy, setGuideBusy] = useState(false),
-    [selectedSkin, setSelectedSkin] = useState<string>(() =>
-      typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-custom-skin') || 'agent' : 'agent',
-    ),
-    [selectedBandanaColor, setSelectedBandanaColor] = useState<string>(() =>
-      typeof localStorage !== 'undefined' ? localStorage.getItem('jinaly-bandana-color') || '#3b82f6' : '#3b82f6',
-    );
+    [guideBusy, setGuideBusy] = useState(false);
   const cursor = useRef({ x: 0, y: 0, mode: '3d' });
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyVersion, setHistoryVersion] = useState(-1);
@@ -285,33 +227,6 @@ export default function RoomApp({ id }: { id: string }) {
   useEffect(() => {
     eventTime.current = Date.now();
   }, [id]);
-  /** Личные настройки с этого устройства: при входе в комнату и после синхронизации с аккаунтом. */
-  const loadDeviceSettings = useCallback(() => {
-    const savedSensitivity = Number(
-      localStorage.getItem('jinaly-sensitivity') || 1,
-    );
-    setSensitivity(
-      Number.isFinite(savedSensitivity)
-        ? Math.min(2, Math.max(0.4, savedSensitivity))
-        : 1,
-    );
-    setInvertCamera(localStorage.getItem('jinaly-invert-camera') === 'true');
-    setAimModes(readAimModes());
-    const savedQuality = localStorage.getItem('jinaly-quality');
-    setQuality(
-      savedQuality === 'high' ? 'cinematic' : savedQuality || 'balanced',
-    );
-    const savedFps = Number(localStorage.getItem('jinaly-fps-limit'));
-    setFpsLimit(FPS_LIMITS.includes(savedFps) ? savedFps : 60);
-    setSound(readPref(PREF_KEYS.sound) === 'true');
-    setPaintColor(
-      readChoice(
-        PREF_KEYS.paintColor,
-        PAINTS.map((p) => p.color),
-        '#bc91f5',
-      ),
-    );
-  }, []);
   const {
     connection,
     room,
@@ -414,15 +329,7 @@ export default function RoomApp({ id }: { id: string }) {
     };
     window.addEventListener(SETTINGS_APPLIED_EVENT, onApplied);
     return () => window.removeEventListener(SETTINGS_APPLIED_EVENT, onApplied);
-  }, [act, loadDeviceSettings]);
-  const changeSound = useCallback((value: boolean) => {
-    setSound(value);
-    writePref(PREF_KEYS.sound, String(value));
-  }, []);
-  const changePaintColor = useCallback((color: string) => {
-    setPaintColor(color);
-    writePref(PREF_KEYS.paintColor, color);
-  }, []);
+  }, [act, loadDeviceSettings, setSelectedSkin, setSelectedBandanaColor]);
   const beep = useCallback((frequency = 520) => {
     if (!soundRef.current) return;
     try {
@@ -668,109 +575,6 @@ export default function RoomApp({ id }: { id: string }) {
     inParty && !partyGhost && !['meeting', 'voting', 'eject'].includes(impostorView?.phase ?? '')
       ? 'Живые говорят только на собраниях'
       : '';
-  // Сколько пунктов плана ещё не сделано — подпись раздела «План действий»
-  // отвечает на вопрос «надо ли туда заходить» до того, как его открыли.
-  const actionsLeft =
-    s?.notes.filter((n) => isActionKind(n.kind) && !n.done).length ?? 0;
-  // Разделы настроек. Личное отделено от правил комнаты: раньше они лежали в
-  // одном плоском списке, и было не видно, что можешь менять ты, а что ведущий.
-  // Сюда же переехали разовые действия из бывшего меню комнаты: своих входов
-  // (горячих клавиш, кнопок в шапке) у них нет, и без меню они стали бы
-  // недостижимы. У инвентаря и выбора стороны такие входы есть — Q / I и G, —
-  // поэтому их в настройках нет.
-  const settingsGroups: SettingsGroup[] = [
-    {
-      id: 'mine',
-      title: 'Моё',
-      sections: [
-        {
-          id: 'graphics',
-          title: 'Графика',
-          hint: 'Качество картинки и лимит FPS на этом устройстве',
-          icon: Gauge,
-        },
-        {
-          id: 'controls',
-          title: 'Управление',
-          hint: 'Мышь, камера, прицеливание и список клавиш',
-          icon: MousePointer2,
-        },
-        {
-          id: 'profile',
-          title: 'Профиль',
-          hint: 'Имя в комнате и звуки встречи',
-          icon: UserRound,
-        },
-      ],
-    },
-    {
-      id: 'meeting',
-      title: 'Встреча',
-      sections: [
-        {
-          id: 'results',
-          title: 'Итоги встречи',
-          hint: actionsLeft
-            ? `План действий: ${actionsLeft} не сделано`
-            : 'План действий, экспорт, история и завершение',
-          icon: ListChecks,
-        },
-        {
-          id: 'widgets',
-          title: 'Для живой встречи',
-          hint: 'Таймер, спиннер, счётчик и реакции',
-          icon: Dices,
-        },
-      ],
-    },
-    {
-      id: 'room',
-      title: 'Комната',
-      sections: [
-        {
-          id: 'mode',
-          title: 'Режим и карта',
-          hint: 'Во что играем: режим, карта и правила матча',
-          icon: Swords,
-          hostOnly: true,
-        },
-        {
-          id: 'bots',
-          title: 'Боты',
-          hint:
-            gameMode === 'impostor'
-              ? s?.bots?.length
-                ? `На корабле: ${s.bots.length}`
-                : 'Экипаж и предатели четырёх уровней'
-              : gameMode !== 'battle'
-                ? 'Играют в бою и в «Предателе»'
-                : s?.bots?.length
-                  ? `В бою: ${s.bots.length}`
-                  : 'Соперники и напарники четырёх уровней',
-          icon: Bot,
-          hostOnly: true,
-        },
-        {
-          id: 'world',
-          title: 'Облик мира',
-          hint: 'Стиль и тема оформления',
-          icon: Sun,
-          hostOnly: true,
-        },
-        {
-          id: 'access',
-          title: 'Доступ и приватность',
-          hint: 'Кто входит и что видно участникам',
-          icon: ShieldCheck,
-          hostOnly: true,
-        },
-      ],
-    },
-    // План действий, экспорт, история с отменой и завершение встречи
-    // переехали в отдельную панель «Итоги» (components/room-results.tsx): её
-    // открывают из шапки и кнопкой этапа. В настройках от них осталась ссылка
-    // «Итоги встречи» в группе «Встреча».
-  ];
   /** Открыть настройки сразу на нужном разделе — из HUD или из инвентаря. */
   const openSettings = (section: string) => {
     setSettingsSection(section);
@@ -889,7 +693,7 @@ export default function RoomApp({ id }: { id: string }) {
       else await op({ type: 'note.add', ...data });
       setDraft(null);
       setTimeout(() => {
-        if (!webglFailed) void document.querySelector('canvas')?.requestPointerLock();
+        if (!webglFailed) relockWorld();
       }, 50);
       flash('Карточка сохранена');
     } catch {
@@ -974,187 +778,26 @@ export default function RoomApp({ id }: { id: string }) {
       setError((e as Error).message);
     }
   };
-  if (join) {
-    const isPrivate = !!join.isPrivate;
-    // The server keeps reporting the latest (rejected) request until a new one is sent.
-    const isRejected = join.requestStatus === 'rejected' && !retryAfterReject;
-    const isPending =
-      join.requestStatus === 'pending' ||
-      (joinRequestSent && join.requestStatus !== 'rejected');
-    const isFull = (join.membersCount || 0) >= (join.maxPlayers || 8);
-
+  if (join)
     return (
-      <main className="join-screen">
-        <a className="brand" href="/">
-          <span className="brand-symbol">Ж</span>jinaly
-        </a>
-        <div className="join-card">
-          {isPrivate && (
-            <span className="private-room-badge">
-              <Lock size={13} /> Приватная комната
-            </span>
-          )}
-          <span className="join-emoji">{isPrivate ? '🔐' : '🤝'}</span>
-          <h1>{join.title}</h1>
-          <div className="join-room-meta-info">
-            <span>
-              Ведущий: <b>{join.hostName || 'Ведущий'}</b>
-            </span>
-            <span>
-              Участники:{' '}
-              <b>
-                {join.membersCount || 0} / {join.maxPlayers || 8}
-              </b>
-            </span>
-          </div>
-
-          {isPrivate ? (
-            isPending ? (
-              <div className="join-waiting-box">
-                <div className="waiting-spinner" />
-                <span className="waiting-title">
-                  Ожидание одобрения ведущего…
-                </span>
-                <p className="waiting-text">
-                  Ведущий ({join.hostName || 'Ведущий'}) получил ваш запрос на
-                  вход. Комната откроется автоматически сразу после одобрения.
-                </p>
-                <a href="/" className="secondary">
-                  К списку комнат
-                </a>
-              </div>
-            ) : isRejected ? (
-              <div className="join-rejected-box">
-                <span className="rejected-icon">🚫</span>
-                <span className="rejected-title">Запрос отклонён</span>
-                <p className="rejected-text">
-                  Ведущий отклонил ваш запрос на вход в эту комнату.
-                </p>
-                <button
-                  className="primary"
-                  onClick={() => {
-                    setJoinRequestSent(false);
-                    setRetryAfterReject(true);
-                    setError('');
-                  }}
-                >
-                  Попробовать снова
-                </button>
-                <a href="/" className="secondary">
-                  К списку комнат
-                </a>
-              </div>
-            ) : (
-              <>
-                <p className="muted">
-                  Для входа в эту комнату требуется подтверждение ведущего.
-                </p>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void sendJoinRequest(name);
-                  }}
-                >
-                  <label className="field">
-                    Ваше имя
-                    <input
-                      required
-                      maxLength={40}
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="Как вас зовут?"
-                    />
-                  </label>
-                  <button
-                    className="primary full-width"
-                    disabled={busy || isFull}
-                  >
-                    {busy
-                      ? 'Отправка запроса…'
-                      : isFull
-                        ? 'Комната заполнена'
-                        : 'Отправить запрос на вход'}{' '}
-                    <ChevronRight size={17} />
-                  </button>
-                </form>
-              </>
-            )
-          ) : (
-            <>
-              <p className="muted">
-                Команда ждёт вас. Представьтесь, чтобы присоединиться.
-              </p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void enter();
-                }}
-              >
-                <label className="field">
-                  Ваше имя
-                  <input
-                    required
-                    maxLength={40}
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Как вас зовут?"
-                  />
-                </label>
-                <button
-                  className="primary full-width"
-                  disabled={busy || isFull}
-                >
-                  {busy
-                    ? 'Подключаемся…'
-                    : isFull
-                      ? 'Комната заполнена'
-                      : 'Войти в комнату'}{' '}
-                  <ChevronRight size={17} />
-                </button>
-              </form>
-            </>
-          )}
-
-          {error && (
-            <p className="error-banner" role="alert">
-              {error}
-            </p>
-          )}
-        </div>
-      </main>
+      <RoomJoinScreen
+        join={join}
+        joinRequestSent={joinRequestSent}
+        retryAfterReject={retryAfterReject}
+        setJoinRequestSent={setJoinRequestSent}
+        setRetryAfterReject={setRetryAfterReject}
+        name={name}
+        setName={setName}
+        busy={busy}
+        error={error}
+        setError={setError}
+        sendJoinRequest={sendJoinRequest}
+        enter={enter}
+      />
     );
-  }
   if (!room || !s)
     return (
-      <main className="join-screen">
-        <a href="/" className="brand">
-          <span className="brand-symbol">Ж</span>jinaly
-        </a>
-        <div className="join-card">
-          <CompassPlaceholder />
-          <h2>
-            {error
-              ? 'Не удалось открыть комнату'
-              : 'Готовим место для встречи…'}
-          </h2>
-          <p className="muted">
-            {error || 'Подключаем общую доску и участников'}
-          </p>
-          {error && (
-            <>
-              <button
-                className="primary"
-                onClick={() => void refresh().catch((e) => setError(e.message))}
-              >
-                Повторить
-              </button>
-              <a href="/" className="secondary">
-                К комнатам
-              </a>
-            </>
-          )}
-        </div>
-      </main>
+      <RoomLoadingScreen error={error} setError={setError} refresh={refresh} />
     );
   const edited = s.notes.find((n) => n.id === draft?.id),
     canEdit = !draft?.id || (!!edited && (edited.author === room.self || host)),
@@ -1355,256 +998,33 @@ export default function RoomApp({ id }: { id: string }) {
         (s.visualStyle === 'anime' ? ' style-anime' : ' style-classic')
       }
     >
-      <header
-        className={`game-bar${gameMode === 'battle' ? ' is-battle' : ''}`}
-      >
-        <a
-          href="/"
-          className="game-bar-back"
-          aria-label="К комнатам"
-          title="К комнатам"
-        >
-          <ArrowLeft size={17} />
-        </a>
-        {editingTitle ? (
-          <input
-            className="inline-room-title"
-            aria-label="Название встречи"
-            ref={(node) => node?.focus()}
-            defaultValue={s.title}
-            maxLength={100}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') e.currentTarget.blur();
-              if (e.key === 'Escape') {
-                e.currentTarget.value = s.title;
-                e.currentTarget.blur();
-              }
-            }}
-            onBlur={(e) => {
-              setEditingTitle(false);
-              if (e.target.value.trim() && e.target.value !== s.title)
-                void act({
-                  type: 'room.settings',
-                  patch: { title: e.target.value },
-                });
-            }}
-          />
-        ) : (
-          <h1>
-            <button
-              className="editable-room-title"
-              disabled={!host}
-              title={host ? 'Нажмите, чтобы изменить название' : undefined}
-              onClick={() => setEditingTitle(true)}
-            >
-              {s.title}
-            </button>
-          </h1>
-        )}
-        {/* В ретро карта всегда одна — хаб, её имя в шапке ничего не говорит. */}
-        {gameMode !== 'retro' && (
-          <span className="game-tag map-tag">{mapTitle}</span>
-        )}
-        <div
-          className={`game-bar-center${gameMode === 'battle' ? ' with-match' : ''}`}
-        >
-          {gameMode === 'battle' ? (
-            // Часы — ярлык, выезжающий из-под счёта (app/game-clock.css): время
-            // суток это фон боя, а не его счёт, и ни строки в шапке, ни высоты
-            // сцены занимать не должно.
-            <div className="match-stack">
-              <MatchBar match={room.match} rounds={s.roundWins ?? 5} now={now} />
-              <GameClock state={s} now={now} />
-            </div>
-          ) : (
-            <>
-              {/* Этапы уехали из шапки в PhaseBar над сценой, приватное
-                  написание, музыка, погода и полный экран — в меню «⋯». Здесь
-                  остаётся то, на что смотрят всю встречу: время и голоса. */}
-              <button
-                type="button"
-                className={`game-tag clock ${s.timer.running ? 'running' : ''}`}
-                onClick={() => setPanel('timer')}
-                aria-label={`Таймер: ${timeText}${s.timer.running ? ', идёт' : ''}`}
-                title="Таймер встречи"
-              >
-                <Timer size={14} aria-hidden="true" />
-                {timeText}
-              </button>
-              <button
-                type="button"
-                className={`game-tag votes-tag ${round?.active ? 'on' : ''}`}
-                onClick={() => setPanel('vote')}
-                aria-label={votesLabel}
-                title={votesLabel}
-              >
-                <Vote size={14} aria-hidden="true" />
-                <span className="room-bar-label">Голоса</span>
-                {round?.active && (
-                  <b>
-                    {Math.max(0, round.limit - used)}/{round.limit}
-                  </b>
-                )}
-              </button>
-              {/* В ретро MatchBar не рендерится, поэтому часы встают в тот же
-                  ряд — сразу за таймером встречи, чтобы «сколько осталось» в
-                  реальном и в игровом времени читалось рядом. На корабле
-                  «Предателя» суток нет — ни солнца, ни заката. */}
-              {gameMode !== 'impostor' && <GameClock state={s} now={now} />}
-            </>
-          )}
-        </div>
-        {/* Участники и заявки на вход — одна группа: бейдж заявок прилеплен
-            к кнопке участников и виден даже на телефоне. */}
-        <div className="people-group">
-          <button
-            type="button"
-            className="game-tag people"
-            onClick={() => setMonitor(true)}
-            aria-label={`Участники: ${online.length} в сети`}
-            title="Участники · клавиша Ё"
-          >
-            {online.slice(0, 3).map((m) => (
-              <span
-                key={m.id}
-                className="avatar"
-                style={{ background: m.color, color: '#fff' }}
-                title={m.name}
-              >
-                {Array.from(m.name)[0]}
-              </span>
-            ))}
-            <b>{online.length}</b>
-          </button>
-          {host && joinRequests.length > 0 && (
-            <button
-              type="button"
-              className="game-tag alert join-badge"
-              onClick={() => setPanel('join_requests')}
-              aria-label={`Заявки на вход: ${joinRequests.length}`}
-              title="Заявки на вход"
-            >
-              <Bell size={13} className="bell-pulse" aria-hidden="true" />
-              {joinRequests.length}
-            </button>
-          )}
-        </div>
-        {gameMode === 'retro' && (
-          <button
-            type="button"
-            className="game-tag room-bar-wide"
-            onClick={() => setPanel('results')}
-            aria-label="Итоги встречи"
-            title="Итоги встречи: голоса, план действий, экспорт"
-          >
-            <ListChecks size={14} aria-hidden="true" />
-            <span className="room-bar-label">Итоги</span>
-          </button>
-        )}
-        <button
-          type="button"
-          className="game-tag room-bar-wide"
-          onClick={() => setPanel('share')}
-          aria-label="Пригласить участников"
-          title="Пригласить: ссылка на комнату"
-        >
-          <Link2 size={14} aria-hidden="true" />
-          <span className="room-bar-label">Пригласить</span>
-        </button>
-        <ConnectionIndicator status={connection} />
-        <RoomMenu
-          open={menuOpen}
-          onOpenChange={setMenuOpen}
-          status={connection}
-          compact={[
-            ...(gameMode !== 'battle'
-              ? [
-                  {
-                    id: 'timer',
-                    label: `Таймер · ${timeText}`,
-                    hint: s.timer.running ? 'Идёт' : 'Остановлен',
-                    icon: Timer,
-                    onSelect: () => setPanel('timer'),
-                  },
-                  {
-                    id: 'vote',
-                    label: votesLabel,
-                    icon: Vote,
-                    onSelect: () => setPanel('vote'),
-                  },
-                ]
-              : []),
-            ...(gameMode === 'retro'
-              ? [
-                  {
-                    id: 'results',
-                    label: 'Итоги встречи',
-                    hint: 'Голоса, план действий, экспорт',
-                    icon: ListChecks,
-                    onSelect: () => setPanel('results'),
-                  },
-                ]
-              : []),
-            {
-              id: 'share',
-              label: 'Пригласить',
-              hint: 'Ссылка на комнату',
-              icon: Link2,
-              onSelect: () => setPanel('share'),
-            },
-          ]}
-          music={<MusicPlayer voiceActive={voiceActive} />}
-          world={
-            gameMode !== 'impostor' ? (
-            <WorldQuickChip
-              time={s.time}
-              season={s.season}
-              weather={s.weather}
-              weatherTuning={s.weatherTuning}
-              weatherPeriod={s.weatherPeriod}
-              windEffects={s.windEffects}
-              now={now}
-              dayCycle={s.dayCycle}
-              host={host}
-              onDayCycleChange={(dayCycle) =>
-                void act({ type: 'room.settings', patch: { dayCycle } })
-              }
-              onTimeChange={(time) =>
-                void act({ type: 'room.settings', patch: { time } })
-              }
-              onSeasonChange={(season) =>
-                void act({ type: 'room.settings', patch: { season } })
-              }
-              onWeatherChange={(weather) =>
-                void act({ type: 'room.settings', patch: { weather } })
-              }
-              onWeatherPeriodChange={(weatherPeriod) =>
-                void act({ type: 'room.settings', patch: { weatherPeriod } })
-              }
-              onWeatherTuningChange={(weatherTuning) =>
-                void act({ type: 'room.settings', patch: { weatherTuning } })
-              }
-              onWindEffectsChange={(windEffects) =>
-                void act({ type: 'room.settings', patch: { windEffects } })
-              }
-              onLocked={() => flash('Облик мира меняет ведущий встречи')}
-            />
-            ) : undefined
-          }
-          privacy={
-            gameMode !== 'battle'
-              ? {
-                  value: s.privateWriting,
-                  host,
-                  onToggle: () => void setPrivateWriting(!s.privateWriting),
-                }
-              : undefined
-          }
-          fullscreen={fullscreen}
-          onToggleFullscreen={() => void enterFullscreen()}
-          onSettings={() => setPanel('menu')}
-        />
-      </header>
+      <RoomHeader
+        room={room}
+        s={s}
+        host={host}
+        gameMode={gameMode}
+        mapTitle={mapTitle}
+        now={now}
+        timeText={timeText}
+        round={round}
+        used={used}
+        votesLabel={votesLabel}
+        online={online}
+        joinRequests={joinRequests}
+        connection={connection}
+        editingTitle={editingTitle}
+        setEditingTitle={setEditingTitle}
+        menuOpen={menuOpen}
+        setMenuOpen={setMenuOpen}
+        voiceActive={voiceActive}
+        fullscreen={fullscreen}
+        enterFullscreen={enterFullscreen}
+        setPanel={setPanel}
+        setMonitor={setMonitor}
+        setPrivateWriting={setPrivateWriting}
+        act={act}
+        flash={flash}
+      />
       <section className="main-surface" aria-label="Игровой мир">
           {/* Этапы есть только у ретро: в командном бою их роль играет MatchBar
               в шапке. Плашка лежит в левой колонке HUD под .camera-toolbar —
@@ -1886,600 +1306,38 @@ export default function RoomApp({ id }: { id: string }) {
         </SheetContent>
       </Sheet>
       {monitor && (
-        <section
-          className="monitor-hud-overlay"
-          aria-live="polite"
-          aria-label="Комната в реальном времени"
-        >
-          <div className="monitor-card">
-            <div className="monitor-header">
-              <div className="monitor-title-wrap">
-                <h3>Комната в реальном времени</h3>
-                <span>
-                  {online.length} в сети · {room.members.length} участников
-                </span>
-              </div>
-              <button
-                type="button"
-                className="monitor-close"
-                onClick={() => setMonitor(false)}
-                aria-label="Закрыть"
-                title="Закрыть (Esc)"
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <div className="monitor-metrics-bar">
-              <div className="metric-pill">
-                <Wifi size={12} />
-                <strong>{ping}</strong>
-                <small>мс</small>
-              </div>
-              <div className="metric-pill">
-                <Monitor size={12} />
-                <strong>{fps}</strong>
-                <small>FPS</small>
-              </div>
-              <div className="metric-pill">
-                <Users size={12} />
-                <strong>{online.length}</strong>
-                <small>в сети</small>
-              </div>
-            </div>
-            <div
-              className={`monitor-table-wrap ${gameMode === 'battle' ? 'is-battle' : ''}`}
-            >
-              <div className="monitor-table-header">
-                <span className="col-user">УЧАСТНИК</span>
-                <span className="col-status">СТАТУС</span>
-                {gameMode === 'battle' && (
-                  <>
-                    <span className="col-num col-k">K</span>
-                    <span className="col-num col-d">D</span>
-                    <span className="col-num col-a">A</span>
-                    <span className="col-num col-kda">KDA</span>
-                  </>
-                )}
-                <span className="col-num col-ping">ПИНГ</span>
-              </div>
-              <div className="monitor-table-body">
-                {/* Покинувших игру в таблице нет: раньше показывались все, кто
-                    когда-либо заходил, и список копил ушедших. Себя оставляем
-                    всегда — из скрытой вкладки пакеты не уходят, и смотрящий
-                    вычеркнул бы сам себя. */}
-                {monitorGroups(
-                  room.members
-                    .filter((m) => m.id === room.self || isPresent(m.lastSeen, now))
-                    .sort((a, b) => kdaRatio(b) - kdaRatio(a)),
-                  gameMode === 'battle',
-                ).map((group) => (
-                  <Fragment key={group.team ?? 'all'}>
-                  {group.team && (
-                    <div
-                      className={`monitor-team-header team-${group.team}`}
-                      aria-label={`${group.label}: ${group.members.length} игроков`}
-                    >
-                      <span className="col-user">
-                        <strong>{group.label}</strong>
-                        {(group.team === 'red' || group.team === 'blue') &&
-                          room.match && (
-                            <b className="monitor-team-score">
-                              {room.match.score[group.team]}
-                            </b>
-                          )}
-                        <small>{group.members.length}</small>
-                      </span>
-                      <span className="col-status" />
-                      <span className="col-num col-k">{group.kills}</span>
-                      <span className="col-num col-d">{group.deaths}</span>
-                      <span className="col-num col-a">{group.assists}</span>
-                      <span className="col-num col-kda" />
-                      <span className="col-num col-ping" />
-                    </div>
-                  )}
-                  {group.members.map((m) => (
-                  <div key={m.id} className="monitor-table-row">
-                    <div className="col-user">
-                      <span
-                        className="avatar mini-avatar"
-                        style={{ background: m.color, color: 'white' }}
-                      >
-                        {Array.from(m.name)[0]}
-                      </span>
-                      <span className="user-name-box">
-                        <strong className="name-text">
-                          {m.name}
-                          {m.id === room.self ? ' (вы)' : ''}
-                        </strong>
-                        <small className="role-text">
-                          {m.bot
-                            ? `Бот · ${BOT_LEVELS[m.bot]?.label ?? ''}`
-                            : m.id === room.host
-                              ? 'Ведущий'
-                              : 'Участник'}
-                          {gameMode === 'battle' &&
-                            ` · ${teamName(m.team).toLowerCase()}`}
-                        </small>
-                      </span>
-                      {gameMode === 'battle' && (host || m.id === room.self) && (
-                        <button
-                          type="button"
-                          className={`side-swap ${m.team || 'none'}`}
-                          title={
-                            m.id === room.self
-                              ? 'Выбор стороны и скина · клавиша G'
-                              : 'Перевести в другую команду'
-                          }
-                          aria-label={
-                            m.id === room.self
-                              ? 'Выбрать сторону и скин, клавиша G'
-                              : `Перевести игрока ${m.name} в другую команду`
-                          }
-                          onClick={() => {
-                            if (m.id === room.self) {
-                              setMonitor(false);
-                              setPanel('team');
-                            } else
-                              void act({
-                                type: 'team.set',
-                                session: m.id,
-                                team: m.team === 'red' ? 'blue' : 'red',
-                              });
-                          }}
-                        >
-                          <Repeat size={13} />
-                        </button>
-                      )}
-                      {/* Микрофон рядом с именем, а не в отдельном разделе
-                          настроек: заглушают конкретного человека и обычно
-                          прямо сейчас, глядя на список говорящих. */}
-                      {host && m.id !== room.host && !m.bot && (
-                        <button
-                          type="button"
-                          className={`voice-mute ${voiceMuted.has(m.id) ? 'is-muted' : ''}`}
-                          title={
-                            voiceMuted.has(m.id)
-                              ? 'Вернуть голос'
-                              : 'Заглушить: его перестанут слышать все'
-                          }
-                          aria-label={
-                            voiceMuted.has(m.id)
-                              ? `Вернуть голос игроку ${m.name}`
-                              : `Заглушить игрока ${m.name}`
-                          }
-                          onClick={() =>
-                            void act({
-                              type: 'voice.mute',
-                              session: m.id,
-                              muted: !voiceMuted.has(m.id),
-                            })
-                          }
-                        >
-                          {voiceMuted.has(m.id) ? <MicOff size={13} /> : <Mic size={13} />}
-                        </button>
-                      )}
-                    </div>
-                    {/* Состояний два вместо прежнего «в сети / не в сети»:
-                        ушедшие до таблицы просто не доходят, а всё, что между, —
-                        это «отошёл», то есть свернул вкладку или
-                        переподключается. */}
-                    <span
-                      className={`col-status ${
-                        isOnline(m.lastSeen, now) ? 'is-online' : 'is-away'
-                      }`}
-                    >
-                      {isOnline(m.lastSeen, now) ? 'в сети' : 'отошёл'}
-                    </span>
-                    {gameMode === 'battle' && (
-                      <>
-                        <span className="col-num col-k">{m.kills ?? 0}</span>
-                        <span className="col-num col-d">{m.deaths ?? 0}</span>
-                        <span className="col-num col-a">{m.assists ?? 0}</span>
-                        <span className="col-num col-kda">
-                          {kdaRatio(m).toFixed(2)}
-                        </span>
-                      </>
-                    )}
-                    <span className="col-num col-ping">
-                      {isOnline(m.lastSeen, now) ? `${m.ping} мс` : '—'}
-                    </span>
-                  </div>
-                  ))}
-                  </Fragment>
-                ))}
-              </div>
-            </div>
-            <p className="monitor-footer-note">
-              {gameMode === 'battle'
-                ? 'Отсортировано по KDA · (убийства + помощь) / смерти'
-                : 'Участники встречи · держите «ё», ЛКМ закрепляет табло'}
-            </p>
-          </div>
-        </section>
+        <RoomMonitor
+          room={room}
+          host={host}
+          gameMode={gameMode}
+          now={now}
+          online={online}
+          ping={ping}
+          fps={fps}
+          voiceMuted={voiceMuted}
+          setMonitor={setMonitor}
+          setPanel={setPanel}
+          act={act}
+        />
       )}
-      <Dialog
-        open={!!draft && quickSticky}
-        onOpenChange={(v) => {
-          if (!v) {
-            setDraft(null);
-            setTimeout(() => {
-              if (!webglFailed) void document.querySelector('canvas')?.requestPointerLock();
-            }, 50);
-          }
-        }}
-      >
-        <DialogContent
-          className="quick-sticky-dialog"
-          style={{ background: draft?.color }}
-          aria-describedby={undefined}
-        >
-          <DialogTitle>{zoneTitle(draft?.zone ?? '', s.template)}</DialogTitle>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void saveNote();
-            }}
-          >
-            <textarea
-              aria-label="Текст стикера"
-              placeholder="Напишите вашу мысль…"
-              value={draft?.text || ''}
-              maxLength={8000}
-              required
-              onChange={(e) =>
-                draft && setDraft({ ...draft, text: e.target.value })
-              }
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                  e.preventDefault();
-                  if (draft?.text.trim()) void saveNote();
-                }
-              }}
-            />
-            <button
-              disabled={busy || s.archived || !draft?.text.trim()}
-              aria-label="Сохранить стикер"
-              title="Сохранить · Ctrl+Enter"
-            >
-              <Check size={24} />
-            </button>
-          </form>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={!!draft && !quickSticky}
-        onOpenChange={(v) => {
-          if (!v) {
-            setDraft(null);
-            setTimeout(() => {
-              if (!webglFailed) void document.querySelector('canvas')?.requestPointerLock();
-            }, 50);
-          }
-        }}
-      >
-        <DialogContent className="app-dialog note-dialog">
-          <DialogTitle>
-            {draft?.id ? 'Карточка и обсуждение' : 'Новая идея'}
-          </DialogTitle>
-          <DialogDescription>
-            {draft?.hidden
-              ? 'Приватная заметка: её видите только вы.'
-              : 'Идеи становятся лучше, когда их обсуждают вместе.'}
-          </DialogDescription>
-          {draft && (
-            <>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void saveNote();
-                }}
-              >
-                <div className="two-fields">
-                  <Choice
-                    label="Тип"
-                    disabled={!!draft.id}
-                    value={draft.kind}
-                    onChange={(kind) => setDraft({ ...draft, kind })}
-                    // В форме — только то, что формой и создаётся: рисунок и
-                    // связь рисуют инструментами доски, а «Задача», «План» и
-                    // «План действий» стали одним «Действием». Старая карточка
-                    // со снятым типом показывает его название, данные не меняются.
-                    options={[
-                      ...FORM_NOTE_KINDS,
-                      ...(FORM_NOTE_KINDS.includes(draft.kind)
-                        ? []
-                        : [draft.kind]),
-                    ].map((value) => ({ value, label: noteKindLabel(value) }))}
-                  />
-                  <Choice
-                    label="Зона"
-                    disabled={!canEdit}
-                    value={draft.zone}
-                    onChange={(zone) => setDraft({ ...draft, zone })}
-                    options={[
-                      ...formZones,
-                      ...ZONES.filter(
-                        (z) =>
-                          z.id === draft.zone && !formZones.includes(z),
-                      ),
-                    ].map((z) => ({
-                      value: z.id,
-                      label: zoneTitle(z.id, s.template),
-                    }))}
-                  />
-                </div>
-                <label className="field">
-                  {draft.kind === 'image' ? 'Подпись' : 'Ваша мысль'}
-                  <textarea
-                    value={draft.text}
-                    maxLength={8000}
-                    placeholder="Что стоит обсудить с командой?"
-                    disabled={!canEdit}
-                    onChange={(e) =>
-                      setDraft({ ...draft, text: e.target.value })
-                    }
-                  />
-                </label>
-                {draft.kind === 'image' && (
-                  <label className="field">
-                    HTTPS-ссылка на изображение, GIF или видео
-                    <input
-                      type="url"
-                      value={draft.url}
-                      disabled={!canEdit}
-                      onChange={(e) =>
-                        setDraft({ ...draft, url: e.target.value })
-                      }
-                    />
-                  </label>
-                )}
-                {/* Видео открывается отдельной ссылкой, без внешних iframe. */}
-                {draft.url && (
-                  <a
-                    href={draft.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-button"
-                  >
-                    Открыть вложение ↗
-                  </a>
-                )}
-                <div className="color-picker">
-                  <span>Цвет</span>
-                  {(
-                    [
-                      ['#f5e6a9', 'Жёлтый'],
-                      ['#b5d1c0', 'Зелёный'],
-                      ['#edc5b6', 'Персиковый'],
-                      ['#cdc4e0', 'Лавандовый'],
-                      ['#b7d2df', 'Голубой'],
-                      ['#ffffff', 'Белый'],
-                    ] as const
-                  ).map(([c, colorName]) => (
-                    <button
-                      type="button"
-                      key={c}
-                      disabled={!canEdit}
-                      aria-label={'Цвет: ' + colorName}
-                      aria-pressed={draft.color === c}
-                      title={colorName}
-                      className={draft.color === c ? 'selected' : ''}
-                      style={{ background: c }}
-                      onClick={() => setDraft({ ...draft, color: c })}
-                    >
-                      {draft.color === c && <Check size={15} />}
-                    </button>
-                  ))}
-                </div>
-                <div className="two-fields">
-                  <Choice
-                    label="Общая тема"
-                    disabled={!canEdit}
-                    value={draft.group}
-                    onChange={(group) => setDraft({ ...draft, group })}
-                    options={[
-                      { value: '', label: 'Без группы' },
-                      ...s.groups.map((g) => ({ value: g.id, label: g.title })),
-                    ]}
-                  />
-                  <label className="field">
-                    Теги через запятую
-                    <input
-                      value={draft.tags}
-                      disabled={!canEdit}
-                      onChange={(e) =>
-                        setDraft({ ...draft, tags: e.target.value })
-                      }
-                      placeholder="процессы, команда"
-                    />
-                  </label>
-                </div>
-                {isActionKind(draft.kind) && (
-                  <>
-                    <div className="two-fields">
-                      <label className="field">
-                        Ответственный
-                        <input
-                          value={draft.owner}
-                          maxLength={80}
-                          disabled={!canEdit}
-                          onChange={(e) =>
-                            setDraft({ ...draft, owner: e.target.value })
-                          }
-                        />
-                      </label>
-                      <label className="field">
-                        Срок
-                        <input
-                          type="date"
-                          value={draft.due}
-                          disabled={!canEdit}
-                          onChange={(e) =>
-                            setDraft({ ...draft, due: e.target.value })
-                          }
-                        />
-                      </label>
-                    </div>
-                    <Toggle
-                      label="Выполнено"
-                      value={draft.done}
-                      disabled={!canEdit}
-                      onChange={(done) => setDraft({ ...draft, done })}
-                    />
-                  </>
-                )}
-                <details className="note-details">
-                  <summary>Размер и дополнительные настройки</summary>
-                  <div className="three-fields">
-                    {(['width', 'height', 'rotation'] as const).map(
-                      (key, i) => (
-                        <label className="field" key={key}>
-                          {['Ширина', 'Высота', 'Поворот'][i]}
-                          <input
-                            type="number"
-                            value={draft[key]}
-                            disabled={!canEdit}
-                            min={key === 'rotation' ? -180 : 40}
-                            max={key === 'rotation' ? 180 : 1800}
-                            onChange={(e) =>
-                              setDraft({
-                                ...draft,
-                                [key]: Number(e.target.value),
-                              })
-                            }
-                          />
-                        </label>
-                      ),
-                    )}
-                  </div>
-                  <Toggle
-                    label="Заблокировать объект"
-                    value={draft.locked}
-                    disabled={!canEdit}
-                    onChange={(locked) => setDraft({ ...draft, locked })}
-                  />
-                  {(!edited || edited.author === room.self) && (
-                    <Toggle
-                      label="Приватная заметка"
-                      value={draft.hidden}
-                      onChange={(hidden) => setDraft({ ...draft, hidden })}
-                    />
-                  )}
-                </details>
-                {canEdit && (
-                  <button
-                    className="primary full-width"
-                    disabled={busy || s.archived}
-                  >
-                    {busy ? 'Сохраняем…' : 'Сохранить карточку'}
-                  </button>
-                )}
-              </form>
-              {edited && (
-                <>
-                  <div className="editor-actions">
-                    <button
-                      className="text-button"
-                      onClick={() =>
-                        void act({
-                          type: 'note.add',
-                          kind: edited.kind,
-                          text: edited.text,
-                          zone: edited.zone,
-                          color: edited.color,
-                          url: edited.url,
-                          x: edited.x + 30,
-                          y: edited.y + 30,
-                        }).then((r) => r && flash('Копия добавлена'))
-                      }
-                    >
-                      <Copy size={15} />
-                      Копировать
-                    </button>
-                    {/* Удаление сразу, без «Вы уверены?»: вернуть карточку
-                        можно тостом «Отменить» в течение 6 секунд. */}
-                    {canEdit && (
-                      <button
-                        type="button"
-                        className="text-button danger"
-                        disabled={s.archived}
-                        title={
-                          s.archived
-                            ? 'Встреча завершена — комната только для чтения'
-                            : undefined
-                        }
-                        onClick={() => void deleteNote(edited)}
-                      >
-                        <Trash2 size={15} />
-                        Удалить
-                      </button>
-                    )}
-                  </div>
-                  <div className="reaction-picker">
-                    {['👍', '❤️', '🎉', '💡', '👀', '🔥', '🇰🇿', '🌱'].map(
-                      (emoji) => (
-                        <button
-                          key={emoji}
-                          onClick={() =>
-                            void act({
-                              type: 'note.react',
-                              id: edited.id,
-                              emoji,
-                            })
-                          }
-                          aria-label={'Реакция ' + emoji}
-                        >
-                          {emoji}
-                          <small>{edited.reactions[emoji]?.length || ''}</small>
-                        </button>
-                      ),
-                    )}
-                  </div>
-                  <div className="comments">
-                    <h3>
-                      Обсуждение <span>{edited.comments.length}</span>
-                    </h3>
-                    {edited.comments.map((c) => (
-                      <div className="comment" key={c.id}>
-                        <strong>
-                          {room.members.find((m) => m.id === c.author)?.name ||
-                            'Участник'}
-                        </strong>
-                        <p>{c.text}</p>
-                      </div>
-                    ))}
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        void act({
-                          type: 'note.comment',
-                          id: edited.id,
-                          text: comment,
-                        }).then((r) => r && setComment(''));
-                      }}
-                    >
-                      <input
-                        className="text-input"
-                        value={comment}
-                        onChange={(e) => setComment(e.target.value)}
-                        placeholder="Комментарий · @имя"
-                        maxLength={2000}
-                        required
-                      />
-                      <button
-                        className="primary"
-                        aria-label="Отправить комментарий"
-                      >
-                        <Send size={16} />
-                      </button>
-                    </form>
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      <RoomNoteEditor
+        room={room}
+        s={s}
+        draft={draft}
+        setDraft={setDraft}
+        quickSticky={quickSticky}
+        edited={edited}
+        canEdit={canEdit}
+        formZones={formZones}
+        busy={busy}
+        webglFailed={webglFailed}
+        comment={comment}
+        setComment={setComment}
+        saveNote={saveNote}
+        deleteNote={deleteNote}
+        act={act}
+        flash={flash}
+      />
       <Dialog open={!!panel} onOpenChange={(v) => !v && setPanel('')}>
         <DialogContent
           className={
@@ -2609,206 +1467,41 @@ export default function RoomApp({ id }: { id: string }) {
             />
           )}
           {panel === 'menu' && (
-            <SettingsShell
-              groups={settingsGroups}
-              section={settingsSection}
-              onSection={setSettingsSection}
+            <RoomSettings
+              room={room}
+              s={s}
+              me={me}
               host={host}
-            >
-              {settingsSection === 'graphics' && (
-                <GraphicsSection
-                  fps={fps}
-                  me={me}
-                  fpsLimit={fpsLimit}
-                  onFpsLimitChange={(v) => {
-                    setFpsLimit(Number(v));
-                    localStorage.setItem('jinaly-fps-limit', v);
-                  }}
-                  quality={quality}
-                  onQualityChange={(q) => {
-                    setQuality(q);
-                    localStorage.setItem('jinaly-quality', q);
-                  }}
-                />
-              )}
-              {settingsSection === 'controls' && (
-                <ControlsSection
-                  mode={gameMode}
-                  sensitivity={sensitivity}
-                  onSensitivityChange={(v) => {
-                    setSensitivity(v);
-                    localStorage.setItem('jinaly-sensitivity', String(v));
-                  }}
-                  invertCamera={invertCamera}
-                  onInvertCameraChange={(v) => {
-                    setInvertCamera(v);
-                    localStorage.setItem('jinaly-invert-camera', String(v));
-                  }}
-                  aimModes={aimModes}
-                  onAimModesChange={(next) => {
-                    setAimModes(next);
-                    localStorage.setItem(
-                      'jinaly-aim-modes',
-                      JSON.stringify(next),
-                    );
-                  }}
-                />
-              )}
-              {settingsSection === 'profile' && (
-                <ProfileSection
-                  me={me}
-                  sound={sound}
-                  onSoundChange={changeSound}
-                  onUpdateName={(name) => {
-                    void act({ type: 'profile', name });
-                    localStorage.setItem('jinaly-name', name);
-                  }}
-                />
-              )}
-              {settingsSection === 'mode' && (
-                <ModePanel
-                  s={s}
-                  host={host}
-                  onSettings={(patch) => void changeRoomSettings(patch)}
-                />
-              )}
-              {settingsSection === 'bots' && (
-                <BotsPanel
-                  s={s}
-                  host={host}
-                  members={room.members}
-                  onAct={(op) => void act(op)}
-                />
-              )}
-              {settingsSection === 'world' && (
-                <WorldPanel
-                  s={s}
-                  host={host}
-                  onStyleChange={(visualStyle) =>
-                    void act({ type: 'room.settings', patch: { visualStyle } })
-                  }
-                  onThemeChange={(theme, season) =>
-                    void act({
-                      type: 'room.settings',
-                      patch: { theme, season },
-                    })
-                  }
-                  onInteriorChange={(interior) =>
-                    void act({ type: 'room.settings', patch: { interior } })
-                  }
-                />
-              )}
-              {settingsSection === 'access' && (
-                <AccessSection
-                  s={s}
-                  host={host}
-                  onAnonymousPlayersChange={(anonymousPlayers) =>
-                    void act({
-                      type: 'room.settings',
-                      patch: { anonymousPlayers },
-                    })
-                  }
-                  onHidePlayerStatusChange={(hidePlayerStatus) =>
-                    void act({
-                      type: 'room.settings',
-                      patch: { hidePlayerStatus },
-                    })
-                  }
-                  onPrivateWritingChange={(privateWriting) =>
-                    void setPrivateWriting(privateWriting)
-                  }
-                  onAnonymousChange={(anonymous) =>
-                    void act({ type: 'room.settings', patch: { anonymous } })
-                  }
-                  onLayoutLockedChange={(layoutLocked) =>
-                    void act({ type: 'room.settings', patch: { layoutLocked } })
-                  }
-                  onAccessTypeChange={(accessType) =>
-                    void changeAccessType(accessType)
-                  }
-                  onMaxPlayersChange={(maxPlayers) => {
-                    void act({ type: 'access.max_players', maxPlayers });
-                  }}
-                />
-              )}
-              {settingsSection === 'results' && (
-                <div className="settings-results-link">
-                  <p>
-                    План действий, экспорт, история изменений и завершение
-                    встречи теперь на отдельном экране — он открывается и из
-                    шапки, и кнопкой этапа «Итоги».
-                  </p>
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => setPanel('results')}
-                  >
-                    <ListChecks size={16} aria-hidden="true" />
-                    Итоги встречи → открыть
-                  </button>
-                </div>
-              )}
-              {settingsSection === 'widgets' && (
-                <WidgetsPanel
-                  me={me}
-                  onMoodChange={(mood) =>
-                    void act({
-                      type: 'profile',
-                      mood,
-                    })
-                  }
-                  selectedSkin={selectedSkin}
-                  onSelectSkin={(skinId) => {
-                    setSelectedSkin(skinId);
-                    localStorage.setItem('jinaly-custom-skin', skinId);
-                    void act({
-                      type: 'profile',
-                      hat: skinId,
-                      color: selectedBandanaColor,
-                    });
-                  }}
-                  selectedBandanaColor={selectedBandanaColor}
-                  onBandanaColorChange={(color) => {
-                    setSelectedBandanaColor(color);
-                    localStorage.setItem('jinaly-bandana-color', color);
-                    void act({
-                      type: 'profile',
-                      hat: selectedSkin,
-                      color,
-                    });
-                  }}
-                  onConfetti={() =>
-                    void act({ type: 'event', kind: 'confetti', value: '🎉' })
-                  }
-                  onHat={() =>
-                    void act({ type: 'event', kind: 'hat', value: '🎩' })
-                  }
-                  onBuzzer={() => {
-                    changeSound(true);
-                    void act({ type: 'event', kind: 'buzzer' });
-                  }}
-                  onPing={() => void act({ type: 'event', kind: 'ping' })}
-                  s={s}
-                  onDecrementCounter={() =>
-                    void act({ type: 'counter', down: true })
-                  }
-                  onIncrementCounter={() => void act({ type: 'counter' })}
-                  spinOptions={spinOptions}
-                  onSpinOptionsChange={setSpinOptions}
-                  online={online}
-                  onSpin={(value) =>
-                    void act({
-                      type: 'event',
-                      kind: 'spin',
-                      value,
-                    })
-                  }
-                  spinner={spinner}
-                  sound={sound}
-                  onSoundChange={changeSound}
-                />
-              )}
-            </SettingsShell>
+              gameMode={gameMode}
+              online={online}
+              settingsSection={settingsSection}
+              setSettingsSection={setSettingsSection}
+              fps={fps}
+              fpsLimit={fpsLimit}
+              setFpsLimit={setFpsLimit}
+              quality={quality}
+              setQuality={setQuality}
+              sensitivity={sensitivity}
+              setSensitivity={setSensitivity}
+              invertCamera={invertCamera}
+              setInvertCamera={setInvertCamera}
+              aimModes={aimModes}
+              setAimModes={setAimModes}
+              sound={sound}
+              changeSound={changeSound}
+              selectedSkin={selectedSkin}
+              setSelectedSkin={setSelectedSkin}
+              selectedBandanaColor={selectedBandanaColor}
+              setSelectedBandanaColor={setSelectedBandanaColor}
+              spinOptions={spinOptions}
+              setSpinOptions={setSpinOptions}
+              spinner={spinner}
+              setPanel={setPanel}
+              changeRoomSettings={changeRoomSettings}
+              setPrivateWriting={setPrivateWriting}
+              changeAccessType={changeAccessType}
+              act={act}
+            />
           )}
           {panel === 'team' && (
             <SidePicker
@@ -2893,12 +1586,5 @@ export default function RoomApp({ id }: { id: string }) {
         </DialogContent>
       </Dialog>
     </main>
-  );
-}
-function CompassPlaceholder() {
-  return (
-    <div className="loading-orbit">
-      <Box size={36} />
-    </div>
   );
 }

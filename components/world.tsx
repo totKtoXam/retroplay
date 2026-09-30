@@ -2,16 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import * as T from 'three';
 import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogDescription,
-} from './ui/dialog';
-import {
   ZONES,
   GAME_TOOLS,
   TOOL_HINTS,
-  uid,
   type Person,
   type Pose,
   type Room,
@@ -19,7 +12,6 @@ import {
   type WorldEffect,
   type Note,
 } from '@/lib/model';
-import { ItemWheel, type WheelGroup } from './item-wheel';
 import { WorldTablet } from './world-tablet';
 import { AmmoIndicator, GrenadeRecharge, WorldHud } from './world-hud';
 import { WorldMinimap, type MinimapFrame } from './world-minimap';
@@ -35,9 +27,14 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { visualBudget } from '../lib/resource-packs';
 import { createFirstPersonHands } from './world-hands';
-import { PAINTS, CONFETTI, GRENADES, FIREWORKS, SHOTGUN_PELLET_OFFSETS, type HitZone } from '@/lib/game-items';
+import { CONFETTI, GRENADES, FIREWORKS } from '@/lib/game-items';
 import { createWorldVfx } from './world-vfx';
 import { createWorldProjectiles } from './world-projectiles';
+import { createWorldWeapons } from './world-weapons';
+import { createWorldInput } from './world-input';
+import { createGrenadeAim } from './world-grenade-aim';
+import { useKillFeed } from './use-kill-feed';
+import { WorldEquipment } from './world-equipment';
 import { createWorldRemotePlayers } from './world-remote-players';
 import {
   avatarMuzzle,
@@ -58,20 +55,18 @@ import {
 } from '@/lib/day-cycle';
 import { createWorldPlayer } from './world-player';
 import { createWorldWeather } from './world-weather';
-import { buildRoofMap, openShare, underRoof } from '@/lib/weather-shelter';
-import { beaufort, weatherLook, windDrift, windLevel, windRelative, WIND_DRIFT } from '@/lib/weather';
+import { buildRoofMap, underRoof } from '@/lib/weather-shelter';
+import { beaufort, weatherLook, windLevel, windRelative } from '@/lib/weather';
 import { footstepSurface } from '@/lib/footsteps';
 import { setAvatarAnonymous } from './world-avatar';
-import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
-import { slotsFor, slotForDigit, cycleSlot } from '@/lib/loadout';
+import { slotsFor } from '@/lib/loadout';
 import { modeOf } from '@/lib/maps/catalog';
-import { createMoveFilter } from '@/lib/mouse-filter';
 import { aimFov, viewFov } from '@/lib/hud-prefs';
-import { POINTER_RELOCK_WINDOW_MS, damageSource, inRelockWindow } from '@/lib/hud-feedback';
+import { damageSource } from '@/lib/hud-feedback';
 import { useHudPrefs, useTouchOnly } from './hud-prefs';
-import type { DamageHit, HudMarkZone } from './hud-feedback';
-import { HudGraphicsLost, HudPause, HudStartCard, type DeathInfo } from './hud-states';
+import type { DamageHit } from './hud-feedback';
+import { HudGraphicsLost, HudPause, HudStartCard } from './hud-states';
 import { amGhost, impostorFrozen, inGame, inVentNow, minimapShows, visionRadius } from '@/lib/impostor-client';
 import { createFootsteps } from './world-footsteps';
 import { createWeaponSounds } from './world-weapon-sounds';
@@ -79,13 +74,11 @@ import { rayCastWorldObstacle } from '@/lib/world-collision';
 import { CAPACITY, type Blaster } from '@/lib/tool-magazine';
 import { WeaponPrediction } from '@/lib/weapon-prediction';
 import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
-import { GRENADE_COOLDOWN_MS, isBlaster } from '@/lib/weapon-definition';
-import { simulateGrenade } from '@/lib/grenade-physics';
-import { MELEE, meleeStats } from '@/lib/melee';
-import { aimedSpread, recoilKick, spreadScale, ViewRecoil, type Handling } from '@/lib/weapon-recoil';
+import { GRENADE_COOLDOWN_MS } from '@/lib/weapon-definition';
+import { MELEE } from '@/lib/melee';
+import { ViewRecoil } from '@/lib/weapon-recoil';
 import {
   blocksCamera,
-  blocksProjectile,
   cameraFrame,
   eyeHeight,
   avoidCameraWalls,
@@ -98,10 +91,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { animateAvatar, avatarShoot, fighterShared } from './world-avatar';
+import { animateAvatar, fighterShared } from './world-avatar';
 import {
   MoveUp,
-  Crosshair,
   Users,
   Palette,
   PartyPopper,
@@ -109,18 +101,14 @@ import {
   Bomb,
   Sparkles,
   StickyNote,
-  X,
-  Heart,
-  Flashlight,
   Bell,
 } from 'lucide-react';
 
-import { SNIPER_ZOOM_LEVELS, SNIPER_ZOOM_FOVS } from './world-constants';
+import { SNIPER_ZOOM_FOVS } from './world-constants';
 
 import { readAimModes, type WeaponAimModes } from '@/lib/aim-settings';
-import { PREF_KEYS, readChoice, writePref } from '@/lib/user-prefs';
+import { PREF_KEYS, readChoice } from '@/lib/user-prefs';
 import {
-  PAINT_SIGHT_OPTIONS,
   DEFAULT_PAINT_SIGHT,
   readPaintSight,
   writePaintSight,
@@ -173,29 +161,7 @@ type Props = {
   /** Нажали или отпустили T (своей команде) или Y (всем). */
   onTalk?: (channel: VoiceChannel, on: boolean) => void;
 };
-export type KillMessage = {
-  id: string;
-  killer: string;
-  killerName: string;
-  victim: string;
-  victimName: string;
-  assister?: string;
-  assisterName?: string;
-  color?: string;
-  tool?: string;
-  headshot?: boolean;
-  scoped?: boolean;
-  noScope?: boolean;
-  pelletsHit?: number;
-  teamkill?: boolean;
-  at: number;
-};
-export type PersonalAlert = {
-  text: string;
-  sub?: string;
-  type: 'kill' | 'assist' | 'death';
-  key: string | number;
-};
+export type { KillMessage, PersonalAlert } from './use-kill-feed';
 function readPerspective(): Perspective {
   try {
     return localStorage.getItem('jinaly-perspective') === 'first'
@@ -212,17 +178,6 @@ function subscribePerspective(callback: () => void) {
     window.removeEventListener('storage', callback);
     window.removeEventListener('jinaly-perspective', callback);
   };
-}
-function getSlotIcon(slotIndex: number) {
-  if (slotIndex === 0) return Palette;
-  if (slotIndex === 1) return PartyPopper;
-  if (slotIndex === 10) return Bomb;
-  if (slotIndex === 11) return Sparkles;
-  if (slotIndex === 2) return StickyNote;
-  if (slotIndex === 9) return Tablet;
-  if (slotIndex === 12) return Heart;
-  if (slotIndex === 13) return Flashlight;
-  return Crosshair;
 }
 
 /** Animates ref.current toward `to` on requestAnimationFrame; stops early when shouldContinue() turns false. */
@@ -421,149 +376,18 @@ export default function World(props: Props) {
   }, [minimapMap]);
   const self = props.room.members.find((m) => m.id === props.room.self);
   const dead = self?.hp === 0;
-  const [killfeed, setKillfeed] = useState<KillMessage[]>([]);
-  const [personalAlert, setPersonalAlert] = useState<PersonalAlert | null>(null);
-  // Кто и чем убил: карточка смерти держит это до возрождения.
-  const [deathInfo, setDeathInfo] = useState<DeathInfo | null>(null);
-  // Единственное, что HUD объявляет скринридеру: своё убийство и своя смерть.
-  const [announce, setAnnounce] = useState('');
-  // Отметка своего попадания: голова, корпус, конечность — и убийство.
-  const [hitMark, setHitMark] = useState<{ zone: HudMarkZone; key: number } | null>(null);
-  const hitMarker = useRef((zone: HitZone) => {
-    setHitMark({ zone, key: Date.now() });
-  });
-  useEffect(() => {
-    if (!hitMark) return;
-    const timer = setTimeout(() => setHitMark(null), hitMark.zone === 'kill' ? 1000 : 700);
-    return () => clearTimeout(timer);
-  }, [hitMark]);
-  const seenKillsRef = useRef<Set<string>>(new Set());
-  /** Звук своего убийства — его синтезирует движок (world-weapon-sounds), вызывает лента убийств. */
-  const killSoundRef = useRef<(() => void) | null>(null);
-  const initialKillsProcessed = useRef(false);
-
-  useEffect(() => {
-    if (!props.room.effects) return;
-    const now = Date.now();
-    if (!initialKillsProcessed.current) {
-      initialKillsProcessed.current = true;
-      for (const e of props.room.effects) {
-        if (e.kind === 'kill') seenKillsRef.current.add(e.id);
-      }
-      return;
-    }
-
-    const newKills: KillMessage[] = [];
-    for (const e of props.room.effects) {
-      if (e.kind === 'kill' && !seenKillsRef.current.has(e.id)) {
-        seenKillsRef.current.add(e.id);
-        if (now - (e.at || now) < 8000) {
-          const item: KillMessage = {
-            id: e.id,
-            killer: e.killer || e.author,
-            killerName: e.killerName || 'Игрок',
-            victim: e.victim || '',
-            victimName: e.victimName || 'Игрок',
-            assister: e.assister,
-            assisterName: e.assisterName,
-            color: e.color || '#ff647c',
-            tool: e.tool || 'paint',
-            headshot: e.headshot,
-            scoped: e.scoped,
-            noScope: e.noScope,
-            pelletsHit: e.pelletsHit,
-            teamkill: e.teamkill,
-            at: e.at || now,
-          };
-          newKills.push(item);
-
-          if (item.killer === props.room.self && item.victim !== props.room.self) {
-            queueMicrotask(() => {
-              let text = `ВЫ УСТРАНИЛИ: ${item.victimName}`;
-              if (item.tool === 'sniper' && item.noScope) {
-                text = item.headshot
-                  ? `БЕЗ ПРИЦЕЛА И В ГОЛОВУ: ${item.victimName}`
-                  : `УСТРАНЁН БЕЗ ПРИЦЕЛА: ${item.victimName}`;
-              } else if (item.headshot) {
-                text = `ВЫ УСТРАНИЛИ В ГОЛОВУ: ${item.victimName}`;
-              } else if (item.tool === 'confetti' && (item.pelletsHit || 0) >= 7) {
-                text = `ВЫ УСТРАНИЛИ В УПОР: ${item.victimName}`;
-              }
-              setPersonalAlert({
-                type: 'kill',
-                text,
-                sub: item.assisterName ? `Помог: ${item.assisterName}` : undefined,
-                key: `kill-${Date.now()}-${Math.random()}`,
-              });
-              // Верхняя ступень хитмаркера: убийство видно у прицела, не только в ленте.
-              setHitMark({ zone: 'kill', key: Date.now() });
-              killSoundRef.current?.();
-              setAnnounce(`Вы устранили: ${item.victimName}`);
-            });
-          } else if (item.assister === props.room.self) {
-            queueMicrotask(() => {
-              setPersonalAlert({
-                type: 'assist',
-                text: `ПОМОЩЬ В УСТРАНЕНИИ: ${item.victimName}`,
-                sub: `Устранил: ${item.killerName}`,
-                key: `assist-${Date.now()}-${Math.random()}`,
-              });
-            });
-          } else if (item.victim === props.room.self) {
-            // Своя смерть — карточкой до конца отсчёта (HudDeathCard), а не
-            // оповещением на 3,5 секунды. Дистанцию считаем сейчас: к моменту
-            // возрождения убийца уйдёт.
-            const me = engine.current?.player.pos;
-            // Позы — из последнего снимка: эффект срабатывает на новые эффекты, а не на позы.
-            const pose = latest.current.room.members.find((m) => m.id === item.killer)?.pose;
-            const distance =
-              me && pose && item.killer !== props.room.self
-                ? Math.hypot(pose.x - me.x, pose.y - me.y, pose.z - me.z)
-                : undefined;
-            queueMicrotask(() => {
-              setDeathInfo({
-                killer: item.killer,
-                killerName: item.killerName,
-                tool: item.tool,
-                headshot: item.headshot,
-                noScope: item.tool === 'sniper' && item.noScope,
-                teamkill: item.teamkill,
-                distance,
-              });
-              setAnnounce(
-                item.killer === props.room.self
-                  ? 'Вы погибли'
-                  : `Вас устранил: ${item.killerName}`,
-              );
-            });
-          }
-        }
-      }
-    }
-
-    if (newKills.length > 0) {
-      queueMicrotask(() => {
-        setKillfeed((prev) => [...prev, ...newKills].slice(-5));
-      });
-    }
-  }, [props.room.effects, props.room.self]);
-
-  useEffect(() => {
-    if (killfeed.length === 0) return;
-    const timer = setInterval(() => {
-      const now = Date.now();
-      setKillfeed((prev) => prev.filter((k) => now - k.at < 5000));
-    }, 400);
-    return () => clearInterval(timer);
-  }, [killfeed.length]);
-
-  useEffect(() => {
-    if (!personalAlert) return;
-    const timer = setTimeout(() => {
-      setPersonalAlert(null);
-    }, 3500);
-    return () => clearTimeout(timer);
-  }, [personalAlert]);
+  // Лента убийств, личные плашки, карточка смерти и хитмаркер (use-kill-feed.ts).
+  const {
+    killfeed,
+    personalAlert,
+    setPersonalAlert,
+    deathInfo,
+    setDeathInfo,
+    announce,
+    hitMark,
+    hitMarker,
+    killSoundRef,
+  } = useKillFeed(props.room.effects, props.room.self, engine, latest);
 
   // Попадания по игроку для дуг урона. Каждое со своим ключом: подряд идущие
   // попадания видно все, а не одно перезапущенное.
@@ -667,13 +491,12 @@ export default function World(props: Props) {
   useEffect(() => {
     if (wasDeadRef.current && !dead) setDeathInfo(null);
     wasDeadRef.current = dead;
-  }, [dead]);
+  }, [dead, setDeathInfo]);
   const [weaponState] = useState(() => new WeaponPrediction());
   const prediction = useRef(weaponState);
   const magazine = useRef(weaponState.magazine);
   // Доля перезарядки для кольца у патронов: читается каждый кадр, без ре-рендера.
   const readReload = useCallback(() => magazine.current.progress(performance.now()), []);
-  const [showAgent, setShowAgent] = useState(false);
   const [rounds, setRounds] = useState({ ...CAPACITY }),
     [reloading, setReloading] = useState(false),
     // Когда показали «Перезарядка» посреди экрана (Date.now()); 0 — подсказки нет.
@@ -975,13 +798,7 @@ export default function World(props: Props) {
       aimBlend = 0,
       equippedTool = latest.current.tool,
       activeControl = false,
-      softLook = false,
-      // Кнопка мыши зажата: единственный способ осмотреться, когда захват
-      // мыши недоступен (обзор по краям экрана убран — он уводил камеру сам).
-      dragLook = false,
-      // Первое движение после захвата мыши браузер отдаёт скачком.
-      skipNextMove = false;
-    const moveFilter = createMoveFilter();
+      softLook = false;
     // В «Предателе» фонарик — единственный предмет в руках, и на тёмном корабле он включён сразу.
     if (modeOf(latest.current.room.state) === 'impostor') flashlightOn = flashlight.toggle();
     const footsteps = createFootsteps({
@@ -1064,52 +881,52 @@ export default function World(props: Props) {
     // Per-frame camera-update scratch vectors, reused to avoid allocating on every tick.
     const scratchCamDir = new T.Vector3(),
       scratchLookTarget = new T.Vector3();
-
-    const trajectoryGeo = new T.BufferGeometry();
-    const trajectoryMat = new T.LineBasicMaterial({
-      color: '#ffe066',
-      transparent: true,
-      opacity: 0.85,
-    });
-    const trajectoryLine = new T.Line(trajectoryGeo, trajectoryMat);
-    // Точки линии меняются каждый кадр, а сфера для отсечения считается один раз.
-    trajectoryLine.frustumCulled = false;
-    trajectoryLine.visible = false;
-    scene.add(trajectoryLine);
-
-    const landingMarker = new T.Mesh(
-      new T.RingGeometry(0.18, 0.42, 16),
-      new T.MeshBasicMaterial({
-        color: '#ffe066',
-        transparent: true,
-        opacity: 0.8,
-        side: T.DoubleSide,
-      }),
-    );
-    landingMarker.rotation.x = -Math.PI / 2;
-    landingMarker.visible = false;
-    scene.add(landingMarker);
-    // Прицел гранаты считается каждый кадр, пока зажата ЛКМ: всё, что ему
-    // нужно, выделено один раз (анализ 2026-09-11, п. 4 — аллокации в кадре).
-    const aimCenter = new T.Vector2(0, 0);
-    const aimTargets: T.Mesh[] = [];
-    const aimFallback = new T.Vector3();
-    const markerFlat = landingMarker.quaternion.clone();
-    let trajectoryCapacity = 0;
-    /** Точки полёта в геометрию линии без новых массивов, пока хватает места. */
-    const writeTrajectory = (path: readonly (readonly number[])[]) => {
-      if (path.length > trajectoryCapacity) {
-        trajectoryCapacity = Math.max(64, path.length * 2);
-        trajectoryGeo.setAttribute(
-          'position',
-          new T.BufferAttribute(new Float32Array(trajectoryCapacity * 3), 3),
-        );
-      }
-      const position = trajectoryGeo.getAttribute('position') as T.BufferAttribute;
-      for (let i = 0; i < path.length; i++) position.setXYZ(i, path[i][0], path[i][1], path[i][2]);
-      position.needsUpdate = true;
-      trajectoryGeo.setDrawRange(0, path.length);
+    let lastGrenade = -Infinity;
+    /**
+     * `let` движка, которые делят кадр и вынесенные модули (ввод, оружие,
+     * прицел гранаты). Геттеры и сеттеры читают и пишут те же переменные:
+     * запись из модуля сразу видна кадру, и наоборот.
+     */
+    const shared = {
+      get middle() { return middle; },
+      set middle(v: boolean) { middle = v; },
+      get left() { return left; },
+      set left(v: boolean) { left = v; },
+      get aimHeld() { return aimHeld; },
+      set aimHeld(v: boolean) { aimHeld = v; },
+      get softLook() { return softLook; },
+      set softLook(v: boolean) { softLook = v; },
+      get activeControl() { return activeControl; },
+      set activeControl(v: boolean) { activeControl = v; },
+      get grenadeAiming() { return grenadeAiming; },
+      set grenadeAiming(v: boolean) { grenadeAiming = v; },
+      get continuousShots() { return continuousShots; },
+      set continuousShots(v: number) { continuousShots = v; },
+      get flashlightOn() { return flashlightOn; },
+      set flashlightOn(v: boolean) { flashlightOn = v; },
+      get nearZone() { return nearZone; },
+      set nearZone(v: string) { nearZone = v; },
+      get lastGrenade() { return lastGrenade; },
+      set lastGrenade(v: number) { lastGrenade = v; },
+      get lastMoving() { return lastMoving; },
+      set lastMoving(v: boolean) { lastMoving = v; },
+      get lastAirborne() { return lastAirborne; },
+      set lastAirborne(v: boolean) { lastAirborne = v; },
     };
+
+    const grenadeAim = createGrenadeAim({
+      scene,
+      camera,
+      ray,
+      mouse,
+      map,
+      state: shared,
+      sceneryTargets: () => sceneryTargetCache,
+      // Кэш мишеней и точка вылета объявлены ниже; зовутся они уже из кадра.
+      gatherRemoteAvatarMeshes: () => gatherRemoteAvatarMeshes(),
+      weaponOrigin: (tool) => weaponOrigin(tool),
+    });
+    const { trajectoryLine, landingMarker } = grenadeAim;
 
     // Shot/trajectory hit-testing used to re-traverse the whole scene (plus
     // recursive getObjectById lookups and flights/bursts .some scans) on every
@@ -1226,451 +1043,102 @@ export default function World(props: Props) {
       vfx,
     });
     const { flights, spawn } = projectiles;
-    let lastReportedRounds = { ...magazine.current.rounds };
-    let lastReportedReloading = magazine.current.reloading;
-    const updateAmmo = () => {
-      const rounds = magazine.current.rounds;
-      if (
-        rounds.paint !== lastReportedRounds.paint ||
-        rounds.confetti !== lastReportedRounds.confetti ||
-        rounds.sniper !== lastReportedRounds.sniper ||
-        rounds.like !== lastReportedRounds.like
-      ) {
-        lastReportedRounds = { ...rounds };
-        setRounds(lastReportedRounds);
-      }
-      if (magazine.current.reloading !== lastReportedReloading) {
-        lastReportedReloading = magazine.current.reloading;
-        setReloading(lastReportedReloading);
-      }
-    };
     let weaponDisposed = false;
-    const applyWeaponReply = (reply: WeaponReply) => {
-      if (weaponDisposed) return;
-      prediction.current.acknowledge(reply, performance.now());
-      updateAmmo();
-    };
-    const weaponFailure = (id: string, error: unknown) => {
-      prediction.current.forget(id);
-      if (!weaponDisposed) setCaptureError(error instanceof Error ? error.message : 'Действие не подтверждено');
-    };
-    const sendWeaponControl = (action: WeaponCommand['action'], tool?: Blaster) => {
-      const id = uid();
-      prediction.current.remember(id, action, tool, performance.now());
-      const life = latest.current.room.members.find((m) => m.id === latest.current.room.self)?.life ?? 0;
-      void latest.current.onWeapon({ id, action, tool, life }).then(applyWeaponReply).catch((error) => weaponFailure(id, error));
-    };
-    prediction.current.reset(latest.current.room.members.find((m) => m.id === latest.current.room.self)?.life ?? 0);
-    sendWeaponControl('sync');
-    const beginReload = () => {
-      const tool = GAME_TOOLS[latest.current.tool]?.id;
-      if (
-        tool === 'paint' ||
-        tool === 'confetti' ||
-        tool === 'sniper' ||
-        tool === 'like'
-      ) {
-        magazine.current.reload(tool as Blaster, performance.now());
-        sendWeaponControl('reload', tool as Blaster);
-        aimHeld = false;
-        setAiming(false);
-        updateAmmo();
-      }
-    };
-    let lastGrenade = -Infinity;
-    let lastDryFire = -Infinity;
-    /**
-     * Спуск нажат, а стрелять нечем — идёт перезарядка (или новую гранату ещё
-     * достают): сухой щелчок и «Перезарядка» посреди экрана. Краскомёт при
-     * зажатой кнопке зовёт это каждый кадр, поэтому не чаще раза в 400 мс.
-     */
-    const reloadingFeedback = () => {
-      const now = performance.now();
-      if (now - lastDryFire < 400) return;
-      lastDryFire = now;
-      weaponSounds.dry(weaponVolume());
-      setReloadHint(Date.now());
-    };
     const isDead = () =>
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
         ?.hp === 0;
-    const isImmune = () => {
-      return immuneExpireRef.current > performance.now();
-    };
-    /** Откуда вылетает снаряд: из ствола в первом лице, от плеча — в третьем. */
-    const weaponOrigin = (tool: string) =>
-      perspectiveRef.current === 'first'
-        ? hands.muzzle(tool)
-        : pos
-            .clone()
-            .add(
-              new T.Vector3(
-                Math.cos(player.cameraYaw) * 0.38,
-                player.stance === 'lie' ? 0.5 : player.stance === 'sit' ? 1.05 : 1.5,
-                -Math.sin(player.cameraYaw) * 0.38,
-              ),
-            );
-    let lastSwing = -Infinity;
+    const { updateAmmo, sendWeaponControl, beginReload, reloadingFeedback, weaponOrigin, shoot } =
+      createWorldWeapons({
+        latest,
+        selection,
+        magazine,
+        prediction,
+        perspectiveRef,
+        immuneExpireRef,
+        state: shared,
+        disposed: () => weaponDisposed,
+        isDead,
+        setRounds,
+        setReloading,
+        setReloadHint,
+        setGrenadeReadyAt,
+        setAiming,
+        setCaptureError,
+        setPersonalAlert,
+        weaponSounds,
+        weaponVolume,
+        scene,
+        camera,
+        ray,
+        mouse,
+        map,
+        roof,
+        weather,
+        windOn,
+        kit,
+        avatar,
+        hands,
+        pos,
+        player,
+        projectiles,
+        flights,
+        spawn,
+        burst,
+        paintDropletGeo,
+        viewRecoil,
+        sceneryTargets: () => sceneryTargetCache,
+        gatherRemoteAvatarMeshes,
+      });
     /** Толчки, что уже отыграны: эффект лежит в комнате ещё 15 секунд. */
     const knocked = new Set<string>();
-    /**
-     * Удар ближнего боя: от глаз туда, куда смотрит прицел, на длину руки с
-     * оружием; упёрлись в стену ближе — удар по стене. Через прицел, а не по
-     * повороту головы, чтобы и в третьем лице бить туда, где перекрестие.
-     */
-    const swing = () => {
-      const p = latest.current;
-      const variant = selection.current.meleeStyle;
-      const stats = meleeStats(variant);
-      const now = performance.now();
-      if (now - lastSwing < stats.cooldown) return;
-      lastSwing = now;
-      const eye = new T.Vector3(pos.x, pos.y + eyeHeight(player.stance), pos.z);
-      ray.setFromCamera(new T.Vector2(0, 0), camera);
-      const dir = ray.ray.at(30, new T.Vector3()).sub(eye).normalize();
-      const reachEnd = eye.clone().addScaledVector(dir, stats.reach);
-      const wall = rayCastWorldObstacle(eye.toArray(), reachEnd.toArray(), map.colliders);
-      const target = wall ? new T.Vector3(...wall.point) : reachEnd;
-      const e: WorldEffect = {
-        id: uid(),
-        kind: 'melee',
-        origin: eye.toArray(),
-        target: target.toArray(),
-        normal: dir.clone().negate().toArray(),
-        color: MELEE.find((m) => m.id === variant)?.color ?? '#ff84c8',
-        variant,
-        author: p.room.self,
-        at: Date.now(),
-      };
-      spawn(e);
-      avatarShoot(avatar);
-      hands.swing(variant);
-      prediction.current.remember(e.id, 'fire', undefined, now);
-      void p.onFire(e).then((reply) => {
-        applyWeaponReply(reply);
-        if (!reply.ok && !weaponDisposed) setCaptureError('Удар не принят: ' + (reply.reason ?? 'состояние комнаты'));
-      }).catch((error) => weaponFailure(e.id, error));
-    };
-    const shoot = () => {
-      if (latest.current.room.match?.phase === 'freeze') return;
-      const p = latest.current;
-      if (p.blocked || middle || isDead() || isImmune() || p.room.state.archived)
-        return;
-      const tool = GAME_TOOLS[p.tool]?.id;
-      if (tool === 'melee') return swing();
-      if (
-        tool !== 'paint' &&
-        tool !== 'confetti' &&
-        tool !== 'grenade' &&
-        tool !== 'sniper' &&
-        tool !== 'like'
-      )
-        return;
-      const now = performance.now();
-      const wasReloading = magazine.current.reloading;
-      if (tool === 'grenade') {
-        if (now - lastGrenade < GRENADE_COOLDOWN_MS) {
-          reloadingFeedback();
-          return;
-        }
-        lastGrenade = now;
-        setGrenadeReadyAt(now + GRENADE_COOLDOWN_MS);
-      }
-      if (
-        tool !== 'grenade' &&
-        !magazine.current.fire(tool as Blaster, now)
-      ) {
-        if (magazine.current.reloading) {
-          setReloading(true);
-          if (!wasReloading) sendWeaponControl('reload', tool as Blaster);
-          reloadingFeedback();
-        }
-        if (tool === 'sniper') {
-          aimHeld = false;
-          setAiming(false);
-        }
-        return;
-      }
-      updateAmmo();
-
-      if (tool === 'sniper' && magazine.current.rounds.sniper === 0) {
-        aimHeld = false;
-        setAiming(false);
-      }
-
-      const screenCoord = (
-        document.pointerLockElement || softLook
-          ? new T.Vector2(0, 0)
-          : mouse.clone()
-      );
-      const handling: Handling = {
-        moving: lastMoving,
-        airborne: lastAirborne,
-        stance: player.stance,
-        aiming: !!aimHeld,
-      };
-      // Номер выстрела в очереди: по нему идёт рисунок отдачи и растёт разброс.
-      const shotIndex = tool === 'paint' ? continuousShots++ : (continuousShots = 0);
-      // Снайперка от бедра никогда не бьёт точно в центр: промах — хотя бы на треть разброса.
-      const noScope = tool === 'sniper' && !aimHeld;
-      const spread = aimHeld
-        ? aimedSpread(tool, handling)
-        : tool === 'paint'
-          ? Math.min(0.048, 0.016 + shotIndex * 0.0032) * spreadScale(handling)
-          : noScope
-            ? 0.2 * spreadScale(handling)
-            : 0;
-      if (spread > 0) {
-        const ang = Math.random() * Math.PI * 2;
-        const mag = (noScope ? 0.35 + Math.random() * 0.65 : Math.sqrt(Math.random())) * spread;
-        screenCoord.add(new T.Vector2(Math.cos(ang) * mag, Math.sin(ang) * mag));
-      }
-
-      ray.setFromCamera(screenCoord, camera);
-      const targets: T.Mesh[] = [];
-      for (const o of sceneryTargetCache) if (blocksProjectile(o)) targets.push(o);
-      for (const o of gatherRemoteAvatarMeshes())
-        if (blocksProjectile(o)) targets.push(o);
-      const maxDistance = tool === 'sniper' ? 75 : 65;
-      // Ветер сносит снаряд: сначала узнаём, как далеко цель по прицелу, затем
-      // поворачиваем луч к точке, смещённой ветром на этой дистанции. Сервер
-      // проверяет попадание по отрезку до `target`, поэтому снос у всех один.
-      if (windOn() && WIND_DRIFT[tool]) {
-        const aimed = ray
-          .intersectObjects(targets, false)
-          .find(
-            (h) =>
-              h.distance < maxDistance &&
-              h.distance > 0.08 &&
-              blocksProjectile(h.object, h.face?.materialIndex),
-          );
-        const distance = aimed ? aimed.distance : tool === 'sniper' ? 65 : 35;
-        const aimPoint = ray.ray.at(distance, new T.Vector3());
-        // Сносит только на открытой части пути: из дома через окно — лишь снаружи.
-        const share = openShare(roof, ray.ray.origin.toArray(), aimPoint.toArray());
-        const drift = windDrift(tool, weather.wind, distance);
-        aimPoint.x += drift.x * share;
-        aimPoint.z += drift.z * share;
-        ray.ray.direction.copy(aimPoint.sub(ray.ray.origin).normalize());
-      }
-      const hit = ray
-        .intersectObjects(targets, false)
-        .find(
-          (h) =>
-            h.distance < maxDistance &&
-            h.distance > 0.08 &&
-            blocksProjectile(h.object, h.face?.materialIndex),
-        );
-      const target = hit
-        ? hit.point
-        : ray.ray.at(tool === 'sniper' ? 65 : 35, new T.Vector3());
-      const normal = hit?.face
-        ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
-        : new T.Vector3(0, 1, 0);
-      const origin = weaponOrigin(tool);
-      // Ствол не должен стрелять через препятствие, находящееся ближе центра прицела.
-      const muzzleRay = new T.Raycaster(
-        camera.position,
-        origin.clone().sub(camera.position).normalize(),
-        0,
-        camera.position.distanceTo(origin),
-      );
-      const obstruction = muzzleRay
-        .intersectObjects(targets, false)
-        .find((h) => blocksProjectile(h.object, h.face?.materialIndex));
-      if (obstruction) {
-        target.copy(obstruction.point);
-        origin.copy(camera.position);
-        if (obstruction.face)
-          normal
-            .copy(obstruction.face.normal)
-            .transformDirection(obstruction.object.matrixWorld);
-      }
-      if (tool === 'like') {
-        const boardHits = ray.intersectObjects(
-          kit.boards.map((b) => b.panel),
-          false,
-        );
-        const boardHit = boardHits.find(
-          (h) => h.distance < 75 && h.distance > 0.08,
-        );
-        if (boardHit && boardHit.uv) {
-          const zoneId = (boardHit.object.userData as { zone?: string })?.zone;
-          const notes = p.room.state.notes.filter(
-            (n) =>
-              n.zone === zoneId &&
-              !['draw', 'connector', 'frame'].includes(n.kind),
-          );
-          const cx = boardHit.uv.x * 1024;
-          const cy = (1 - boardHit.uv.y) * 512;
-          if (cx >= 25 && cx <= 1025 && cy >= 126 && cy <= 494) {
-            const col = Math.floor((cx - 25) / 250);
-            const row = Math.floor((cy - 126) / 184);
-            if (col >= 0 && col < 4 && row >= 0 && row < 2) {
-              const noteIdx = col + row * 4;
-              const targetNote = notes.slice(0, 8)[noteIdx];
-              if (targetNote) {
-                void p.onOp?.({ type: 'vote', id: targetNote.id, force: true });
-                setPersonalAlert({
-                  text: '+1 ГОЛОС',
-                  sub: targetNote.text
-                    ? `"${targetNote.text.slice(0, 30)}"`
-                    : 'Стикер',
-                  type: 'assist',
-                  key: Date.now(),
-                });
-                burst(boardHit.point, '#ff647c', now, 'hearts');
-              }
-            }
-          }
-        }
-      }
-      const color =
-        tool === 'like'
-          ? '#ff647c'
-          : tool === 'grenade'
-            ? GRENADES.find((g) => g.id === selection.current.grenadeStyle)!.color
-            : tool === 'confetti'
-              ? CONFETTI.find((c) => c.id === selection.current.confettiStyle)!.color
-              : tool === 'sniper'
-                ? FIREWORKS.find((f) => f.id === selection.current.fireworkStyle)!.color
-                : p.paintColor;
-      const variant =
-        tool === 'like'
-          ? 'hearts'
-          : tool === 'grenade'
-            ? selection.current.grenadeStyle
-            : tool === 'confetti'
-              ? selection.current.confettiStyle
-              : tool === 'sniper'
-                ? selection.current.fireworkStyle
-                : 'classic';
-      const isScoped = tool === 'sniper' ? !!aimHeld : undefined;
-      const isNoScope = tool === 'sniper' ? !aimHeld : undefined;
-      const e: WorldEffect = {
-        id: uid(),
-        kind: tool,
-        origin: origin.toArray(),
-        target: target.toArray(),
-        normal: normal.toArray(),
-        color,
-        variant,
-        author: p.room.self,
-        at: Date.now(),
-        scoped: isScoped,
-        noScope: isNoScope,
-      };
-      spawn(e);
-      if (tool === 'confetti') {
-        const dir = target.clone().sub(origin).normalize();
-        const perpX = new T.Vector3()
-          .crossVectors(dir, new T.Vector3(0, 1, 0))
-          .normalize();
-        if (perpX.lengthSq() < 0.01) perpX.set(1, 0, 0);
-        const perpY = new T.Vector3().crossVectors(perpX, dir).normalize();
-        const dist = origin.distanceTo(target);
-
-        const coneHalfAngle = 0.082;
-        for (let s = 0; s < 8; s++) {
-          const [ang, rFrac] = SHOTGUN_PELLET_OFFSETS[s];
-          const spreadRadius = Math.tan(coneHalfAngle) * rFrac;
-          const spreadDir = dir
-            .clone()
-            .addScaledVector(perpX, Math.cos(ang) * spreadRadius)
-            .addScaledVector(perpY, Math.sin(ang) * spreadRadius)
-            .normalize();
-          const pelletTarget = origin.clone().addScaledVector(spreadDir, dist);
-          const pelletBall = projectiles.ball(color, paintDropletGeo);
-          pelletBall.position.copy(origin);
-          pelletBall.userData.transientProjectile = true;
-          scene.add(pelletBall);
-          flights.push({
-            mesh: pelletBall,
-            origin: origin.clone(),
-            target: pelletTarget,
-            normal: normal.clone(),
-            born: performance.now(),
-            duration: Math.max(65, dist * 16),
-            variant,
-            color,
-            kind: 'confetti',
-            author: p.room.self,
-          });
-        }
-      }
-      avatarShoot(avatar);
-      hands.shoot(tool);
-      viewRecoil.kick(recoilKick(tool, shotIndex, handling));
-      prediction.current.remember(e.id, 'fire', isBlaster(tool) ? tool : undefined, now);
-      void p.onFire(e).then((reply) => {
-        applyWeaponReply(reply);
-        if (!reply.ok && !weaponDisposed) setCaptureError('Выстрел не принят: ' + (reply.reason ?? 'состояние комнаты'));
-      }).catch((error) => weaponFailure(e.id, error));
-      if (tool === 'sniper' && magazine.current.rounds.sniper === 0) beginReload();
-    };
-    /** Когда игрок вышел из захвата мыши (performance.now()). */
-    let pointerExitAt = -Infinity;
-    let relockTimer = 0;
-    let lockAttempt = 0;
-    /** Неудача текущей попытки захвата — её же зовёт событие pointerlockerror. */
-    let lockFailed: (() => void) | null = null;
-    const capture = () => {
-      // Клик по миру — жест игрока: теперь браузер разрешит звук шагов.
-      footsteps.resume();
-      weaponSounds.resume();
-      if (latest.current.blocked || document.pointerLockElement === canvas)
-        return;
-      canvas.focus();
-      setCaptureError('');
-      clearTimeout(relockTimer);
-      const fallback = () => {
-        softLook = true;
-        activeControl = true;
-        setActive(true);
-        setPlayed(true);
-        setCaptureError(
-          'Захват мыши недоступен · зажмите кнопку мыши, чтобы осмотреться · Esc — курсор',
-        );
-      };
-      /*
-       * Сразу после Esc браузер около секунды отказывает в захвате мыши. Это не
-       * «захват недоступен», а пауза: в первые полторы секунды после выхода
-       * просим секунду и повторяем попытку сами — клик ещё считается жестом
-       * игрока. Не вышло и со второго раза — тогда уже обзор зажатой кнопкой.
-       */
-      const attempt = (retried: boolean) => {
-        const id = ++lockAttempt;
-        const failed = () => {
-          if (id !== lockAttempt || weaponDisposed || document.pointerLockElement === canvas) return;
-          lockAttempt++;
-          const now = performance.now();
-          if (!retried && inRelockWindow(pointerExitAt, now)) {
-            setCaptureWait(true);
-            relockTimer = window.setTimeout(
-              () => {
-                if (!weaponDisposed && !latest.current.blocked) attempt(true);
-                else setCaptureWait(false);
-              },
-              Math.max(200, pointerExitAt + POINTER_RELOCK_WINDOW_MS - now),
-            );
-            return;
-          }
-          setCaptureWait(false);
-          fallback();
-        };
-        lockFailed = failed;
-        skipNextMove = true;
-        try {
-          if (!canvas.requestPointerLock)
-            throw new Error('Захват мыши недоступен');
-          const result = canvas.requestPointerLock();
-          void Promise.resolve(result).catch(failed);
-        } catch {
-          failed();
-        }
-      };
-      attempt(false);
-    };
+    const input = createWorldInput({
+      canvas,
+      latest,
+      engine,
+      keys,
+      mouse,
+      ray,
+      camera,
+      kit,
+      player,
+      hands,
+      magazine,
+      selection,
+      state: shared,
+      disposed: () => weaponDisposed,
+      isDead,
+      footsteps,
+      weaponSounds,
+      weaponVolume,
+      flashlight,
+      localBeam,
+      trajectoryLine,
+      landingMarker,
+      shoot,
+      beginReload,
+      reloadingFeedback,
+      scoreHeldRef,
+      scorePinnedRef,
+      tabletInWorldRef,
+      sniperZoomIndexRef,
+      aimModesRef,
+      perspectiveRef,
+      openTabletInWorld,
+      closeTabletInWorld,
+      choosePerspective,
+      setActive,
+      setPlayed,
+      setLocked,
+      setCaptureError,
+      setCaptureWait,
+      setAiming,
+      setRadial,
+      setContextWheel,
+      setScorePinned,
+      setMapExpanded,
+      setSniperZoomIndex,
+    });
+    const { capture, enabled, clear } = input;
     engine.current = {
       visuals,
       restyle: (state) => {
@@ -1762,442 +1230,6 @@ export default function World(props: Props) {
     const ro = new ResizeObserver(resize);
     ro.observe(host);
     resize();
-    const enabled = () =>
-      document.pointerLockElement === canvas ||
-      (activeControl &&
-        !(document.activeElement as HTMLElement | null)?.closest(
-          'input,textarea,select,[role=dialog],[role=combobox],[role=listbox],[role=menu]',
-        ));
-    const clear = () => {
-      keys.clear();
-      left = false;
-      continuousShots = 0;
-      if (grenadeAiming) {
-        grenadeAiming = false;
-        trajectoryLine.visible = false;
-        landingMarker.visible = false;
-      }
-      aimHeld = false;
-      setAiming(false);
-      player.releaseCrouch();
-    };
-    // Табло счёта: удержание «ё» — показать, ЛКМ при зажатой «ё» — залипание.
-    const releaseScoreHold = () => {
-      if (!scoreHeldRef.current) return;
-      scoreHeldRef.current = false;
-      if (!scorePinnedRef.current) latest.current.onMonitor(false);
-    };
-    const pinScore = () => {
-      scoreHeldRef.current = false;
-      scorePinnedRef.current = true;
-      setScorePinned(true);
-      latest.current.onMonitor(true);
-      // Единственное место, кроме Esc, где курсор освобождается намеренно:
-      // по табло надо кликать (например сменить сторону).
-      if (document.pointerLockElement) document.exitPointerLock();
-      softLook = false;
-      activeControl = false;
-      setActive(false);
-      clear();
-    };
-    const closeScore = () => {
-      scoreHeldRef.current = false;
-      scorePinnedRef.current = false;
-      setScorePinned(false);
-      latest.current.onMonitor(false);
-    };
-    const onBlur = () => {
-      // Окно потеряло фокус — keyup по «ё» не придёт, табло зависло бы открытым.
-      releaseScoreHold();
-      clear();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      // Сочетания с Ctrl / Alt / Cmd принадлежат браузеру и системе: Ctrl+W
-      // закрывает вкладку, Ctrl+T открывает новую, Ctrl+R перезагружает,
-      // Alt+F4 закрывает окно. Перехватить их со страницы нельзя, поэтому
-      // игра на них просто не реагирует — иначе служебная комбинация вдобавок
-      // дёргала бы игрока. Игровые клавиши работают только без модификаторов.
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
-      if (
-        (e.code === 'KeyQ' || e.code === 'KeyI') &&
-        !e.repeat &&
-        !latest.current.blocked &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        !(e.target as HTMLElement | null)?.closest(
-          'input,textarea,select,[contenteditable=true]',
-        )
-      ) {
-        e.preventDefault();
-        if (middle) {
-          engine.current?.closeInventory();
-        } else {
-          engine.current?.openInventory();
-        }
-        return;
-      }
-      if (e.code === 'Escape') {
-        if (scorePinnedRef.current || scoreHeldRef.current) {
-          const wasPinned = scorePinnedRef.current;
-          closeScore();
-          // Залипшее табло Esc снимает и возвращает игрока к управлению;
-          // остальное (пауза, освобождение курсора) — как обычно.
-          if (wasPinned) {
-            e.preventDefault();
-            capture();
-            return;
-          }
-        }
-        if (tabletInWorldRef.current) {
-          e.preventDefault();
-          closeTabletInWorld();
-          return;
-        }
-        middle = false;
-        setRadial(false);
-        setContextWheel(false);
-        engine.current?.pause();
-        if (document.pointerLockElement) document.exitPointerLock();
-        return;
-      }
-      if ((!enabled() && !middle) || latest.current.blocked) return;
-      if (middle) {
-        const slot = slotForDigit(modeOf(latest.current.room.state), e.code);
-        if (slot !== undefined) {
-          e.preventDefault();
-          latest.current.onTool(slot);
-          engine.current?.closeInventory();
-        }
-        return;
-      }
-      if (
-        [
-          'KeyW',
-          'KeyA',
-          'KeyS',
-          'KeyD',
-          'Space',
-          'KeyC',
-          'KeyX',
-          'ShiftLeft',
-          'ShiftRight',
-          'Tab',
-          'Backquote',
-          'KeyE',
-          'KeyF',
-          'KeyV',
-          'KeyR',
-          'KeyZ',
-          'KeyM',
-          'KeyT',
-          'KeyY',
-          'ArrowLeft',
-          'ArrowRight',
-          'ArrowUp',
-          'ArrowDown',
-          ...Array.from({ length: 10 }, (_, i) => 'Digit' + i),
-        ].includes(e.code)
-      )
-        e.preventDefault();
-      keys.add(e.code);
-      if (e.repeat) return;
-      // Удержание: табло видно, пока «ё» зажата. Нужны кнопки в табло —
-      // ЛКМ при зажатой «ё» залипает (см. onDown), снимается по Esc.
-      if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё') {
-        if (
-          !scorePinnedRef.current &&
-          !(document.activeElement as HTMLElement | null)?.closest(
-            'input,textarea,select,[contenteditable=true]',
-          )
-        ) {
-          scoreHeldRef.current = true;
-          latest.current.onMonitor(true);
-        }
-      }
-      if (e.code === 'KeyR') beginReload();
-      // План по M разворачивается и сворачивается и живым, и убитым: смотреть
-      // карту в ожидании возрождения — обычное дело.
-      if (e.code === 'KeyM') setMapExpanded((v) => !v);
-      if (e.code === 'KeyX') player.holdCrouch();
-      if (isDead()) return;
-      if (e.code === 'Space') player.jump();
-      if (e.code === 'KeyC') player.toggleStance(performance.now());
-      if (e.code === 'KeyE' && nearZone) {
-        // Курсор освободит сам диалог карточки (эффект на props.blocked):
-        // лишний exitPointerLock здесь возвращал мышь даже без диалога.
-        latest.current.onUseTool(nearZone);
-        clear();
-      }
-      // F занял фонарик — привычная по шутерам клавиша, и нажимают её в бою
-      // куда чаще, чем выравнивают камеру. Сброс угла обзора переехал на Z:
-      // соседняя с WASD свободная клавиша, до которой дотягивается та же рука.
-      // Проверка на Ctrl/Alt/Cmd выше по обработчику остаётся общей для обеих.
-      if (e.code === 'KeyZ') engine.current?.reset();
-      if (e.code === 'KeyF') {
-        flashlightOn = flashlight.toggle();
-        localBeam.set(flashlightOn && !isDead(), player.pitch);
-        weaponSounds.click(flashlightOn, [0, 0, 0], true, weaponVolume());
-      }
-      if (e.code === 'KeyV')
-        choosePerspective(
-          perspectiveRef.current === 'first' ? 'third' : 'first',
-        );
-      // Рация: пока клавиша зажата, голос идёт своим (T) или всем (Y).
-      // Разговор не зависит от того, жив ли игрок: мёртвому тем более есть что
-      // сказать команде, и молчать в ожидании возрождения незачем.
-      if (e.code === 'KeyT') latest.current.onTalk?.('team', true);
-      if (e.code === 'KeyY') latest.current.onTalk?.('all', true);
-      if (e.code.startsWith('Digit')) {
-        const slot = slotForDigit(modeOf(latest.current.room.state), e.code);
-        if (slot !== undefined) {
-          latest.current.onTool(slot);
-          aimHeld = false;
-          setAiming(false);
-        }
-      }
-    };
-    const onUp = (e: KeyboardEvent) => {
-      keys.delete(e.code);
-      if (e.code === 'Backquote' || e.key === 'ё' || e.key === 'Ё')
-        releaseScoreHold();
-      // Отпускание обрабатываем и с модификаторами: иначе приседание залипло бы
-      // после X + случайно нажатого Ctrl. По той же причине — и рация: зажатая
-      // T плюс случайный Alt оставили бы микрофон открытым.
-      if (e.code === 'KeyX') player.releaseCrouch();
-      if (e.code === 'KeyT') latest.current.onTalk?.('team', false);
-      if (e.code === 'KeyY') latest.current.onTalk?.('all', false);
-
-    };
-    const onMouse = (e: MouseEvent) => {
-      const b = canvas.getBoundingClientRect();
-      mouse.set(
-        ((e.clientX - b.left) / b.width) * 2 - 1,
-        (-(e.clientY - b.top) / b.height) * 2 + 1,
-      );
-      if (latest.current.blocked || middle) return;
-      // Без захвата мыши камера вращается только при зажатой кнопке (drag-look):
-      // прежний «обзор по краям экрана» сам уводил камеру в сторону.
-      if (document.pointerLockElement === canvas || (softLook && dragLook)) {
-        // Браузер иногда отдаёт один огромный movement — сразу после захвата
-        // мыши, после сворачивания окна или скачка курсора. Такое событие
-        // нужно отбросить целиком: обрезанный до предела скачок — это тот же
-        // рывок камеры, только на 25° вместо 50°.
-        if (skipNextMove) {
-          skipNextMove = false;
-          moveFilter.reset();
-          return;
-        }
-        // Одиночный всплеск — сбой браузера, а нарастающий быстрый рывок игрока
-        // проходит (lib/mouse-filter.ts).
-        const move = moveFilter.filter(e.movementX, e.movementY);
-        if (!move) return;
-        const [mx, my] = move;
-        // Scale sensitivity down when sniper is scoped
-        const tool = GAME_TOOLS[latest.current.tool]?.id;
-        const isSniperZoom = tool === 'sniper' && aimHeld;
-        const zoomScale = isSniperZoom
-          ? Math.max(0.12, 1 / (SNIPER_ZOOM_LEVELS[sniperZoomIndexRef.current] * 0.75))
-          : 1;
-        const sens = latest.current.sensitivity * zoomScale;
-        const pitchBefore = player.pitch;
-        player.cameraYaw = wrapAngle(player.cameraYaw - mx * 0.0023 * sens);
-        player.pitch = T.MathUtils.clamp(
-          player.pitch +
-          my *
-          0.002 *
-          sens *
-          (latest.current.invertCamera ? -1 : 1),
-          -1.35,
-          1.4,
-        );
-        hands.look(-mx * 0.0023 * sens, player.pitch - pitchBefore);
-      }
-    };
-    const wheel = (e: WheelEvent) => {
-      if (latest.current.blocked || middle || !enabled()) return;
-      e.preventDefault();
-      canvas.focus();
-      const tool = GAME_TOOLS[latest.current.tool]?.id;
-      if (tool === 'sniper' && aimHeld) {
-        if (e.deltaY < 0) {
-          setSniperZoomIndex((i) =>
-            Math.min(i + 1, SNIPER_ZOOM_LEVELS.length - 1),
-          );
-        } else if (e.deltaY > 0) {
-          setSniperZoomIndex((i) => Math.max(i - 1, 0));
-        }
-        return;
-      }
-      if (e.altKey) engine.current?.distance(e.deltaY > 0 ? 1 : -1);
-      else {
-        const next = cycleSlot(
-          modeOf(latest.current.room.state),
-          latest.current.tool,
-          e.deltaY > 0 ? 1 : -1,
-        );
-        latest.current.onTool(next);
-        aimHeld = false;
-        setAiming(false);
-      }
-    };
-    const onDown = (e: MouseEvent) => {
-      if (latest.current.blocked || middle) return;
-      // Залипшее табло: мимо него по миру не стреляем и захват не возвращаем —
-      // выход только по Esc.
-      if (scorePinnedRef.current) {
-        e.preventDefault();
-        return;
-      }
-      // «Ё» зажата и щёлкнули ЛКМ — табло остаётся на экране вместе с курсором.
-      if (e.button === 0 && scoreHeldRef.current) {
-        e.preventDefault();
-        pinScore();
-        return;
-      }
-      canvas.focus();
-      // Пока кнопка зажата, события мыши приходят даже за пределами окна —
-      // курсор больше не «выскакивает» с экрана посреди прицеливания.
-      if (e.button === 0 || e.button === 2) {
-        dragLook = true;
-        try {
-          canvas.setPointerCapture?.(
-            (e as MouseEvent & { pointerId?: number }).pointerId ?? 1,
-          );
-        } catch {
-          // Старый браузер без pointer capture: обзор всё равно работает.
-        }
-      }
-      if (e.button === 1) {
-        e.preventDefault();
-        engine.current?.openContext();
-      } else if (e.button === 2) {
-        e.preventDefault();
-        if (!enabled()) {
-          capture();
-          return;
-        }
-        const tool = GAME_TOOLS[latest.current.tool]?.id;
-        if (tool === 'paint' || tool === 'confetti' || tool === 'sniper') {
-          if (magazine.current.reloading) return;
-          if (tool === 'sniper' && magazine.current.rounds.sniper === 0) {
-            aimHeld = false;
-            setAiming(false);
-            beginReload();
-            return;
-          }
-          const mode = aimModesRef.current[tool as keyof WeaponAimModes] || 'hold';
-          if (mode === 'toggle') {
-            aimHeld = !aimHeld;
-          } else {
-            aimHeld = true;
-          }
-          setAiming(aimHeld);
-        }
-      } else if (e.button === 0) {
-        if (document.pointerLockElement !== canvas && !softLook) {
-          capture();
-          return;
-        }
-        left = true;
-        const t = GAME_TOOLS[latest.current.tool]?.id;
-        if (t === 'grenade') {
-          // Новую гранату ещё достают: целиться нечем.
-          if (performance.now() - lastGrenade < GRENADE_COOLDOWN_MS) {
-            reloadingFeedback();
-            return;
-          }
-          grenadeAiming = true;
-          trajectoryLine.visible = true;
-          landingMarker.visible = true;
-        } else if (
-          t === 'paint' ||
-          t === 'confetti' ||
-          t === 'sniper' ||
-          t === 'like' ||
-          t === 'melee'
-        ) {
-          shoot();
-        } else if (t === 'flashlight') {
-          flashlightOn = flashlight.toggle();
-          localBeam.set(flashlightOn && !isDead(), player.pitch);
-          weaponSounds.click(flashlightOn, [0, 0, 0], true, weaponVolume());
-        } else if (t === 'pointer') {
-          // В «Предателе» планшет — пустые руки: доска ретро в этом режиме не нужна.
-          if (modeOf(latest.current.room.state) === 'impostor') return;
-          if (tabletInWorldRef.current) closeTabletInWorld();
-          else openTabletInWorld();
-        } else if (t === 'sticky') {
-          latest.current.onUseTool(selection.current.tabletZone || nearZone);
-          clear();
-        } else {
-          ray.setFromCamera(
-            document.pointerLockElement || softLook ? new T.Vector2() : mouse,
-            camera,
-          );
-          const hit = ray.intersectObjects(kit.boards.map((b) => b.panel))[0];
-          if (hit) {
-            latest.current.onUseTool(hit.object.userData.zone);
-            clear();
-          } else if (t === 'reaction') latest.current.onAction('reaction');
-          else if (nearZone) {
-            latest.current.onUseTool(nearZone);
-            clear();
-          }
-        }
-      }
-    };
-    const onMouseUp = (e: MouseEvent) => {
-      if (e.button === 0 || e.button === 2) {
-        dragLook = false;
-        try {
-          canvas.releasePointerCapture?.(
-            (e as MouseEvent & { pointerId?: number }).pointerId ?? 1,
-          );
-        } catch {
-          // Захват мог не начаться — освобождать нечего.
-        }
-      }
-      if (e.button === 0) {
-        left = false;
-        continuousShots = 0;
-        if (grenadeAiming) {
-          grenadeAiming = false;
-          trajectoryLine.visible = false;
-          landingMarker.visible = false;
-          shoot();
-        }
-      }
-      if (e.button === 2) {
-        const tool = GAME_TOOLS[latest.current.tool]?.id;
-        const mode = (tool && aimModesRef.current[tool as keyof WeaponAimModes]) || 'hold';
-        if (mode === 'hold') {
-          aimHeld = false;
-          setAiming(false);
-        }
-      }
-    };
-    const changed = () => {
-      const captured = document.pointerLockElement === canvas;
-      activeControl = captured;
-      setLocked(captured);
-      setActive(captured);
-      if (captured) {
-        skipNextMove = true;
-        clearTimeout(relockTimer);
-        lockFailed = null;
-        setCaptureWait(false);
-        setPlayed(true);
-      } else {
-        pointerExitAt = performance.now();
-        softLook = false;
-        dragLook = false;
-        clear();
-      }
-    };
-    // Старые браузеры сообщают об отказе в захвате только событием, без промиса.
-    const lockError = () => lockFailed?.();
-    const context = (e: Event) => e.preventDefault();
     /*
      * Потеря WebGL-контекста: видеокарта сбросила графику (сон ноутбука, смена
      * драйвера, нехватка памяти). preventDefault — просьба к браузеру вернуть
@@ -2213,17 +1245,6 @@ export default function World(props: Props) {
       resize();
       setGlLost(false);
     };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('keyup', onUp);
-    window.addEventListener('mousemove', onMouse);
-    window.addEventListener('mouseup', onMouseUp);
-    window.addEventListener('blur', onBlur);
-    document.addEventListener('pointerlockchange', changed);
-    document.addEventListener('pointerlockerror', lockError);
-    canvas.addEventListener('wheel', wheel, { passive: false });
-    canvas.addEventListener('mousedown', onDown);
-    canvas.addEventListener('contextmenu', context);
-    canvas.addEventListener('auxclick', context);
     canvas.addEventListener('webglcontextlost', contextLost);
     canvas.addEventListener('webglcontextrestored', contextRestored);
     let life =
@@ -2296,42 +1317,7 @@ export default function World(props: Props) {
         // Краскомёт стреляет очередью, ближний бой бьёт, пока держат кнопку.
         if (t === 'paint' || t === 'melee') shoot();
       }
-      if (grenadeAiming && GAME_TOOLS[latest.current.tool]?.id === 'grenade') {
-        ray.setFromCamera(document.pointerLockElement || softLook ? aimCenter : mouse, camera);
-        const trajTargets = aimTargets;
-        trajTargets.length = 0;
-        for (const o of sceneryTargetCache)
-          if (
-            visibleInWorld(o) &&
-            o.geometry.type !== 'SphereGeometry' &&
-            o.geometry.type !== 'ShapeGeometry'
-          )
-            trajTargets.push(o);
-        for (const o of gatherRemoteAvatarMeshes())
-          if (
-            visibleInWorld(o) &&
-            o.geometry.type !== 'SphereGeometry' &&
-            o.geometry.type !== 'ShapeGeometry'
-          )
-            trajTargets.push(o);
-        const hit = ray
-          .intersectObjects(trajTargets, false)
-          .find((h) => h.distance < 50 && h.distance > 0.1);
-        const arcTarget = hit ? hit.point : ray.ray.at(25, aimFallback);
-        // Тот же полёт, что посчитают сервер и все клиенты: с отскоками и качением.
-        const arc = simulateGrenade(weaponOrigin('grenade').toArray(), arcTarget.toArray(), map);
-        writeTrajectory(arc.path);
-        trajectoryLine.visible = true;
-
-        // Метка — там, где граната рванёт; лежит она к этому времени или ещё летит.
-        landingMarker.position.fromArray(arc.end);
-        landingMarker.position.y = Math.max(0.02, arc.end[1] - 0.06);
-        landingMarker.quaternion.copy(markerFlat);
-        landingMarker.visible = true;
-      } else if (trajectoryLine.visible) {
-        trajectoryLine.visible = false;
-        landingMarker.visible = false;
-      }
+      grenadeAim.update(grenadeAiming && GAME_TOOLS[latest.current.tool]?.id === 'grenade');
       // Подготовка раунда: сервер всё равно не примет шаг, поэтому и локально
       // игрок стоит — иначе картинка «уезжает», а потом возвращается назад.
       const frozen =
@@ -2785,18 +1771,7 @@ export default function World(props: Props) {
       clear();
       engine.current = null;
       if (document.pointerLockElement === canvas) document.exitPointerLock();
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('keyup', onUp);
-      window.removeEventListener('mousemove', onMouse);
-      window.removeEventListener('mouseup', onMouseUp);
-      window.removeEventListener('blur', onBlur);
-      document.removeEventListener('pointerlockchange', changed);
-      document.removeEventListener('pointerlockerror', lockError);
-      clearTimeout(relockTimer);
-      canvas.removeEventListener('wheel', wheel);
-      canvas.removeEventListener('mousedown', onDown);
-      canvas.removeEventListener('contextmenu', context);
-      canvas.removeEventListener('auxclick', context);
+      input.dispose();
       canvas.removeEventListener('webglcontextlost', contextLost);
       canvas.removeEventListener('webglcontextrestored', contextRestored);
       visuals.dispose();
@@ -2832,17 +1807,15 @@ export default function World(props: Props) {
       projectiles.dispose();
       weather.dispose();
       vfx.dispose();
-      trajectoryGeo.dispose();
-      trajectoryMat.dispose();
-      landingMarker.geometry.dispose();
-      (landingMarker.material as T.Material).dispose();
+      grenadeAim.dispose();
       kit.dispose();
       composer?.passes.forEach((pass) => pass.dispose());
       composer?.dispose();
       renderer.dispose();
       canvas.remove();
     };
-  }, [props.quality, openTabletInWorld, closeTabletInWorld, mapId]);
+    // Сеттер и ref-объекты из useKillFeed стабильны: движок из-за них не пересобирается.
+  }, [props.quality, openTabletInWorld, closeTabletInWorld, mapId, setPersonalAlert, hitMarker, killSoundRef]);
   useEffect(() => {
     engine.current?.restyle(latest.current.room.state);
     engine.current?.shadow();
@@ -2882,84 +1855,6 @@ export default function World(props: Props) {
   const gameMode = modeOf(props.room.state);
   const slots = slotsFor(gameMode);
   const currentSlot = slots.find((s) => s.index === props.tool);
-  /*
-   * Что лежит в колесе СКМ для нынешнего инструмента. У краскомёта групп две —
-   * прицелы сверху, краска снизу: и то и другое меняют посреди боя, а второй
-   * кнопки под это нет. У остальных инструментов группа одна, и колесо
-   * выглядит как раньше.
-   */
-  const wheelGroups: WheelGroup[] =
-    current.id === 'paint'
-      ? [
-          {
-            id: 'sight',
-            title: 'Прицел',
-            selected: paintSight,
-            items: PAINT_SIGHT_OPTIONS,
-          },
-          {
-            id: 'paint',
-            title: 'Краска',
-            selected:
-              PAINTS.find((p) => p.color === props.paintColor)?.id || 'violet',
-            items: PAINTS,
-          },
-        ]
-      : [
-          current.id === 'confetti'
-            ? {
-                id: 'confetti',
-                title: 'Набор конфетти',
-                selected: confettiStyle,
-                items: CONFETTI,
-              }
-            : current.id === 'grenade'
-              ? {
-                  id: 'grenade',
-                  title: 'Пиньято',
-                  selected: grenadeStyle,
-                  items: GRENADES,
-                }
-              : current.id === 'sniper'
-                ? {
-                    id: 'sniper',
-                    title: 'Фейерверки',
-                    selected: fireworkStyle,
-                    items: FIREWORKS,
-                  }
-                : current.id === 'melee'
-                ? {
-                    id: 'melee',
-                    title: 'Ближний бой',
-                    selected: meleeStyle,
-                    items: MELEE,
-                  }
-                : current.id === 'sticky'
-                  ? {
-                      id: 'sticky',
-                      title: 'Зона стикера',
-                      selected: tabletZone,
-                      items: ZONES.map((z) => ({
-                        id: z.id,
-                        label: z.title,
-                        color: z.color,
-                        icon: z.emoji,
-                      })),
-                    }
-                  : {
-                      id: 'board',
-                      title: 'Планшет',
-                      selected: 'board',
-                      items: [
-                        {
-                          id: 'board',
-                          label: 'Открыть доску',
-                          color: '#64d4ef',
-                          icon: '📱',
-                        },
-                      ],
-                    },
-        ];
   const match = props.room.match;
   // Матч в разгаре: по игроку стреляют, в том числе пока он в паузе.
   const matchLive = gameMode === 'battle' && (!match || match.phase === 'live');
@@ -3111,197 +2006,34 @@ export default function World(props: Props) {
       {active && captureError && (
         <div className="camera-fallback-hint">{captureError}</div>
       )}
-      <div className="quick-loadout" aria-label="Быстрые предметы">
-        {slots.map((slot) => {
-          const Icon = getSlotIcon(slot.index);
-          return (
-            <button
-              key={slot.key}
-              aria-pressed={props.tool === slot.index}
-              onClick={() => {
-                if (slot.index === 9) {
-                  if (props.tool === 9) {
-                    if (tabletInWorld) closeTabletInWorld();
-                    else openTabletInWorld();
-                  } else {
-                    props.onTool(9);
-                    openTabletInWorld();
-                  }
-                } else {
-                  if (tabletInWorld) closeTabletInWorld();
-                  props.onTool(slot.index);
-                }
-              }}
-              title={slot.hint}
-            >
-              <kbd>{slot.key}</kbd>
-              <Icon size={20} />
-              <span>{slot.label}</span>
-            </button>
-          );
-        })}
-        <button
-          className="open-kit"
-          onClick={() => engine.current?.openInventory()}
-        >
-          <kbd>Q</kbd>
-          <span>Снаряжение</span>
-        </button>
-      </div>
-      <button
-        className="item-options-button"
-        onClick={() => {
-          if (current.id === 'pointer') {
-            if (tabletInWorld) closeTabletInWorld();
-            else openTabletInWorld();
-          } else {
-            engine.current?.openContext();
-          }
-        }}
-      >
-        <span style={{ color: props.paintColor }}>
-          {current.id === 'paint'
-            ? '●'
-            : current.id === 'confetti'
-              ? CONFETTI.find((c) => c.id === confettiStyle)?.icon
-              : current.id === 'grenade'
-                ? GRENADES.find((g) => g.id === grenadeStyle)?.icon
-                : current.id === 'sniper'
-                  ? FIREWORKS.find((f) => f.id === fireworkStyle)?.icon
-                  : current.id === 'melee'
-                  ? MELEE.find((m) => m.id === meleeStyle)?.icon
-                  : current.id === 'sticky'
-                    ? ZONES.find((z) => z.id === tabletZone)?.emoji || '📝'
-                    : '📱'}
-        </span>
-        {current.id === 'paint'
-          ? 'Краска и прицел'
-          : current.id === 'confetti'
-            ? CONFETTI.find((c) => c.id === confettiStyle)?.label
-            : current.id === 'grenade'
-              ? GRENADES.find((g) => g.id === grenadeStyle)?.label
-              : current.id === 'sniper'
-                ? FIREWORKS.find((f) => f.id === fireworkStyle)?.label
-                : current.id === 'melee'
-                ? MELEE.find((m) => m.id === meleeStyle)?.label
-                : current.id === 'sticky'
-                  ? ZONES.find((z) => z.id === tabletZone)?.short || 'Стикер'
-                  : 'Открыть доску ↗'}
-        <kbd>{current.id === 'pointer' ? 'ЛКМ' : 'СКМ'}</kbd>
-      </button>
-      {contextWheel && (
-        <ItemWheel
-          key={current.id}
-          title={
-            current.id === 'paint' ? 'Краскомёт' : wheelGroups[0].title
-          }
-          groups={wheelGroups}
-          onSelect={(id: string, group: string) => {
-            if (group === 'sight') applyPaintSight(id as PaintSight);
-            else if (current.id === 'paint')
-              props.onPaintColor(PAINTS.find((p) => p.id === id)!.color);
-            else if (current.id === 'confetti') {
-              setConfettiStyle(id);
-              writePref(PREF_KEYS.confettiStyle, id);
-            } else if (current.id === 'grenade') {
-              setGrenadeStyle(id);
-              writePref(PREF_KEYS.grenadeStyle, id);
-            } else if (current.id === 'sniper') {
-              setFireworkStyle(id);
-              writePref(PREF_KEYS.fireworkStyle, id);
-            } else if (current.id === 'melee') {
-              setMeleeStyle(id);
-              writePref(PREF_KEYS.meleeStyle, id);
-            }
-            else if (current.id === 'sticky') setTabletZone(id);
-            else if (current.id === 'pointer') openTabletInWorld();
-            engine.current?.closeInventory();
-          }}
-          onClose={() => engine.current?.closeInventory(false)}
-        />
-      )}
-      <Dialog
-        open={radial}
-        onOpenChange={(open) => {
-          if (!open) engine.current?.closeInventory(false);
-        }}
-      >
-        <DialogContent
-          className="equipment-panel"
-          showCloseButton={false}
-          finalFocus={false}
-        >
-          <header>
-            <div>
-              <span className="eyebrow">JINALY / СНАРЯЖЕНИЕ</span>
-              <DialogTitle>Снаряжение</DialogTitle>
-            </div>
-            <button
-              aria-label="Закрыть снаряжение"
-              onClick={() => engine.current?.closeInventory()}
-            >
-              <X />
-            </button>
-          </header>
-          <DialogDescription>
-            Выберите предмет. Колесо мыши открывает варианты предмета в руках.
-          </DialogDescription>
-          <button
-            className="agent-preview-toggle"
-            aria-expanded={showAgent}
-            onClick={() => setShowAgent(!showAgent)}
-          >
-            {showAgent ? 'Скрыть персонажа' : 'Посмотреть персонажа'} ↗
-          </button>
-          {showAgent && (
-            <AvatarPreview
-              color={
-                props.room.members.find((m) => m.id === props.room.self)
-                  ?.color || '#718cdd'
-              }
-              anime={props.room.state.visualStyle === 'anime'}
-              anonymous={!!props.room.state.anonymousPlayers}
-              seed={props.room.self}
-            />
-          )}
-          <div className="equipment-items">
-            {slots.map((slot) => {
-              const Icon = getSlotIcon(slot.index);
-              return (
-                <button
-                  key={slot.key}
-                  aria-pressed={props.tool === slot.index}
-                  onClick={() => {
-                    props.onTool(slot.index);
-                    engine.current?.closeInventory();
-                  }}
-                >
-                  <kbd>{slot.key}</kbd>
-                  <Icon size={42} />
-                  <strong>{slot.label}</strong>
-                  <small>{slot.hint}</small>
-                  <span>
-                    {props.tool === slot.index ? 'В руках' : 'Взять в руки'}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <button
-            className="equipment-reaction"
-            onClick={() => {
-              props.onAction('reaction');
-              engine.current?.closeInventory();
-            }}
-          >
-            👍 Поддержать команду
-          </button>
-          <footer>
-            <kbd>Q / I</kbd> снаряжение <kbd>1–4</kbd> быстрый выбор{' '}
-            <kbd>Esc</kbd> закрыть
-          </footer>
-        </DialogContent>
-      </Dialog>
+      <WorldEquipment
+        slots={slots}
+        current={current}
+        tool={props.tool}
+        onTool={props.onTool}
+        paintColor={props.paintColor}
+        onPaintColor={props.onPaintColor}
+        onAction={props.onAction}
+        room={props.room}
+        paintSight={paintSight}
+        applyPaintSight={applyPaintSight}
+        confettiStyle={confettiStyle}
+        setConfettiStyle={setConfettiStyle}
+        grenadeStyle={grenadeStyle}
+        setGrenadeStyle={setGrenadeStyle}
+        fireworkStyle={fireworkStyle}
+        setFireworkStyle={setFireworkStyle}
+        meleeStyle={meleeStyle}
+        setMeleeStyle={setMeleeStyle}
+        tabletZone={tabletZone}
+        setTabletZone={setTabletZone}
+        tabletInWorld={tabletInWorld}
+        openTabletInWorld={openTabletInWorld}
+        closeTabletInWorld={closeTabletInWorld}
+        contextWheel={contextWheel}
+        radial={radial}
+        engine={engine}
+      />
       {props.host && (props.pendingJoinRequestsCount || 0) > 0 && (
         <div className="world-join-requests-hud">
           <button
