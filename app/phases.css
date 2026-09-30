@@ -17,9 +17,9 @@
 
 .phase-bar {
   position: absolute;
-  left: 20px;
+  left: calc(20px + env(safe-area-inset-left, 0px));
   top: calc(var(--bar-h) + 142px);
-  z-index: 6;
+  z-index: var(--z-hud);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -129,7 +129,7 @@
   height: 16px;
   border-radius: 50%;
   background: #ffffff1f;
-  font-size: 10px;
+  font-size: var(--fs-2xs);
 }
 .phase-bar-step.complete .phase-bar-mark {
   background: #4fbf9a;
@@ -139,7 +139,7 @@
 .phase-bar-note {
   margin: 3px 5px 1px;
   color: #7f8dab;
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.3px;
 }
 
@@ -147,7 +147,7 @@
    этапа остаётся в раскрытом списке — иначе она наезжает на правую колонку. */
 @media (max-width: 600px) {
   .phase-bar {
-    left: 12px;
+    left: calc(12px + env(safe-area-inset-left, 0px));
     top: calc(var(--bar-h) + 136px);
     max-width: calc(100% - 24px);
   }
@@ -157,7 +157,7 @@
   }
   .phase-bar-name {
     max-width: 92px;
-    font-size: 10px;
+    font-size: var(--fs-2xs);
   }
   .phase-bar-list {
     min-width: 152px;
@@ -166,5 +166,13 @@
 @media (max-width: 400px) {
   .phase-bar-name {
     display: none;
+  }
+}
+
+/* Тач-цели: плашка этапа и пункты списка — от 44px на экране с грубым указателем. */
+@media (pointer: coarse) {
+  .phase-bar-current,
+  .phase-bar-step {
+    min-height: 44px;
   }
 }

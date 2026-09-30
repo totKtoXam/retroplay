@@ -50,6 +50,13 @@ function Panel({ className, children }: { className: string; children: React.Rea
 // ---------------------------------------------------------------- провода
 
 const WIRE_COLORS = ['#e5484d', '#3e8ef7', '#f5d90a', '#c55ff0'];
+/** Названия цветов для экранного диктора: иначе все четыре кнопки звучат одинаково. */
+const WIRE_NAMES: Record<string, string> = {
+  '#e5484d': 'красный',
+  '#3e8ef7': 'синий',
+  '#f5d90a': 'жёлтый',
+  '#c55ff0': 'фиолетовый',
+};
 // Разъёмы стоят по строгой сетке — координаты считаем формулой, а не измеряем DOM.
 const WIRE_W = 230,
   WIRE_H = 176,
@@ -158,7 +165,7 @@ function Wires({ onDone }: GameProps) {
               className={`impostor-plug${joined.includes(c) ? ' is-joined' : ''}`}
               style={{ left: a.x, top: a.y, background: c }}
               disabled={joined.includes(c)}
-              aria-label="Провод"
+              aria-label={`Провод: ${WIRE_NAMES[c]}${joined.includes(c) ? ', подключён' : ''}`}
               onPointerDown={startDrag(c)}
               onPointerMove={onDragMove}
               onPointerUp={onDragEnd}

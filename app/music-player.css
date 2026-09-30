@@ -193,7 +193,7 @@
   white-space: nowrap;
 }
 .music-pop-text small {
-  font-size: 10.5px;
+  font-size: var(--fs-2xs);
   color: var(--jin-text-muted);
 }
 .music-pop-remove {

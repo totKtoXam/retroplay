@@ -31,6 +31,7 @@ import {
   WEATHER_SETTINGS,
   type WeatherTuning,
 } from './weather.ts';
+import { TEAM_NEUTRAL, teamName } from './team-colors.ts';
 
 export const ZONES = [
   {
@@ -1255,7 +1256,7 @@ export function kdaRatio(p: {
   return ((p.kills ?? 0) + (p.assists ?? 0)) / Math.max(1, p.deaths ?? 0);
 }
 /**
- * Группы табло по Tab. В командном бою игроки делятся на красных и синих с
+ * Группы табло по Tab. В командном бою игроки делятся на оранжевых и синих с
  * суммой K/D/A по стороне; порядок внутри группы сохраняется (табло уже
  * отсортировано по KDA). Кто ещё не выбрал сторону, идёт отдельной группой в
  * конце. Вне боя или пока стороны не розданы — одна группа без заголовка.
@@ -1279,9 +1280,10 @@ export function monitorGroups<
   const blue = members.filter((m) => m.team === 'blue');
   const rest = members.filter((m) => m.team !== 'red' && m.team !== 'blue');
   return [
-    group('red', 'Красные', red),
-    group('blue', 'Синие', blue),
-    ...(rest.length ? [group('none', 'Без команды', rest)] : []),
+    // Идентификатор 'red' прежний (данные сервера), подпись — «Оранжевые».
+    group('red', teamName('red'), red),
+    group('blue', teamName('blue'), blue),
+    ...(rest.length ? [group('none', TEAM_NEUTRAL.name, rest)] : []),
   ];
 }
 export function voteCount(s: RoomState, id: string) {

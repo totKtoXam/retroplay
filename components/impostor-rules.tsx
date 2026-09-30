@@ -4,7 +4,7 @@
 // клавиши — текстом и рисунками. Все числа (таймеры, перезарядки, дальности) берутся из тех же
 // констант и настроек комнаты, что и у сервера, а план корабля рисуется из данных карты: правила
 // не могут разойтись с игрой.
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import type { GameMap, TaskKind } from '@/lib/maps/types';
 import {
   CRITICAL_MS,
@@ -357,6 +357,48 @@ function Legend() {
 
 // ---------------------------------------------------------------- окно
 
+const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Фокус модального окна: при открытии переходит внутрь, Tab и Shift+Tab ходят по кругу
+ * внутри окна, а при закрытии фокус возвращается туда, где был. Esc закрывает окна режима
+ * в impostor-overlay.tsx.
+ */
+export function useDialogFocus(ref: RefObject<HTMLElement | null>, open = true) {
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!open || !dialog) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const items = () =>
+      [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (el) => !el.hasAttribute('disabled') && el.getClientRects().length > 0,
+      );
+    (items()[0] ?? dialog).focus({ preventScroll: true });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const list = items();
+      if (!list.length) {
+        e.preventDefault();
+        dialog.focus({ preventScroll: true });
+        return;
+      }
+      const first = list[0];
+      const last = list[list.length - 1];
+      const active = document.activeElement;
+      const outside = !dialog.contains(active);
+      if (e.shiftKey ? outside || active === first : outside || active === last) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus({ preventScroll: true });
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [ref, open]);
+}
+
 export default function ImpostorRules({
   map,
   settings,
@@ -395,11 +437,23 @@ export default function ImpostorRules({
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [tab]);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  useDialogFocus(dialogRef);
   return (
     <div className="impostor-modal">
-      <div className="impostor-card impostor-rules" role="document">
+      {/* Открыт атрибутом open, а не showModal(): окно остаётся внутри слоя режима и его
+          затемнения; модальность дают aria-modal и удержание фокуса в useDialogFocus. */}
+      <dialog
+        open
+        ref={dialogRef}
+        className="impostor-card impostor-rules"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
         <header>
-          <strong>Правила · Предатель</strong>
+          <strong id={titleId}>Правила · Предатель</strong>
           <span className="impostor-rules-hint">
             Вкладки: <kbd>←</kbd> <kbd>→</kbd> или <kbd>1</kbd>–<kbd>{TABS.length}</kbd> · закрыть <kbd>Esc</kbd>
           </span>
@@ -593,7 +647,7 @@ export default function ImpostorRules({
             </table>
           </section>
         )}
-      </div>
+      </dialog>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 /* oxlint-disable next/no-html-link-for-pages -- Полная навигация обходит ошибку RSC prefetch в production-сборке vinext. */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type CSSProperties } from 'react';
 
 import {
   Plus,
@@ -9,7 +9,6 @@ import {
   Link2,
   Clock3,
   Search,
-  SearchX,
   BookOpen,
   Settings2,
   Globe,
@@ -29,6 +28,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { THEMES, type RoomAccessType } from '@/lib/model';
+import { EmptyRoomsArt, NoMatchesArt, RoomCover } from './room-cover';
 import { api, ready } from '@/lib/client';
 import { plural } from '@/lib/plural';
 import { defaultMapFor, mapsForMode, MODES, type GameMode } from '@/lib/maps/catalog';
@@ -99,10 +99,12 @@ function ModeIcon({ mode, size = 22 }: { mode: GameMode; size?: number }) {
   return <Icon size={size} aria-hidden />;
 }
 /** Бейдж режима на карточке комнаты: иконка и название из MODES. */
-function ModeBadge({ mode }: { mode: GameMode }) {
+function ModeBadge({ mode, cover = false }: { mode: GameMode; cover?: boolean }) {
   const title = MODES.find((m) => m.id === mode)?.title ?? 'Игра';
   return (
-    <span className={`room-mode-badge room-mode-${mode}`}>
+    <span
+      className={`${cover ? 'cover-chip cover-mode' : 'room-mode-badge'} room-mode-${mode}`}
+    >
       <ModeIcon mode={mode} size={13} />
       {title}
     </span>
@@ -519,7 +521,7 @@ export default function Lobby() {
             filtered &&
             allRooms.length > 0 ? (
             <div className="empty-rooms-state">
-              <SearchX size={48} className="empty-icon" aria-hidden />
+              <NoMatchesArt />
               <h3>Ничего не найдено</h3>
               <p>
                 {query.trim()
@@ -533,59 +535,73 @@ export default function Lobby() {
             </div>
           ) : shown.length === 0 ? (
             <div className="empty-rooms-state">
-              <Globe size={48} className="empty-icon" aria-hidden />
+              <EmptyRoomsArt />
               <h3>Комнат пока нет</h3>
               <p>
-                Создайте комнату или подключитесь к приватной по
-                ссылке-приглашению.
+                Создайте комнату и позовите команду — или войдите в приватную
+                по ссылке-приглашению.
               </p>
-              <button className="primary" type="button" onClick={openCreate}>
-                <Plus size={18} aria-hidden /> Создать комнату
-              </button>
+              <div className="empty-rooms-actions">
+                <button className="primary" type="button" onClick={openCreate}>
+                  <Plus size={18} aria-hidden /> Создать комнату
+                </button>
+                <button className="secondary" type="button" onClick={() => setJoin(true)}>
+                  <Link2 size={17} aria-hidden /> Войти по ссылке
+                </button>
+              </div>
             </div>
           ) : (
             <div className="room-grid">
-              {shown.map((r) => {
+              {shown.map((r, i) => {
                 const t = THEMES.find((th) => th.id === r.theme) || THEMES[0];
                 const isPublic = r.status !== null;
                 const blocked =
                   !r.mine && (r.status === 'full' || r.status === 'closed');
                 const statusLabel = roomStatusLabel(r);
                 return (
-                  <article key={r.id} className="room-card">
-                    <div
-                      className="room-cover"
-                      style={{ background: t.color + '55' }}
-                    >
-                      <span className="room-theme-emoji">{t.icon}</span>
-                      <span className="room-format">
-                        {isPublic ? (
-                          <Globe size={13} aria-hidden />
-                        ) : (
-                          <Lock size={13} aria-hidden />
-                        )}
-                        {isPublic ? 'Публичная' : 'Приватная'}
-                      </span>
+                  <article
+                    key={r.id}
+                    className="room-card"
+                    // Порядковый номер — только для задержки появления (ux-lobby.css).
+                    style={{ '--card-index': Math.min(i, 8) } as CSSProperties}
+                  >
+                    <RoomCover theme={t.id}>
                       <span
-                        className={
-                          r.status ? `room-status status-${r.status}` : 'room-status'
+                        className="cover-chip cover-status"
+                        data-status={
+                          r.archived ? 'closed' : (r.status ?? 'mine')
                         }
                       >
+                        <span className="cover-dot" aria-hidden />
                         {statusLabel}
                       </span>
-                    </div>
+                      <span className="cover-chips-end">
+                        {r.mode && <ModeBadge mode={r.mode} cover />}
+                        {/* Доступ — значком: подпись режима важнее, а место на обложке узкое. */}
+                        <span
+                          className="cover-chip cover-chip-icon"
+                          title={isPublic ? 'Публичная комната' : 'Приватная комната'}
+                        >
+                          {isPublic ? (
+                            <Globe size={13} aria-hidden />
+                          ) : (
+                            <Lock size={13} aria-hidden />
+                          )}
+                          <span className="sr-only">
+                            {isPublic ? 'Публичная' : 'Приватная'}
+                          </span>
+                        </span>
+                      </span>
+                    </RoomCover>
                     <div className="room-card-body">
                       <span className="eyebrow">
                         {t.name}
                         {r.hostName ? ` · Ведущий: ${r.hostName}` : ''}
                       </span>
                       <h3>{r.title}</h3>
-                      {(r.mode || r.mine) && (
+                      {r.mine && (
                         <div className="room-card-tags">
-                          {r.mode && <ModeBadge mode={r.mode} />}
-                          {r.mine && (
-                            <span className="room-card-badge">Вы участник</span>
-                          )}
+                          <span className="room-card-badge">Вы участник</span>
                         </div>
                       )}
                       <div className="room-meta">

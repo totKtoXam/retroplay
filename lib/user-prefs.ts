@@ -24,6 +24,8 @@ export const PREF_KEYS = {
   hudScale: 'jinaly-hud-scale',
   /** Палитра для дальтоников: '1' — включена (формы и контрастные пары). */
   colorblind: 'jinaly-colorblind',
+  /** Блок частоты кадров и пинга в углу HUD: '0' — скрыт, иначе виден. */
+  showStats: 'jinaly-show-stats',
 } as const;
 
 /** Число из настроек в пределах [min, max]; нет или мусор — по умолчанию. */

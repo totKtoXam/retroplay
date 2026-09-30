@@ -88,8 +88,6 @@ body,
 .side-nav,
 .search-box,
 .search-box input,
-.new-room-card,
-.create-circle,
 .count,
 .app-dialog,
 .join-card,
@@ -127,8 +125,6 @@ body,
   .side-nav,
   .search-box,
   .search-box input,
-  .new-room-card,
-  .create-circle,
   .count,
   .app-dialog,
   .join-card,
@@ -171,9 +167,7 @@ html[data-theme='dark'] .brand {
   color: var(--jin-text);
 }
 html[data-theme='dark'] .brand-suffix,
-html[data-theme='dark'] .header-caption,
-html[data-theme='dark'] .nav-bottom,
-html[data-theme='dark'] .lobby-foot {
+html[data-theme='dark'] .nav-bottom {
   color: var(--jin-text-muted);
 }
 html[data-theme='dark'] .avatar {
@@ -261,25 +255,6 @@ html[data-theme='dark'] .room-status {
 }
 html[data-theme='dark'] .room-meta > svg {
   color: var(--jin-accent);
-}
-html[data-theme='dark'] .new-room-card {
-  background: var(--jin-surface-3);
-  border-color: #343c52;
-  color: #a99ee0;
-}
-html[data-theme='dark'] .new-room-card:hover {
-  background: #20263a;
-}
-html[data-theme='dark'] .new-room-card h3 {
-  color: #a99ee0;
-}
-html[data-theme='dark'] .new-room-card p {
-  color: var(--jin-text-muted);
-}
-html[data-theme='dark'] .create-circle {
-  background: #262d40;
-  color: var(--jin-accent);
-  box-shadow: none;
 }
 
 /* --- Кнопки --------------------------------------------------------------- */
@@ -410,9 +385,6 @@ html[data-theme='dark'] .empty-rooms-state h3 {
 html[data-theme='dark'] .empty-rooms-state p {
   color: var(--jin-text-muted);
 }
-html[data-theme='dark'] .empty-rooms-state .empty-icon {
-  color: #6b748d;
-}
 html[data-theme='dark'] .error-banner {
   background: var(--jin-danger-bg);
   color: var(--jin-danger-text);
@@ -443,4 +415,12 @@ html[data-theme='dark'] .join-card h2 {
 html[data-theme='dark'] .auth-logout {
   background: var(--jin-danger-bg);
   color: var(--jin-danger-text);
+}
+
+/* Тач-цели: переключатель темы — 44px на экране с грубым указателем. */
+@media (pointer: coarse) {
+  .theme-toggle {
+    width: 44px;
+    height: 44px;
+  }
 }

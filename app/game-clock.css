@@ -35,6 +35,13 @@
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   pointer-events: none;
+  transition: opacity var(--dur-slow) ease;
+}
+
+/* В бою часы — фон: приглушаем, пока идёт схватка (world.tsx ставит
+   .in-combat на мир, план UX/UI, 3.2). В паузе и между раундами — как обычно. */
+.mode-3d:has(.world-container.in-combat) .match-stack .game-clock {
+  opacity: 0.45;
 }
 
 .game-clock {
@@ -52,8 +59,16 @@
 }
 
 .game-clock-phase {
+  display: inline-flex;
+  align-self: center;
   font-size: 13px;
   line-height: 1;
+  /* Иконка фазы (lucide) берёт её цвет — закат и ночь видно боковым зрением. */
+  color: var(--clock-accent, var(--hud-accent));
+}
+
+.game-clock-next svg {
+  vertical-align: -1px;
 }
 
 .game-clock-time {
@@ -63,7 +78,7 @@
 }
 
 .game-clock-next {
-  font: 400 10px/1.4 system-ui, sans-serif;
+  font: 400 var(--fs-2xs)/1.4 system-ui, sans-serif;
   letter-spacing: 0.3px;
 }
 

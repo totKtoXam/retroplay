@@ -120,6 +120,7 @@ import { GameClock } from './game-clock';
 import { SidePicker } from './side-picker';
 import { PhaseBar } from './phase-bar';
 import RoomBoardFallback from './room-board-fallback';
+import { teamName } from '@/lib/team-colors';
 import { useRoomSync } from './use-room-sync';
 import GameChat from './game-chat';
 import { useVoiceChat } from './use-voice-chat';
@@ -1996,7 +1997,7 @@ export default function RoomApp({ id }: { id: string }) {
                               ? 'Ведущий'
                               : 'Участник'}
                           {gameMode === 'battle' &&
-                            ` · ${m.team === 'red' ? 'красные' : m.team === 'blue' ? 'синие' : 'без команды'}`}
+                            ` · ${teamName(m.team).toLowerCase()}`}
                         </small>
                       </span>
                       {gameMode === 'battle' && (host || m.id === room.self) && (

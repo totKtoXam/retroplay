@@ -4,8 +4,9 @@ import { useState } from 'react';
 import type { Person } from '@/lib/model';
 import { AvatarPreview } from './avatar-preview';
 import { AVATAR_SKINS, PRESET_BANDANA_COLORS } from '@/lib/avatar-catalog';
+import { TEAM_LOOKS, type TeamId } from '@/lib/team-colors';
 
-type Side = 'red' | 'blue';
+type Side = TeamId;
 
 /** Что отправить на сервер по кнопке «В БОЙ»; несменившееся не присылаем. */
 export type SidePick = {
@@ -14,7 +15,10 @@ export type SidePick = {
   bandanaColor?: string;
 };
 
-/** Стороны в порядке слева направо, как на экране выбора в CS. */
+/**
+ * Стороны в порядке слева направо, как на экране выбора в CS. Цвет и название
+ * — из lib/team-colors: команда 'red' показывается оранжевой.
+ */
 const SIDES: {
   team: Side;
   mark: string;
@@ -25,16 +29,16 @@ const SIDES: {
   {
     team: 'red',
     mark: 'ШТ',
-    title: 'КРАСНЫЕ',
+    title: TEAM_LOOKS.red.name.toUpperCase(),
     role: 'Штурм · давят и захватывают',
-    color: '#ff5d52',
+    color: TEAM_LOOKS.red.css,
   },
   {
     team: 'blue',
     mark: 'ОБ',
-    title: 'СИНИЕ',
+    title: TEAM_LOOKS.blue.name.toUpperCase(),
     role: 'Оборона · держат позиции',
-    color: '#5aa9ff',
+    color: TEAM_LOOKS.blue.css,
   },
 ];
 

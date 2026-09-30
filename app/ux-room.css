@@ -517,12 +517,250 @@
   padding: 2px var(--space-2);
   border-radius: var(--rd-full);
   background: var(--jin-accent-soft);
-  color: var(--jin-accent-strong);
+  /* Не --jin-accent-strong: в тёмной теме он на --jin-accent-soft даёт < 3:1. */
+  color: var(--jin-text);
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
 .results-section .text-button {
   justify-self: start;
+}
+
+/* --- Праздничный финал (этап 5): шапка мира, полоски голосов, конфетти ----
+   Цвет мира приходит переменными --festive-* и --color-festive из
+   lib/festive.ts (атрибут style у .results-panel и .results-hero). */
+.results-hero {
+  position: relative;
+  display: grid;
+  min-height: 168px;
+  overflow: hidden;
+  border-radius: var(--rd-lg);
+  background: var(--festive-bg);
+  color: var(--festive-ink);
+}
+/* Сцена справа растворяется в фоне шапки: фон у них один и тот же цвет,
+   поэтому текст слева всегда лежит на ровном --festive-bg (ink ≥ 4.5:1). */
+.results-hero-scene {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 50%;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 35%);
+  mask-image: linear-gradient(to right, transparent, #000 35%);
+}
+html[data-theme='dark'] .results-hero {
+  filter: brightness(0.88);
+}
+html[data-theme='dark'] .results-hero .world-scene {
+  filter: none;
+}
+.results-hero-text {
+  position: relative;
+  display: grid;
+  align-content: center;
+  gap: var(--space-1);
+  max-width: 60%;
+  padding: var(--space-5);
+}
+.results-hero-text p {
+  margin: 0;
+}
+.results-hero-world {
+  font-size: var(--fs-xs);
+  font-weight: var(--weight-semibold);
+  opacity: 0.85;
+}
+.results-hero-title {
+  font-size: var(--fs-xl);
+  font-weight: var(--weight-bold);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.results-hero-lead {
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.results-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-3) 0 0;
+}
+.results-stats > div {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+.results-stats dd {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: var(--weight-bold);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.results-stats dt {
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-medium);
+}
+/* Узкий диалог: сцена становится полосой над текстом, текст — во всю ширину. */
+@media (max-width: 560px) {
+  .results-hero {
+    min-height: 0;
+  }
+  .results-hero-scene {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: 76px;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  .results-hero-text {
+    max-width: none;
+    padding: var(--space-4);
+  }
+}
+
+/* Топ идей: номер лидера и полоски — цветом мира. */
+.results-top li:first-child button::before {
+  color: var(--color-festive, var(--jin-accent));
+}
+.results-top-body {
+  display: grid;
+  flex: 1;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+.results-bar {
+  display: block;
+  height: 6px;
+  border-radius: var(--rd-full);
+  background: var(--jin-surface-3);
+  overflow: hidden;
+}
+.results-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-festive, var(--jin-accent));
+  transform: scaleX(var(--share, 0));
+  transform-origin: left center;
+}
+html[data-theme='dark'] .results-bar {
+  background: var(--jin-surface-2);
+}
+.results-count {
+  margin-left: var(--space-2);
+  color: var(--jin-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--weight-regular);
+}
+
+/* План действий и экспорт внутри «Итогов»: общие стили room-panels заданы
+   литералами светлой темы (серо-лиловый текст ~3:1, в тёмной теме — светлые
+   плашки). Здесь, только в панели итогов, — на ролях темы. */
+.results-panel .action-list > button,
+.results-panel .export-options button {
+  background: var(--jin-surface-2);
+  border-color: var(--jin-border);
+  color: var(--jin-text);
+}
+.results-panel .action-list > button:hover,
+.results-panel .export-options button:hover {
+  border-color: var(--color-festive, var(--jin-accent));
+}
+.results-panel .action-list > button:focus-visible,
+.results-panel .export-options button:focus-visible {
+  outline: 2px solid var(--jin-accent);
+  outline-offset: 2px;
+}
+.results-panel .action-list small,
+.results-panel .export-options small {
+  color: var(--jin-text-muted);
+}
+.results-panel .action-list > button > svg,
+.results-panel .export-options button > svg {
+  color: var(--jin-text-muted);
+}
+.results-panel .action-check {
+  border-color: var(--jin-border-strong);
+  background: var(--jin-surface);
+}
+.results-panel .action-check.done {
+  border-color: var(--color-festive, var(--jin-accent));
+  background: var(--color-festive, var(--jin-accent));
+  color: var(--jin-surface);
+}
+
+/* Конфетти: один раз при открытии на этапе «Итоги». */
+.results-confetti {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.results-confetti i {
+  position: absolute;
+  top: -12px;
+  left: var(--x);
+  width: 6px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--c);
+  opacity: 0;
+}
+.results-confetti i.round {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--rd-full);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Панели выходят по очереди сверху вниз — короткая волна, не каскад. */
+  .results-panel > * {
+    animation: results-in var(--dur-slow) var(--ease-emphasis) both;
+  }
+  .results-panel > :nth-child(2) {
+    animation-delay: 60ms;
+  }
+  .results-panel > :nth-child(3) {
+    animation-delay: 120ms;
+  }
+  .results-panel > :nth-child(n + 4) {
+    animation-delay: 180ms;
+  }
+  .results-bar > span {
+    animation: results-bar-grow calc(var(--dur-slow) * 2) var(--ease-emphasis) 120ms both;
+  }
+  .results-confetti i {
+    animation: results-confetti-fall calc(var(--dur-slow) * 5) var(--ease-emphasis) var(--d)
+      forwards;
+  }
+}
+@keyframes results-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+@keyframes results-bar-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes results-confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0deg);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--drift), 190px) rotate(calc(var(--r) * 6));
+  }
 }
 
 /* Ссылка на «Итоги» в настройках вместо трёх прежних разделов. */

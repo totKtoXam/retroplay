@@ -1,5 +1,6 @@
 'use client';
 
+import { Moon, Sun, Sunrise, Sunset, type LucideIcon } from 'lucide-react';
 import { dayMoment, type DaySource, type TimeOfDay } from '@/lib/day-cycle';
 
 /**
@@ -15,11 +16,13 @@ import { dayMoment, type DaySource, type TimeOfDay } from '@/lib/day-cycle';
  * читались бы как зависший интерфейс.
  */
 
-const PHASES: Record<TimeOfDay, { icon: string; label: string }> = {
-  dawn: { icon: '🌅', label: 'Рассвет' },
-  day: { icon: '☀️', label: 'День' },
-  sunset: { icon: '🌇', label: 'Закат' },
-  night: { icon: '🌙', label: 'Ночь' },
+// Иконки одного набора с остальным HUD (lucide), а не системные эмодзи: те
+// выглядят по-разному на каждом устройстве и не берут цвет фазы.
+const PHASES: Record<TimeOfDay, { icon: LucideIcon; label: string }> = {
+  dawn: { icon: Sunrise, label: 'Рассвет' },
+  day: { icon: Sun, label: 'День' },
+  sunset: { icon: Sunset, label: 'Закат' },
+  night: { icon: Moon, label: 'Ночь' },
 };
 
 const two = (v: number) => String(v).padStart(2, '0');
@@ -28,6 +31,8 @@ export function GameClock({ state, now }: { state: DaySource; now: number }) {
   const moment = dayMoment(state, now);
   const phase = PHASES[moment.time];
   const next = PHASES[moment.next];
+  const PhaseIcon = phase.icon;
+  const NextIcon = next.icon;
   const left = `${Math.floor(moment.secondsLeft / 60)}:${two(moment.secondsLeft % 60)}`;
   return (
     <div
@@ -39,7 +44,7 @@ export function GameClock({ state, now }: { state: DaySource; now: number }) {
       }
     >
       <span className="game-clock-phase" aria-hidden="true">
-        {phase.icon}
+        <PhaseIcon size={13} />
       </span>
       <span className="game-clock-time">
         {two(moment.hours)}:{two(moment.minutes)}
@@ -47,7 +52,7 @@ export function GameClock({ state, now }: { state: DaySource; now: number }) {
       <span className="game-clock-next">
         {moment.running ? (
           <>
-            {next.icon} через {left}
+            <NextIcon size={11} aria-hidden="true" /> через {left}
           </>
         ) : (
           'сутки на паузе'

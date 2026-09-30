@@ -33,6 +33,39 @@ export function actionItems(state: RoomState) {
   return state.notes.filter((n) => isContent(n) && isActionKind(n.kind));
 }
 
+/** Карточки с мыслью участника: не фигуры, рамки, эмодзи и не пункты плана. */
+const IDEA_KINDS = new Set(['sticky', 'index', 'page', 'text']);
+
+/**
+ * Цифры встречи для шапки «Итогов»: идеи, голоса последнего раунда, действия и
+ * участники. Участник — тот, кто написал карточку, комментарий или голосовал;
+ * анонимные авторы не различимы и все вместе не считаются никем, поэтому число
+ * — нижняя оценка. Пока раунд идёт, голоса — только свои (как в topVoted).
+ */
+export function meetingStats(state: RoomState) {
+  const content = state.notes.filter(isContent);
+  const people = new Set<string>();
+  const add = (id: string | undefined) => {
+    if (id && id !== 'anonymous') people.add(id);
+  };
+  for (const n of content) {
+    add(n.author);
+    n.comments?.forEach((c) => add(c.author));
+  }
+  for (const r of state.rounds) Object.keys(r.votes || {}).forEach(add);
+  const last = state.rounds.at(-1)?.votes || {};
+  const votes = Object.values(last).reduce(
+    (sum, v) => sum + Object.values(v).reduce((a, b) => a + (b || 0), 0),
+    0,
+  );
+  return {
+    ideas: content.filter((n) => IDEA_KINDS.has(n.kind)).length,
+    votes,
+    actions: content.filter((n) => isActionKind(n.kind)).length,
+    people: people.size,
+  };
+}
+
 /** Зоны для экспорта: зоны формата доски и те, где карточки остались от другого формата. */
 function exportZones(state: RoomState) {
   const shown = new Set(templateZones(state.template).map((z) => z.id));
