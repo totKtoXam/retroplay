@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   Plus,
   Minus,
@@ -9,13 +9,41 @@ import {
   LockKeyhole,
   GripVertical,
 } from 'lucide-react';
-import { isOnline, ZONES, voteCount, type Room, type Note } from '@/lib/model';
+import {
+  isOnline,
+  templateZones,
+  voteCount,
+  ZONES,
+  zoneTitle,
+  type Room,
+  type Note,
+} from '@/lib/model';
 export const zoneOrigin = (zone: string) => {
   const i = Math.max(
     0,
     ZONES.findIndex((z) => z.id === zone),
   );
   return { x: 50 + (i % 2) * 710, y: 90 + Math.floor(i / 2) * 730 };
+};
+/** Размер холста доски в его собственных единицах (до масштаба). */
+const PLANE_W = 1540,
+  PLANE_H = 1630;
+/** Шаг переноса карточки стрелками; с Shift — крупный. */
+const KEY_STEP = 12,
+  KEY_STEP_BIG = 60;
+const ARROWS: Record<string, [number, number]> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
+/** Состояние связи с комнатой — показывается в подписи доски, если его передали. */
+export type BoardSyncStatus = 'saved' | 'saving' | 'reconnecting' | 'offline';
+const SYNC_LABELS: Record<BoardSyncStatus, string> = {
+  saved: 'Сохранено',
+  saving: 'Сохраняем…',
+  reconnecting: 'Переподключаемся…',
+  offline: 'Офлайн — изменения не отправлены',
 };
 type Props = {
   room: Room;
@@ -26,7 +54,27 @@ type Props = {
   filter?: string;
   search?: string;
   onCursor?: (x: number, y: number) => void;
+  /** Статус связи из шапки комнаты. Не передан — доска о сохранении молчит. */
+  syncStatus?: BoardSyncStatus;
 };
+/**
+ * Почему голос за карточку сейчас отдать нельзя; пустая строка — можно.
+ * Повторяет проверки сервера (lib/model.ts, op `vote`), чтобы кнопка не
+ * обещала то, что сервер отклонит.
+ */
+function voteBlockReason(room: Room, n: Note) {
+  const round = room.state.rounds.at(-1);
+  if (!round?.active)
+    return room.state.rounds.length
+      ? 'Голосование завершено'
+      : 'Голосование ещё не началось';
+  if (n.hidden) return 'Сначала раскройте заметку';
+  const used = Object.values(round.votes[room.self] || {}).reduce(
+    (a, b) => a + b,
+    0,
+  );
+  return used >= round.limit ? 'Голоса закончились' : '';
+}
 export function Card({
   note: n,
   room,
@@ -42,6 +90,15 @@ export function Card({
   style?: React.CSSProperties;
   dragHandle?: React.ReactNode;
 }) {
+  // Подсказка, почему голос не принят: title на касание не показывается.
+  const [voteHint, setVoteHint] = useState('');
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (hintTimer.current) clearTimeout(hintTimer.current);
+    },
+    [],
+  );
   if (n.redacted)
     return (
       <article
@@ -65,8 +122,19 @@ export function Card({
       </article>
     );
   const person = room.members.find((m) => m.id === n.author);
-  const voted = room.state.rounds.at(-1)?.votes[room.self]?.[n.id] || 0;
+  const round = room.state.rounds.at(-1);
+  const voted = round?.votes[room.self]?.[n.id] || 0;
   const total = voteCount(room.state, n.id);
+  const voteBlocked = voteBlockReason(room, n);
+  const vote = () => {
+    if (!voteBlocked) {
+      void onOp({ type: 'vote', id: n.id });
+      return;
+    }
+    setVoteHint(voteBlocked);
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+    hintTimer.current = setTimeout(() => setVoteHint(''), 2500);
+  };
   return (
     <article
       className={`note-card kind-${n.kind} ${n.done ? 'done' : ''}`}
@@ -131,35 +199,48 @@ export function Card({
             : person?.name || 'Участник'}
         </span>
         <div>
-          <button title="Комментарии" onClick={onEdit}>
-            <MessageCircle size={13} />
+          <button
+            title="Комментарии"
+            aria-label={`Комментарии: ${n.comments.length}`}
+            onClick={onEdit}
+          >
+            <MessageCircle size={13} aria-hidden="true" />
             {n.comments.length || ''}
           </button>
+          {/* aria-disabled вместо disabled: кнопка остаётся в фокусе и с
+              подсказкой, а нажатие объясняет, почему голос не принят. */}
           <button
             className={voted ? 'voted' : ''}
-            disabled={!room.state.rounds.at(-1)?.active || n.hidden}
-            onClick={() => void onOp({ type: 'vote', id: n.id })}
+            aria-disabled={voteBlocked ? true : undefined}
+            onClick={vote}
             title={
-              room.state.rounds.at(-1)?.active
-                ? 'Отдать голос'
-                : 'Результат голосования'
+              voteBlocked
+                ? `${voteBlocked} · голосов: ${total}`
+                : `Отдать голос · ваших здесь: ${voted}`
+            }
+            aria-label={
+              (voteBlocked || 'Отдать голос') + `. Голосов у карточки: ${total}`
             }
           >
-            <ThumbsUp size={13} />
+            <ThumbsUp size={13} aria-hidden="true" />
             {total || ''}
           </button>
-          {voted > 0 && room.state.rounds.at(-1)?.active && (
+          {voted > 0 && round?.active && (
             <button
-              title="Убрать голос"
+              title="Убрать свой голос"
+              aria-label="Убрать свой голос"
               onClick={() =>
                 void onOp({ type: 'vote', id: n.id, remove: true })
               }
             >
-              −
+              <Minus size={12} aria-hidden="true" />
             </button>
           )}
         </div>
       </div>
+      {voteHint && (
+        <output className="note-vote-hint">{voteHint}</output>
+      )}
       {Object.entries(n.reactions).some(([, v]) => v.length > 0) && (
         <div className="note-reactions">
           {Object.entries(n.reactions)
@@ -168,6 +249,8 @@ export function Card({
               <button
                 key={emoji}
                 className={v.includes(room.self) ? 'selected' : ''}
+                aria-pressed={v.includes(room.self)}
+                aria-label={`Реакция ${emoji}: ${v.length}`}
                 onClick={() =>
                   void onOp({ type: 'note.react', id: n.id, emoji })
                 }
@@ -189,6 +272,7 @@ export default function Board({
   filter,
   search = '',
   onCursor,
+  syncStatus,
 }: Props) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -212,6 +296,11 @@ export default function Board({
       null,
     );
   const [panning, setPanning] = useState(false);
+  /** Что сказать экранному диктору после переноса карточки с клавиатуры. */
+  const [announce, setAnnounce] = useState('');
+  const moveHintId = useId();
+  /** Карточка, которую сейчас двигают стрелками и ещё не сохранили. */
+  const keyMoving = useRef<string | null>(null);
   const fit = useCallback((node: HTMLDivElement | null) => {
     viewport.current = node;
     if (!node || fitted.current) return;
@@ -224,12 +313,42 @@ export default function Board({
       n.text.toLowerCase().includes(search.toLowerCase()),
   );
   const zones =
-    room.state.template === 'three'
-      ? ZONES.filter((z) => z.id !== 'bad')
-      : ZONES;
+    templateZones(room.state.template);
+  const searching = search.trim() !== '';
+  const zoneName = (id: string) => zoneTitle(id, room.state.template);
   const notePosition = (n: Note) => {
     const o = zoneOrigin(n.zone);
     return { x: o.x + n.x, y: o.y + n.y + 70 };
+  };
+  /** Зона под точкой холста. Формат из трёх колонок прячет одну ячейку сетки — берём ближайшую видимую. */
+  const zoneAt = (x: number, y: number) => {
+    const index = (y > 820 ? 2 : 0) + (x > 750 ? 1 : 0);
+    const distance = (id: string) => {
+      const c = zoneOrigin(id);
+      return (x - c.x - 355) ** 2 + (y - c.y - 365) ** 2;
+    };
+    return zones.includes(ZONES[index])
+      ? ZONES[index]
+      : zones.reduce((a, b) => (distance(b.id) < distance(a.id) ? b : a));
+  };
+  /**
+   * Сохранить новое место карточки — общий путь для мыши и клавиатуры.
+   * Черновик позиции держим до ответа сервера, иначе карточка на миг
+   * прыгает назад, пока не придёт новое состояние.
+   */
+  const moveNote = (n: Note, x: number, y: number) => {
+    const zone = zoneAt(x, y);
+    const o = zoneOrigin(zone.id);
+    void onOp({
+      type: 'note.edit',
+      id: n.id,
+      patch: { zone: zone.id, x: x - o.x, y: y - o.y - 70 },
+    })
+      .catch(() => null)
+      .finally(() =>
+        setDrag((d) => (d?.id === n.id && d.x === x && d.y === y ? null : d)),
+      );
+    return zone;
   };
   const point = (e: React.PointerEvent) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -253,17 +372,34 @@ export default function Board({
       void onOp({ type: 'note.react', id: n.id, emoji: '👍' });
     else onEdit(n);
   };
+  const toolHint =
+    tool === 'draw'
+      ? 'Зажмите мышь и рисуйте'
+      : tool === 'connector'
+        ? from
+          ? 'Выберите вторую карточку'
+          : 'Выберите первую карточку'
+        : '';
   return (
     <div className="board-container">
-      <div className="board-caption">
-        <span className="live-dot" />
-        Все изменения сохраняются
-        {tool === 'draw' && ' · Зажмите мышь и рисуйте'}
-        {tool === 'connector' &&
-          (from
-            ? ' · Выберите вторую карточку'
-            : ' · Выберите первую карточку')}
-      </div>
+      {(syncStatus || toolHint) && (
+        <output className="board-caption">
+          {syncStatus && (
+            <>
+              <span className="live-dot" data-sync={syncStatus} />
+              {SYNC_LABELS[syncStatus]}
+            </>
+          )}
+          {syncStatus && toolHint && ' · '}
+          {toolHint}
+        </output>
+      )}
+      <p className="sr-only" aria-live="polite">
+        {announce}
+      </p>
+      <p className="sr-only" id={moveHintId}>
+        Стрелки двигают карточку, Shift — крупный шаг, Esc — отмена.
+      </p>
       <div
         className="board-viewport"
         ref={fit}
@@ -323,11 +459,14 @@ export default function Board({
               }
             }}
             onPointerUp={() => {
+              // Рисунок принадлежит зоне, где начат штрих, а не всегда «good»:
+              // иначе фильтр по зоне и экспорт относили все рисунки к ней.
+              const [start] = strokeRef.current;
               if (strokeRef.current.length > 1)
                 void onOp({
                   type: 'note.add',
                   kind: 'draw',
-                  zone: 'good',
+                  zone: zoneAt(start[0], start[1]).id,
                   points: strokeRef.current,
                   color: '#417a65',
                 });
@@ -368,12 +507,7 @@ export default function Board({
                   <header>
                     <span className="zone-emoji">{zone.emoji}</span>
                     <div>
-                      <h2>
-                        {room.state.template === 'three' && zone.id === 'good'
-                          ? 'Продолжать делать'
-                          : zone.title}
-                      </h2>
-                      <p>{zone.short.toUpperCase()}</p>
+                      <h2>{zoneTitle(zone.id, room.state.template)}</h2>
                     </div>
                     <span className="zone-count">
                       {
@@ -393,16 +527,24 @@ export default function Board({
                     </button>
                   </header>
                   <p className="zone-hint">{zone.hint}</p>
-                  {!notes.some((n) => n.zone === zone.id) && (
-                    <button
-                      className="empty-zone"
-                      onClick={() => onAdd(zone.id)}
-                    >
-                      <Plus size={23} />
-                      <span>Первая идея начинается с вас</span>
-                      <small>Нажмите, чтобы добавить стикер</small>
-                    </button>
-                  )}
+                  {!notes.some((n) => n.zone === zone.id) &&
+                    (searching || (filter && filter !== zone.id) ? (
+                      // Зона пуста только из-за поиска или фильтра — звать
+                      // «добавить первую идею» здесь неверно.
+                      <p className="empty-zone empty-zone-search">
+                        <span>Ничего не найдено</span>
+                        {searching && <small>Попробуйте другой запрос</small>}
+                      </p>
+                    ) : (
+                      <button
+                        className="empty-zone"
+                        onClick={() => onAdd(zone.id)}
+                      >
+                        <Plus size={23} aria-hidden="true" />
+                        <span>Первая идея начинается с вас</span>
+                        <small>Нажмите, чтобы добавить стикер</small>
+                      </button>
+                    ))}
                 </section>
               );
             })}
@@ -504,12 +646,70 @@ export default function Board({
                       dragHandle={
                         <button
                           aria-label="Переместить карточку"
+                          aria-describedby={moveHintId}
+                          title="Перетащите мышью или двигайте стрелками (Shift — крупный шаг)"
                           className="drag-handle"
                           disabled={
                             n.locked ||
                             room.state.layoutLocked ||
                             (n.author !== room.self && room.host !== room.self)
                           }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape' && drag?.id === n.id) {
+                              // Отмена переноса, а не закрытие планшета.
+                              e.preventDefault();
+                              e.stopPropagation();
+                              keyMoving.current = null;
+                              setDrag(null);
+                              return;
+                            }
+                            const dir = ARROWS[e.key];
+                            if (!dir || e.altKey || e.ctrlKey || e.metaKey)
+                              return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const step = e.shiftKey ? KEY_STEP_BIG : KEY_STEP;
+                            keyMoving.current = n.id;
+                            setDrag((d) => {
+                              const base = d?.id === n.id ? d : { x: p.x, y: p.y };
+                              return {
+                                id: n.id,
+                                x: Math.min(
+                                  PLANE_W - n.width,
+                                  Math.max(0, base.x + dir[0] * step),
+                                ),
+                                y: Math.min(
+                                  PLANE_H - n.height,
+                                  Math.max(70, base.y + dir[1] * step),
+                                ),
+                              };
+                            });
+                            const handle = e.currentTarget;
+                            requestAnimationFrame(() =>
+                              handle.scrollIntoView({
+                                block: 'nearest',
+                                inline: 'nearest',
+                              }),
+                            );
+                          }}
+                          onKeyUp={(e) => {
+                            // Держим стрелку — едем, отпустили — сохраняем одним запросом.
+                            if (
+                              !ARROWS[e.key] ||
+                              keyMoving.current !== n.id ||
+                              drag?.id !== n.id
+                            )
+                              return;
+                            keyMoving.current = null;
+                            const zone = moveNote(n, drag.x, drag.y);
+                            setAnnounce(`Карточка в зоне «${zoneName(zone.id)}»`);
+                          }}
+                          onBlur={() => {
+                            if (keyMoving.current !== n.id || drag?.id !== n.id)
+                              return;
+                            keyMoving.current = null;
+                            moveNote(n, drag.x, drag.y);
+                          }}
                           onPointerDown={(e) => {
                             e.preventDefault();
                             e.currentTarget.setPointerCapture(e.pointerId);
@@ -538,37 +738,19 @@ export default function Board({
                             });
                           }}
                           onPointerUp={() => {
-                            if (drag?.id !== n.id) return;
-                            const index =
-                              (drag.y > 820 ? 2 : 0) + (drag.x > 750 ? 1 : 0);
-                            // The three-column template hides one grid slot: snap to the nearest visible zone.
-                            const distance = (id: string) => {
-                              const c = zoneOrigin(id);
-                              return (
-                                (drag.x - c.x - 355) ** 2 +
-                                (drag.y - c.y - 365) ** 2
-                              );
-                            };
-                            const zone = zones.includes(ZONES[index])
-                              ? ZONES[index]
-                              : zones.reduce((a, b) =>
-                                  distance(b.id) < distance(a.id) ? b : a,
-                                );
-                            const o = zoneOrigin(zone.id);
-                            void onOp({
-                              type: 'note.edit',
-                              id: n.id,
-                              patch: {
-                                zone: zone.id,
-                                x: drag.x - o.x,
-                                y: drag.y - o.y - 70,
-                              },
-                            });
-                            setDrag(null);
+                            if (drag?.id !== n.id || !origin.current) return;
                             origin.current = null;
+                            // Клик без сдвига — не повод слать правку.
+                            if (drag.x === p.x && drag.y === p.y) setDrag(null);
+                            else moveNote(n, drag.x, drag.y);
+                          }}
+                          onPointerCancel={() => {
+                            if (drag?.id !== n.id) return;
+                            origin.current = null;
+                            setDrag(null);
                           }}
                         >
-                          <GripVertical size={15} />
+                          <GripVertical size={15} aria-hidden="true" />
                         </button>
                       }
                     />

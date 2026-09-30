@@ -1,0 +1,186 @@
+/* Стили области «lobby» после плана UX/UI (docs/analys/2026-09-28-ux-ui-plan.md).
+   Новые правила этой области пишутся здесь, а не в globals.css. Цвета — только
+   через переменные из tokens.css и theme.css. */
+
+/* --- Действия заголовка: «Создать комнату» и «Войти по ссылке» ------------- */
+.lobby-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* --- Меню на узком экране: пункты сайдбара полосой под шапкой ------------- */
+.lobby-mobile-nav {
+  display: none;
+}
+@media (max-width: 680px) {
+  .lobby-mobile-nav {
+    display: flex;
+    gap: 8px;
+    padding: 8px 16px;
+    overflow-x: auto;
+    background: var(--jin-surface);
+    border-bottom: 1px solid var(--jin-border);
+  }
+  .lobby-mobile-nav button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--jin-border);
+    border-radius: 9px;
+    background: var(--jin-surface-2);
+    color: var(--jin-text-muted);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .lobby-mobile-nav button:hover {
+    color: var(--jin-accent);
+    border-color: var(--jin-accent);
+  }
+  /* Фокус внутри полосы с прокруткой: кольцо внутри кнопки, чтобы не обрезалось. */
+  .lobby-mobile-nav button:focus-visible {
+    outline-offset: -3px;
+  }
+
+  .lobby-heading-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .lobby-heading-actions > button {
+    min-height: 44px;
+  }
+}
+/* Имя гостя в шапке — справочное; на телефоне место нужнее кнопке входа. */
+@media (max-width: 480px) {
+  .main-header .header-player {
+    display: none;
+  }
+}
+
+/* --- Карточка комнаты: бейдж режима рядом с «Вы участник» ----------------- */
+.room-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.room-card-tags .room-card-badge {
+  margin-bottom: 0;
+}
+.room-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--jin-border);
+  background: var(--jin-surface-3);
+  color: var(--jin-text-muted);
+}
+.room-mode-badge svg {
+  color: var(--jin-accent);
+  flex-shrink: 0;
+}
+
+/* --- Диалог создания: выбор доступа сразу после режима -------------------- */
+.lobby-access-field {
+  margin-top: 4px;
+}
+
+/* --- Страница сброса пароля ----------------------------------------------- */
+/* Старое правило `.join-card .secondary { margin: 15px }` сдвигает широкую
+   кнопку вбок; на странице сброса она встаёт в колонку, как и основная. */
+.join-card .secondary.auth-wide {
+  margin: 12px 0 0;
+}
+
+/* --- Поле пароля: кнопка «показать» теперь в порядке Tab ------------------ */
+.password-eye:focus-visible {
+  /* Кнопка прижата к краю поля: кольцо рисуется внутри, иначе оно режется. */
+  outline-offset: -3px;
+  color: var(--jin-accent);
+}
+
+/* Справка по клавишам (components/keys-help.tsx) — в лобби и в комнате. */
+.keys-help-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 4px;
+  padding: 0;
+  border: 0;
+}
+.keys-help-modes button {
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--jin-border);
+  background: var(--jin-surface);
+  color: var(--jin-text-muted);
+  font-size: 13px;
+}
+.keys-help-modes button[aria-pressed='true'] {
+  border-color: var(--jin-accent);
+  background: var(--jin-accent-soft);
+  color: var(--jin-text);
+  font-weight: 600;
+}
+.keys-help {
+  display: grid;
+  gap: 14px;
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.keys-help-group h2,
+.keys-help-group h3,
+.keys-help-group h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.keys-help dl {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.keys-help-row {
+  display: grid;
+  grid-template-columns: minmax(96px, max-content) 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+.keys-help dt {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.keys-help dd {
+  margin: 0;
+  line-height: 1.5;
+}
+.keys-help kbd {
+  font-size: 11px;
+  min-width: 22px;
+  text-align: center;
+}
+.keys-help abbr {
+  text-decoration: none;
+}
+.keys-help-note,
+.keys-help-warning {
+  display: block;
+  font-size: 12px;
+  color: var(--jin-text-muted);
+}
+.keys-help-compact {
+  gap: 8px;
+}

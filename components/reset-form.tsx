@@ -1,10 +1,24 @@
 'use client';
 /* oxlint-disable next/no-html-link-for-pages -- Полная навигация обходит ошибку RSC prefetch в production-сборке vinext. */
 import { useState } from 'react';
-import { KeyRound, Loader2 } from 'lucide-react';
+import { KeyRound, Loader2, MailPlus } from 'lucide-react';
 import { api } from '@/lib/client';
+import { MIN_PASSWORD_LENGTH, passwordProblem } from '@/lib/auth';
 import { PasswordField } from './password-field';
 import { ThemeToggle } from './theme-toggle';
+
+/** Лобби по этому адресу сразу открывает диалог восстановления пароля. */
+const FORGOT_URL = '/?forgot=1';
+
+/** Ссылка устарела или не подошла: сразу предлагаем запросить новую. */
+function RequestNewLink() {
+  return (
+    <a className="primary auth-wide" href={FORGOT_URL}>
+      <MailPlus size={16} aria-hidden="true" />
+      Запросить новую ссылку
+    </a>
+  );
+}
 
 /**
  * Новый пароль по ссылке из письма. Токен одноразовый: после успеха браузер
@@ -16,19 +30,30 @@ export default function ResetForm({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  // Сервер отклонил запрос уже после проверки пароля — значит, дело в ссылке.
+  const [linkFailed, setLinkFailed] = useState(false);
 
   const submit = async () => {
+    // Пароль проверяется здесь теми же правилами, что и на сервере: так ответ
+    // сервера с ошибкой относится к ссылке, а не к паролю.
+    const problem = passwordProblem(password);
+    if (problem) {
+      setError(problem);
+      return;
+    }
     if (password !== repeat) {
       setError('Пароли не совпадают');
       return;
     }
     setBusy(true);
     setError('');
+    setLinkFailed(false);
     try {
       await api('/api/auth/reset', { token, password });
       setDone(true);
     } catch (e) {
       setError((e as Error).message);
+      setLinkFailed(true);
     } finally {
       setBusy(false);
     }
@@ -50,7 +75,8 @@ export default function ResetForm({ token }: { token: string }) {
               В ссылке нет кода подтверждения. Откройте письмо ещё раз или
               запросите новое.
             </p>
-            <a className="primary auth-wide" href="/">
+            <RequestNewLink />
+            <a className="text-button auth-wide" href="/">
               На главную
             </a>
           </>
@@ -78,7 +104,8 @@ export default function ResetForm({ token }: { token: string }) {
               onChange={setPassword}
               autoComplete="new-password"
               required
-              minLength={8}
+              minLength={MIN_PASSWORD_LENGTH}
+              hint={`Не короче ${MIN_PASSWORD_LENGTH} символов.`}
             />
             <PasswordField
               label="Повторите пароль"
@@ -86,14 +113,19 @@ export default function ResetForm({ token }: { token: string }) {
               onChange={setRepeat}
               autoComplete="new-password"
               required
-              minLength={8}
+              minLength={MIN_PASSWORD_LENGTH}
             />
             {error && (
               <p role="alert" className="error-banner auth-message">
                 {error}
               </p>
             )}
-            <button className="primary auth-wide" type="submit" disabled={busy}>
+            {linkFailed && <RequestNewLink />}
+            <button
+              className={`${linkFailed ? 'secondary' : 'primary'} auth-wide`}
+              type="submit"
+              disabled={busy}
+            >
               {busy ? (
                 <Loader2 size={16} className="auth-spin" />
               ) : (

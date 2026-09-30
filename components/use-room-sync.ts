@@ -11,6 +11,11 @@ import {
 } from 'react';
 import { uid, type Room, type RoomState, type Pose, type WorldEffect } from '@/lib/model';
 import { api, ready } from '@/lib/client';
+import {
+  connectionStatus,
+  isNetworkError,
+  SAVING_DELAY_MS,
+} from '@/lib/room-connection';
 import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
 import type { VoiceSignal } from './voice-chat';
 import type { ChatChannel, ChatMessage } from '@/lib/room-chat';
@@ -150,6 +155,37 @@ export function useRoomSync({
     [ping, setPing] = useState(0),
     [chat, setChat] = useState<ChatMessage[]>([]),
     [chatError, setChatError] = useState('');
+  // Статус связи для шапки (lib/room-connection.ts). Раньше переподключение шло
+  // молча: человек писал карточки в пустоту и узнавал об этом только по ошибке.
+  const [socketOpen, setSocketOpen] = useState(false),
+    [socketEverOpened, setSocketEverOpened] = useState(false),
+    [networkFailures, setNetworkFailures] = useState(0),
+    [unsentWrite, setUnsentWrite] = useState(false),
+    [slowWrite, setSlowWrite] = useState(false),
+    [browserOnline, setBrowserOnline] = useState(
+      () => typeof navigator === 'undefined' || navigator.onLine !== false,
+    );
+  const pendingWrites = useRef(0);
+  const slowTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    const update = () => setBrowserOnline(navigator.onLine !== false);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+      clearTimeout(slowTimer.current);
+    };
+  }, []);
+  /** Запрос дошёл до сервера (даже если тот отказал по правилам) или нет из-за сети. */
+  const noteNetwork = useCallback((error?: unknown) => {
+    if (error && isNetworkError((error as Error)?.message ?? '')) {
+      setNetworkFailures((n) => n + 1);
+      return;
+    }
+    setNetworkFailures(0);
+    setUnsentWrite(false);
+  }, []);
   const roomRef = useRef(room);
   useEffect(() => {
     roomRef.current = room;
@@ -253,13 +289,23 @@ export function useRoomSync({
     }
     const qs = query.toString() ? '?' + query.toString() : '';
 
-    const data = await api<RoomPayload>('/api/rooms/' + id + qs);
+    let data: RoomPayload;
+    try {
+      data = await api<RoomPayload>('/api/rooms/' + id + qs);
+    } catch (e) {
+      noteNetwork(e);
+      throw e;
+    }
+    noteNetwork();
 
     const ms = Math.round(performance.now() - start);
     handleRoomData(data, ms);
-  }, [id, handleRoomData]);
+  }, [id, handleRoomData, noteNetwork]);
   const op = useCallback(
     async (body: Record<string, unknown>) => {
+      // «Сохраняем…» — только если запись заметно затянулась.
+      if (pendingWrites.current++ === 0)
+        slowTimer.current = setTimeout(() => setSlowWrite(true), SAVING_DELAY_MS);
       try {
         const data = await api<{
           state?: RoomState;
@@ -272,13 +318,21 @@ export function useRoomSync({
               ? { ...old, state: data.state!, version: data.version }
               : old,
           );
+        noteNetwork();
         return data;
       } catch (e) {
+        noteNetwork(e);
+        if (isNetworkError((e as Error)?.message ?? '')) setUnsentWrite(true);
         setError((e as Error).message);
         throw e;
+      } finally {
+        if (--pendingWrites.current === 0) {
+          clearTimeout(slowTimer.current);
+          setSlowWrite(false);
+        }
       }
     },
-    [id, setError],
+    [id, setError, noteNetwork],
   );
   // События UI обрабатывают ошибку в общем баннере, не оставляя unhandled rejection.
   const act = useCallback(
@@ -423,6 +477,8 @@ export function useRoomSync({
       current = ws;
       ws.onopen = () => {
         socketRef.current = ws;
+        setSocketOpen(true);
+        setSocketEverOpened(true);
         // Собеседники за время обрыва забыли о нас, а мы — о них: объявляемся
         // заново, иначе голос молчал бы до чьего-нибудь перезахода.
         voiceSink.current?.reconnected();
@@ -505,6 +561,7 @@ export function useRoomSync({
         clearInterval(pinger);
         if (socketRef.current === ws) socketRef.current = null;
         if (stop) return;
+        setSocketOpen(false);
         retry = setTimeout(connect, delay);
         delay = Math.min(delay * 2, 15000);
       };
@@ -581,6 +638,7 @@ export function useRoomSync({
               version: roomRef.current.version,
               sinceEffect: sinceEffectTime,
             });
+            noteNetwork();
             const ms = Math.round(performance.now() - start);
             if (res && res.members) {
               handleRoomData(res, ms);
@@ -591,7 +649,10 @@ export function useRoomSync({
         }
       } catch (e) {
         ok = false;
-        if (!stop) setError((e as Error).message);
+        if (!stop) {
+          noteNetwork(e);
+          setError((e as Error).message);
+        }
       }
       if (!document.hidden && !viaSocket) {
         lossHistory.current.push(ok);
@@ -632,10 +693,21 @@ export function useRoomSync({
     pose,
     cursor,
     lastActivityRef,
-      setError,
+    setError,
+    noteNetwork,
   ]);
 
+  const connection = connectionStatus({
+    browserOnline,
+    socketOpen,
+    socketEverOpened,
+    networkFailures,
+    unsentWrite,
+    slowWrite,
+  });
+
   return {
+    connection,
     room,
     setRoom,
     join,

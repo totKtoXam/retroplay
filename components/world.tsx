@@ -65,7 +65,14 @@ import { setAvatarAnonymous } from './world-avatar';
 import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { slotsFor, slotForDigit, cycleSlot } from '@/lib/loadout';
-import { modeOf } from '@/lib/maps/catalog';
+import { modeOf, type GameMode } from '@/lib/maps/catalog';
+
+/** Подсказка на карточке «Кликните, чтобы играть»: в каждом режиме ЛКМ делает своё. */
+const START_HINTS: Partial<Record<GameMode, string>> = {
+  retro: 'Esc — свободный курсор · ЛКМ — предмет в руках · E у доски — открыть',
+  battle: 'Esc — свободный курсор · ЛКМ — стрелять · R — перезарядка',
+  impostor: 'Esc — свободный курсор · E — использовать · F — фонарик',
+};
 import { amGhost, impostorFrozen, inGame, inVentNow, minimapShows, visionRadius } from '@/lib/impostor-client';
 import { createFootsteps } from './world-footsteps';
 import { createWeaponSounds } from './world-weapon-sounds';
@@ -2914,7 +2921,8 @@ export default function World(props: Props) {
             <strong>Кликните, чтобы играть</strong>
             <span>Двигайте мышь — камера следует за вами.</span>
             <small>
-              Esc — свободный курсор · ЛКМ — стрелять · Alt + колесо — масштаб
+              {START_HINTS[modeOf(props.room.state)] ??
+                'Esc — свободный курсор · ЛКМ — действие'}
             </small>
             {captureError && <small role="alert">{captureError}</small>}
           </div>

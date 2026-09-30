@@ -1,0 +1,560 @@
+/* Стили области «room» после плана UX/UI (docs/analys/2026-09-28-ux-ui-plan.md).
+   Новые правила этой области пишутся здесь, а не в globals.css. Цвета — только
+   через переменные из tokens.css и theme.css. */
+
+/* ==========================================================================
+   Шапка комнаты (этап 2.5): ← · Название · Таймер · Голоса · Участники ·
+   Итоги · Пригласить · Статус связи · ⋯. Второстепенное — в меню «⋯»
+   (components/room-menu.tsx). Файл подключается после globals.css, поэтому
+   правила ниже перебивают тамошние без !important.
+   ========================================================================== */
+
+.game-bar .game-tag:focus-visible,
+.game-bar .game-bar-back:focus-visible,
+.game-bar .editable-room-title:focus-visible,
+.game-bar .music-chip-btn:focus-visible {
+  outline: 2px solid var(--hud-accent);
+  outline-offset: 2px;
+}
+.game-bar .game-tag {
+  min-height: 28px;
+}
+
+/* Длинное название не должно выталкивать кнопки справа за край. */
+.game-bar h1 {
+  min-width: 0;
+  max-width: 28vw;
+}
+.game-bar .editable-room-title {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-bar .votes-tag b {
+  font-variant-numeric: tabular-nums;
+  color: var(--hud-text);
+}
+
+/* Участники и бейдж заявок на вход — одна группа. */
+.people-group {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+}
+.game-bar .join-badge {
+  gap: var(--space-1);
+  padding: 3px 7px;
+  font-weight: var(--weight-semibold);
+}
+
+.room-bar-wide {
+  flex: none;
+}
+
+/* --- Статус связи (components/sync-status.tsx) --- */
+.sync-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--hud-border);
+  border-radius: var(--rd-sm);
+  color: var(--hud-text-dim);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.sync-status.is-saved svg {
+  color: var(--hud-success);
+}
+.sync-status.is-saving svg {
+  animation: sync-status-spin 900ms linear infinite;
+}
+.sync-status.is-reconnecting,
+.sync-status.is-offline {
+  border-color: var(--hud-warning);
+  color: var(--hud-warning);
+}
+.sync-status.is-offline {
+  background: var(--hud-bg-strong);
+}
+.sync-status.is-offline svg {
+  color: var(--hud-danger);
+}
+@keyframes sync-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sync-status.is-saving svg {
+    animation: none;
+  }
+}
+
+/* --- Меню «⋯» --- */
+.room-menu-trigger {
+  flex: none;
+  justify-content: center;
+  min-width: 32px;
+}
+/* Меню — часть HUD: тёмное стекло в обеих темах, как шапка. Всплывающее окно
+   живёт вне .room-app, поэтому переменные шапки задаём ему явно. */
+.room-menu-pop {
+  --hud-dim: var(--hud-text-dim);
+  --hud-line: var(--hud-border);
+  gap: var(--space-1);
+  width: min(320px, calc(100vw - 24px));
+  max-height: calc(100dvh - 72px);
+  overflow-y: auto;
+  padding: var(--space-1-5);
+  border: 1px solid var(--hud-border);
+  background: var(--hud-bg-strong);
+  color: var(--hud-text);
+  box-shadow: var(--shadow-lg);
+}
+.room-menu-block {
+  display: grid;
+  gap: var(--space-1-5);
+  padding: var(--space-1-5) var(--space-2) var(--space-2);
+  border-bottom: 1px solid var(--hud-border);
+}
+.room-menu-title {
+  color: var(--hud-text-dim);
+  font-size: var(--fs-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.room-menu-block .music-chip {
+  flex-wrap: wrap;
+  align-self: start;
+}
+.room-menu-block .music-chip-now {
+  max-width: 170px;
+}
+.room-menu-block .world-chip {
+  justify-self: start;
+}
+.room-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--rd-md);
+  background: none;
+  color: var(--hud-text);
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+.room-menu-item > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--hud-text-dim);
+}
+.room-menu-item[aria-pressed='true'] > svg {
+  color: var(--hud-accent);
+}
+.room-menu-item:hover {
+  background: var(--hud-border);
+}
+.room-menu-item:focus-visible,
+.room-menu-pop .game-tag:focus-visible,
+.room-menu-pop .music-chip-btn:focus-visible {
+  outline: 2px solid var(--hud-accent);
+  outline-offset: -2px;
+}
+.room-menu-item > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.room-menu-item strong {
+  font-weight: var(--weight-medium);
+}
+.room-menu-item small {
+  color: var(--hud-text-dim);
+  font-size: var(--fs-2xs);
+  line-height: 1.35;
+}
+
+/* Строки узкого экрана: таймер, голоса, итоги, приглашение и статус. На
+   широком они есть в самой шапке. */
+.room-menu-compact {
+  display: none;
+  gap: 2px;
+  padding-bottom: var(--space-1-5);
+  border-bottom: 1px solid var(--hud-border);
+}
+.sync-status-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2);
+  font-size: var(--fs-sm);
+}
+.sync-status-row > span {
+  display: grid;
+  gap: 2px;
+}
+.sync-status-row small {
+  color: var(--hud-text-dim);
+  font-size: var(--fs-2xs);
+}
+.sync-status-row.is-saved > svg {
+  color: var(--hud-success);
+}
+.sync-status-row.is-reconnecting,
+.sync-status-row.is-offline {
+  color: var(--hud-warning);
+}
+
+/* Средняя ширина: подписи у «Итогов» и «Пригласить» уходят, остаются значки
+   с aria-label и подсказкой. */
+@media (max-width: 1100px) {
+  .game-bar .room-bar-wide .room-bar-label,
+  .game-bar .sync-status.is-saved .sync-status-text {
+    display: none;
+  }
+}
+@media (max-width: 860px) {
+  .game-bar-center > .game-clock,
+  .game-bar .votes-tag .room-bar-label,
+  .game-bar .sync-status .sync-status-text {
+    display: none;
+  }
+}
+/* Телефон: ← · Название · Участники · ⋯. Всё остальное — в меню. Статус связи
+   остаётся значком, только если что-то не так. */
+@media (max-width: 620px) {
+  .game-bar:not(.is-battle) .game-bar-center,
+  .game-bar .room-bar-wide,
+  .game-bar .sync-status.is-saved {
+    display: none;
+  }
+  .game-bar:not(.is-battle) h1 {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+  .room-menu-compact {
+    display: grid;
+  }
+}
+
+/* ==========================================================================
+   Подсказка этапа (components/phase-bar.tsx, lib/room-phase.ts): что сейчас
+   происходит и главная кнопка следующего шага. Лежит под плашкой этапа.
+   ========================================================================== */
+.phase-guide {
+  display: grid;
+  gap: var(--space-1-5);
+  width: max-content;
+  max-width: min(280px, calc(100vw - 150px));
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--rd-md);
+  background: var(--hud-bg);
+  color: var(--hud-text);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-md);
+}
+.phase-guide-hint {
+  margin: 0;
+  color: var(--hud-text-dim);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+.phase-guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5) var(--space-2);
+}
+.phase-guide-main {
+  min-height: 32px;
+  padding: var(--space-1-5) var(--space-3);
+  border: 0;
+  border-radius: var(--rd-sm);
+  background: var(--hud-accent);
+  color: var(--hud-bg-strong);
+  font-size: var(--fs-xs);
+  font-weight: var(--weight-semibold);
+}
+.phase-guide-main:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.phase-guide-main:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.phase-guide-link {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--hud-text);
+  font-size: var(--fs-xs);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.phase-guide-main:focus-visible,
+.phase-guide-link:focus-visible,
+.phase-bar-current:focus-visible,
+.phase-bar-step:focus-visible {
+  outline: 2px solid var(--hud-accent);
+  outline-offset: 2px;
+}
+@media (max-width: 600px) {
+  .phase-guide {
+    max-width: min(230px, calc(100vw - 140px));
+    padding: var(--space-1-5) var(--space-2);
+  }
+}
+
+/* Кнопки зон ретро — русские подписи длиннее английских. */
+.game-zone-buttons button {
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+}
+/* На телефоне ряд из четырёх зон наезжал на панель FPS слева: складываем в
+   две колонки у правого края. */
+@media (max-width: 620px) {
+  .room-app .game-zone-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, auto);
+  }
+  .game-zone-buttons button {
+    padding: var(--space-1-5) var(--space-2);
+  }
+}
+.game-zone-buttons button:focus-visible {
+  outline: 2px solid var(--hud-accent);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   Подтверждение (components/room-confirm.tsx) и тост «Удалено · Отменить»
+   (components/room-toast.tsx).
+   ========================================================================== */
+.app-dialog.confirm-dialog {
+  width: min(420px, calc(100vw - 32px)) !important;
+  max-width: 420px !important;
+  padding: var(--space-6) !important;
+}
+.app-dialog.confirm-dialog [data-slot='dialog-title'] {
+  font-size: var(--fs-lg);
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.confirm-actions button {
+  min-height: 40px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--rd-md);
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-semibold);
+}
+.confirm-actions .danger-button {
+  border: 1px solid var(--jin-danger-text);
+  background: var(--jin-danger-bg);
+  color: var(--jin-danger-text);
+}
+.confirm-actions button:focus-visible {
+  outline: 2px solid var(--jin-accent);
+  outline-offset: 2px;
+}
+@media (max-width: 480px) {
+  .confirm-actions button {
+    flex: 1 1 100%;
+  }
+}
+
+.undo-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 168px;
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: calc(100vw - 32px);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--rd-lg);
+  background: var(--hud-bg-strong);
+  color: var(--hud-text);
+  font-size: var(--fs-sm);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(-50%);
+}
+.undo-toast-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 32px;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--hud-accent);
+  border-radius: var(--rd-sm);
+  background: none;
+  color: var(--hud-accent);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+.undo-toast-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--rd-sm);
+  background: none;
+  color: var(--hud-text-dim);
+}
+.undo-toast-action:focus-visible,
+.undo-toast-close:focus-visible {
+  outline: 2px solid var(--hud-accent);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   Итоги встречи (components/room-results.tsx).
+   ========================================================================== */
+.app-dialog.results-dialog {
+  width: min(640px, calc(100vw - 32px)) !important;
+  max-width: 640px !important;
+}
+.results-panel {
+  display: grid;
+  gap: var(--space-6);
+}
+.results-section {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.results-section > h3,
+.results-history > summary {
+  margin: 0;
+  color: var(--jin-text);
+  font-size: var(--fs-md);
+  font-weight: var(--weight-semibold);
+}
+.results-history > summary {
+  cursor: pointer;
+  padding: var(--space-1) 0;
+}
+.results-history[open] > summary {
+  margin-bottom: var(--space-2);
+}
+.results-top {
+  display: grid;
+  gap: var(--space-1-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: results-top;
+}
+.results-top li {
+  counter-increment: results-top;
+}
+.results-top button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--jin-border);
+  border-radius: var(--rd-md);
+  background: var(--jin-surface);
+  color: var(--jin-text);
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+.results-top button::before {
+  content: counter(results-top);
+  flex: none;
+  width: 20px;
+  color: var(--jin-text-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+}
+.results-top button:hover {
+  border-color: var(--jin-accent);
+}
+.results-top button:focus-visible,
+.results-history > summary:focus-visible,
+.settings-results-link button:focus-visible {
+  outline: 2px solid var(--jin-accent);
+  outline-offset: 2px;
+}
+.results-top-text {
+  display: -webkit-box;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.results-top b {
+  flex: none;
+  min-width: 28px;
+  padding: 2px var(--space-2);
+  border-radius: var(--rd-full);
+  background: var(--jin-accent-soft);
+  color: var(--jin-accent-strong);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.results-section .text-button {
+  justify-self: start;
+}
+
+/* Ссылка на «Итоги» в настройках вместо трёх прежних разделов. */
+.settings-results-link {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+}
+.settings-results-link p {
+  margin: 0;
+  color: var(--jin-text-muted);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+/* Пригласить: подтверждение «Скопировано» не должно прыгать шириной. */
+.share-buttons .primary {
+  min-width: 190px;
+  justify-content: center;
+}
+
+/* Заявки на вход: кнопки в ожидании ответа сервера. */
+.join-request-actions button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Счётчик и выбор цвета: видимый фокус у мелких кнопок. */
+.counter-widget button:focus-visible,
+.color-picker button:focus-visible,
+.bandana-swatch:focus-visible,
+.mood-picker button:focus-visible {
+  outline: 2px solid var(--jin-accent);
+  outline-offset: 2px;
+}

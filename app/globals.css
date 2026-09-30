@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is([data-theme='dark'] *));
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -64,7 +64,8 @@ a {
 }
 button:focus-visible,
 a:focus-visible {
-  outline: 3px solid #eeaf50;
+  /* Акцент темы: не меньше 3:1 и на светлом, и на тёмном фоне. */
+  outline: 3px solid var(--jin-accent, #6a58d6);
   outline-offset: 3px;
 }
 button {
@@ -133,11 +134,11 @@ h3 {
   font-size: 10px;
   letter-spacing: 2px;
   margin: 7px 0 0 8px;
-  color: #8b9993;
+  color: #5f6780;
 }
 .header-caption {
   font-size: 14px;
-  color: #7b8a84;
+  color: #5f6780;
 }
 /* Правая часть шапки: имя игрока без действия + переключатель темы. */
 .main-header .header-actions {
@@ -600,9 +601,10 @@ h3 {
 }
 .version-tag {
   display: block;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 1.3px;
   margin-top: 26px;
+  color: var(--jin-text-faint);
 }
 .error-banner {
   background: #fbede7;
@@ -855,18 +857,15 @@ h3 {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .hit-mark {
-    animation-duration: 0.7s;
-    animation-name: hitMarkFade;
+  /* Общее правило сводит анимации к 0.01ms, и последний кадр с opacity: 0
+     прятал бы отметки сразу — игрок терял бы обратную связь о попадании и
+     уроне. Показываем их статично; убирают их таймеры в world.tsx. */
+  .hit-mark,
+  .hit-glow-vignette {
+    animation: none !important;
   }
-  @keyframes hitMarkFade {
-    0%,
-    70% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
-    }
+  .hit-glow-vignette {
+    opacity: 0.75;
   }
 }
 .loading-world {
@@ -1824,6 +1823,8 @@ kbd {
   *:before,
   *:after {
     animation-duration: 0.01ms !important;
+    /* Бесконечные пульсации иначе продолжали бы мигать с частотой 0.01ms. */
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }
@@ -1870,9 +1871,9 @@ kbd {
   --background: #f5f6fb;
   --foreground: #2a3043;
   --popover: #fff;
-  --primary: #7868e6;
+  --primary: #6a58d6;
   --muted: #eef0f8;
-  --muted-foreground: #7b8299;
+  --muted-foreground: #5f6780;
   --border: #e1e4f0;
 }
 .brand-symbol {
@@ -1880,14 +1881,14 @@ kbd {
   color: white;
 }
 .primary {
-  background: #7868dc;
+  background: #6a58d6;
   color: #fff;
 }
 .primary:hover {
-  background: #6958cd;
+  background: #5b4ac4;
 }
 .secondary {
-  color: #707a9b;
+  color: #5f6886;
   border-color: #dfe3ef;
   background: #fff;
 }
@@ -1895,20 +1896,20 @@ kbd {
   background: #f1f2f9;
 }
 .muted {
-  color: #838ca3;
+  color: #5f6780;
 }
 .eyebrow {
-  color: #9199b1;
+  color: #666e8a;
 }
 h1 > span {
   color: #8b78ed;
 }
 .side-nav .nav-active {
   background: #efedfc;
-  color: #8070da;
+  color: #5f4fc4;
 }
 .side-nav button {
-  color: #8891a9;
+  color: #5f6780;
 }
 .side-nav button:hover {
   background: #f3f3fa;
@@ -1924,7 +1925,7 @@ h1 > span {
 }
 .light-button {
   background: #edebff;
-  color: #7064b5;
+  color: #5d51a3;
 }
 .lobby-filters [data-slot='tabs-list'] {
   background: #ececf6;
@@ -1933,16 +1934,16 @@ h1 > span {
   border-color: #e5e2f0;
 }
 .room-card .eyebrow {
-  color: #978cb2;
+  color: #6e6490;
 }
 .room-meta {
-  color: #a299b4;
+  color: #666e8a;
 }
 .room-status {
   color: #706589;
 }
 .text-button {
-  color: #8074b0;
+  color: #6a5ea3;
 }
 .field input,
 .field textarea,
@@ -1953,9 +1954,12 @@ h1 > span {
 }
 .field input:focus,
 .field textarea:focus,
-.text-input:focus {
-  border-color: #9c88e2;
-  box-shadow: 0 0 0 3px #a693e518;
+.field select:focus,
+.text-input:focus,
+.search-box:focus-within {
+  border-color: var(--jin-accent);
+  /* Сплошное кольцо: заметно (≥ 3:1) и на светлом, и на тёмном фоне. */
+  box-shadow: 0 0 0 2px var(--jin-accent);
 }
 .choice-trigger {
   background: #fafaff !important;
@@ -3826,6 +3830,10 @@ h1 > span {
   padding: 4px 0;
   box-shadow: none;
 }
+.quick-sticky-dialog textarea:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(20, 18, 40, 0.55);
+  border-radius: 6px;
+}
 .quick-sticky-dialog textarea::placeholder {
   color: #28364b77;
 }
@@ -4836,7 +4844,7 @@ h1 > span {
   align-items: center;
   gap: 8px;
   margin-bottom: 4px;
-  color: #3d3a53;
+  color: var(--jin-text);
 }
 
 .access-choice-card small {
@@ -4923,6 +4931,8 @@ h1 > span {
   position: absolute;
   top: 10px;
   right: 10px;
+  /* Базовое .room-status прижимает бейдж снизу; без этого он тянется на всю обложку. */
+  bottom: auto;
   font-size: 11px;
   font-weight: 600;
   padding: 3px 8px;

@@ -6,13 +6,34 @@ export async function api<T = Record<string, unknown>>(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const r = await fetch(path, {
-      method: body ? 'POST' : 'GET',
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
-    const data = (await r.json()) as Record<string, unknown>;
+    let r: Response;
+    try {
+      r = await fetch(path, {
+        method: body ? 'POST' : 'GET',
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+    } catch (e) {
+      // Браузер сообщает обрыв сети и таймаут по-английски («Failed to fetch»,
+      // «signal is aborted»); пользователю нужен понятный русский текст.
+      throw Error(
+        (e as Error)?.name === 'AbortError'
+          ? 'Сервер не ответил вовремя. Проверьте подключение и попробуйте ещё раз.'
+          : 'Нет связи с сервером. Проверьте подключение и попробуйте ещё раз.',
+      );
+    }
+    let data: Record<string, unknown>;
+    try {
+      data = (await r.json()) as Record<string, unknown>;
+    } catch {
+      // Вместо JSON пришла страница ошибки (502, перезапуск сервера) или ответ оборвался.
+      throw Error(
+        r.ok
+          ? 'Сервер прислал неполный ответ. Попробуйте ещё раз.'
+          : 'Сервер временно недоступен. Попробуйте через минуту.',
+      );
+    }
     if (!r.ok)
       throw Error(
         typeof data.error === 'string'

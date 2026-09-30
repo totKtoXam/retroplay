@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import './tokens.css';
 import './globals.css';
 import '../components/resource-packs/packs.css';
 import './theme.css';
@@ -10,6 +11,9 @@ import './game-clock.css';
 import './phases.css';
 import './settings-menu.css';
 import './music-player.css';
+import './ux-lobby.css';
+import './ux-room.css';
+import './ux-board.css';
 import { SettingsSync } from '../components/settings-sync';
 /**
  * Ставит тему на <html> до первой отрисовки, чтобы не было вспышки светлого

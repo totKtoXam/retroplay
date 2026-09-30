@@ -9,14 +9,17 @@ import {
   Link2,
   Clock3,
   Search,
+  SearchX,
   BookOpen,
   Settings2,
   Globe,
   Lock,
+  Gamepad2,
   NotebookPen,
+  Rocket,
   Swords,
   Users,
-  UserRound,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   Dialog,
@@ -25,72 +28,98 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { THEMES, PHASES, type RoomAccessType } from '@/lib/model';
+import { THEMES, type RoomAccessType } from '@/lib/model';
 import { api, ready } from '@/lib/client';
+import { plural } from '@/lib/plural';
 import { defaultMapFor, mapsForMode, MODES, type GameMode } from '@/lib/maps/catalog';
+import {
+  filterRooms,
+  mergeRooms,
+  roomStatusLabel,
+  type MyRoomSummary,
+  type PublicRoomSummary,
+  type RoomFilter,
+} from '@/lib/lobby-rooms';
 import { Choice } from './controls';
-import { AccountButton, AuthDialog } from './auth-panel';
+import { AccountButton, AuthDialog, type AuthMode } from './auth-panel';
+import { KeysHelp } from './keys-help';
 import { useAuth } from '../hooks/use-auth';
 import { StylePicker } from './style-picker';
 import { ResourcePackPicker } from './resource-pack-picker';
 import { ThemeToggle } from './theme-toggle';
 import { syncSettingsNow } from './settings-sync';
 import { useResourcePack } from '../hooks/use-resource-pack';
-type Summary = {
-  id: string;
-  title: string;
-  theme: string;
-  season: string;
-  archived: boolean;
-  phase: number;
-  created: number;
-  notes: number;
-  host: string;
-};
-type PublicSummary = {
-  id: string;
-  title: string;
-  theme: string;
-  season: string;
-  archived: boolean;
-  phase: number;
-  created: number;
-  host: string;
-  hostName: string;
-  membersCount: number;
-  maxPlayers: number;
-  status: 'available' | 'full' | 'in_progress' | 'closed';
-  accessType: 'public';
-};
-/** Комната в едином списке: свои и публичные слиты по id, `mine` помечает свои. */
-type RoomItem = {
-  id: string;
-  title: string;
-  theme: string;
-  archived: boolean;
-  phase: number;
-  created: number;
-  mine: boolean;
-  notes: number | null;
-  hostName: string | null;
-  membersCount: number | null;
-  maxPlayers: number | null;
-  status: PublicSummary['status'] | null;
-};
 /** Единственный фильтр списка: заменяет прежнюю пару «вкладка + фильтр». */
-type RoomFilter = 'all' | 'mine' | 'active' | 'archive';
 const FILTERS: { value: RoomFilter; label: string }[] = [
   { value: 'all', label: 'Все' },
   { value: 'mine', label: 'Мои' },
   { value: 'active', label: 'Активные' },
   { value: 'archive', label: 'Завершённые' },
 ];
-const STATUS_LABELS: Record<PublicSummary['status'], string> = {
-  available: 'Доступна',
-  full: 'Заполнена',
-  in_progress: 'Идёт ретро',
-  closed: 'Закрыта',
+/**
+ * Как режим выглядит в диалоге «Создать комнату». Режим без записи получает
+ * нейтральные тексты из MODES и общую иконку — лобби не нужно учить каждый
+ * новый режим отдельными условиями.
+ */
+const MODE_COPY: Partial<
+  Record<GameMode, { icon: LucideIcon; title: string; hint: string; cta: string }>
+> = {
+  retro: {
+    icon: NotebookPen,
+    title: 'Соберёмся на ретро?',
+    hint: 'Создайте отдельную комнату для этой встречи.',
+    cta: 'Создать комнату',
+  },
+  battle: {
+    icon: Swords,
+    title: 'Готовы к бою?',
+    hint: 'Выберите карту и позовите команду на матч.',
+    cta: 'Начать бой',
+  },
+  impostor: {
+    icon: Rocket,
+    title: 'Кто из экипажа — предатель?',
+    hint: 'Создайте комнату для партии: нужно от 4 до 15 игроков, боты тоже считаются.',
+    cta: 'Создать партию',
+  },
 };
+const modeCopy = (mode: GameMode) => {
+  const info = MODES.find((m) => m.id === mode);
+  return (
+    MODE_COPY[mode] ?? {
+      icon: Gamepad2,
+      title: info ? `Новая комната: ${info.title}` : 'Новая комната',
+      hint: info?.hint ?? 'Создайте комнату и позовите участников.',
+      cta: 'Создать комнату',
+    }
+  );
+};
+function ModeIcon({ mode, size = 22 }: { mode: GameMode; size?: number }) {
+  const Icon = modeCopy(mode).icon;
+  return <Icon size={size} aria-hidden />;
+}
+/** Бейдж режима на карточке комнаты: иконка и название из MODES. */
+function ModeBadge({ mode }: { mode: GameMode }) {
+  const title = MODES.find((m) => m.id === mode)?.title ?? 'Игра';
+  return (
+    <span className={`room-mode-badge room-mode-${mode}`}>
+      <ModeIcon mode={mode} size={13} />
+      {title}
+    </span>
+  );
+}
+/**
+ * Открыть диалог восстановления пароля можно ссылкой `/?forgot=1` — так ведёт
+ * страница сброса, когда ссылка из письма устарела. Параметр сразу стирается.
+ */
+function takeForgotRequest() {
+  const params = new URLSearchParams(location.search);
+  if (!params.has('forgot')) return false;
+  params.delete('forgot');
+  const query = params.toString();
+  history.replaceState(null, '', location.pathname + (query ? '?' + query : ''));
+  return true;
+}
 /**
  * Читает и стирает из адреса сообщение о возврате: подтверждение почты
  * (`?verified=`) и ошибку входа через Google (`?auth=`).
@@ -122,6 +151,7 @@ export default function Lobby() {
   // Ключ меняется при каждом открытии: диалог пересоздаётся с чистой формой,
   // но при закрытии остаётся смонтированным и успевает доиграть анимацию.
   const [authKey, setAuthKey] = useState(0);
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [authNotice, setAuthNotice] = useState('');
   const [packsOpen, setPacksOpen] = useState(false);
   const [create, setCreate] = useState(false),
@@ -132,38 +162,77 @@ export default function Lobby() {
     [template, setTemplate] = useState('four'),
     [gameMode, setGameMode] = useState<GameMode>('retro'),
     [map, setMap] = useState('hub'),
-    [accessType, setAccessType] = useState<RoomAccessType>('public'),
+    // Приватная по умолчанию: командное ретро не должно само попадать в общий список.
+    [accessType, setAccessType] = useState<RoomAccessType>('private'),
     [maxPlayers, setMaxPlayers] = useState(8),
-    [rooms, setRooms] = useState<Summary[]>([]),
-    [publicRooms, setPublicRooms] = useState<PublicSummary[]>([]),
+    [rooms, setRooms] = useState<MyRoomSummary[]>([]),
+    [publicRooms, setPublicRooms] = useState<PublicRoomSummary[]>([]),
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(true),
-    [error, setError] = useState(''),
+    // У каждой области своя ошибка: ошибка входа по ссылке не всплывает в
+    // диалоге создания, а ошибка создания — над списком комнат.
+    [listError, setListError] = useState(''),
+    [createError, setCreateError] = useState(''),
+    [joinError, setJoinError] = useState(''),
     [query, setQuery] = useState(''),
     [filter, setFilter] = useState<RoomFilter>('all'),
     [join, setJoin] = useState(false),
     [joinCode, setJoinCode] = useState(''),
-    [help, setHelp] = useState(false);
+    [help, setHelp] = useState(false),
+    [helpMode, setHelpMode] = useState<GameMode>('retro');
 
-  const openAuth = () => {
+  const openAuth = (mode: AuthMode = 'login') => {
+    setAuthMode(mode);
     setAuthKey((key) => key + 1);
     setAuthOpen(true);
+  };
+
+  const openCreate = () => {
+    // Имя из аккаунта — если на этом устройстве имя ещё не задано.
+    if (!name.trim() && auth.user?.name) setName(auth.user.name);
+    setCreateError('');
+    setCreate(true);
+  };
+  const setCreateOpen = (open: boolean) => {
+    setCreate(open);
+    if (!open) setCreateError('');
+  };
+  const setJoinOpen = (open: boolean) => {
+    setJoin(open);
+    if (!open) setJoinError('');
   };
 
   const loadRooms = async () => {
     try {
       const [myRes, pubRes] = await Promise.all([
-        api<{ rooms: Summary[] }>('/api/rooms'),
-        api<{ rooms: PublicSummary[] }>('/api/rooms?browse=public'),
+        api<{ rooms: MyRoomSummary[] }>('/api/rooms'),
+        api<{ rooms: PublicRoomSummary[] }>('/api/rooms?browse=public'),
       ]);
       setRooms(myRes.rooms || []);
       setPublicRooms(pubRes.rooms || []);
-      setName(localStorage.getItem('jinaly-name') || '');
+      setListError('');
+      const stored = localStorage.getItem('jinaly-name');
+      if (stored) setName((prev) => prev || stored);
     } catch (e) {
-      setError((e as Error).message);
+      setListError((e as Error).message);
     } finally {
       setLoading(false);
     }
+  };
+
+  /** Первая загрузка и «Повторить»: сначала сессия, затем список. */
+  const startRooms = () =>
+    ready()
+      .then(loadRooms)
+      .catch((e) => {
+        setListError((e as Error).message);
+        setLoading(false);
+      });
+
+  const retryRooms = () => {
+    setListError('');
+    setLoading(true);
+    void startRooms();
   };
 
   /**
@@ -172,25 +241,23 @@ export default function Lobby() {
    * страницы не показывала то же сообщение снова.
    */
   useEffect(() => {
-    void Promise.resolve().then(() => setAuthNotice(takeAuthNotice()));
+    void Promise.resolve().then(() => {
+      setAuthNotice(takeAuthNotice());
+      if (takeForgotRequest()) openAuth('forgot');
+    });
   }, []);
 
   useEffect(() => {
-    void ready()
-      .then(loadRooms)
-      .catch((e) => {
-        setError((e as Error).message);
-        setLoading(false);
-      });
+    void startRooms();
   }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
       if (!document.hidden) {
-        void api<{ rooms: PublicSummary[] }>('/api/rooms?browse=public')
+        void api<{ rooms: PublicRoomSummary[] }>('/api/rooms?browse=public')
           .then((r) => setPublicRooms(r.rooms || []))
           .catch(() => {});
-        void api<{ rooms: Summary[] }>('/api/rooms')
+        void api<{ rooms: MyRoomSummary[] }>('/api/rooms')
           .then((r) => setRooms(r.rooms || []))
           .catch(() => {});
       }
@@ -200,7 +267,7 @@ export default function Lobby() {
 
   const createRoom = async () => {
     setBusy(true);
-    setError('');
+    setCreateError('');
     try {
       const r = await api<{ id: string; accessType?: string; inviteToken?: string }>(
         '/api/rooms',
@@ -223,7 +290,7 @@ export default function Lobby() {
         (r.accessType === 'private' && r.inviteToken ? '?invite=' + r.inviteToken : '');
       location.href = url;
     } catch (e) {
-      setError((e as Error).message);
+      setCreateError((e as Error).message);
       setBusy(false);
     }
   };
@@ -233,7 +300,7 @@ export default function Lobby() {
       /(?:\/room\/)?([a-f0-9]{16})(?:\?invite=([a-f0-9-]+))?/i,
     );
     if (!match) {
-      setError('Вставьте ссылку или 16-значный код комнаты');
+      setJoinError('Вставьте ссылку или 16-значный код комнаты');
       return;
     }
     const id = match[1];
@@ -299,6 +366,8 @@ export default function Lobby() {
         const r = await api<{ id: string }>('/api/rooms', {
           ...p,
           template: 'four',
+          // Как и в диалоге: новая комната по умолчанию не попадает в общий список.
+          access: 'private',
         });
         location.href = '/room/' + r.id;
         return { id: r.id, created: true };
@@ -307,52 +376,23 @@ export default function Lobby() {
     return () => abort.abort();
   }, []);
   // Один список: публичные и свои комнаты сливаются по id, свои получают флаг mine.
-  const allRooms = useMemo<RoomItem[]>(() => {
-    const byId = new Map<string, RoomItem>();
-    for (const r of publicRooms)
-      byId.set(r.id, {
-        id: r.id,
-        title: r.title,
-        theme: r.theme,
-        archived: r.archived,
-        phase: r.phase,
-        created: r.created,
-        mine: false,
-        notes: null,
-        hostName: r.hostName,
-        membersCount: r.membersCount,
-        maxPlayers: r.maxPlayers,
-        status: r.status,
-      });
-    for (const r of rooms) {
-      const prev = byId.get(r.id);
-      byId.set(r.id, {
-        id: r.id,
-        title: r.title,
-        theme: r.theme,
-        archived: r.archived,
-        phase: r.phase,
-        created: r.created,
-        mine: true,
-        notes: r.notes,
-        hostName: prev?.hostName ?? null,
-        membersCount: prev?.membersCount ?? null,
-        maxPlayers: prev?.maxPlayers ?? null,
-        status: prev?.status ?? null,
-      });
-    }
-    return [...byId.values()].sort((a, b) => b.created - a.created);
-  }, [rooms, publicRooms]);
-  const shown = allRooms.filter(
-    (r) =>
-      r.title.toLowerCase().includes(query.toLowerCase()) &&
-      (filter === 'all'
-        ? true
-        : filter === 'mine'
-          ? r.mine
-          : filter === 'archive'
-            ? r.archived
-            : !r.archived),
+  const allRooms = useMemo(() => mergeRooms(rooms, publicRooms), [rooms, publicRooms]);
+  const shown = filterRooms(allRooms, query, filter);
+  const filtered = query.trim() !== '' || filter !== 'all';
+  const resetFilter = () => {
+    setQuery('');
+    setFilter('all');
+  };
+  // Ссылки второго ряда: на широком экране — в сайдбаре, на узком — полосой под шапкой.
+  const secondaryNav = (
+    <>
+      <button type="button" onClick={() => setHelp(true)}>
+        <BookOpen size={18} aria-hidden /> Как играть
+      </button>
+      <button type="button" onClick={() => setPacksOpen(true)}>
+        <Settings2 size={18} aria-hidden /> Визуальный пакет
+      </button>
+    </>
   );
   return (
     <main className="lobby" data-resource-pack={resourcePack}>
@@ -360,6 +400,7 @@ export default function Lobby() {
         key={authKey}
         open={authOpen}
         onOpenChange={setAuthOpen}
+        initialMode={authMode}
         defaultName={name}
         user={auth.user}
         google={auth.google}
@@ -386,30 +427,23 @@ export default function Lobby() {
           <AccountButton
             user={auth.user}
             loading={auth.loading}
-            onClick={openAuth}
+            onClick={() => openAuth()}
           />
           <ThemeToggle />
         </div>
       </header>
+      {/* На узком экране сайдбара нет: его пункты — полосой под шапкой. */}
+      <nav className="lobby-mobile-nav" aria-label="Дополнительное меню">
+        {secondaryNav}
+      </nav>
       <div className="lobby-body">
         <nav className="side-nav" aria-label="Главное меню">
           <button className="nav-active" type="button" aria-current="page">
-            <LayoutGrid size={18} /> Комнаты
+            <LayoutGrid size={18} aria-hidden /> Комнаты
           </button>
-          <button type="button" onClick={() => setJoin(true)}>
-            <Link2 size={18} /> Войти по ссылке
-          </button>
-          <button type="button" onClick={() => setHelp(true)}>
-            <BookOpen size={18} /> Как играть
-          </button>
-          <button type="button" onClick={() => setPacksOpen(true)}>
-            <Settings2 size={18} /> Визуальный пакет
-          </button>
-          <button type="button" onClick={openAuth}>
-            <UserRound size={18} /> {auth.user ? 'Аккаунт' : 'Вход и регистрация'}
-          </button>
+          {secondaryNav}
           <div className="nav-bottom">
-            <span className="version-tag">JINALY · EARLY ACCESS</span>
+            <span className="version-tag">JINALY · РАННИЙ ДОСТУП</span>
           </div>
         </nav>
         <section className="lobby-main">
@@ -420,10 +454,15 @@ export default function Lobby() {
                 Зайдите в открытую комнату или создайте свою.
               </p>
             </div>
-            <button className="primary" onClick={() => setCreate(true)}>
-              <Plus size={18} />
-              Создать комнату
-            </button>
+            <div className="lobby-heading-actions">
+              <button className="primary" type="button" onClick={openCreate}>
+                <Plus size={18} aria-hidden />
+                Создать комнату
+              </button>
+              <button className="secondary" type="button" onClick={() => setJoin(true)}>
+                <Link2 size={17} aria-hidden /> Войти по ссылке
+              </button>
+            </div>
           </div>
 
           <div className="section-heading">
@@ -431,9 +470,10 @@ export default function Lobby() {
               Список комнат <span className="count">{shown.length}</span>
             </h2>
             <div className="search-box">
-              <Search size={16} />
+              <Search size={16} aria-hidden />
               <input
-                aria-label="Поиск комнат"
+                type="search"
+                aria-label="Поиск комнат по названию"
                 placeholder="Найти комнату"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -453,9 +493,6 @@ export default function Lobby() {
                 ))}
               </TabsList>
             </Tabs>
-            <button className="text-button" onClick={() => setJoin(true)}>
-              <Link2 size={15} /> Войти по ссылке
-            </button>
           </div>
 
           {authNotice && (
@@ -467,24 +504,43 @@ export default function Lobby() {
             </p>
           )}
 
-          {error && (
+          {listError && !loading && (
             <p role="alert" className="error-banner">
-              {error} <button onClick={() => location.reload()}>Повторить</button>
+              {listError}{' '}
+              <button type="button" onClick={retryRooms}>
+                Повторить
+              </button>
             </p>
           )}
 
           {loading ? (
             <div className="loading-state">Загружаем список комнат…</div>
+          ) : listError && allRooms.length === 0 ? null : shown.length === 0 &&
+            filtered &&
+            allRooms.length > 0 ? (
+            <div className="empty-rooms-state">
+              <SearchX size={48} className="empty-icon" aria-hidden />
+              <h3>Ничего не найдено</h3>
+              <p>
+                {query.trim()
+                  ? `Нет комнат с «${query.trim()}» в названии.`
+                  : 'В этом разделе комнат нет.'}{' '}
+                Попробуйте другой запрос или покажите все комнаты.
+              </p>
+              <button className="secondary" type="button" onClick={resetFilter}>
+                Сбросить фильтр
+              </button>
+            </div>
           ) : shown.length === 0 ? (
             <div className="empty-rooms-state">
-              <Globe size={48} className="empty-icon" />
+              <Globe size={48} className="empty-icon" aria-hidden />
               <h3>Комнат пока нет</h3>
               <p>
                 Создайте комнату или подключитесь к приватной по
                 ссылке-приглашению.
               </p>
-              <button className="primary" onClick={() => setCreate(true)}>
-                <Plus size={18} /> Создать комнату
+              <button className="primary" type="button" onClick={openCreate}>
+                <Plus size={18} aria-hidden /> Создать комнату
               </button>
             </div>
           ) : (
@@ -494,11 +550,7 @@ export default function Lobby() {
                 const isPublic = r.status !== null;
                 const blocked =
                   !r.mine && (r.status === 'full' || r.status === 'closed');
-                const statusLabel = r.mine
-                  ? r.archived
-                    ? 'Завершена'
-                    : PHASES[r.phase]
-                  : STATUS_LABELS[r.status ?? 'available'];
+                const statusLabel = roomStatusLabel(r);
                 return (
                   <article key={r.id} className="room-card">
                     <div
@@ -507,7 +559,11 @@ export default function Lobby() {
                     >
                       <span className="room-theme-emoji">{t.icon}</span>
                       <span className="room-format">
-                        {isPublic ? <Globe size={13} /> : <Lock size={13} />}
+                        {isPublic ? (
+                          <Globe size={13} aria-hidden />
+                        ) : (
+                          <Lock size={13} aria-hidden />
+                        )}
                         {isPublic ? 'Публичная' : 'Приватная'}
                       </span>
                       <span
@@ -524,8 +580,13 @@ export default function Lobby() {
                         {r.hostName ? ` · Ведущий: ${r.hostName}` : ''}
                       </span>
                       <h3>{r.title}</h3>
-                      {r.mine && (
-                        <span className="room-card-badge">Вы участник</span>
+                      {(r.mode || r.mine) && (
+                        <div className="room-card-tags">
+                          {r.mode && <ModeBadge mode={r.mode} />}
+                          {r.mine && (
+                            <span className="room-card-badge">Вы участник</span>
+                          )}
+                        </div>
                       )}
                       <div className="room-meta">
                         {r.membersCount !== null && r.maxPlayers !== null && (
@@ -537,7 +598,7 @@ export default function Lobby() {
                         {r.mine && r.notes !== null && (
                           <span>
                             <NotebookPen size={13} />
-                            {r.notes} идей
+                            {plural(r.notes, ['идея', 'идеи', 'идей'])}
                           </span>
                         )}
                         <span>
@@ -580,16 +641,10 @@ export default function Lobby() {
           )}
         </section>
       </div>
-      <Dialog open={create} onOpenChange={setCreate}>
+      <Dialog open={create} onOpenChange={setCreateOpen}>
         <DialogContent className="app-dialog">
-          <DialogTitle>
-            {gameMode === 'battle' ? 'Готовы к бою?' : 'Соберёмся на ретро?'}
-          </DialogTitle>
-          <DialogDescription>
-            {gameMode === 'battle'
-              ? 'Выберите карту и позовите команду на матч.'
-              : 'Создайте отдельную комнату для этой встречи.'}
-          </DialogDescription>
+          <DialogTitle>{modeCopy(gameMode).title}</DialogTitle>
+          <DialogDescription>{modeCopy(gameMode).hint}</DialogDescription>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -611,12 +666,42 @@ export default function Lobby() {
                     }}
                   >
                     <div className="access-choice-head">
-                      {m.id === 'battle' ? <Swords size={22} /> : <NotebookPen size={22} />}
+                      <ModeIcon mode={m.id} />
                       <strong>{m.title}</strong>
                     </div>
                     <small>{m.hint}</small>
                   </button>
                 ))}
+              </div>
+            </div>
+
+            <div className="field lobby-access-field">
+              <span className="field-label">Кто может войти</span>
+              <div className="access-choice-cards">
+                <button
+                  type="button"
+                  className={`access-choice-card ${accessType === 'private' ? 'selected' : ''}`}
+                  aria-pressed={accessType === 'private'}
+                  onClick={() => setAccessType('private')}
+                >
+                  <div className="access-choice-head">
+                    <Lock size={18} aria-hidden />
+                    <strong>Приватная</strong>
+                  </div>
+                  <small>Только по ссылке-приглашению, вход подтверждает ведущий.</small>
+                </button>
+                <button
+                  type="button"
+                  className={`access-choice-card ${accessType === 'public' ? 'selected' : ''}`}
+                  aria-pressed={accessType === 'public'}
+                  onClick={() => setAccessType('public')}
+                >
+                  <div className="access-choice-head">
+                    <Globe size={18} aria-hidden />
+                    <strong>Публичная</strong>
+                  </div>
+                  <small>Видна в общем списке, войти может любой.</small>
+                </button>
               </div>
             </div>
 
@@ -655,36 +740,6 @@ export default function Lobby() {
 
             <details className="access-choice-advanced">
               <summary>Дополнительно</summary>
-
-              <div className="field">
-                <span className="field-label">Доступ к комнате</span>
-                <div className="access-choice-cards">
-                  <button
-                    type="button"
-                    className={`access-choice-card ${accessType === 'public' ? 'selected' : ''}`}
-                    aria-pressed={accessType === 'public'}
-                    onClick={() => setAccessType('public')}
-                  >
-                    <div className="access-choice-head">
-                      <Globe size={18} />
-                      <strong>Публичная</strong>
-                    </div>
-                    <small>Отображается в общем списке. Любой может присоединиться.</small>
-                  </button>
-                  <button
-                    type="button"
-                    className={`access-choice-card ${accessType === 'private' ? 'selected' : ''}`}
-                    aria-pressed={accessType === 'private'}
-                    onClick={() => setAccessType('private')}
-                  >
-                    <div className="access-choice-head">
-                      <Lock size={18} />
-                      <strong>Приватная</strong>
-                    </div>
-                    <small>Скрыта из общего списка. Вход только по ссылке с подтверждением ведущего.</small>
-                  </button>
-                </div>
-              </div>
 
               <Choice
                 label="Вместимость комнаты"
@@ -729,9 +784,9 @@ export default function Lobby() {
               </div>
             </details>
 
-            {error && (
+            {createError && (
               <p className="error-banner" role="alert">
-                {error}
+                {createError}
               </p>
             )}
             <button
@@ -739,17 +794,13 @@ export default function Lobby() {
               type="submit"
               disabled={busy}
             >
-              {busy
-                ? 'Создаём пространство…'
-                : gameMode === 'battle'
-                  ? 'Начать бой'
-                  : 'Собрать команду'}{' '}
-              <ArrowUpRight size={17} />
+              {busy ? 'Создаём комнату…' : modeCopy(gameMode).cta}{' '}
+              <ArrowUpRight size={17} aria-hidden />
             </button>
           </form>
         </DialogContent>
       </Dialog>
-      <Dialog open={join} onOpenChange={setJoin}>
+      <Dialog open={join} onOpenChange={setJoinOpen}>
         <DialogContent className="app-dialog">
           <DialogTitle>Присоединиться к встрече</DialogTitle>
           <DialogDescription>
@@ -766,13 +817,16 @@ export default function Lobby() {
               <input
                 required
                 value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value)}
+                onChange={(e) => {
+                  setJoinCode(e.target.value);
+                  setJoinError('');
+                }}
                 placeholder="Ссылка на комнату"
               />
             </label>
-            {error && (
+            {joinError && (
               <p className="error-banner" role="alert">
-                {error}
+                {joinError}
               </p>
             )}
             <button className="primary full-width">Войти в комнату</button>
@@ -787,25 +841,26 @@ export default function Lobby() {
           </DialogDescription>
           <div className="help-copy">
             <p>
-              <b>В 3D:</b> нажмите «Играть». WASD — движение, пробел — прыжок, C
-              — сесть, дважды C — лечь. Ctrl — присесть, Shift — медленный шаг.
-              Мышь вращает камеру.
-            </p>
-            <p>
-              <b>Инструменты:</b> 1–3 и колесо меняют предмет в руках. Q, I или
-              средняя кнопка открывают снаряжение. Выбор — кликом. Подойдите к
-              доске и нажмите E.
-            </p>
-            <p>
               <b>Встреча:</b> ведущий переключает этапы, запускает таймер и
               голосования. Каждый участник раскрывает свои приватные заметки
-              самостоятельно.
-            </p>
-            <p>
-              <b>Tab:</b> участники, задержка, FPS. Esc возвращает курсор.
-              Обычная доска доступна даже без WebGL.
+              самостоятельно. В 3D нажмите «Играть»; если браузер не умеет 3D,
+              комната откроется обычной доской.
             </p>
           </div>
+          <fieldset className="keys-help-modes">
+            <legend className="sr-only">Клавиши для режима</legend>
+            {MODES.map((m) => (
+              <button
+                type="button"
+                key={m.id}
+                aria-pressed={helpMode === m.id}
+                onClick={() => setHelpMode(m.id)}
+              >
+                {m.title}
+              </button>
+            ))}
+          </fieldset>
+          <KeysHelp mode={helpMode} />
         </DialogContent>
       </Dialog>
     </main>

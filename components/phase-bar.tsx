@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { PHASES } from '@/lib/model';
+import type { PhaseAction, PhaseGuide } from '@/lib/room-phase';
 
 type PhaseBarProps = {
   /** Текущий этап встречи — индекс в `PHASES`. */
@@ -12,6 +13,15 @@ type PhaseBarProps = {
   archived: boolean;
   /** Отправляет `{ type: 'phase', phase }` — операцию комнаты. */
   onPhase: (phase: number) => void;
+  /**
+   * Что происходит на этапе и какой шаг следующий (lib/room-phase.ts).
+   * Ведущему — подсказка и главная кнопка, участнику — строка о том, чего ждём.
+   */
+  guide?: PhaseGuide;
+  /** Выполнить кнопку подсказки; что она делает, решает комната. */
+  onGuideAction?: (action: PhaseAction) => void;
+  /** Главная кнопка ждёт ответа сервера — защита от двойного щелчка. */
+  guideBusy?: boolean;
 };
 
 /**
@@ -26,7 +36,15 @@ type PhaseBarProps = {
  * заблокированы. Иначе любой посреди голосования перещёлкнет этап и собьёт
  * работу всей комнаты.
  */
-export function PhaseBar({ phase, host, archived, onPhase }: PhaseBarProps) {
+export function PhaseBar({
+  phase,
+  host,
+  archived,
+  onPhase,
+  guide,
+  onGuideAction,
+  guideBusy = false,
+}: PhaseBarProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const locked = !host || archived;
@@ -100,6 +118,40 @@ export function PhaseBar({ phase, host, archived, onPhase }: PhaseBarProps) {
             <p className="phase-bar-note">
               {archived ? 'Встреча завершена' : 'Этапы переключает ведущий'}
             </p>
+          )}
+        </div>
+      )}
+      {/* Подсказка этапа: встреча ведёт сама, ведущему не нужно помнить, что
+          дальше, а участник видит, чего сейчас ждут. Прячется, пока открыт
+          список этапов, — иначе две плашки спорят за одно место. */}
+      {guide && !open && (
+        <div className="phase-guide" aria-live="polite">
+          <p className="phase-guide-hint">{guide.hint}</p>
+          {(guide.action || guide.secondary) && onGuideAction && (
+            <div className="phase-guide-actions">
+              {guide.action && (
+                <button
+                  type="button"
+                  className="phase-guide-main"
+                  disabled={guideBusy}
+                  aria-busy={guideBusy || undefined}
+                  onClick={() => guide.action && onGuideAction(guide.action)}
+                >
+                  {guide.action.label}
+                </button>
+              )}
+              {guide.secondary && (
+                <button
+                  type="button"
+                  className="phase-guide-link"
+                  onClick={() =>
+                    guide.secondary && onGuideAction(guide.secondary)
+                  }
+                >
+                  {guide.secondary.label}
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

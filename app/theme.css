@@ -17,11 +17,11 @@
   --jin-border: #e1e4f0;
   --jin-border-strong: #e1dfec;
   --jin-text: #2a3043;
-  --jin-text-muted: #838ca3;
-  --jin-text-faint: #9199b1;
-  --jin-accent: #7868e6;
-  --jin-accent-strong: #7868dc;
-  --jin-accent-hover: #6958cd;
+  --jin-text-muted: #5f6780;
+  --jin-text-faint: #666e8a;
+  --jin-accent: #6a58d6;
+  --jin-accent-strong: #6a58d6;
+  --jin-accent-hover: #5b4ac4;
   --jin-accent-soft: #efedfc;
   --jin-danger-bg: #fbede7;
   --jin-danger-text: #9e5641;
@@ -255,7 +255,8 @@ html[data-theme='dark'] .room-card .eyebrow,
 html[data-theme='dark'] .room-card-body .eyebrow {
   color: var(--jin-text-faint);
 }
-html[data-theme='dark'] .room-meta {
+html[data-theme='dark'] .room-meta,
+html[data-theme='dark'] .room-status {
   color: var(--jin-text-muted);
 }
 html[data-theme='dark'] .room-meta > svg {
@@ -324,9 +325,11 @@ html[data-theme='dark'] .text-input::placeholder {
 }
 html[data-theme='dark'] .field input:focus,
 html[data-theme='dark'] .field textarea:focus,
-html[data-theme='dark'] .text-input:focus {
+html[data-theme='dark'] .field select:focus,
+html[data-theme='dark'] .text-input:focus,
+html[data-theme='dark'] .search-box:focus-within {
   border-color: var(--jin-accent);
-  box-shadow: 0 0 0 3px #8b7cf033;
+  box-shadow: 0 0 0 2px var(--jin-accent);
 }
 html[data-theme='dark'] .field select option {
   background: var(--jin-surface-2);
