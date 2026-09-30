@@ -5,6 +5,7 @@ import {
   applyUndo,
   assembleState,
   diffForUndo,
+  operationId,
   planWrite,
   restoreDeleted,
   type NoteRow,
@@ -80,6 +81,7 @@ export async function commitOperation(
   first: RoomRow,
 ) {
   let r: RoomRow | null = first;
+  const opId = operationId(op.opId);
   for (let attempt = 0; attempt < 5; attempt++) {
     if (attempt)
       r = await db()
@@ -89,6 +91,23 @@ export async function commitOperation(
     if (!r) throw Error('Комната не найдена');
     const rows = await noteRows(id);
     const current = assembleState(r.state, rows);
+    // Повтор уже применённой операции (ответ на первую попытку потерялся):
+    // ключ лежит в записи истории, второй раз ничего не меняем.
+    if (opId) {
+      const seen = await db()
+        .prepare(
+          "SELECT version FROM history WHERE room=? AND author=? AND json_extract(before,'$.opId')=?",
+        )
+        .bind(id, self, opId)
+        .first<{ version: number }>();
+      if (seen)
+        return {
+          ok: true as const,
+          version: r.version,
+          state: publicState(current, self, r.host),
+          repeated: true as const,
+        };
+    }
     let updated: RoomState;
     if (op.type === 'undo') {
       const last = await db()
@@ -127,6 +146,7 @@ export async function commitOperation(
             // Анонимность на момент действия — для истории (app/api/rooms/[id]).
             anonPlayers: !!(current.anonymousPlayers || updated.anonymousPlayers),
             anonNotes: !!(current.anonymous || updated.anonymous),
+            ...(opId ? { opId } : {}),
           }),
           String(op.type),
           Date.now(),

@@ -14,6 +14,8 @@ import { api, ready } from '@/lib/client';
 import {
   connectionStatus,
   isNetworkError,
+  newOpId,
+  sendWithRetry,
   SAVING_DELAY_MS,
 } from '@/lib/room-connection';
 import type { WeaponCommand, WeaponReply } from '@/lib/weapon-protocol';
@@ -307,11 +309,16 @@ export function useRoomSync({
       if (pendingWrites.current++ === 0)
         slowTimer.current = setTimeout(() => setSlowWrite(true), SAVING_DELAY_MS);
       try {
-        const data = await api<{
-          state?: RoomState;
-          version: number;
-          ok?: boolean;
-        }>('/api/rooms/' + id, body);
+        // Один ключ на операцию и все её повторы: сервер не применит её дважды,
+        // если первая попытка дошла, а ответ потерялся (lib/room-connection.ts).
+        const payload = { ...body, opId: typeof body.opId === 'string' ? body.opId : newOpId() };
+        const data = await sendWithRetry(() =>
+          api<{
+            state?: RoomState;
+            version: number;
+            ok?: boolean;
+          }>('/api/rooms/' + id, payload),
+        );
         if (data.state)
           setRoom((old) =>
             old && data.version >= old.version
