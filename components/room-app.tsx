@@ -77,6 +77,7 @@ import { api, download, parseCSV } from '@/lib/client';
 import {
   exportCsvRows,
   exportMarkdown,
+  fromCsvCell,
   toCsv,
   zoneFromLabel,
 } from '@/lib/room-export';
@@ -960,9 +961,9 @@ export default function RoomApp({ id }: { id: string }) {
         if (rows[0]?.[0] === 'Текст') rows.shift();
         notes = rows.map((r, i) => ({
           kind: 'sticky',
-          text: r[0],
-          zone: zoneFromLabel(r[1], s?.template),
-          owner: r[3] || '',
+          text: fromCsvCell(r[0]),
+          zone: zoneFromLabel(fromCsvCell(r[1]), s?.template),
+          owner: fromCsvCell(r[3]),
           x: 25 + (i % 2) * 280,
           y: 60 + Math.floor(i / 2) * 230,
         }));

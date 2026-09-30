@@ -59,7 +59,10 @@ test('Типы карточек: одно «Действие» и человеч
 });
 
 function meeting(template = 'four') {
-  let s = initialState('Спринт 42', 'nauryz', template);
+  // Встреча собирается в четырёх колонках, а формат ставится в конце: так у доски
+  // из трёх колонок остаётся карточка в зоне «Сложно», как в старых комнатах
+  // (сейчас сервер такую карточку в этом формате не создаст).
+  let s = initialState('Спринт 42', 'nauryz', 'four');
   s = run(s, { type: 'group.add', title: 'Коммуникация' });
   const group = s.groups[0].id;
   s = run(s, { type: 'note.add', text: 'Быстрые релизы', zone: 'good', group });
@@ -80,7 +83,7 @@ function meeting(template = 'four') {
   s = run(s, { type: 'vote', id: bad.id });
   s = run(s, { type: 'vote', id: good.id }, 'guest');
   s = run(s, { type: 'vote.end' });
-  return s;
+  return { ...s, template };
 }
 
 test('Топ по голосам и план действий берут и старые типы', () => {

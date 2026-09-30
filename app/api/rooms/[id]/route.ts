@@ -377,19 +377,22 @@ export async function POST(request: Request, context: Context) {
     if (op.type === 'history') {
       const { results } = await db()
         .prepare(
-          'SELECT h.version,h.author,h.action,h.at,m.name FROM history h LEFT JOIN members m ON m.room=h.room AND m.session=h.author WHERE h.room=? ORDER BY h.version DESC LIMIT 40',
+          "SELECT h.version,h.author,h.action,h.at,m.name,json_extract(h.before,'$.anonPlayers') AS anonPlayers,json_extract(h.before,'$.anonNotes') AS anonNotes FROM history h LEFT JOIN members m ON m.room=h.room AND m.session=h.author WHERE h.room=? ORDER BY h.version DESC LIMIT 40",
         )
         .bind(id)
         .all();
+      const now = JSON.parse(r!.state);
       return json({
-        history: results.map((h) =>
-          JSON.parse(r!.state).anonymousPlayers ||
-          (JSON.parse(r!.state).anonymous &&
-            String(h.action).startsWith('note.') &&
-            h.author !== self)
+        history: results.map(({ anonPlayers, anonNotes, ...h }) => {
+          // Анонимность берётся на момент действия, а если запись старше этого
+          // поля — текущая. Выключение анонимности не раскрывает прошлых авторов.
+          const players = anonPlayers == null ? !!now.anonymousPlayers : !!anonPlayers;
+          const notes = anonNotes == null ? !!now.anonymous : !!anonNotes;
+          return players ||
+            (notes && String(h.action).startsWith('note.') && h.author !== self)
             ? { ...h, author: '', name: 'Анонимно' }
-            : h,
-        ),
+            : h;
+        }),
       });
     }
     if (op.type === 'presence') {
