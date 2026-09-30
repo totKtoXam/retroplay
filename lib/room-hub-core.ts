@@ -320,12 +320,17 @@ export function sanitizeCursor(cursor: unknown): Cursor | null {
 /** The hub's extent; used when a pose arrives without a map to measure it against. */
 const DEFAULT_BOUNDS: Bounds = { minX: -36, maxX: 36, minZ: -36, maxZ: 36 };
 
-export function sanitizePose(pose: unknown, bounds: Bounds = DEFAULT_BOUNDS): Pose | null {
+export function sanitizePose(
+  pose: unknown,
+  bounds: Bounds = DEFAULT_BOUNDS,
+  /** Допустимая высота ног, м: на картах с горами выше обычных 0–10. */
+  heights: readonly [number, number] = [0, 10],
+): Pose | null {
   const p = pose as Record<string, unknown> | null;
   if (!p || typeof p !== 'object' || ![p.x, p.y, p.z, p.yaw].every(finite)) return null;
   return {
     x: clamp(p.x as number, bounds.minX, bounds.maxX),
-    y: clamp(p.y as number, 0, 10),
+    y: clamp(p.y as number, heights[0], heights[1]),
     z: clamp(p.z as number, bounds.minZ, bounds.maxZ),
     yaw: p.yaw as number,
     stance: p.stance === 'sit' || p.stance === 'lie' ? p.stance : 'stand',
@@ -399,7 +404,7 @@ export function applyPresence(
   /** Призрак режима «Предатель»: скорость проверяется, стены — нет. */
   ghost = false,
 ) {
-  const pose = sanitizePose(op.pose, map.bounds);
+  const pose = sanitizePose(op.pose, map.bounds, map.heightRange);
   const cursor = sanitizeCursor(op.cursor);
   const life = Number.isInteger(op.life) ? (op.life as number) : 0;
   m.seen = now;

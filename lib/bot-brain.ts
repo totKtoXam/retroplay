@@ -245,6 +245,10 @@ export class NavGrid {
   readonly minZ: number;
   readonly cols: number;
   readonly rows: number;
+  /** Шаг сетки, м: у огромных карт крупнее (`ArenaDef.navCell`). */
+  readonly cell: number;
+  /** Перепад высот между соседними клетками, который берётся шагом: на крупной сетке склон даёт больший перепад. */
+  readonly climb: number;
   /** 0 — непроходимо, 1 — стоя, 2 — только присев. */
   readonly kind: Uint8Array;
   readonly height: Float32Array;
@@ -257,10 +261,12 @@ export class NavGrid {
   constructor(map: GameMap) {
     const b = map.bounds;
     this.map = map;
+    this.cell = map.arena?.navCell ?? NAV_CELL;
+    this.climb = CLIMB * Math.max(1, this.cell / NAV_CELL);
     this.minX = b.minX;
     this.minZ = b.minZ;
-    this.cols = Math.max(1, Math.ceil((b.maxX - b.minX) / NAV_CELL));
-    this.rows = Math.max(1, Math.ceil((b.maxZ - b.minZ) / NAV_CELL));
+    this.cols = Math.max(1, Math.ceil((b.maxX - b.minX) / this.cell));
+    this.rows = Math.max(1, Math.ceil((b.maxZ - b.minZ) / this.cell));
     const size = this.cols * this.rows;
     this.kind = new Uint8Array(size);
     this.height = new Float32Array(size);
@@ -271,16 +277,16 @@ export class NavGrid {
   }
 
   cx(ix: number) {
-    return this.minX + (ix + 0.5) * NAV_CELL;
+    return this.minX + (ix + 0.5) * this.cell;
   }
 
   cz(iz: number) {
-    return this.minZ + (iz + 0.5) * NAV_CELL;
+    return this.minZ + (iz + 0.5) * this.cell;
   }
 
   at(x: number, z: number) {
-    const ix = Math.floor((x - this.minX) / NAV_CELL);
-    const iz = Math.floor((z - this.minZ) / NAV_CELL);
+    const ix = Math.floor((x - this.minX) / this.cell);
+    const iz = Math.floor((z - this.minZ) / this.cell);
     if (ix < 0 || iz < 0 || ix >= this.cols || iz >= this.rows) return -1;
     return iz * this.cols + ix;
   }
@@ -328,7 +334,7 @@ export class NavGrid {
         // Высоту считаем «от текущей ноги»: так работает и сам движок.
         const ny = this.map.groundHeight(wx, wz, y);
         seen[nidx] = 1;
-        if (ny - y > CLIMB || y - ny > FALL) continue;
+        if (ny - y > this.climb || y - ny > FALL) continue;
         const kind = this.passable(wx, wz, ny);
         if (!kind) continue;
         this.kind[nidx] = kind;
@@ -341,8 +347,8 @@ export class NavGrid {
 
   /** Ближайшая проходимая клетка к точке (поиск по расширяющемуся кольцу). */
   nearest(x: number, z: number) {
-    const ix = Math.floor((x - this.minX) / NAV_CELL);
-    const iz = Math.floor((z - this.minZ) / NAV_CELL);
+    const ix = Math.floor((x - this.minX) / this.cell);
+    const iz = Math.floor((z - this.minZ) / this.cell);
     for (let r = 0; r <= 6; r++) {
       let best = -1;
       let bestD = Infinity;
@@ -377,7 +383,7 @@ export class NavGrid {
   clearLine(ax: number, az: number, ay: number, bx: number, bz: number) {
     const dist = Math.hypot(bx - ax, bz - az);
     if (dist < 1e-3) return true;
-    const steps = Math.ceil(dist / (NAV_CELL / 3));
+    const steps = Math.ceil(dist / (this.cell / 3));
     // Поперёк направления — на радиус тела в обе стороны.
     const sx = (-(bz - az) / dist) * BODY_RADIUS;
     const sz = ((bx - ax) / dist) * BODY_RADIUS;
@@ -389,10 +395,10 @@ export class NavGrid {
       const idx = this.at(x, z);
       if (idx < 0 || this.kind[idx] !== 1) return false;
       const ny = this.height[idx];
-      if (ny - y > CLIMB || y - ny > FALL) return false;
+      if (ny - y > this.climb || y - ny > FALL) return false;
       for (const side of [1, -1]) {
         const edge = this.at(x + sx * side, z + sz * side);
-        if (edge < 0 || this.kind[edge] !== 1 || Math.abs(this.height[edge] - ny) > CLIMB) return false;
+        if (edge < 0 || this.kind[edge] !== 1 || Math.abs(this.height[edge] - ny) > this.climb) return false;
       }
       y = ny;
     }
@@ -436,7 +442,7 @@ export class NavGrid {
         if (dx && dz && (!this.kind[iz * this.cols + nx] || !this.kind[nz * this.cols + ix])) continue;
         const climb = Math.abs(this.height[nidx] - this.height[current]);
         // Присев ходят медленнее, крутые места тоже не бесплатны.
-        const next = g + cost * NAV_CELL + (this.kind[nidx] === 2 ? 1.4 : 0) + climb * 0.6;
+        const next = g + cost * this.cell + (this.kind[nidx] === 2 ? 1.4 : 0) + climb * 0.6;
         if (this.stamp[nidx] === pass && this.gScore[nidx] <= next) continue;
         this.stamp[nidx] = pass;
         this.gScore[nidx] = next;

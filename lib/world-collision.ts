@@ -348,6 +348,101 @@ export function getCeilingHeight(x: number, z: number, currentY = 0): number {
 }
 
 /**
+ * Сетка ускорения для больших наборов коллайдеров. Небольшие карты перебирают свои
+ * сотни коробок целиком — это быстро и просто. На огромной карте (lib/maps/outbreak.ts)
+ * их десятки тысяч, и перебор всех на каждый шаг, выстрел и луч обзора бота съел бы
+ * такт: поэтому для длинных списков строится плоская сетка клеток, и проверка идёт
+ * только по коробкам соседних клеток. Коробка, задевающая несколько клеток, лежит в
+ * каждой — повторная проверка одной и той же коробки результат не меняет.
+ *
+ * Список коллайдеров карты не меняется после сборки; если длина всё же изменилась,
+ * сетка строится заново.
+ */
+const INDEX_MIN = 256;
+const INDEX_CELL = 16;
+type ColliderIndex = {
+  length: number;
+  minX: number;
+  minZ: number;
+  cols: number;
+  rows: number;
+  cells: BoxCollider3D[][];
+};
+const indexes = new WeakMap<readonly BoxCollider3D[], ColliderIndex>();
+
+function colliderIndex(colliders: readonly BoxCollider3D[]): ColliderIndex | null {
+  if (colliders.length < INDEX_MIN) return null;
+  const cached = indexes.get(colliders);
+  if (cached && cached.length === colliders.length) return cached;
+  let minX = Infinity,
+    minZ = Infinity,
+    maxX = -Infinity,
+    maxZ = -Infinity;
+  for (const c of colliders) {
+    minX = Math.min(minX, c.minX);
+    minZ = Math.min(minZ, c.minZ);
+    maxX = Math.max(maxX, c.maxX);
+    maxZ = Math.max(maxZ, c.maxZ);
+  }
+  const cols = Math.max(1, Math.ceil((maxX - minX) / INDEX_CELL) + 1),
+    rows = Math.max(1, Math.ceil((maxZ - minZ) / INDEX_CELL) + 1);
+  const cells: BoxCollider3D[][] = Array.from({ length: cols * rows }, () => []);
+  for (const c of colliders) {
+    const c0 = Math.floor((c.minX - minX) / INDEX_CELL),
+      c1 = Math.floor((c.maxX - minX) / INDEX_CELL),
+      r0 = Math.floor((c.minZ - minZ) / INDEX_CELL),
+      r1 = Math.floor((c.maxZ - minZ) / INDEX_CELL);
+    for (let r = r0; r <= r1; r++) for (let q = c0; q <= c1; q++) cells[r * cols + q].push(c);
+  }
+  const index = { length: colliders.length, minX, minZ, cols, rows, cells };
+  indexes.set(colliders, index);
+  return index;
+}
+
+/**
+ * Обходит коллайдеры, чья рамка может задевать прямоугольник [minX, maxX] × [minZ, maxZ]
+ * (на длинных списках — только из клеток сетки, на коротких — все). Коробка может прийти
+ * дважды. `visit` возвращает true, чтобы остановить обход.
+ */
+export function forEachColliderNear(
+  colliders: readonly BoxCollider3D[],
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+  visit: (c: BoxCollider3D) => boolean | void,
+) {
+  const index = colliderIndex(colliders);
+  if (!index) {
+    for (const c of colliders) if (visit(c)) return;
+    return;
+  }
+  const c0 = Math.max(0, Math.floor((minX - index.minX) / INDEX_CELL)),
+    c1 = Math.min(index.cols - 1, Math.floor((maxX - index.minX) / INDEX_CELL)),
+    r0 = Math.max(0, Math.floor((minZ - index.minZ) / INDEX_CELL)),
+    r1 = Math.min(index.rows - 1, Math.floor((maxZ - index.minZ) / INDEX_CELL));
+  for (let r = r0; r <= r1; r++)
+    for (let q = c0; q <= c1; q++) for (const c of index.cells[r * index.cols + q]) if (visit(c)) return;
+}
+
+/** Тело (x, z, y) с радиусом и ростом упирается в коробку `c`. */
+function blocks(c: BoxCollider3D, x: number, z: number, y: number, playerRadius: number, playerHeight: number) {
+  // If player's feet are essentially on top of this collider (within 0.1m of maxY),
+  // they are walking ON TOP of it, not colliding horizontally with its vertical face.
+  if (y >= c.maxY - 0.1) return false;
+  // Check horizontal AABB overlap with player radius
+  if (x + playerRadius > c.minX && x - playerRadius < c.maxX && z + playerRadius > c.minZ && z - playerRadius < c.maxZ) {
+    // Check vertical overlap:
+    // Player foot is at y, head is at y + playerHeight.
+    // Small step buffer (0.35m) allows walking over minor floor transitions.
+    const feetY = y + 0.35;
+    const headY = y + playerHeight - 0.05;
+    return headY > c.minY && feetY < c.maxY;
+  }
+  return false;
+}
+
+/**
  * Checks if a 3D bounding capsule/cylinder at (x, z, y) collides with any solid obstacle.
  */
 export function isBlocked3D(
@@ -358,37 +453,56 @@ export function isBlocked3D(
   playerHeight = 1.8,
   colliders: BoxCollider3D[] = ALL_3D_COLLIDERS,
 ): boolean {
-  for (const c of colliders) {
-    // If player's feet are essentially on top of this collider (within 0.1m of maxY),
-    // they are walking ON TOP of it, not colliding horizontally with its vertical face.
-    if (y >= c.maxY - 0.1) {
-      continue;
-    }
-
-    // Check horizontal AABB overlap with player radius
-    if (
-      x + playerRadius > c.minX &&
-      x - playerRadius < c.maxX &&
-      z + playerRadius > c.minZ &&
-      z - playerRadius < c.maxZ
-    ) {
-      // Check vertical overlap:
-      // Player foot is at y, head is at y + playerHeight.
-      // Small step buffer (0.35m) allows walking over minor floor transitions.
-      const feetY = y + 0.35;
-      const headY = y + playerHeight - 0.05;
-      if (headY > c.minY && feetY < c.maxY) {
-        return true;
-      }
-    }
-  }
-  return false;
+  let blocked = false;
+  forEachColliderNear(colliders, x - playerRadius, x + playerRadius, z - playerRadius, z + playerRadius, (c) =>
+    (blocked = blocks(c, x, z, y, playerRadius, playerHeight)),
+  );
+  return blocked;
 }
 
-/**
- * Traces a line segment from origin to target against all solid 3D world colliders.
- * Returns the closest intersection point if obstructed by a wall/building, or null if line of sight is clear.
- */
+/** Доля пути 0..1, на которой луч (o + d·t) входит в коробку `c`, или null. */
+function rayEnter(c: BoxCollider3D, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number) {
+  let tmin = 0.0;
+  let tmax = 1.0;
+
+  // X slab
+  if (Math.abs(dx) > 1e-6) {
+    let t1 = (c.minX - ox) / dx;
+    let t2 = (c.maxX - ox) / dx;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return null;
+  } else if (ox < c.minX || ox > c.maxX) {
+    return null;
+  }
+
+  // Y slab
+  if (Math.abs(dy) > 1e-6) {
+    let t1 = (c.minY - oy) / dy;
+    let t2 = (c.maxY - oy) / dy;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return null;
+  } else if (oy < c.minY || oy > c.maxY) {
+    return null;
+  }
+
+  // Z slab
+  if (Math.abs(dz) > 1e-6) {
+    let t1 = (c.minZ - oz) / dz;
+    let t2 = (c.maxZ - oz) / dz;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return null;
+  } else if (oz < c.minZ || oz > c.maxZ) {
+    return null;
+  }
+  return tmin;
+}
+
 export function rayCastWorldObstacle(
   origin: number[] | { x: number; y: number; z: number },
   target: number[] | { x: number; y: number; z: number },
@@ -410,51 +524,43 @@ export function rayCastWorldObstacle(
 
   let closestT = 1.0;
   let hasHit = false;
-
-  for (const c of colliders) {
-    let tmin = 0.0;
-    let tmax = 1.0;
-
-    // X slab
-    if (Math.abs(dx) > 1e-6) {
-      let t1 = (c.minX - ox) / dx;
-      let t2 = (c.maxX - ox) / dx;
-      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) continue;
-    } else if (ox < c.minX || ox > c.maxX) {
-      continue;
-    }
-
-    // Y slab
-    if (Math.abs(dy) > 1e-6) {
-      let t1 = (c.minY - oy) / dy;
-      let t2 = (c.maxY - oy) / dy;
-      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) continue;
-    } else if (oy < c.minY || oy > c.maxY) {
-      continue;
-    }
-
-    // Z slab
-    if (Math.abs(dz) > 1e-6) {
-      let t1 = (c.minZ - oz) / dz;
-      let t2 = (c.maxZ - oz) / dz;
-      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) continue;
-    } else if (oz < c.minZ || oz > c.maxZ) {
-      continue;
-    }
-
+  const test = (c: BoxCollider3D) => {
+    const t = rayEnter(c, ox, oy, oz, dx, dy, dz);
     // Ignore intersections that are behind the ray or past an already closer hit
-    if (tmin >= 0.005 && tmin < closestT) {
-      closestT = tmin;
+    if (t !== null && t >= 0.005 && t < closestT) {
+      closestT = t;
       hasHit = true;
+    }
+  };
+
+  const index = colliderIndex(colliders);
+  if (!index) for (const c of colliders) test(c);
+  else {
+    // Клетки сетки вдоль проекции луча на землю, по порядку от начала (обход Амантидеса — Ву):
+    // как только ближайшее попадание оказалось раньше выхода из клетки, дальше искать незачем.
+    const cell = INDEX_CELL;
+    let q = Math.floor((ox - index.minX) / cell),
+      r = Math.floor((oz - index.minZ) / cell);
+    const stepQ = dx > 0 ? 1 : -1,
+      stepR = dz > 0 ? 1 : -1;
+    const deltaQ = Math.abs(dx) > 1e-9 ? cell / Math.abs(dx) : Infinity,
+      deltaR = Math.abs(dz) > 1e-9 ? cell / Math.abs(dz) : Infinity;
+    let nextQ = Math.abs(dx) > 1e-9 ? ((dx > 0 ? q + 1 : q) * cell + index.minX - ox) / dx : Infinity,
+      nextR = Math.abs(dz) > 1e-9 ? ((dz > 0 ? r + 1 : r) * cell + index.minZ - oz) / dz : Infinity;
+    const cellsOnPath = Math.ceil(Math.abs(dx) / cell) + Math.ceil(Math.abs(dz) / cell) + 2;
+    for (let guard = 0; guard < cellsOnPath; guard++) {
+      if (q >= 0 && r >= 0 && q < index.cols && r < index.rows) for (const c of index.cells[r * index.cols + q]) test(c);
+      const exit = Math.min(nextQ, nextR);
+      if (exit >= 1 || closestT <= exit) break;
+      if (nextQ < nextR) {
+        q += stepQ;
+        nextQ += deltaQ;
+      } else {
+        r += stepR;
+        nextR += deltaR;
+      }
+      // Луч ушёл за сетку и не вернётся.
+      if ((q < 0 && stepQ < 0) || (q >= index.cols && stepQ > 0) || (r < 0 && stepR < 0) || (r >= index.rows && stepR > 0)) break;
     }
   }
 
@@ -466,4 +572,3 @@ export function rayCastWorldObstacle(
     distance: fullDist * closestT,
   };
 }
-

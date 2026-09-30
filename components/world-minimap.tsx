@@ -81,6 +81,135 @@ function projection(map: GameMap, px: number, dpr: number) {
 type Projection = ReturnType<typeof projection>;
 
 /**
+ * Огромная карта (с рельефом, lib/maps/outbreak.ts): целиком в угловую плашку она не
+ * влезает — 2 км в 168 пикселях это 12 м на пиксель, ни дома, ни дороги не видно. В углу
+ * показывается окно в HUGE_VIEW метров вокруг игрока, развёрнутый план — вся карта.
+ */
+const HUGE_VIEW = 320;
+const isHuge = (map: GameMap) => !!map.arena?.terrain;
+
+/** Окно плана со стороной `span` м с центром (cx, cz), прижатое к границам карты. */
+function windowProjection(map: GameMap, px: number, cx: number, cz: number, span: number) {
+  const b = map.bounds;
+  const half = span / 2;
+  const x0 = Math.max(b.minX, Math.min(b.maxX - span, cx - half)),
+    z0 = Math.max(b.minZ, Math.min(b.maxZ - span, cz - half));
+  const scale = px / span;
+  return { scale, x0, z0, toX: (x: number) => (x - x0) * scale, toZ: (z: number) => (z - z0) * scale };
+}
+
+/** Метров на пиксель атласа огромной карты. */
+const ATLAS_M = 1;
+const atlases = new WeakMap<GameMap, HTMLCanvasElement>();
+
+/**
+ * Атлас огромной карты: рельеф по видам земли с отмывкой склонов, вода, дороги, дома,
+ * деревья — один раз на карту. Угловая плашка и развёрнутый план вырезают из него кусок.
+ */
+function atlasOf(map: GameMap) {
+  const cached = atlases.get(map);
+  if (cached) return cached;
+  const b = map.bounds;
+  const arena = map.arena!;
+  const t = arena.terrain!;
+  const w = Math.round((b.maxX - b.minX) / ATLAS_M),
+    h = Math.round((b.maxZ - b.minZ) / ATLAS_M);
+  const atlas = document.createElement('canvas');
+  atlas.width = w;
+  atlas.height = h;
+  const ctx = atlas.getContext('2d');
+  if (!ctx) return atlas;
+  // Рельеф — картинка по узлам сетки, растянутая на атлас (сглаживание даёт мягкие переходы).
+  const grid = document.createElement('canvas');
+  grid.width = t.cols;
+  grid.height = t.rows;
+  const gctx = grid.getContext('2d')!;
+  const img = gctx.createImageData(t.cols, t.rows);
+  const palette = (t.palette ?? [{ color: '#6d8f4a', name: '' }]).map((p) => {
+    const n = parseInt(p.color.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  });
+  const at = (c: number, r: number) =>
+    t.heights[Math.max(0, Math.min(t.rows - 1, r)) * t.cols + Math.max(0, Math.min(t.cols - 1, c))];
+  for (let r = 0; r < t.rows; r++)
+    for (let c = 0; c < t.cols; c++) {
+      const i = r * t.cols + c;
+      const [cr, cg, cb] = palette[t.kinds?.[i] ?? 0] ?? palette[0];
+      // Отмывка: склон к северо-западу светлее, к юго-востоку темнее — горы читаются объёмом.
+      const shade = Math.max(0.55, Math.min(1.25, 1 + ((at(c - 1, r - 1) - at(c + 1, r + 1)) / t.cell) * 0.35));
+      img.data.set([cr * shade * 0.8, cg * shade * 0.8, cb * shade * 0.8, 255], i * 4);
+    }
+  gctx.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  const k = 1 / ATLAS_M;
+  ctx.drawImage(grid, ((t.minX - b.minX) * k), ((t.minZ - b.minZ) * k), (t.cols - 1) * t.cell * k + t.cell * k, (t.rows - 1) * t.cell * k + t.cell * k);
+  const X = (x: number) => (x - b.minX) * k,
+    Z = (z: number) => (z - b.minZ) * k;
+  ctx.fillStyle = 'rgb(58, 104, 132)';
+  for (const water of arena.water ?? []) {
+    ctx.beginPath();
+    if (water.round)
+      ctx.arc(X((water.minX + water.maxX) / 2), Z((water.minZ + water.maxZ) / 2), ((water.maxX - water.minX) / 2) * k, 0, Math.PI * 2);
+    else ctx.rect(X(water.minX), Z(water.minZ), (water.maxX - water.minX) * k, (water.maxZ - water.minZ) * k);
+    ctx.fill();
+  }
+  const models = arena.propKit?.models ?? {};
+  /** Повёрнутый прямоугольник рамки модели. */
+  const footprint = (p: NonNullable<typeof arena.props>[number], color: string, grow = 0) => {
+    const info = models[p.m];
+    if (!info) return;
+    const s = p.s ?? 1;
+    ctx.save();
+    ctx.translate(X(p.x), Z(p.z));
+    // Поворот модели вокруг y на yaw — на плане (x вправо, z вниз) это поворот холста на −yaw.
+    ctx.rotate(-(p.yaw ?? 0));
+    ctx.fillStyle = color;
+    ctx.fillRect((info.min[0] * s - grow) * k, (info.min[2] * s - grow) * k, ((info.max[0] - info.min[0]) * s + grow * 2) * k, ((info.max[2] - info.min[2]) * s + grow * 2) * k);
+    ctx.restore();
+  };
+  const props = arena.props ?? [];
+  for (const p of props) if (p.m.startsWith('road/road-')) footprint(p, 'rgb(64, 68, 76)', 0.3);
+  for (const p of props) {
+    const info = models[p.m];
+    if (!info) continue;
+    if (info.hit === 'trunk' && (info.max[1] - info.min[1]) * (p.s ?? 1) > 5) {
+      ctx.fillStyle = 'rgba(28, 64, 40, 0.75)';
+      ctx.beginPath();
+      ctx.arc(X(p.x), Z(p.z), 1.8 * (p.s ?? 1) * k, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  for (const p of props) {
+    const info = models[p.m];
+    if (!info || info.hit !== 'box') continue;
+    const area = (info.max[0] - info.min[0]) * (info.max[2] - info.min[2]) * (p.s ?? 1) ** 2;
+    if (p.m.startsWith('com/') || p.m.startsWith('sub/') || p.m.startsWith('grave/crypt')) footprint(p, 'rgb(214, 220, 230)');
+    else if (area > 1.5) footprint(p, 'rgba(34, 38, 46, 0.8)');
+  }
+  atlases.set(map, atlas);
+  return atlas;
+}
+
+/** Подписи мест огромной карты поверх плана; вне окна — не рисуются. */
+function drawZoneLabels(ctx: CanvasRenderingContext2D, map: GameMap, p: { toX: (x: number) => number; toZ: (z: number) => number }, font: number, px: number) {
+  const zones = map.arena?.zones ?? [];
+  ctx.font = `600 ${font}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(2, font / 3.5);
+  ctx.strokeStyle = 'rgba(8, 13, 25, 0.9)';
+  ctx.fillStyle = 'rgba(241, 245, 251, 0.95)';
+  for (const z of zones) {
+    const x = p.toX((z.minX + z.maxX) / 2),
+      y = p.toZ((z.minZ + z.maxZ) / 2);
+    if (x < -40 || y < -10 || x > px + 40 || y > px + 10) continue;
+    ctx.strokeText(z.name, x, y);
+    ctx.fillText(z.name, x, y);
+  }
+}
+
+/**
  * Короткое название отсека для угловой плашки: «Нижний двигатель» → «Ниж. двиг.»,
  * «Администрация» → «Админ.». На развёрнутом плане места хватает на полное.
  */
@@ -215,6 +344,7 @@ export function WorldMinimap(props: {
     let px = 0;
     let statics: HTMLCanvasElement | null = null;
     let p: ReturnType<typeof projection> | null = null;
+    const huge = isHuge(props.map);
     const ctx = el.getContext('2d');
     if (!ctx) return;
 
@@ -231,6 +361,20 @@ export function WorldMinimap(props: {
       el.style.width = `${side}px`;
       el.style.height = `${side}px`;
       p = projection(props.map, px, dpr);
+      if (huge) {
+        // Огромная карта: развёрнутый план — весь атлас с подписями; угловая плашка
+        // вырезает окно вокруг игрока в каждом кадре.
+        const layer = document.createElement('canvas');
+        layer.width = layer.height = px;
+        const lctx = layer.getContext('2d');
+        if (lctx && props.expanded) {
+          const b = props.map.bounds;
+          lctx.drawImage(atlasOf(props.map), p.toX(b.minX), p.toZ(b.minZ), (b.maxX - b.minX) * p.scale, (b.maxZ - b.minZ) * p.scale);
+          drawZoneLabels(lctx, props.map, p, Math.round(12 * dpr), px);
+        }
+        statics = layer;
+        return;
+      }
       statics = drawStatic(
         props.map,
         px,
@@ -248,7 +392,16 @@ export function WorldMinimap(props: {
       if (!statics || !p) return;
       const data = read.current();
       ctx.clearRect(0, 0, px, px);
-      ctx.drawImage(statics, 0, 0);
+      if (huge && !props.expanded) {
+        // Окно вокруг игрока: кусок атласа и подписи тех мест, что в него попали.
+        if (!data) return;
+        const w = windowProjection(props.map, px, data.x, data.z, HUGE_VIEW);
+        const b = props.map.bounds;
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(atlasOf(props.map), (w.x0 - b.minX) / ATLAS_M, (w.z0 - b.minZ) / ATLAS_M, HUGE_VIEW / ATLAS_M, HUGE_VIEW / ATLAS_M, 0, 0, px, px);
+        drawZoneLabels(ctx, props.map, w, Math.round(9 * dpr), px);
+        p = w;
+      } else ctx.drawImage(statics, 0, 0);
       if (!data) return;
       // Отметки и стрелка — одного размера на экране при любой стороне плашки.
       const unit = props.expanded ? px / (SIZE * dpr) : 1;

@@ -8,6 +8,8 @@ export const MAP_CATALOG = [
   { id: 'bazaar', title: 'Базар', mode: 'battle' },
   { id: 'mountain', title: 'Горный лагерь', mode: 'battle' },
   { id: 'valley', title: 'Ледниковая долина', mode: 'battle' },
+  // Огромная карта для режима с зомби; пока режима нет — играется как командный бой.
+  { id: 'outbreak', title: 'Зона заражения', mode: 'battle' },
   { id: 'ship', title: 'Корабль', mode: 'impostor' },
 ] as const satisfies readonly { id: string; title: string; mode: GameMode }[];
 

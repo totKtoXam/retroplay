@@ -8,6 +8,7 @@ import { createSurfaceLibrary } from './world-cinematic';
 import { createArenaMaterials } from './world-arena-materials';
 import type { MapSceneOptions, WorldKit } from './world-map-scene';
 import { createLampLights } from './world-lamp-lights';
+import { createPropLayer, createTerrainMeshes } from './world-terrain-props';
 import { mixValue, type DayMix, type TimeOfDay } from '@/lib/day-cycle';
 import { seasonColor } from '@/lib/season-colors';
 
@@ -81,15 +82,19 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
   // на больших аренах берём вчетверо больше текселей.
   const shadowRes = span > 80 ? 2048 : 1024;
   sunlight.shadow.mapSize.set(shadowRes, shadowRes);
-  const half = span / 2 + 6;
+  // Огромная карта (с рельефом) целиком в одну тень не влезет: тень покрывает квадрат
+  // вокруг камеры и едет за ней (см. `view`).
+  const huge = !!def.terrain;
+  const half = huge ? 90 : span / 2 + 6;
   sunlight.shadow.camera.left = -half;
   sunlight.shadow.camera.right = half;
   sunlight.shadow.camera.top = half;
   sunlight.shadow.camera.bottom = -half;
   sunlight.shadow.camera.near = 1;
-  sunlight.shadow.camera.far = half * 2 + 40;
-  sunlight.shadow.bias = -0.0005;
-  sunlight.shadow.normalBias = 0.035;
+  sunlight.shadow.camera.far = huge ? 400 : half * 2 + 40;
+  // Глубина тени огромной карты в разы больше: прежнего смещения не хватает, и на стенах шли полосы.
+  sunlight.shadow.bias = huge ? -0.0012 : -0.0005;
+  sunlight.shadow.normalBias = huge ? 0.09 : 0.035;
   scene.add(sunlight);
   // Внутри корабля суточного солнца нет: потолок тени не бросает, и «дневной» свет с резкими
   // тенями от стен заливал бы отсеки, будто крыши нет. Настоящее солнце — за иллюминаторами
@@ -105,13 +110,28 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
     depthWrite: false,
   });
   // Корабль в космосе (`def.hull`): неба и земли нет — вокруг космос (components/world-interior.ts).
-  if (!def.hull) scene.add(new T.Mesh(new T.SphereGeometry(Math.max(180, span * 2), 24, 16), skyMaterial));
+  // Небо на огромной карте едет за камерой: сфера в две карты не влезла бы в дальность камеры.
+  const sky = new T.Mesh(new T.SphereGeometry(huge ? 330 : Math.max(180, span * 2), 24, 16), skyMaterial);
+  sky.userData.noCameraCollision = true;
+  sky.userData.presentationOnly = true;
+  if (!def.hull) scene.add(sky);
 
   // Ground inside the walls and a wider backdrop outside them.
-  if (!def.hull) {
+  // На карте с рельефом землю рисует он сам (и шире границ), плоская земля не нужна.
+  if (!def.hull && !def.terrain) {
     add(new T.BoxGeometry(maxX - minX, 0.2, maxZ - minZ), def.groundColor, cx, -0.1, cz, def.groundMaterial);
     add(new T.BoxGeometry(span + 200, 0.2, span + 200), def.outsideColor ?? '#6f7f63', cx, -0.14, cz);
   }
+  // Рельеф: трава-текстура в оттенках серого, цвет земли — в вершинах (луг, лес, степь, скалы, снег).
+  const terrainMaterial = def.terrain ? arenaMaterials.material('#ffffff', 'grass') : undefined;
+  if (def.terrain && terrainMaterial) {
+    terrainMaterial.vertexColors = true;
+    // Серая текстура травы темнит цвет вершин; поднимаем обратно, чтобы палитра совпала с миникартой.
+    terrainMaterial.color.setScalar(1.45);
+    scene.add(createTerrainMeshes(def.terrain, terrainMaterial));
+  }
+  const propLayer = def.props?.length ? createPropLayer(def) : undefined;
+  if (propLayer) scene.add(propLayer.group);
   // Коробки и цилиндры с меткой `art` рисует интерьер (текстуры и модели), остальные — сцена,
   // с материалом поверхности, если он задан.
   const interior = def.boxes.some((b) => b.art) || def.decor?.length ? createInterior(def) : undefined;
@@ -214,12 +234,24 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
   const scratch = new T.Color();
   // Прежние 45 и 170 — это 0,8 и 3 пролёта «Горного лагеря»; так дальний край любой
   // карты тонет в дымке одинаково, а не пропадает целиком на большой.
-  const fog = new T.Fog('#9fb6c2', span * 0.8, Math.min(span * 3, 330));
+  const fog = def.viewDistance
+    ? new T.Fog('#9fb6c2', def.viewDistance * 0.4, def.viewDistance)
+    : new T.Fog('#9fb6c2', span * 0.8, Math.min(span * 3, 330));
   const mixInto = (
     target: T.Color,
     table: Record<TimeOfDay, string>,
     m: DayMix,
   ) => target.set(table[m.from]).lerp(scratch.set(table[m.to]), m.blend);
+  // Центр, над которым стоит солнце: середина карты, а на огромной — точка у камеры.
+  const sunAnchor = new T.Vector3(cx, 0, cz);
+  let sunHeight = ARENA_SUN_HEIGHT.day;
+  const placeSun = () => {
+    // На огромной карте свет выше и дальше: тень покрывает рельеф вокруг камеры, а горы
+    // до сотни метров не должны заслонять само солнце.
+    const k = huge ? 4 : 1;
+    sunlight.position.set(sunAnchor.x - 30 * k, sunAnchor.y + sunHeight * k, sunAnchor.z - 24 * k);
+    sunlight.target.position.copy(sunAnchor);
+  };
   const setDayMix = (m: DayMix) => {
     if (def.indoor) {
       // В помещении (корабль) за стенами — тёмный космос, и сутки здесь ни при чём: свет отсеков
@@ -243,13 +275,16 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
     mixInto(hemi.color, ARENA_HEMI_COLOR, m);
     sunlight.intensity = mixValue(ARENA_SUNLIGHT, m);
     mixInto(sunlight.color, ARENA_SUNLIGHT_COLOR, m);
-    sunlight.position.set(cx - 30, mixValue(ARENA_SUN_HEIGHT, m), cz - 24);
+    sunHeight = mixValue(ARENA_SUN_HEIGHT, m);
+    placeSun();
     sunlight.shadow.needsUpdate = true;
   };
   // Времена года: карта нарисована в своём сезоне (`def.season`, по умолчанию
   // лето), остальные сезоны перекрашивают её материалы от исходных цветов.
   // Раньше арена сезон просто игнорировала, и переключатель работал только в хабе.
   const groundColors = new Set([def.groundColor, def.outsideColor ?? '#6f7f63']);
+  const terrainBase = new T.Color(def.groundColor),
+    terrainSeason = new T.Color();
   let appliedSeason = '';
   const applySeason = (season: string) => {
     if (season === appliedSeason) return;
@@ -257,6 +292,15 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
     const native = def.season ?? 'summer';
     for (const { color, material: m } of mats.values())
       m.color.set(seasonColor(color, season, native, groundColors.has(color) ? 'ground' : 'surface'));
+    // Рельеф перекрашивается оттенком: во сколько раз сезон меняет основной цвет земли.
+    if (terrainMaterial) {
+      terrainSeason.set(seasonColor(def.groundColor, season, native, 'ground'));
+      terrainMaterial.color.setRGB(
+        (1.45 * terrainSeason.r) / Math.max(0.05, terrainBase.r),
+        (1.45 * terrainSeason.g) / Math.max(0.05, terrainBase.g),
+        (1.45 * terrainSeason.b) / Math.max(0.05, terrainBase.b),
+      );
+    }
     // Зимой вода на летней карте — лёд: матовый и неподвижный. Кроме фонтана: его вода
     // проточная и бьёт в любой сезон — замёрзший бассейн выглядел как сломанная анимация.
     const winter = season === 'winter' && native !== 'winter';
@@ -269,6 +313,7 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
       arenaMaterials.setFrozen(m, frozen);
     });
   };
+  let viewSeconds = 0;
   const update = (s: RoomState, m: DayMix) => {
     applySeason(s.season);
     setDayMix(m);
@@ -290,7 +335,24 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
     setNotes: () => {},
     clouds: new T.Group(),
     sunlight,
-    view: (eye: T.Vector3, dt: number) => lampLights.update(eye, dt),
+    view: (eye: T.Vector3, dt: number) => {
+      lampLights.update(eye, dt);
+      if (huge) {
+        viewSeconds += dt;
+        sky.position.copy(eye);
+        propLayer?.view(eye, viewSeconds);
+        // Тень едет за камерой шагами по 4 м: при плавном сдвиге края теней дрожали бы.
+        // Высота — тоже: в горах в сотне метров над равниной тень иначе ушла бы вбок.
+        const ax = Math.round(eye.x / 4) * 4,
+          ay = Math.round(eye.y / 4) * 4,
+          az = Math.round(eye.z / 4) * 4;
+        if (ax !== sunAnchor.x || ay !== sunAnchor.y || az !== sunAnchor.z) {
+          sunAnchor.set(ax, ay, az);
+          placeSun();
+          sunlight.shadow.needsUpdate = true;
+        }
+      }
+    },
     animate: (seconds: number) => {
       interior?.animate(seconds);
       arenaMaterials.animate(seconds);
@@ -300,6 +362,11 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
       surfaces.dispose();
       lampLights.dispose();
       interior?.dispose();
+      propLayer?.dispose();
+      terrainMaterial?.dispose();
+      scene.getObjectByName('terrain')?.traverse((o) => {
+        if (o instanceof T.Mesh) o.geometry.dispose();
+      });
       arenaMaterials.dispose();
       waters.forEach((w) => w.geometry.dispose());
       fountains.forEach((f) => f.dispose());

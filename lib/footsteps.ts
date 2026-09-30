@@ -7,7 +7,12 @@
 // того, на чём стоит игрок: зелень — трава, коричневое — дерево, снег — снег. Цвет берётся уже
 // перекрашенным под текущий сезон, так что летний луг на зимней карте хрустит снегом.
 
-import { rampHeight, type GameMap, type MapBox, type SurfaceMaterial } from './maps/types.ts';
+import { rampHeight, type GameMap, type MapBox, type MapTerrain, type SurfaceMaterial } from './maps/types.ts';
+
+/** Индекс ближайшего к точке узла сетки рельефа. */
+const terrainNode = (t: MapTerrain, x: number, z: number) =>
+  Math.max(0, Math.min(t.rows - 1, Math.round((z - t.minZ) / t.cell))) * t.cols +
+  Math.max(0, Math.min(t.cols - 1, Math.round((x - t.minX) / t.cell)));
 import {
   hexToHsl,
   isSnowy,
@@ -149,7 +154,10 @@ export function footstepSurface(
       );
     else if (ramp) surface = surfaceOfColor(paint(ramp.color, 'surface'));
     else {
-      surface = surfaceOfColor(paint(arena.groundColor, 'ground'));
+      // На рельефе земля разная: луг, степь, скалы, снег, асфальт городов — берём вид ближайшего узла.
+      const t = arena.terrain;
+      const kind = t?.kinds && t.palette ? t.palette[t.kinds[terrainNode(t, x, z)]] : undefined;
+      surface = surfaceOfColor(paint(kind?.color ?? arena.groundColor, 'ground'));
       terrain = true;
     }
     // Голубая плита — бассейн или витраж, а не вода: по ней идут как по камню.

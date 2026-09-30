@@ -1,4 +1,4 @@
-import type { BoxCollider3D } from './world-collision.ts';
+import { forEachColliderNear, type BoxCollider3D } from './world-collision.ts';
 import { GRENADE_FUSE_MS } from './weapon-definition.ts';
 
 /**
@@ -127,11 +127,19 @@ export function simulateGrenade(
     if (!resting) {
       v[1] -= GRENADE_GRAVITY * dt;
       const d: Vec3 = [v[0] * dt, v[1] * dt, v[2] * dt];
-      let first: { t: number; axis: number } | null = null;
-      for (const c of world.colliders) {
-        const hit = enterBox(p, d, c);
-        if (hit && (!first || hit.t < first.t)) first = hit;
-      }
+      // Приведение, а не аннотация: иначе TypeScript сузит `first` до null — присваивание в обходе он не видит.
+      let first = null as { t: number; axis: number } | null;
+      forEachColliderNear(
+        world.colliders,
+        Math.min(p[0], p[0] + d[0]) - RADIUS,
+        Math.max(p[0], p[0] + d[0]) + RADIUS,
+        Math.min(p[2], p[2] + d[2]) - RADIUS,
+        Math.max(p[2], p[2] + d[2]) + RADIUS,
+        (c) => {
+          const hit = enterBox(p, d, c);
+          if (hit && (!first || hit.t < first.t)) first = hit;
+        },
+      );
       const prevY = p[1];
       if (first) {
         // Встаём у стены чуть раньше точки касания и отскакиваем; остаток шага пропадает.
