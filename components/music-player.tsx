@@ -27,6 +27,7 @@ import {
   setMusicVolume,
   subscribeMusic,
 } from '@/lib/soundtrack';
+import { ConfirmDialog } from './room-confirm';
 
 /**
  * Музыка прямо в шапке комнаты.
@@ -46,6 +47,11 @@ export function MusicPlayer({ voiceActive }: { voiceActive: boolean }) {
   );
   const fileInput = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
+  // Какой свой трек убрать: файл удаляется с устройства насовсем, поэтому
+  // сначала спрашиваем.
+  const [removing, setRemoving] = useState<{ id: string; title: string } | null>(
+    null,
+  );
   useEffect(() => {
     setMusicVoiceActive(voiceActive);
   }, [voiceActive]);
@@ -123,7 +129,7 @@ export function MusicPlayer({ voiceActive }: { voiceActive: boolean }) {
                       className="music-pop-remove"
                       aria-label={`Убрать «${t.title}» из плейлиста`}
                       title="Убрать из плейлиста"
-                      onClick={() => void removeMusicTrack(t.id)}
+                      onClick={() => setRemoving({ id: t.id, title: t.title })}
                     >
                       <Trash2 size={13} />
                     </button>
@@ -170,6 +176,24 @@ export function MusicPlayer({ voiceActive }: { voiceActive: boolean }) {
               {music.error}
             </p>
           )}
+          {/* Внутри всплывающего плейлиста: так щелчок по подтверждению не
+              считается щелчком мимо и не закрывает плейлист. */}
+          <ConfirmDialog
+            open={!!removing}
+            title="Убрать трек из плейлиста?"
+            description={
+              removing
+                ? `«${removing.title}» удалится с этого устройства. Вернуть его можно, только загрузив файл снова.`
+                : undefined
+            }
+            confirmLabel="Убрать трек"
+            danger
+            onCancel={() => setRemoving(null)}
+            onConfirm={() => {
+              if (removing) void removeMusicTrack(removing.id);
+              setRemoving(null);
+            }}
+          />
         </PopoverContent>
       </Popover>
       <button

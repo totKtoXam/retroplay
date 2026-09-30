@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import {
   GAME_TOOLS,
+  isActionKind,
   THEMES,
   type Match,
   voteCount,
@@ -35,7 +36,8 @@ import {
   type RoomState,
   type Round,
 } from '@/lib/model';
-import { mapsForMode, modeOf, MODES } from '@/lib/maps/catalog';
+import { mapsForMode, modeOf, MODES, type GameMode } from '@/lib/maps/catalog';
+import { KeysHelp } from './keys-help';
 import { plural } from '@/lib/plural';
 import {
   IMPOSTOR_DEFAULTS,
@@ -63,64 +65,26 @@ import {
   type BotLevel,
 } from '@/lib/bot-levels';
 
-export function HelpPanel() {
+/** Справка комнаты: клавиши текущего режима — из общей раскладки lib/keymap.ts. */
+export function HelpPanel({ mode }: { mode: GameMode }) {
   return (
-    <div className="help-copy">
-      <p>
-        <b>Камера:</b> кликните по миру и двигайте мышь — удерживать
-        кнопки не нужно. Esc освобождает курсор для меню. Стрелки тоже
-        вращают камеру. V переключает первое и третье лицо. Z сбрасывает
-        угол обзора. F включает и выключает фонарик — его луч видят
-        и остальные игроки. Alt + колесо меняет расстояние в третьем лице.
-        Захват мыши включается щелчком по миру.
-      </p>
-      <p>
-        <b>Краскомёт и дробовик конфетти:</b> ЛКМ стреляет туда, куда вы
-        смотрите, ПКМ — прицеливание, <b>R</b> — перезарядка. Краска
-        исчезает через 12 секунд, залпы видят все игроки.
-      </p>
-      <p>
-        Игра не занимает сочетания с <b>Ctrl</b>, <b>Alt</b> и <b>Cmd</b>:
-        они остаются за браузером, и Ctrl + W больше не закрывает вкладку
-        посреди партии. Кнопка ⛶ в шапке включает <b>полный экран</b>: в
-        поддерживаемом браузере игровой ввод перехватывает служебные клавиши.
-        Курсор освобождается только клавишей <b>Esc</b>.
-      </p>
-      <p>
-        <b>WASD</b> — движение. <b>Пробел</b> — прыжок. <b>C</b> — сесть
-        / встать. <b>Дважды C</b> — лечь. <b>X</b> — присесть
-        (удерживать). <b>Shift</b> — медленный шаг.
-      </p>
-      <p>
-        <b>Enter</b> — текстовый чат: Enter отправляет, <b>Tab</b> меняет
-        канал (всем или своей команде), Esc закрывает. В «Предателе» живые
-        пишут всем только на собраниях, свой канал есть у предателей, а
-        призраки переписываются между собой.
-      </p>
-      <p>
-        <b>Цифры 1…N</b> — предметы текущего режима: на ретроспективе это
-        планшет, стикер, краскомёт, дробовик и лайкомёт, в бою — четыре
-        оружия и ближний бой (вариант удара — удержание колёсика). Колесо мыши переключает предмет, удержание колёсика
-        открывает варианты снаряжения, <b>Q</b> или <b>I</b> — всё снаряжение.
-      </p>
-      <p>
-        <b>E</b> у доски — открыть её. <b>Ё</b> (слева от 1) — участники и
-        задержка. <b>M</b> — карта. <b>T</b> / <b>Y</b> (удерживать) — рация
-        своей команде / всем. <b>G</b> — выбор стороны, скина и цвета банданы (повторное
-        нажатие или <b>Esc</b> закрывает). <b>Esc</b> — вернуть курсор.
-      </p>
-      <p>
-        <b>Доска открывается планшетом</b> (предмет в инвентаре) или
-        клавишей <b>E</b> у стенда. Двойной щелчок по холсту создаёт
-        карточку, ручка в углу двигает её, «Связь» соединяет две карточки,
-        перетаскивание пустого места двигает холст.
-      </p>
-      <p>
-        В экономном режиме частота ограничена 30 FPS, со статическими
-        тенями и без bloom. Без поддержки WebGL комната не откроется:
-        включите аппаратное ускорение в настройках браузера.
-      </p>
-    </div>
+    <>
+      <KeysHelp mode={mode} headingLevel={4} />
+      <div className="help-copy">
+        <p>
+          <b>Доска открывается планшетом</b> (предмет в инвентаре) или
+          клавишей <b>E</b> у стенда. Двойной щелчок по холсту создаёт
+          карточку, ручка в углу двигает её (или стрелки, когда ручка в
+          фокусе), «Связь» соединяет две карточки, перетаскивание пустого места
+          двигает холст.
+        </p>
+        <p>
+          В экономном режиме частота ограничена 30 FPS, со статическими тенями
+          и без bloom. Если браузер не умеет 3D, комната откроется обычной
+          доской.
+        </p>
+      </div>
+    </>
   );
 }
 
@@ -183,9 +147,11 @@ export function SharePanel({
   roomId: string;
   access: RoomAccess | undefined;
   host: boolean;
-  onCopyLink: () => void;
+  /** true — ссылка в буфере обмена; false — браузер не дал скопировать. */
+  onCopyLink: () => Promise<boolean>;
   onRegenerateInvite: () => Promise<void>;
 }) {
+  const [copied, setCopied] = useState(false);
   return (
     <>
       <label className="field">
@@ -209,11 +175,20 @@ export function SharePanel({
         <button
           type="button"
           className="primary"
-          onClick={() => onCopyLink()}
+          onClick={() =>
+            void onCopyLink().then((ok) => {
+              if (!ok) return;
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2500);
+            })
+          }
         >
-          <Copy size={16} />
-          Скопировать ссылку
+          {copied ? <Check size={16} /> : <Copy size={16} />}
+          {copied ? 'Скопировано' : 'Скопировать ссылку'}
         </button>
+        <span className="sr-only" aria-live="polite">
+          {copied ? 'Ссылка скопирована' : ''}
+        </span>
         {host && access?.type === 'private' && (
           <button
             type="button"
@@ -249,12 +224,28 @@ export function SharePanel({
   );
 }
 
+/** Строка истории комнаты; `author` — сессия автора, пустая у анонимных действий. */
+export type HistoryEntry = {
+  version: number;
+  action: string;
+  name: string;
+  at: number;
+  author?: string;
+};
+
 export function HistoryPanel({
   history,
   onUndo,
+  undoEnabled = true,
+  undoReason = '',
+  undoBusy = false,
 }: {
-  history: { version: number; action: string; name: string; at: number }[];
+  history: HistoryEntry[];
   onUndo: () => void;
+  /** Отменять нечего или последнее действие не ваше — кнопка неактивна, а причина видна. */
+  undoEnabled?: boolean;
+  undoReason?: string;
+  undoBusy?: boolean;
 }) {
   return (
     <>
@@ -263,12 +254,21 @@ export function HistoryPanel({
         последнего действия, пока другие участники не внесли изменения.
       </p>
       <button
+        type="button"
         className="secondary"
+        disabled={!undoEnabled || undoBusy}
+        aria-describedby={undoReason ? 'undo-reason' : undefined}
+        title={undoReason || undefined}
         onClick={() => onUndo()}
       >
         <RotateCcw size={16} />
-        Отменить последнее действие
+        {undoBusy ? 'Отменяем…' : 'Отменить последнее действие'}
       </button>
+      {undoReason && (
+        <small id="undo-reason" className="muted">
+          {undoReason}
+        </small>
+      )}
       <div className="history-list">
         {history.map((h, idx) => (
           <div key={`${h.version}-${idx}`}>
@@ -289,6 +289,7 @@ export function HistoryPanel({
                   timer: 'Таймер',
                   reveal: 'Раскрыты заметки',
                   'group.add': 'Добавлена тема',
+                  'group.delete': 'Удалена тема',
                   undo: 'Отмена действия',
                   archive: 'Завершение встречи',
                 } as Record<string, string>
@@ -335,6 +336,7 @@ export function TimerPanel({
       <div className="button-row">
         <button
           disabled={!host}
+          title={host ? undefined : 'Таймером управляет ведущий'}
           className="primary"
           onClick={() =>
             onTimer(
@@ -347,7 +349,14 @@ export function TimerPanel({
           {timer.running ? 'Пауза' : 'Запустить'}
         </button>
         <button
-          disabled={!host}
+          disabled={!host || timer.running}
+          title={
+            !host
+              ? 'Таймером управляет ведущий'
+              : timer.running
+                ? 'Таймер уже идёт'
+                : 'Продолжить с того места, где остановились'
+          }
           className="secondary"
           onClick={() => onTimer('start', timer.remaining)}
         >
@@ -355,6 +364,7 @@ export function TimerPanel({
         </button>
         <button
           disabled={!host}
+          title={host ? undefined : 'Таймером управляет ведущий'}
           className="secondary"
           onClick={() => onTimer('reset', Number(seconds))}
         >
@@ -393,7 +403,9 @@ export function VotePanel({
       <p className="muted">
         {round?.active
           ? `Осталось ${round.limit - used} из ${round.limit} голосов. Нажимайте 👍 на карточках. До завершения раунда вы видите только свои голоса.`
-          : 'Выберите важные темы для обсуждения. Результаты раскроются после завершения раунда.'}
+          : host
+            ? 'Выберите важные темы для обсуждения. Результаты раскроются после завершения раунда.'
+            : 'Ждём, когда ведущий начнёт раунд. Результаты раскроются после его завершения.'}
       </p>
       {host && !round?.active && (
         <>
@@ -408,16 +420,18 @@ export function VotePanel({
             />
           </label>
           <button
+            type="button"
             className="primary"
             onClick={() => onStartVote()}
           >
             <Vote size={17} />
-            Начать раунд
+            Начать голосование
           </button>
         </>
       )}
       {host && round?.active && (
         <button
+          type="button"
           className="primary"
           onClick={() => onEndVote()}
         >
@@ -471,7 +485,9 @@ export function ToolsPanel({
           return (
             <button
               key={slot.index}
+              type="button"
               className={tool === slot.index ? 'selected' : ''}
+              aria-pressed={tool === slot.index}
               onClick={() => onSelectTool(slot.index)}
             >
               <Icon size={22} />
@@ -512,6 +528,25 @@ export function JoinRequestsPanel({
   onAccept: (req: { id: string; name: string }) => Promise<void>;
   onReject: (req: { id: string; name: string }) => Promise<void>;
 }) {
+  // Какая заявка сейчас обрабатывается: обе её кнопки неактивны, пока сервер
+  // не ответил, — иначе двойной щелчок слал бы два решения подряд.
+  const [pending, setPending] = useState<Record<string, 'accept' | 'reject'>>({});
+  const decide = async (
+    req: { id: string; name: string },
+    kind: 'accept' | 'reject',
+  ) => {
+    if (pending[req.id]) return;
+    setPending((p) => ({ ...p, [req.id]: kind }));
+    try {
+      await (kind === 'accept' ? onAccept(req) : onReject(req));
+    } finally {
+      setPending((p) => {
+        const next = { ...p };
+        delete next[req.id];
+        return next;
+      });
+    }
+  };
   return (
     <div className="join-requests-panel">
       <div className="join-requests-header">
@@ -543,20 +578,22 @@ export function JoinRequestsPanel({
                 <button
                   type="button"
                   className="btn-accept"
-                  onClick={async () => {
-                    await onAccept(req);
-                  }}
+                  disabled={!!pending[req.id]}
+                  aria-busy={pending[req.id] === 'accept' || undefined}
+                  onClick={() => void decide(req, 'accept')}
                 >
-                  <Check size={16} /> Принять
+                  <Check size={16} />{' '}
+                  {pending[req.id] === 'accept' ? 'Принимаем…' : 'Принять'}
                 </button>
                 <button
                   type="button"
                   className="btn-reject"
-                  onClick={async () => {
-                    await onReject(req);
-                  }}
+                  disabled={!!pending[req.id]}
+                  aria-busy={pending[req.id] === 'reject' || undefined}
+                  onClick={() => void decide(req, 'reject')}
                 >
-                  <X size={16} /> Отклонить
+                  <X size={16} />{' '}
+                  {pending[req.id] === 'reject' ? 'Отклоняем…' : 'Отклонить'}
                 </button>
               </div>
             </div>
@@ -618,7 +655,9 @@ export function GroupPanel({
             </small>
             {host && (
               <button
-                aria-label="Удалить тему"
+                type="button"
+                aria-label={`Удалить тему «${g.title}»`}
+                title="Удалить тему — карточки останутся на доске"
                 onClick={() => onDeleteGroup(g.id)}
               >
                 <X size={15} />
@@ -639,25 +678,31 @@ export function ActionsPanel({
   s,
   onAddAction,
   onOpenNote,
+  disabled = false,
 }: {
   s: RoomState;
   onAddAction: () => void;
   onOpenNote: (note: Note) => void;
+  /** Встреча завершена: новые пункты не добавить. */
+  disabled?: boolean;
 }) {
+  const actions = s.notes.filter((n) => !n.redacted && isActionKind(n.kind));
   return (
     <>
       <button
+        type="button"
         className="primary"
+        disabled={disabled}
+        title={disabled ? 'Встреча завершена — комната только для чтения' : undefined}
         onClick={() => onAddAction()}
       >
         <Plus size={16} />
         Добавить действие
       </button>
       <div className="action-list">
-        {s.notes
-          .filter((n) => ['action', 'task'].includes(n.kind))
-          .map((n) => (
+        {actions.map((n) => (
             <button
+              type="button"
               key={n.id}
               onClick={() => onOpenNote(n)}
             >
@@ -678,7 +723,7 @@ export function ActionsPanel({
               <ChevronRight size={16} />
             </button>
           ))}
-        {!s.notes.some((n) => ['action', 'task'].includes(n.kind)) && (
+        {!actions.length && (
           <p className="muted">
             Договоритесь о конкретном следующем шаге и назначьте
             ответственного.
@@ -822,7 +867,10 @@ export function WorldPanel({
         {THEMES.map((t) => (
           <button
             key={t.id}
+            type="button"
             disabled={!host}
+            title={host ? undefined : 'Оформление комнаты меняет ведущий'}
+            aria-pressed={s.theme === t.id}
             className={`theme-card ${s.theme === t.id ? 'selected' : ''}`}
             onClick={() => onThemeChange(t.id, t.season)}
           >
@@ -868,9 +916,12 @@ export function ModePanel({
         {MODES.map((m) => (
           <button
             key={m.id}
+            type="button"
             disabled={!host}
+            title={host ? undefined : 'Режим комнаты меняет ведущий'}
+            aria-pressed={mode === m.id}
             className={`mode-card ${mode === m.id ? 'selected' : ''}`}
-            onClick={() => onSettings({ mode: m.id })}
+            onClick={() => mode !== m.id && onSettings({ mode: m.id })}
           >
             <strong>{m.title}</strong>
             <small>{m.hint}</small>
@@ -1375,7 +1426,9 @@ export function ControlsSection({
   onInvertCameraChange,
   aimModes,
   onAimModesChange,
+  mode = 'retro',
 }: {
+  mode?: GameMode;
   sensitivity: number;
   onSensitivityChange: (sensitivity: number) => void;
   invertCamera: boolean;
@@ -1409,7 +1462,7 @@ export function ControlsSection({
         <span className="field-label">Прицеливание (ПКМ)</span>
         <div className="aim-settings-list">
           {[
-            { id: 'paint', name: '🎨 Краскострел' },
+            { id: 'paint', name: '🎨 Краскомёт' },
             { id: 'confetti', name: '💥 Дробовик' },
             { id: 'sniper', name: '🎯 Снайперка' },
           ].map((w) => (
@@ -1418,6 +1471,7 @@ export function ControlsSection({
               <div className="aim-mode-pills">
                 <button
                   type="button"
+                  aria-pressed={aimModes[w.id as keyof WeaponAimModes] === 'hold'}
                   className={`aim-pill ${aimModes[w.id as keyof WeaponAimModes] === 'hold' ? 'active' : ''}`}
                   onClick={() => {
                     const next = { ...aimModes, [w.id]: 'hold' as const };
@@ -1428,6 +1482,7 @@ export function ControlsSection({
                 </button>
                 <button
                   type="button"
+                  aria-pressed={aimModes[w.id as keyof WeaponAimModes] === 'toggle'}
                   className={`aim-pill ${aimModes[w.id as keyof WeaponAimModes] === 'toggle' ? 'active' : ''}`}
                   onClick={() => {
                     const next = { ...aimModes, [w.id]: 'toggle' as const };
@@ -1443,7 +1498,7 @@ export function ControlsSection({
       </div>
       <details className="settings-keys">
         <summary>Все клавиши и подсказки</summary>
-        <HelpPanel />
+        <HelpPanel mode={mode} />
       </details>
     </>
   );
@@ -1516,6 +1571,7 @@ export function AccessSection({
           <div className="access-toggle-grid">
             <button
               type="button"
+              aria-pressed={s.access?.type === 'public'}
               className={`access-toggle-card ${s.access?.type === 'public' ? 'active' : ''}`}
               onClick={() => onAccessTypeChange('public')}
             >
@@ -1527,6 +1583,7 @@ export function AccessSection({
             </button>
             <button
               type="button"
+              aria-pressed={s.access?.type === 'private'}
               className={`access-toggle-card ${s.access?.type === 'private' ? 'active' : ''}`}
               onClick={() => onAccessTypeChange('private')}
             >
@@ -1552,6 +1609,13 @@ export function AccessSection({
     </>
   );
 }
+
+/**
+ * Один и тот же флаг звука живёт в «Профиле» и в «Для живой встречи» — и
+ * называется одинаково, чтобы не казалось, что это две разные настройки.
+ */
+const SOUND_LABEL = 'Звуки встречи';
+const SOUND_HINT = 'Звонок и сигналы событий на этом устройстве';
 
 /** Личное: как меня зовут и звучит ли встреча. Доступно всем, не только ведущему. */
 export function ProfileSection({
@@ -1579,7 +1643,12 @@ export function ProfileSection({
           }}
         />
       </label>
-      <Toggle label="Звуки встречи" value={sound} onChange={onSoundChange} />
+      <Toggle
+        label={SOUND_LABEL}
+        description={SOUND_HINT}
+        value={sound}
+        onChange={onSoundChange}
+      />
     </>
   );
 }
@@ -1634,7 +1703,9 @@ export function WidgetsPanel({
         {['😊', '🤩', '😐', '😴', '😵‍💫'].map((mood) => (
           <button
             key={mood}
+            type="button"
             className={me?.mood === mood ? 'selected' : ''}
+            aria-pressed={me?.mood === mood}
             aria-label={'Настроение ' + mood}
             onClick={() => onMoodChange(mood)}
           >
@@ -1650,7 +1721,9 @@ export function WidgetsPanel({
         {AVATAR_SKINS.map((sk) => (
           <button
             key={sk.id}
+            type="button"
             className={`skin-card ${selectedSkin === sk.id ? 'selected' : ''}`}
+            aria-pressed={selectedSkin === sk.id}
             title={sk.description}
             onClick={() => onSelectSkin(sk.id)}
           >
@@ -1681,6 +1754,7 @@ export function WidgetsPanel({
           value={selectedBandanaColor}
           onChange={(e) => onBandanaColorChange(e.target.value)}
           title="Свой цвет"
+          aria-label="Свой цвет банданы"
         />
       </div>
       <div className="widget-grid">
@@ -1702,10 +1776,26 @@ export function WidgetsPanel({
         </button>
       </div>
       <div className="counter-widget">
-        <span>Счётчик</span>
-        <button onClick={() => onDecrementCounter()}>−</button>
-        <strong>{s.counter}</strong>
-        <button onClick={() => onIncrementCounter()}>+</button>
+        <span id="counter-label">Счётчик</span>
+        <button
+          type="button"
+          aria-label="Уменьшить счётчик"
+          title="Уменьшить счётчик"
+          onClick={() => onDecrementCounter()}
+        >
+          −
+        </button>
+        <strong aria-live="polite" aria-labelledby="counter-label">
+          {s.counter}
+        </strong>
+        <button
+          type="button"
+          aria-label="Увеличить счётчик"
+          title="Увеличить счётчик"
+          onClick={() => onIncrementCounter()}
+        >
+          +
+        </button>
       </div>
       <label className="field">
         Случайный выбор · варианты через запятую
@@ -1748,7 +1838,8 @@ export function WidgetsPanel({
         громкость индивидуальны для каждого участника.
       </p>
       <Toggle
-        label="Звуки событий и реакций"
+        label={SOUND_LABEL}
+        description={SOUND_HINT}
         value={sound}
         onChange={onSoundChange}
       />

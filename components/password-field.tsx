@@ -29,6 +29,7 @@ export function PasswordField({
 }) {
   const [shown, setShown] = useState(false);
   const id = useId();
+  const hintId = `${id}-hint`;
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
@@ -42,6 +43,7 @@ export function PasswordField({
           autoComplete={autoComplete}
           required={required}
           minLength={minLength}
+          aria-describedby={hint ? hintId : undefined}
           // Свои подсказки браузера поверх открытого пароля ни к чему.
           autoCorrect="off"
           autoCapitalize="off"
@@ -51,8 +53,7 @@ export function PasswordField({
           type="button"
           className="password-eye"
           onClick={() => setShown((was) => !was)}
-          // Кнопка внутри формы не должна перехватывать Tab на пути к «Войти».
-          tabIndex={-1}
+          // Кнопка в порядке Tab: показать пароль нужно и без мыши.
           aria-controls={id}
           aria-pressed={shown}
           aria-label={shown ? 'Скрыть пароль' : 'Показать пароль'}
@@ -65,7 +66,11 @@ export function PasswordField({
           )}
         </button>
       </div>
-      {hint && <small className="field-hint">{hint}</small>}
+      {hint && (
+        <small className="field-hint" id={hintId}>
+          {hint}
+        </small>
+      )}
     </div>
   );
 }

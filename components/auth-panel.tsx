@@ -17,6 +17,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { api } from '@/lib/client';
+import { MIN_PASSWORD_LENGTH } from '@/lib/auth';
 import { PasswordField } from './password-field';
 import type { AuthUser } from '@/hooks/use-auth';
 
@@ -44,7 +45,11 @@ function GoogleMark() {
   );
 }
 
-type Mode = 'login' | 'register' | 'forgot';
+export type AuthMode = 'login' | 'register' | 'forgot';
+type Mode = AuthMode;
+
+/** Подсказка у полей нового пароля: то же число, что проверяет сервер. */
+const NEW_PASSWORD_HINT = `Не короче ${MIN_PASSWORD_LENGTH} символов.`;
 
 /**
  * Вход, регистрация и профиль в одном диалоге. Аккаунт не обязателен: гость
@@ -58,10 +63,13 @@ export function AuthDialog({
   google,
   mail,
   defaultName,
+  initialMode = 'login',
   onChanged,
 }: {
   open: boolean;
   onOpenChange: (value: boolean) => void;
+  /** С какого экрана открыть диалог: вход, регистрация или восстановление. */
+  initialMode?: AuthMode;
   user: AuthUser | null;
   google: boolean;
   mail: boolean;
@@ -71,7 +79,7 @@ export function AuthDialog({
 }) {
   // Форма живёт от открытия до открытия: лобби меняет `key`, поэтому при
   // каждом открытии состояние начинается заново и пароль не «залипает».
-  const [mode, setMode] = useState<Mode>('login');
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState(user?.email || '');
   const [password, setPassword] = useState('');
   const [name, setName] = useState(user?.name || defaultName);
@@ -221,7 +229,13 @@ export function AuthDialog({
           placeholder="Как вас зовут?"
         />
       </label>
-      <button className="secondary auth-wide" type="button" onClick={saveName} disabled={busy}>
+      <button
+        className="secondary auth-wide"
+        type="button"
+        onClick={saveName}
+        // Сохранять нечего, пока имя не изменено или стёрто.
+        disabled={busy || !name.trim() || name.trim() === (user.name || '').trim()}
+      >
         <UserRound size={16} /> Сохранить имя
       </button>
 
@@ -245,7 +259,9 @@ export function AuthDialog({
             value={password}
             onChange={setPassword}
             autoComplete="new-password"
-            minLength={8}
+            required
+            minLength={MIN_PASSWORD_LENGTH}
+            hint={NEW_PASSWORD_HINT}
           />
           <button className="primary auth-wide" type="submit" disabled={busy}>
             {busy ? <Loader2 size={16} className="auth-spin" /> : <KeyRound size={16} />}
@@ -333,9 +349,9 @@ export function AuthDialog({
             value={password}
             onChange={setPassword}
             required
-            minLength={mode === 'register' ? 8 : undefined}
+            minLength={mode === 'register' ? MIN_PASSWORD_LENGTH : undefined}
             autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-            hint={mode === 'register' ? 'Не короче 8 символов.' : undefined}
+            hint={mode === 'register' ? NEW_PASSWORD_HINT : undefined}
           />
         )}
 

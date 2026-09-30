@@ -1,7 +1,7 @@
 import { db, session, json, payload, discardBody } from '@/db/server';
 import { initialState, cleanText, THEMES, type RoomAccessType } from '@/lib/model';
 import { stripNotes } from '@/lib/room-store';
-import { defaultMapFor, modeOfMap } from '@/lib/maps/catalog';
+import { defaultMapFor, modeOf, modeOfMap } from '@/lib/maps/catalog';
 export async function GET(request: Request) {
   const self = await session(request);
   if (!self) return json({ error: 'Откройте приложение заново' }, 401);
@@ -58,6 +58,8 @@ export async function GET(request: Request) {
             season: s.season,
             archived: !!s.archived,
             phase: s.phase,
+            // Лобби показывает бейдж режима и не выдаёт этап ретро за статус боя.
+            mode: modeOf(s),
             created: r.created,
             membersCount,
             maxPlayers,
@@ -96,6 +98,7 @@ export async function GET(request: Request) {
           season: s.season,
           archived: s.archived,
           phase: s.phase,
+          mode: modeOf(s),
           created: r.created,
           // Rooms not yet moved to the notes table keep their cards inline.
           notes: Array.isArray(s.notes)

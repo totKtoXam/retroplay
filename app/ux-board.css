@@ -1,0 +1,351 @@
+/* Стили области «board» после плана UX/UI (docs/analys/2026-09-28-ux-ui-plan.md).
+   Новые правила этой области пишутся здесь, а не в globals.css. Цвета — только
+   через переменные из tokens.css и theme.css. */
+
+/* ==========================================================================
+   Доска (components/board.tsx)
+   Холст доски светлый в обеих темах (цвета в globals.css — литералы), поэтому
+   элементам на нём нужны свои переменные: --jin-* в тёмной теме светлеют и
+   теряют контраст на светлой бумаге.
+   ========================================================================== */
+.board-container {
+  --board-ink: #3f3a55;
+  --board-ink-muted: #5e5873;
+  --board-paper: #ffffff;
+  --board-focus: #6a58d6;
+  --board-sync-saved: #2f7a4f;
+  --board-sync-saving: #6a58d6;
+  --board-sync-reconnecting: #b7791f;
+  --board-sync-offline: #c2413b;
+}
+
+/* Статус связи в подписи доски: цвет точки дублирует текст, а не заменяет. */
+.board-caption {
+  color: var(--board-ink-muted);
+}
+.board-caption .live-dot[data-sync='saved'] {
+  background: var(--board-sync-saved);
+  box-shadow: none;
+}
+.board-caption .live-dot[data-sync='saving'] {
+  background: var(--board-sync-saving);
+  box-shadow: none;
+}
+.board-caption .live-dot[data-sync='reconnecting'] {
+  background: var(--board-sync-reconnecting);
+  box-shadow: none;
+}
+.board-caption .live-dot[data-sync='offline'] {
+  background: var(--board-sync-offline);
+  box-shadow: none;
+}
+
+/* Голос недоступен: кнопка остаётся в фокусе и с подсказкой, но выглядит
+   неактивной. Причина — в title и во всплывающей строке после нажатия. */
+.note-bottom button[aria-disabled='true'] {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.note-vote-hint {
+  display: block;
+  margin: 6px 0 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--board-paper);
+  color: var(--board-ink);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+/* Ручка переноса — место, откуда карточку двигают стрелками. Карточка режет
+   всё, что выходит за край, поэтому рамка фокуса — внутрь ручки, а саму
+   карточку обводим целиком. */
+.drag-handle:focus-visible {
+  outline: 2px solid var(--board-focus);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+.positioned-note:has(.drag-handle:focus-visible) {
+  z-index: 4;
+  outline: 3px solid var(--board-focus);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Пустая зона при поиске: спокойная надпись, а не призыв добавить идею. */
+.empty-zone-search {
+  margin: 0;
+  color: var(--board-ink-muted);
+  pointer-events: none;
+}
+.empty-zone-search small {
+  color: var(--board-ink-muted);
+}
+
+/* ==========================================================================
+   Комната без WebGL (components/room-board-fallback.tsx): плашка, панель
+   инструментов и доска на всю площадь под шапкой. Это интерфейс вне игры,
+   поэтому цвета — из темы (--jin-*).
+   ========================================================================== */
+.room-board-fallback {
+  /* Текст на акцентной кнопке: белый даёт ≥ 4.5:1 на акценте обеих тем. */
+  --rbf-on-accent: #ffffff;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--bar-h, 40px);
+  background: var(--jin-bg);
+  color: var(--jin-text);
+}
+
+.rbf-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--jin-border);
+  background: var(--jin-accent-soft);
+  color: var(--jin-text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.rbf-banner > svg {
+  flex: none;
+  color: var(--jin-accent);
+}
+.rbf-banner p {
+  flex: 1 1 220px;
+  margin: 0;
+}
+.rbf-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--jin-accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.rbf-link svg {
+  transition: transform 140ms ease;
+}
+.rbf-link[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+.rbf-help {
+  max-height: 45vh;
+  overflow: auto;
+  padding: 12px 16px 14px;
+  border-bottom: 1px solid var(--jin-border);
+  background: var(--jin-surface);
+  color: var(--jin-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.rbf-help p {
+  margin: 0;
+  color: var(--jin-text-muted);
+}
+.rbf-help ol {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 12px;
+  padding-left: 20px;
+  list-style: decimal;
+}
+
+.rbf-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--jin-border);
+  background: var(--jin-surface);
+}
+.rbf-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.rbf-meeting {
+  margin-left: auto;
+}
+
+.rbf-tool,
+.rbf-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--jin-border);
+  border-radius: 8px;
+  background: var(--jin-surface-2);
+  color: var(--jin-text);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.rbf-tool:hover,
+.rbf-button:hover:not(:disabled) {
+  border-color: var(--jin-border-strong);
+  background: var(--jin-surface-3);
+}
+.rbf-tool[aria-pressed='true'] {
+  border-color: var(--jin-accent);
+  background: var(--jin-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--jin-accent);
+}
+.rbf-button.is-live {
+  border-color: var(--jin-accent);
+}
+.rbf-primary,
+.rbf-primary:hover:not(:disabled) {
+  border-color: var(--jin-accent-strong);
+  background: var(--jin-accent-strong);
+  color: var(--rbf-on-accent);
+  font-weight: 600;
+}
+.rbf-primary:hover:not(:disabled) {
+  background: var(--jin-accent-hover);
+}
+.rbf-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.rbf-search {
+  display: flex;
+  flex: 1 1 180px;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--jin-border);
+  border-radius: 8px;
+  background: var(--jin-surface-2);
+  color: var(--jin-text-muted);
+}
+.rbf-search:focus-within {
+  outline: 3px solid var(--jin-accent);
+  outline-offset: 1px;
+}
+.rbf-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--jin-text);
+  font: inherit;
+  font-size: 14px;
+}
+.rbf-search input::placeholder {
+  color: var(--jin-text-faint);
+}
+
+/* Этапы в панели доски: плашка из HUD встаёт в строку, список раскрывается
+   поверх доски, а не раздвигает панель. */
+.rbf-phase .phase-bar {
+  position: relative;
+  top: auto;
+  left: auto;
+  z-index: 30;
+  max-width: none;
+}
+.rbf-phase .phase-bar-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  max-height: 60vh;
+}
+
+.rbf-board {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.room-board-fallback .board-viewport {
+  padding: 16px 16px 96px;
+}
+/* Подпись со статусом и подсказкой инструмента — сверху слева: низ занят
+   масштабом и кнопкой чата. В 3D-планшете на узком экране она скрыта, здесь
+   нужна на любой ширине. */
+.room-board-fallback .board-caption {
+  display: flex;
+  top: 8px;
+  bottom: auto;
+  left: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--board-paper);
+  font-size: 12px;
+}
+.room-board-fallback .zoom-controls {
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+.room-board-fallback .zoom-controls button {
+  width: 36px;
+  height: 36px;
+}
+
+/* Телефон: подписи прячутся, остаются иконки с aria-label; панель — в две
+   строки (инструменты и поиск с кнопками встречи). */
+@media (max-width: 720px) {
+  .rbf-banner,
+  .rbf-toolbar,
+  .rbf-help {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .rbf-toolbar {
+    gap: 6px;
+  }
+  .rbf-tool span,
+  .rbf-button span:not(.sr-only) {
+    display: none;
+  }
+  .rbf-tool,
+  .rbf-button {
+    padding: 0 8px;
+  }
+  .rbf-search {
+    flex: 1 1 140px;
+    max-width: none;
+    order: 5;
+  }
+  .rbf-meeting {
+    order: 6;
+    margin-left: 0;
+  }
+  /* 16px — иначе iOS увеличивает страницу при фокусе в поле. */
+  .rbf-search input {
+    font-size: 16px;
+  }
+  .room-board-fallback .board-viewport {
+    padding: 12px 8px 96px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rbf-link svg {
+    transition: none;
+  }
+}

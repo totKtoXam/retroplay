@@ -66,6 +66,69 @@ export const ZONES = [
     hint: 'Что больше не помогает команде',
   },
 ];
+/** Короткие русские подписи зон — для кнопок и чипов, где полное название не влезает. */
+const ZONE_SHORT: Record<string, string> = {
+  good: 'Хорошо',
+  bad: 'Сложно',
+  start: 'Начать',
+  stop: 'Перестать',
+};
+/**
+ * Зоны формата доски. В формате из трёх колонок («three») зоны «Что было
+ * сложно» нет, а «Что было хорошо» называется «Продолжать делать» — так же, как
+ * в заголовке колонки на доске (components/board.tsx).
+ */
+export function templateZones(template?: string) {
+  return template === 'three' ? ZONES.filter((z) => z.id !== 'bad') : ZONES;
+}
+/** Полное название зоны с учётом формата доски. Неизвестный id возвращается как есть. */
+export function zoneTitle(zone: string, template?: string): string {
+  if (template === 'three' && zone === 'good') return 'Продолжать делать';
+  return ZONES.find((z) => z.id === zone)?.title ?? zone;
+}
+/** Короткая русская подпись зоны с учётом формата доски. */
+export function zoneShort(zone: string, template?: string): string {
+  if (template === 'three' && zone === 'good') return 'Продолжать';
+  return ZONE_SHORT[zone] ?? zone;
+}
+/**
+ * Человеческие названия типов карточек. «Задача», «План» и «План действий»
+ * раньше были тремя разными пунктами одного смысла; теперь все три — «Действие».
+ * Старые id остаются в данных, меняется только подпись.
+ */
+const NOTE_KIND_LABELS: Record<string, string> = {
+  sticky: 'Стикер',
+  index: 'Карточка',
+  page: 'Страница',
+  action: 'Действие',
+  task: 'Действие',
+  roadmap: 'Действие',
+  shape: 'Фигура',
+  text: 'Текст',
+  token: 'Эмодзи',
+  frame: 'Рамка',
+  image: 'Изображение / ссылка',
+  draw: 'Рисунок',
+  connector: 'Связь',
+};
+export function noteKindLabel(kind: string): string {
+  return NOTE_KIND_LABELS[kind] ?? kind;
+}
+/** Типы, которые можно выбрать в форме карточки. Рисунок и связь создаются инструментами доски. */
+export const FORM_NOTE_KINDS = [
+  'sticky',
+  'index',
+  'page',
+  'action',
+  'shape',
+  'text',
+  'token',
+  'frame',
+  'image',
+];
+/** Карточки плана действий: новый тип `action` и два старых с тем же смыслом. */
+export const isActionKind = (kind: string) =>
+  kind === 'action' || kind === 'task' || kind === 'roadmap';
 export const THEMES = [
   {
     id: 'nauryz',

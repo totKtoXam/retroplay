@@ -1,13 +1,27 @@
 /*
  * Текстовый чат поверх мира (components/game-chat.tsx). Как и HUD (app/hud.css), цвета свои:
  * под чатом произвольный кадр сцены, поэтому текст светлый с тенью, а подложка — только
- * у открытого чата. Стоит слева над счётом K/D/A и выше собрания «Предателя»: на собрании
- * чат и нужен.
+ * у открытого чата. Стоит слева и выше собрания «Предателя»: на собрании чат и нужен.
+ *
+ * Высота не прибита к брейкпоинтам: game-chat.tsx меряет, что лежит внизу под чатом
+ * (панель предметов, счёт K/D/A, «Раскрыть мои заметки», масштаб доски), и пишет
+ * --chat-lift; экранную клавиатуру — в --chat-keyboard; место под список — в --chat-room.
  */
 .game-chat {
+  /* Локальные цвета чата: поверх сцены, поэтому в обеих темах тёмное стекло. */
+  --chat-glass: var(--hud-glass, rgba(10, 14, 22, 0.85));
+  --chat-line: rgba(255, 255, 255, 0.28);
+  --chat-text: var(--hud-text, #eef3fb);
+  --chat-accent: var(--hud-accent, #7ee0ff);
+  --chat-badge-bg: #ff5d52;
+  --chat-badge-text: #ffffff;
   position: absolute;
-  left: 24px;
-  bottom: 96px;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  bottom: max(
+    calc(16px + env(safe-area-inset-bottom, 0px)),
+    var(--chat-lift, 96px),
+    calc(var(--chat-keyboard, 0px) + 8px)
+  );
   z-index: 40;
   width: min(420px, calc(100% - 32px));
   display: flex;
@@ -30,7 +44,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 40vh;
+  max-height: min(40vh, var(--chat-room, 40vh));
   overflow-y: auto;
   overflow-wrap: anywhere;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.6);
@@ -128,15 +142,73 @@
   }
 }
 
-/* Узкий экран: низ занят панелью предметов и счётом — поднимаемся над ними. */
-@media (max-width: 900px) {
-  .game-chat {
-    left: 16px;
-    bottom: 150px;
-  }
+/* Кнопки в строке ввода: отправить и закрыть — для касания, где нет Enter и Esc. */
+.game-chat-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  min-height: 38px;
+  border: 1px solid var(--chat-line);
+  border-radius: 8px;
+  background: var(--chat-glass);
+  color: var(--chat-text);
+  cursor: pointer;
 }
-@media (max-width: 680px) {
-  .game-chat {
-    bottom: 180px;
-  }
+
+.game-chat-icon:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
+
+/* Видимая кнопка чата: мышью и касанием, не только Enter. */
+.game-chat-toggle {
+  align-self: flex-start;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--chat-line);
+  border-radius: 999px;
+  background: var(--chat-glass);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--chat-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.game-chat-toggle:hover:not(:disabled) {
+  border-color: var(--chat-accent);
+}
+
+.game-chat-toggle:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.game-chat-toggle:focus-visible,
+.game-chat-icon:focus-visible,
+.game-chat-channel:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 2px;
+}
+
+.game-chat-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--chat-badge-bg);
+  color: var(--chat-badge-text);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
