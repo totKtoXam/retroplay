@@ -66,6 +66,7 @@ import { AvatarPreview } from './avatar-preview';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { slotsFor, slotForDigit, cycleSlot } from '@/lib/loadout';
 import { modeOf } from '@/lib/maps/catalog';
+import { createMoveFilter } from '@/lib/mouse-filter';
 import { aimFov, viewFov } from '@/lib/hud-prefs';
 import { POINTER_RELOCK_WINDOW_MS, damageSource, inRelockWindow } from '@/lib/hud-feedback';
 import { useHudPrefs, useTouchOnly } from './hud-prefs';
@@ -980,6 +981,7 @@ export default function World(props: Props) {
       dragLook = false,
       // Первое движение после захвата мыши браузер отдаёт скачком.
       skipNextMove = false;
+    const moveFilter = createMoveFilter();
     // В «Предателе» фонарик — единственный предмет в руках, и на тёмном корабле он включён сразу.
     if (modeOf(latest.current.room.state) === 'impostor') flashlightOn = flashlight.toggle();
     const footsteps = createFootsteps({
@@ -1087,6 +1089,27 @@ export default function World(props: Props) {
     landingMarker.rotation.x = -Math.PI / 2;
     landingMarker.visible = false;
     scene.add(landingMarker);
+    // Прицел гранаты считается каждый кадр, пока зажата ЛКМ: всё, что ему
+    // нужно, выделено один раз (анализ 2026-09-11, п. 4 — аллокации в кадре).
+    const aimCenter = new T.Vector2(0, 0);
+    const aimTargets: T.Mesh[] = [];
+    const aimFallback = new T.Vector3();
+    const markerFlat = landingMarker.quaternion.clone();
+    let trajectoryCapacity = 0;
+    /** Точки полёта в геометрию линии без новых массивов, пока хватает места. */
+    const writeTrajectory = (path: readonly (readonly number[])[]) => {
+      if (path.length > trajectoryCapacity) {
+        trajectoryCapacity = Math.max(64, path.length * 2);
+        trajectoryGeo.setAttribute(
+          'position',
+          new T.BufferAttribute(new Float32Array(trajectoryCapacity * 3), 3),
+        );
+      }
+      const position = trajectoryGeo.getAttribute('position') as T.BufferAttribute;
+      for (let i = 0; i < path.length; i++) position.setXYZ(i, path[i][0], path[i][1], path[i][2]);
+      position.needsUpdate = true;
+      trajectoryGeo.setDrawRange(0, path.length);
+    };
 
     // Shot/trajectory hit-testing used to re-traverse the whole scene (plus
     // recursive getObjectById lookups and flights/bursts .some scans) on every
@@ -1962,11 +1985,14 @@ export default function World(props: Props) {
         // рывок камеры, только на 25° вместо 50°.
         if (skipNextMove) {
           skipNextMove = false;
+          moveFilter.reset();
           return;
         }
-        if (Math.abs(e.movementX) > 300 || Math.abs(e.movementY) > 300) return;
-        const mx = T.MathUtils.clamp(e.movementX, -180, 180);
-        const my = T.MathUtils.clamp(e.movementY, -180, 180);
+        // Одиночный всплеск — сбой браузера, а нарастающий быстрый рывок игрока
+        // проходит (lib/mouse-filter.ts).
+        const move = moveFilter.filter(e.movementX, e.movementY);
+        if (!move) return;
+        const [mx, my] = move;
         // Scale sensitivity down when sniper is scoped
         const tool = GAME_TOOLS[latest.current.tool]?.id;
         const isSniperZoom = tool === 'sniper' && aimHeld;
@@ -2271,11 +2297,9 @@ export default function World(props: Props) {
         if (t === 'paint' || t === 'melee') shoot();
       }
       if (grenadeAiming && GAME_TOOLS[latest.current.tool]?.id === 'grenade') {
-        ray.setFromCamera(
-          document.pointerLockElement || softLook ? new T.Vector2(0, 0) : mouse,
-          camera,
-        );
-        const trajTargets: T.Mesh[] = [];
+        ray.setFromCamera(document.pointerLockElement || softLook ? aimCenter : mouse, camera);
+        const trajTargets = aimTargets;
+        trajTargets.length = 0;
         for (const o of sceneryTargetCache)
           if (
             visibleInWorld(o) &&
@@ -2293,19 +2317,16 @@ export default function World(props: Props) {
         const hit = ray
           .intersectObjects(trajTargets, false)
           .find((h) => h.distance < 50 && h.distance > 0.1);
-        const arcTarget = hit ? hit.point : ray.ray.at(25, new T.Vector3());
+        const arcTarget = hit ? hit.point : ray.ray.at(25, aimFallback);
         // Тот же полёт, что посчитают сервер и все клиенты: с отскоками и качением.
         const arc = simulateGrenade(weaponOrigin('grenade').toArray(), arcTarget.toArray(), map);
-        trajectoryLine.geometry.setFromPoints(arc.path.map((q) => new T.Vector3(...q)));
+        writeTrajectory(arc.path);
         trajectoryLine.visible = true;
 
         // Метка — там, где граната рванёт; лежит она к этому времени или ещё летит.
         landingMarker.position.fromArray(arc.end);
         landingMarker.position.y = Math.max(0.02, arc.end[1] - 0.06);
-        landingMarker.quaternion.setFromUnitVectors(
-          new T.Vector3(0, 0, 1),
-          new T.Vector3(0, 1, 0),
-        );
+        landingMarker.quaternion.copy(markerFlat);
         landingMarker.visible = true;
       } else if (trajectoryLine.visible) {
         trajectoryLine.visible = false;

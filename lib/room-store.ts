@@ -16,6 +16,13 @@ export type RoomPatch = {
   state: Record<string, unknown>;
   /** Fields that did not exist before. */
   unset?: string[];
+  /**
+   * Анонимность комнаты в момент действия. По ней история скрывает авторов:
+   * если анонимность потом выключат, старые записи не раскроются задним числом.
+   * Нет у записей, сделанных до этого поля.
+   */
+  anonPlayers?: boolean;
+  anonNotes?: boolean;
 };
 /** Rows to insert or update, ids to delete, and the new `rooms.state` (null: unchanged). */
 export type RoomWrite = { upsert: NoteRow[]; remove: string[]; state: string | null };

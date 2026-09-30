@@ -666,6 +666,7 @@ export function applyOperation(
     if (n.hidden && n.author !== user) throw Error('Заметка пока приватная');
     return n;
   };
+  const zoneIds = () => templateZones(s.template).map((z) => z.id);
   const editable = (n: Note) => {
     if (n.locked || s.layoutLocked) {
       if (!isHost) throw Error('Редактирование заблокировано ведущим');
@@ -706,10 +707,8 @@ export function applyOperation(
       id: uid(),
       kind: k,
       text: cleanText(op.text || '', 8000),
-      zone: oneOf(
-        op.zone || 'good',
-        ZONES.map((z) => z.id),
-      ),
+      // Только зоны формата доски: в формате из трёх колонок зоны «Сложно» нет.
+      zone: oneOf(op.zone || 'good', zoneIds()),
       color: /^#[0-9a-f]{6}$/i.test(String(op.color))
         ? String(op.color)
         : '#f5e6a9',
@@ -746,11 +745,8 @@ export function applyOperation(
     if (!p || typeof p !== 'object') throw Error('Нет изменений');
     for (const key of ['text', 'owner', 'due', 'group'] as const)
       if (key in p) n[key] = cleanText(p[key], key === 'text' ? 8000 : 100);
-    if ('zone' in p)
-      n.zone = oneOf(
-        p.zone,
-        ZONES.map((z) => z.id),
-      );
+    // Прежнюю зону карточка сохраняет, даже если её нет в текущем формате.
+    if ('zone' in p && p.zone !== n.zone) n.zone = oneOf(p.zone, zoneIds());
     for (const key of ['x', 'y', 'rotation'] as const)
       if (key in p) n[key] = finite(p[key]);
     for (const key of ['width', 'height'] as const)
@@ -1020,7 +1016,9 @@ export function applyOperation(
   } else if (kind === 'vote') {
     const n = note();
     let r = s.rounds.at(-1);
-    const blaster = !!op.force || op.kind === 'blaster';
+    // Лайкомёт ретро открывает раунд сам, без ведущего: это его смысл («+1 голос
+    // стикерам»). В других режимах такого предмета нет — там флаг клиента не в счёт.
+    const blaster = (!!op.force || op.kind === 'blaster') && modeOf(s) === 'retro';
     if (!r?.active) {
       if (blaster) {
         if (s.rounds.length >= 30) throw Error('Не более 30 раундов');
@@ -1089,10 +1087,7 @@ export function applyOperation(
   } else if (kind === 'focus') {
     hostOnly();
     s.focus = {
-      zone: oneOf(
-        op.zone,
-        ZONES.map((z) => z.id),
-      ),
+      zone: oneOf(op.zone, zoneIds()),
       at: Date.now(),
     };
   } else if (kind === 'event') {
@@ -1189,7 +1184,9 @@ export function publicState(
       type: 'public',
       visibility: 'public',
       joinPolicy: 'free',
-      inviteToken: uid().replaceAll('-', ''),
+      // У старой комнаты без настроек доступа ссылка-приглашение не нужна: она
+      // публичная. Случайный токен менялся бы на каждом ответе.
+      inviteToken: '',
       maxPlayers: 8,
     };
   }

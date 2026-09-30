@@ -122,7 +122,12 @@ export async function commitOperation(
         )
         .bind(
           self,
-          JSON.stringify(diffForUndo(current, updated)),
+          JSON.stringify({
+            ...diffForUndo(current, updated),
+            // Анонимность на момент действия — для истории (app/api/rooms/[id]).
+            anonPlayers: !!(current.anonymousPlayers || updated.anonymousPlayers),
+            anonNotes: !!(current.anonymous || updated.anonymous),
+          }),
           String(op.type),
           Date.now(),
           id,
