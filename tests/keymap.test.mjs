@@ -23,10 +23,11 @@ const PREVENT_DEFAULT = [
   ...Array.from({ length: 10 }, (_, i) => 'Digit' + i),
 ];
 
-test('the preventDefault list in world.tsx is the one this test knows', () => {
-  const src = read('components/world.tsx');
+test('the preventDefault list in world-input.ts is the one this test knows', () => {
+  // Обработчики клавиш переехали из world.tsx в components/world-input.ts.
+  const src = read('components/world-input.ts');
   const m = /\[\s*((?:'[A-Za-z0-9]+',\s*)+)\.\.\.Array\.from\(\{ length: 10 \}, \(_, i\) => 'Digit' \+ i\),?\s*\]\.includes\(e\.code\)/.exec(src);
-  if (!m) return; // world.tsx уже берёт коды из keymap — сверять не с чем.
+  assert.ok(m, 'список preventDefault не найден в world-input.ts — если он теперь берётся из keymap, уберите эту проверку');
   const literal = [...m[1].matchAll(/'([A-Za-z0-9]+)'/g)].map((x) => x[1]);
   assert.deepEqual(
     [...literal, ...Array.from({ length: 10 }, (_, i) => 'Digit' + i)].sort(),
@@ -45,6 +46,7 @@ test('every key the world swallows is described in the keymap', () => {
 test('every key the handlers react to is in the keymap', () => {
   const sources = [
     'components/world.tsx',
+    'components/world-input.ts',
     'components/world-player.ts',
     'components/impostor-overlay.tsx',
     'components/game-chat.tsx',
