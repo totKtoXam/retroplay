@@ -498,6 +498,47 @@ dialog.impostor-card {
   width: 100%;
   height: 14px;
 }
+/* Фокус с клавиатуры на тёмном пульте: жёлтая рамка заметнее фиолетовой общей. */
+.impostor-game button:focus-visible {
+  outline: 3px solid #fcd34d;
+  outline-offset: 3px;
+}
+/* Подсказка по клавишам под мини-игрой — мельче и тише основной. */
+.impostor-task-keys {
+  margin: -6px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
+  color: #93a0b4;
+}
+/* Подсказку проводов и заправки сменяют сообщения разной длины: держим высоту двух строк,
+   иначе поле прыгало бы под курсором и пальцем, когда текст становится короче. */
+.impostor-wires .impostor-task-hint,
+.impostor-fuel .impostor-task-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.6em;
+  line-height: 1.3;
+}
+/* Невидимый ползунок браузера поверх поля (прицел турели, ползунок двигателя): фокус, стрелки
+   и имя для диктора даёт он, а мышь и пальцы проходят сквозь него к самой мини-игре. */
+.impostor-overlay-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  appearance: none;
+  pointer-events: none;
+}
+.impostor-align-track:has(.impostor-overlay-input:focus-visible),
+.impostor-asteroids-field:has(.impostor-overlay-input:focus-visible) {
+  outline: 3px solid #fcd34d;
+  outline-offset: 3px;
+}
 
 /* Провода: перетаскивание с тянущимся SVG-проводом и искрой при соединении. */
 .impostor-wires-board {
@@ -536,15 +577,30 @@ dialog.impostor-card {
     inset 0 2px 3px rgba(255, 255, 255, 0.4),
     0 2px 4px rgba(0, 0, 0, 0.5);
 }
+/* Общее правило кнопок сдвигает нажатую на 1px через transform и затёрло бы центровку. */
+.impostor-game .impostor-plug:active:not(:disabled) {
+  transform: translate(-50%, -50%);
+}
 .impostor-plug.is-joined {
   opacity: 0.4;
   cursor: default;
 }
+/* Провод, выбранный нажатием (без перетаскивания), ждёт разъём. */
+.impostor-plug.is-picked {
+  box-shadow:
+    0 0 0 3px #fff6c8,
+    0 0 14px 4px rgba(255, 246, 200, 0.7);
+}
+/* Разъём — кнопка: на него нажимают после выбора провода. Перетаскиванию это не мешает —
+   тянущийся провод захватывает указатель, и цель ищется по расстоянию. */
 .impostor-plug-socket {
   background: #11161f;
   border-color: rgba(255, 255, 255, 0.25);
   border-style: dashed;
-  pointer-events: none;
+  cursor: default;
+}
+.impostor-plug-socket.is-target {
+  cursor: pointer;
 }
 .impostor-plug-socket.is-joined {
   border-style: solid;
@@ -789,9 +845,43 @@ dialog.impostor-card {
     top: 100%;
   }
 }
+/* Прицел турели виден, пока поле в фокусе с клавиатуры. */
+.impostor-asteroids-aim {
+  position: absolute;
+  top: 0;
+  bottom: 20px;
+  width: 0;
+  border-left: 2px dashed rgba(252, 211, 77, 0.75);
+  transform: translateX(-1px);
+  opacity: 0;
+  pointer-events: none;
+}
+.impostor-asteroids-field:has(.impostor-overlay-input:focus-visible) .impostor-asteroids-aim {
+  opacity: 1;
+}
+.impostor-asteroids-shot {
+  position: absolute;
+  top: 0;
+  bottom: 20px;
+  width: 4px;
+  transform: translateX(-2px);
+  background: linear-gradient(0deg, #fff6c8, rgba(255, 90, 95, 0.2));
+  box-shadow: 0 0 8px rgba(255, 246, 200, 0.8);
+  pointer-events: none;
+  animation: impostor-shot 0.18s ease-out forwards;
+}
+@keyframes impostor-shot {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
 .impostor-asteroids-turret {
   position: absolute;
   left: 50%;
+  transition: left 0.08s linear;
   bottom: 0;
   width: 30px;
   height: 20px;
@@ -836,6 +926,10 @@ dialog.impostor-card {
   cursor: grab;
 }
 
+.impostor-card button.impostor-swipe-auto {
+  font-size: 13px;
+}
+
 /* Листья: перетащить каждый лист с решётки фильтра в сторону. */
 .impostor-leaves-board {
   position: relative;
@@ -865,6 +959,16 @@ dialog.impostor-card {
   background: none;
   cursor: grab;
   touch-action: none;
+}
+.impostor-leaf.is-picked,
+.impostor-fuel-can.is-picked {
+  filter: drop-shadow(0 0 4px #fff6c8) drop-shadow(0 0 8px rgba(255, 246, 200, 0.7));
+}
+.impostor-leaves-grate.is-ready,
+.impostor-fuel-tank.is-ready {
+  border-color: #fcd34d;
+  box-shadow: 0 0 10px rgba(252, 211, 77, 0.6);
+  cursor: pointer;
 }
 
 /* Щиты: кликами погасить все красные шестиугольники. */
@@ -942,7 +1046,8 @@ dialog.impostor-card {
   opacity: 0.55;
   cursor: pointer;
 }
-.impostor-simon-btn:disabled {
+.impostor-simon-btn:disabled,
+.impostor-simon-btn[aria-disabled='true'] {
   cursor: default;
 }
 .impostor-simon-btn.is-active {
@@ -1005,6 +1110,12 @@ dialog.impostor-card {
   .impostor-upload-file {
     animation: none !important;
     opacity: 0.6;
+  }
+  .impostor-asteroids-shot {
+    display: none;
+  }
+  .impostor-asteroids-turret {
+    transition: none;
   }
 }
 
@@ -1437,5 +1548,10 @@ dialog.impostor-card {
   }
   .impostor-align-track {
     height: 44px;
+  }
+}
+@media (hover: none) and (pointer: coarse) {
+  .impostor-task-keys {
+    display: none;
   }
 }

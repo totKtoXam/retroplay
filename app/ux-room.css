@@ -796,3 +796,17 @@ html[data-theme='dark'] .results-bar {
   outline: 2px solid var(--jin-accent);
   outline-offset: 2px;
 }
+
+/* Тач-экраны: кнопки шапки, меню «⋯» и музыки — не меньше 44px (этап 4 плана UX/UI).
+   Шапка растёт вместе с ними; часы боя ориентируются на её нижний край сами. */
+@media (pointer: coarse) {
+  .game-bar button,
+  .game-bar a,
+  .game-bar .game-tag,
+  .room-menu-trigger,
+  .room-menu-item,
+  .room-menu-block button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

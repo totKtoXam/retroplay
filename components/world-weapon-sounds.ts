@@ -207,6 +207,29 @@ export function createWeaponSounds(options: {
       play('flashlight', at, false, volume * 0.9, 0.5 + Math.random() * 0.12);
     },
 
+    /**
+     * Подтверждение своего убийства: два коротких восходящих тона. Синтезируется
+     * на месте (записи для него нет), только своему игроку и без позиции.
+     */
+    confirm(volume = 1) {
+      const c = ctx;
+      if (!c || !master || c.state !== 'running' || volume <= 0) return;
+      const t0 = c.currentTime;
+      [880, 1320].forEach((freq, i) => {
+        const osc = c.createOscillator();
+        const gain = c.createGain();
+        const at = t0 + i * 0.07;
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, at);
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(0.35 * volume, at + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.11);
+        osc.connect(gain).connect(master!);
+        osc.start(at);
+        osc.stop(at + 0.12);
+      });
+    },
+
     /** Щелчок фонарика: включение звучит выше выключения, как у настоящей кнопки. */
     click(on: boolean, at: Point, own: boolean, volume = 1) {
       play('flashlight', at, own, volume, on ? 1.12 : 0.88);

@@ -437,6 +437,8 @@ export default function World(props: Props) {
     return () => clearTimeout(timer);
   }, [hitMark]);
   const seenKillsRef = useRef<Set<string>>(new Set());
+  /** Звук своего убийства — его синтезирует движок (world-weapon-sounds), вызывает лента убийств. */
+  const killSoundRef = useRef<(() => void) | null>(null);
   const initialKillsProcessed = useRef(false);
 
   useEffect(() => {
@@ -494,6 +496,7 @@ export default function World(props: Props) {
               });
               // Верхняя ступень хитмаркера: убийство видно у прицела, не только в ленте.
               setHitMark({ zone: 'kill', key: Date.now() });
+              killSoundRef.current?.();
               setAnnounce(`Вы устранили: ${item.victimName}`);
             });
           } else if (item.assister === props.room.self) {
@@ -1173,6 +1176,7 @@ export default function World(props: Props) {
     // эффектов из настроек игрока (выстрелы, попадания, щелчки, шаги).
     const weaponVolume = () =>
       (modeOf(latest.current.room.state) === 'retro' ? 0.6 : 1) * hudPrefsRef.current.sfxVolume;
+    killSoundRef.current = () => weaponSounds.confirm(weaponVolume());
     /** Включён ли фонарик у других игроков — по прошлому кадру, чтобы щёлкнуть на смене. */
     const remoteLights = new Map<string, boolean>();
     const projectiles = createWorldProjectiles({
@@ -2801,6 +2805,7 @@ export default function World(props: Props) {
       flashlight.dispose();
       localGhost?.dispose();
       footsteps.dispose();
+      killSoundRef.current = null;
       weaponSounds.dispose();
       localBeam.dispose();
       projectiles.dispose();
