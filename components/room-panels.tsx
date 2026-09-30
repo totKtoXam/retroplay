@@ -67,6 +67,7 @@ import {
 import { TEAM_LOOKS, teamName } from '@/lib/team-colors';
 import {
   ColorblindSetting,
+  GoreSetting,
   CrosshairSetting,
   FovSetting,
   HudScaleSetting,
@@ -1470,6 +1471,7 @@ export function ControlsSection({
       <SfxVolumeSetting />
       <CrosshairSetting />
       <ColorblindSetting />
+      <GoreSetting />
       <div className="aim-settings-section">
         <span className="field-label">Прицеливание (ПКМ)</span>
         <div className="aim-settings-list">

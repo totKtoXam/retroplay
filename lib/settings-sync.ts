@@ -31,6 +31,7 @@ export const SYNCED_SETTING_KEYS = [
   'jinaly-crosshair-style',
   'jinaly-crosshair-color',
   'jinaly-colorblind',
+  'jinaly-gore',
 ] as const;
 
 /** Шлётся в окно, когда настройки с аккаунта записаны в localStorage. */

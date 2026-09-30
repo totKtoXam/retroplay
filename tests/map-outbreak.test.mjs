@@ -96,7 +96,7 @@ test('рельеф: горы на севере со снегом, котлови
 });
 
 test('дома не стоят на дорогах: середина каждой плитки дороги свободна', () => {
-  const tiles = arena.props.filter((p) => p.m === 'road/road-straight');
+  const tiles = arena.props.filter((p) => p.m.startsWith('zk/street'));
   assert.ok(tiles.length > 1000);
   const blocked = tiles.filter((p) => {
     const building = map.colliders.find(
@@ -171,4 +171,23 @@ test('в props.glb есть узел каждой модели из таблиц
   const nodes = new Set(json.nodes.map((n) => n.name));
   for (const id of Object.keys(OUTBREAK_MODELS))
     assert.ok(nodes.has(`prop:${id}`), id);
+});
+
+test('мрачная карта: кровь и тела есть, но без столкновений — выключатель гора не меняет игру', () => {
+  assert.equal(arena.mood, 'grim');
+  const gore = arena.props.filter((p) => OUTBREAK_MODELS[p.m].gore);
+  assert.ok(gore.length > 300, `крови и тел ${gore.length}`);
+  assert.ok(
+    gore.some((p) => p.m.startsWith('zk/dead-')) &&
+      gore.some((p) => p.m.startsWith('zk/blood')),
+  );
+  for (const [id, info] of Object.entries(OUTBREAK_MODELS))
+    if (info.gore) assert.equal(info.hit, 'none', id);
+  // Тела запечены в позе смерти: лежат, а не стоят.
+  for (const [id, info] of Object.entries(OUTBREAK_MODELS))
+    if (id.startsWith('zk/dead-'))
+      assert.ok(info.max[1] - info.min[1] < 1.3, `${id} лежит`);
+  const tinted = arena.props.filter((p) => p.tint);
+  assert.ok(tinted.length > 100, 'сгоревшие и закопчённые');
+  for (const p of tinted) assert.match(p.tint, /^#[0-9a-f]{6}$/);
 });

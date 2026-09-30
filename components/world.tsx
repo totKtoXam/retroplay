@@ -772,6 +772,7 @@ export default function World(props: Props) {
     // видеокарте 18 ламп «Особняка» съедали больше половины кадра.
     const kit = createMapScene(map, renderer, { lampLights: isCinematic ? 6 : isBalanced ? 4 : 3 }),
       { scene } = kit;
+    kit.setGore?.(hudPrefsRef.current.gore);
     const pixelRatio = isCinematic
       ? Math.min(devicePixelRatio, 1.5)
       : isBalanced
@@ -2850,6 +2851,9 @@ export default function World(props: Props) {
     engine.current?.kit.setNotes(latest.current.room.state);
   }, [props.room.version]);
   useEffect(() => {
+    engine.current?.kit.setGore?.(hudPrefs.gore);
+  }, [hudPrefs.gore]);
+  useEffect(() => {
     for (const effect of props.room.effects || []) engine.current?.fire(effect);
   }, [props.room.effects]);
   useEffect(() => {
@@ -2949,7 +2953,7 @@ export default function World(props: Props) {
     !active && !radial && !contextWheel && !dead && !props.blocked && !scorePinned && !tabletInWorld;
   return (
     <div
-      className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''} ${inCombat ? 'in-combat' : ''} ${hudPrefs.colorblind ? 'is-colorblind' : ''}`}
+      className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''} ${inCombat ? 'in-combat' : ''} ${hudPrefs.colorblind ? 'is-colorblind' : ''} ${minimapMap.arena?.mood === 'grim' ? 'is-grim' : ''}`}
       style={{ '--hud-scale': hudPrefs.hudScale } as React.CSSProperties}
     >
       <div ref={mount} className="world-canvas" data-visual-pack={packStatus === 'ready' ? resourcePack : 'default'} />

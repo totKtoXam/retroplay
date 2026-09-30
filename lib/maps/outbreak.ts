@@ -393,16 +393,17 @@ const K = {
   sand: 7,
   dirt: 8,
 } as const;
+// Цвета земли выцветшие: трава пожухла, асфальт в копоти, снег грязноват.
 const PALETTE = [
-  { color: '#6d8f4a', name: 'луг' },
-  { color: '#4e6d37', name: 'лес' },
-  { color: '#b3a064', name: 'степь' },
-  { color: '#7c7770', name: 'скалы' },
-  { color: '#e8eef3', name: 'снег' },
-  { color: '#7a5f3e', name: 'пашня' },
-  { color: '#6b6d72', name: 'асфальт' },
-  { color: '#c9b98a', name: 'песок' },
-  { color: '#8b7654', name: 'грунт' },
+  { color: '#5f7447', name: 'луг' },
+  { color: '#43573a', name: 'лес' },
+  { color: '#a3946a', name: 'степь' },
+  { color: '#706c66', name: 'скалы' },
+  { color: '#dcdfdf', name: 'снег' },
+  { color: '#6a5540', name: 'пашня' },
+  { color: '#57585a', name: 'асфальт' },
+  { color: '#b8aa84', name: 'песок' },
+  { color: '#7a6a52', name: 'грунт' },
 ];
 
 function groundKind(t: MapTerrain, x: number, z: number, h: number) {
@@ -503,6 +504,7 @@ function generate() {
     yaw = 0,
     s = 1,
     y?: number,
+    tint?: string,
   ) => {
     props.push({
       m,
@@ -511,10 +513,18 @@ function generate() {
       z: round(z),
       yaw: round(yaw),
       ...(s !== 1 ? { s: round(s) } : {}),
+      ...(tint ? { tint } : {}),
     });
   };
   /** Постройка с рамкой, поставленная на самую низкую точку своего пятна: не висит над склоном. */
-  const building = (m: ModelId, x: number, z: number, yaw: number, s = 1) => {
+  const building = (
+    m: ModelId,
+    x: number,
+    z: number,
+    yaw: number,
+    s = 1,
+    tint?: string,
+  ) => {
     const { hw, hd } = footprint(m, yaw, s);
     const y = Math.min(
       heightAt(x, z),
@@ -523,11 +533,116 @@ function generate() {
       heightAt(x - hw, z + hd),
       heightAt(x + hw, z + hd),
     );
-    put(m, x, z, yaw, s, y);
+    put(m, x, z, yaw, s, y, tint);
     reserve.add(x, z, Math.hypot(hw, hd) * 0.85);
   };
   const inPlace = (x: number, z: number, margin = 0) =>
     PLACE_LIST.some((p) => placeDistance(p, x, z) < margin);
+
+  // --- следы катастрофы: копоть, пожарища, мусор, кровь и тела ---
+  /** Оттенки-множители: сгоревшая машина, ржавая, дом в копоти, выгоревший дом. */
+  const BURNED = '#5d534c',
+    RUST = '#a57a58',
+    SOOT = '#a19b93',
+    CHARRED = '#5c544d';
+  const DEAD: readonly ModelId[] = [
+    'zk/dead-zombie',
+    'zk/dead-zombie',
+    'zk/dead-zombie-chubby',
+    'zk/dead-zombie-arm',
+    'zk/dead-zombie-ribcage',
+  ];
+  const VICTIMS: readonly ModelId[] = [
+    'zk/dead-lis',
+    'zk/dead-matt',
+    'zk/dead-sam',
+    'zk/dead-shaun',
+  ];
+  const BLOOD: readonly ModelId[] = [
+    'zk/blood-1',
+    'zk/blood-2',
+    'zk/blood-2',
+    'zk/blood-3',
+    'zk/blood-3',
+  ];
+  const LITTER: readonly ModelId[] = [
+    'zk/trash-bag-1',
+    'zk/trash-bag-2',
+    'zk/trash-bag-1',
+    'zk/cinder-block',
+    'zk/pallet-broken',
+    'zk/pallet',
+    'zk/wheel',
+    'car/debris-tire',
+    'grave/debris',
+    'grave/debris-wood',
+  ];
+  const DROPPED: readonly ModelId[] = [
+    'zk/rifle',
+    'zk/shotgun',
+    'zk/axe',
+    'zk/bat-barbed',
+    'zk/bat-saw',
+  ];
+  /** Высота поверхности: на улице — поверх плитки асфальта, иначе на земле. */
+  const surface = (x: number, z: number) =>
+    heightAt(x, z) + (roadDistance(x, z) < ROAD_HALF + 0.5 ? 0.13 : 0.03);
+  // Лужи на разной высоте на миллиметры: наложенные друг на друга не мерцают.
+  const blood = (x: number, z: number, s = 0.7 + rand() * 0.6) =>
+    put(
+      pick(BLOOD),
+      x,
+      z,
+      rand() * Math.PI * 2,
+      s,
+      surface(x, z) + 0.01 + rand() * 0.012,
+    );
+  /** Тело зомби или погибшего человека, обычно с лужей крови. Столкновений нет — только вид. */
+  const body = (x: number, z: number, victim = false) => {
+    put(
+      pick(victim ? VICTIMS : DEAD),
+      x,
+      z,
+      rand() * Math.PI * 2,
+      0.95 + rand() * 0.1,
+      surface(x, z),
+    );
+    if (rand() < 0.8) blood(x + (rand() - 0.5) * 1.4, z + (rand() - 0.5) * 1.4);
+  };
+  /** Место бойни: тела вокруг точки, кровь, брошенное оружие. */
+  const massacre = (
+    x: number,
+    z: number,
+    r: number,
+    count: number,
+    victims = 0.3,
+  ) => {
+    for (let i = 0; i < count; i++) {
+      const a = rand() * Math.PI * 2,
+        d = Math.sqrt(rand()) * r;
+      body(x + Math.cos(a) * d, z + Math.sin(a) * d, rand() < victims);
+    }
+    for (let i = 0; i < count / 2; i++)
+      blood(x + (rand() - 0.5) * r * 2, z + (rand() - 0.5) * r * 2);
+    for (let i = 0; i < Math.ceil(count / 5); i++) {
+      const wx = x + (rand() - 0.5) * r * 2,
+        wz = z + (rand() - 0.5) * r * 2;
+      put(
+        pick(DROPPED),
+        wx,
+        wz,
+        rand() * Math.PI * 2,
+        1,
+        surface(wx, wz) + 0.02,
+      );
+    }
+  };
+  /** Мусор у стены или на тротуаре. */
+  const litter = (x: number, z: number) => {
+    if (!reserve.free(x, z, 0.6)) return;
+    const m = pick(LITTER);
+    put(m, x, z, rand() * Math.PI * 2, 1, surface(x, z));
+  };
 
   // Точки появления держим свободными до всего остального.
   const spawnAt = (x: number, z: number, yaw: number): SpawnPoint => {
@@ -566,8 +681,20 @@ function generate() {
   };
 
   // --- дороги ---
+  // Улицы — плитки Zombie Apocalypse Kit: тёмный разбитый асфальт с тротуарами и
+  // разметкой, часть — с трещинами. Прямая плитка идёт вдоль своей оси z, у Т-перекрёстка
+  // глухая сторона смотрит в −x, поворот соединяет +x и +z.
   const TILE = 8;
-  /** Плитки дороги: модель идёт вдоль своей оси x. */
+  const STRAIGHTS: readonly ModelId[] = [
+    'zk/street',
+    'zk/street',
+    'zk/street',
+    'zk/street',
+    'zk/street',
+    'zk/street-crack-1',
+    'zk/street-crack-2',
+  ];
+  /** Плитки улицы от точки до точки, с небольшим нахлёстом и без щелей. */
   const roadTiles = (
     ax: number,
     az: number,
@@ -576,16 +703,15 @@ function generate() {
     lift = 0,
   ) => {
     const len = Math.hypot(bx - ax, bz - az);
-    // Шаг не длиннее плитки: без щелей, с небольшим нахлёстом.
     const n = Math.max(1, Math.ceil(len / TILE));
-    const yaw = -Math.atan2(bz - az, bx - ax);
+    const yaw = Math.PI / 2 - Math.atan2(bz - az, bx - ax);
     for (let i = 0; i < n; i++) {
       const t = (i + 0.5) / n;
       const x = ax + (bx - ax) * t,
         z = az + (bz - az) * t;
       // Соседние плитки чуть по-разному по высоте: их края перекрываются и иначе мерцали бы.
       put(
-        'road/road-straight',
+        pick(STRAIGHTS),
         x,
         z,
         yaw,
@@ -600,7 +726,7 @@ function generate() {
         [bx, bz] = road[i];
       roadTiles(ax, az, bx, bz);
     }
-    // Изломы круче 10° — квадратная площадка асфальта поверх стыка; прямой стык не нужен.
+    // Изломы круче 10° — перекрёсток поверх стыка; прямой стык не нужен.
     for (let i = 1; i < road.length - 1; i++) {
       const a = Math.atan2(
           road[i][1] - road[i - 1][1],
@@ -613,16 +739,16 @@ function generate() {
       const turn = Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a)));
       if (turn > 0.17)
         put(
-          'road/road-square',
+          'zk/street-4way',
           road[i][0],
           road[i][1],
           (a + b) / -2,
-          1.3,
+          1.25,
           heightAt(road[i][0], road[i][1]) + 0.05,
         );
     }
   }
-  // Сетки улиц: прямые между перекрёстками, на перекрёстках — крест или Т.
+  // Сетки улиц: прямые между перекрёстками; внутри — крест, по краю — Т, в углах — поворот.
   const streets = (g: Grid) => {
     const xs = gridLines(g.x0, g.x1, g.step),
       zs = gridLines(g.z0, g.z1, g.step);
@@ -631,19 +757,29 @@ function generate() {
         const edgeX = ix === 0 ? -1 : ix === xs.length - 1 ? 1 : 0,
           edgeZ = iz === 0 ? -1 : iz === zs.length - 1 ? 1 : 0;
         const y = heightAt(x, z) + 0.04;
-        if (edgeX && edgeZ) put('road/road-square', x, z, 0, 1, y);
-        else if (edgeX || edgeZ) {
-          // У Т-перекрёстка ответвление смотрит в +z; поворачиваем его внутрь сетки.
+        if (edgeX && edgeZ) {
+          // Поворот внутрь сетки: из угла улицы уходят на восток или запад и на юг или север.
+          const yaw =
+            edgeX === -1
+              ? edgeZ === -1
+                ? 0
+                : Math.PI / 2
+              : edgeZ === -1
+                ? -Math.PI / 2
+                : Math.PI;
+          put('zk/street-turn', x, z, yaw, 1, y);
+        } else if (edgeX || edgeZ) {
+          // Глухая сторона Т — наружу сетки.
           const yaw =
             edgeZ === -1
-              ? 0
+              ? -Math.PI / 2
               : edgeZ === 1
-                ? Math.PI
+                ? Math.PI / 2
                 : edgeX === -1
-                  ? Math.PI / 2
-                  : -Math.PI / 2;
-          put('road/road-intersection', x, z, yaw, 1, y);
-        } else put('road/road-crossroad', x, z, 0, 1, y);
+                  ? 0
+                  : Math.PI;
+          put('zk/street-t', x, z, yaw, 1, y);
+        } else put('zk/street-4way', x, z, 0, 1, y);
       }
     for (const x of xs)
       for (let i = 1; i < zs.length; i++)
@@ -735,12 +871,44 @@ function generate() {
           rect.z0 >= bz0 - 0.1 &&
           rect.z1 <= bz1 + 0.1
         ) {
-          building(m, x, z, yaw, s);
+          const roll = rand();
+          building(
+            m,
+            x,
+            z,
+            yaw,
+            s,
+            roll < 0.06 ? CHARRED : roll < 0.24 ? SOOT : undefined,
+          );
           placed.push(rect);
           t += along * 2 + 1 + rand() * 3;
         } else t += 4;
       }
     }
+    // Тротуары: мусор у домов, иногда кровь и тела — улицы пережили не одну волну.
+    for (let i = 0; i < 7; i++) {
+      const side = Math.floor(rand() * 4),
+        t = rand();
+      const x =
+          side < 2
+            ? x0 + 6 + (x1 - x0 - 12) * t
+            : side === 2
+              ? x0 + 5.2
+              : x1 - 5.2,
+        z =
+          side >= 2
+            ? z0 + 6 + (z1 - z0 - 12) * t
+            : side === 0
+              ? z0 + 5.2
+              : z1 - 5.2;
+      litter(x, z);
+    }
+    if (rand() < 0.35) {
+      const x = x0 + rand() * (x1 - x0),
+        z = rand() < 0.5 ? z0 : z1;
+      body(x, z + (rand() - 0.5) * 3, rand() < 0.35);
+    }
+    if (rand() < 0.4) blood(x0 + rand() * (x1 - x0), rand() < 0.5 ? z0 : z1);
     if (yard) {
       const cx = (x0 + x1) / 2,
         cz = (z0 + z1) / 2;
@@ -925,9 +1093,85 @@ function generate() {
     'car/police',
     'car/ambulance',
     'car/truck',
+    'zk/pickup',
+    'zk/sports',
+    'zk/truck',
   ];
 
-  // Новоград: плотная застройка, в центре — площадь, один квартал в руинах.
+  /**
+   * Лагерь выживших: квартал, обнесённый стеной из контейнеров с двумя проходами; внутри
+   * палатки, бронированный пикап, водонапорная башня, бочки, костры и ящики с припасами.
+   * Снаружи у стены — тела зомби, которых отстреливали со стены.
+   */
+  const survivorCamp = (cx: number, cz: number, half: number) => {
+    const CONTAINER = 6.6;
+    for (const side of [-1, 1]) {
+      for (
+        let t = -half + CONTAINER / 2;
+        t <= half - CONTAINER / 2 + 0.01;
+        t += CONTAINER
+      ) {
+        // Проходы — посередине северной и южной стены.
+        if (Math.abs(t) < CONTAINER / 2) continue;
+        building(
+          rand() < 0.5 ? 'zk/container-red' : 'zk/container-green',
+          cx + t,
+          cz + side * half,
+          0,
+        );
+        building(
+          rand() < 0.5 ? 'zk/container-red' : 'zk/container-green',
+          cx + side * half,
+          cz + t,
+          Math.PI / 2,
+        );
+      }
+      // У прохода — бетонные блоки и заграждение.
+      for (const k of [-1, 1])
+        put('zk/traffic-barrier-1', cx + k * 2.2, cz + side * (half + 2.5), 0);
+    }
+    building('zk/water-tower', cx - half + 6, cz - half + 6, 0);
+    building('zk/pickup-armored', cx + half - 8, cz + 4, Math.PI / 2);
+    building('zk/truck-armored', cx + half - 8, cz - 8, Math.PI / 2);
+    for (const [dx, dz] of [
+      [-8, 6],
+      [0, 10],
+      [-12, -4],
+    ] as const)
+      building(
+        pick(['nat/tent-detailedclosed', 'nat/tent-detailedopen'] as const),
+        cx + dx,
+        cz + dz,
+        rand() * 6.28,
+        1.4,
+      );
+    for (let i = 0; i < 10; i++) {
+      const x = cx + (rand() - 0.5) * half * 1.4,
+        z = cz + (rand() - 0.5) * half * 1.4;
+      if (!reserve.free(x, z, 1)) continue;
+      put(
+        pick([
+          'zk/barrel',
+          'zk/barrel',
+          'zk/chest',
+          'zk/chest-special',
+          'zk/wheels-stack',
+          'zk/couch',
+          'grave/fire-basket',
+        ] as const),
+        x,
+        z,
+        rand() * 6.28,
+      );
+      reserve.add(x, z, 1);
+    }
+    for (let i = 0; i < 14; i++) {
+      const a = rand() * Math.PI * 2,
+        r = half + 5 + rand() * 12;
+      body(cx + Math.cos(a) * r, cz + Math.sin(a) * r, rand() < 0.15);
+    }
+  };
+  // Новоград: плотная застройка, в центре — лагерь выживших, один квартал в руинах.
   {
     const g = CITY_GRID,
       xs = gridLines(g.x0, g.x1, g.step),
@@ -937,11 +1181,12 @@ function generate() {
         const cx = (xs[i - 1] + xs[i]) / 2,
           cz = (zs[j - 1] + zs[j]) / 2;
         if (i === 3 && j === 3) {
-          park(cx, cz, 10, 10);
+          survivorCamp(cx, cz, 23);
           continue;
         }
         if (i === 5 && j === 2) {
           ruin(cx, cz, 12, 12);
+          massacre(cx, cz, 14, 9);
           continue;
         }
         block(
@@ -973,6 +1218,7 @@ function generate() {
         }
         if ((i === 2 && j === 7) || (i === 6 && j === 2)) {
           ruin(cx, cz, 14, 14);
+          massacre(cx, cz, 16, 12);
           continue;
         }
         const set = d < 150 ? TOWERS : d < 250 ? HIGHRISE : BIG;
@@ -985,7 +1231,15 @@ function generate() {
   const homestead = (x: number, z: number, yaw: number, fenced: boolean) => {
     const m = pick(HOUSES);
     if (!reserve.free(x, z, 7)) return;
-    building(m, x, z, yaw);
+    // Часть домов выгорела или закопчена.
+    building(
+      m,
+      x,
+      z,
+      yaw,
+      1,
+      rand() < 0.2 ? (rand() < 0.4 ? CHARRED : SOOT) : undefined,
+    );
     if (!fenced) return;
     const back = { x: -Math.sin(yaw), z: -Math.cos(yaw) };
     const side = { x: Math.cos(yaw), z: -Math.sin(yaw) };
@@ -1033,6 +1287,26 @@ function generate() {
         rand() * 6.28,
       );
       reserve.add(yx, yz, 1.5);
+    }
+    // Во дворе — то, что осталось от хозяев или от незваных гостей.
+    const roll = rand();
+    if (roll < 0.14)
+      body(
+        x + back.x * 7 + side.x * (rand() * 6 - 3),
+        z + back.z * 7 + side.z * (rand() * 6 - 3),
+        rand() < 0.5,
+      );
+    else if (roll < 0.17) {
+      const dx = x - back.x * 8,
+        dz = z - back.z * 8;
+      put('zk/dead-dog', dx, dz, rand() * 6.28, 1, surface(dx, dz));
+      blood(dx, dz, 0.5);
+    } else if (roll < 0.3)
+      litter(x - back.x * 7 + side.x * 4, z - back.z * 7 + side.z * 4);
+    if (rand() < 0.12) {
+      const cx = x + back.x * 9,
+        cz = z + back.z * 9;
+      if (reserve.free(cx, cz, 1)) put('zk/chest', cx, cz, yaw);
     }
     const tx = x + back.x * 6 + side.x * (rand() < 0.5 ? -7 : 7),
       tz = z + back.z * 6 + side.z * (rand() < 0.5 ? -7 : 7);
@@ -1115,7 +1389,7 @@ function generate() {
     }
 
   // --- особые места ---
-  // Колхоз: ангары-«сараи» из больших домов, трактора, стога, поле.
+  // Колхоз: ангары-«сараи» из больших домов, трактора, стога, поле, водонапорная башня.
   {
     const p = PLACES.farm;
     building('sub/building-type-n', p.x - 40, p.z - 30, 0);
@@ -1141,6 +1415,8 @@ function generate() {
       );
       reserve.add(x, z, 1.2);
     }
+    building('zk/water-tower', p.x - 80, p.z - 50, 0);
+    massacre(p.x + 20, p.z + 40, 20, 6, 0.3);
     for (let x = p.x - p.hw; x < p.x + p.hw; x += 5)
       for (let z = p.z + 20; z < p.z + p.hd; z += 5)
         if (reserve.free(x, z, 1) && rand() < 0.8)
@@ -1207,6 +1483,28 @@ function generate() {
       );
     }
     put('grave/lightpost-double', p.x + 3, p.z + p.hd + 3, 0);
+    // Поднявшиеся мертвецы, которых уложили второй раз, — у разрытых могил.
+    for (let i = 0; i < 9; i++)
+      body(
+        p.x + (rand() - 0.5) * p.hw * 1.6,
+        p.z + (rand() - 0.5) * p.hd * 1.6,
+      );
+    // Братская могила за оградой: гробы, тела, свежая земля.
+    const gx = p.x + p.hw + 22,
+      gz = p.z + 6;
+    reserve.add(gx, gz, 10);
+    for (let i = 0; i < 6; i++)
+      put(
+        'grave/coffin-old',
+        gx - 6 + (i % 3) * 3,
+        gz - 4 + Math.floor(i / 3) * 3,
+        0.1 * (rand() - 0.5),
+        1.1,
+      );
+    for (let i = 0; i < 3; i++)
+      put('grave/grave-border', gx - 5 + i * 4, gz + 5, 0);
+    put('grave/shovel-dirt', gx + 8, gz, rand() * 6.28);
+    massacre(gx, gz, 7, 10, 0.6);
   }
   // Военная база: ограждение, палатки, грузовики, ящики, блокпост у ворот.
   {
@@ -1230,18 +1528,41 @@ function generate() {
           Math.PI / 2,
           1.6,
         );
+    // Техника: броня и грузовики, часть сгорела при прорыве.
     for (let i = 0; i < 6; i++)
       put(
         pick([
+          'zk/truck-armored',
+          'zk/pickup-armored',
+          'zk/sports-armored',
           'car/truck',
           'car/truck-flat',
-          'car/delivery',
-          'car/firetruck',
         ] as const),
         p.x + 40 + (i % 3) * 14,
         p.z - 40 + Math.floor(i / 3) * 20,
         0,
+        1,
+        undefined,
+        rand() < 0.4 ? BURNED : undefined,
       );
+    for (let i = 0; i < 6; i++)
+      put(
+        i % 2 ? 'zk/container-green' : 'zk/container-red',
+        p.x - 80 + i * 8,
+        p.z + 70,
+        Math.PI / 2,
+      );
+    put('zk/water-tower', p.x + 90, p.z - 80, 0);
+    for (let i = 0; i < 8; i++)
+      put(
+        rand() < 0.3 ? 'zk/chest-special' : 'zk/chest',
+        p.x + 70 + (i % 4) * 2,
+        p.z + 40 + Math.floor(i / 4) * 2,
+        0,
+      );
+    // База пала: тела солдат и зомби по всему лагерю, у ворот — гуще.
+    massacre(p.x - 30, p.z - 10, 40, 30, 0.35);
+    massacre(p.x - p.hw - 10, 790, 12, 14, 0.4);
     for (let i = 0; i < 30; i++)
       put(
         'car/box',
@@ -1275,6 +1596,8 @@ function generate() {
     put('nat/campfire-logs', p.x, p.z, 0);
     put('nat/log-large', p.x + 4, p.z + 2, 0.5);
     put('nat/log-large', p.x - 4, p.z - 2, 2.1);
+    // До лагеря они тоже добрались.
+    massacre(p.x + 6, p.z + 8, 9, 5, 0.6);
   }
   // Лесопилка: штабеля брёвен, пни, грузовик.
   {
@@ -1298,15 +1621,37 @@ function generate() {
       );
       reserve.add(x, z, 2);
     }
-    put('car/truck-flat', p.x + 25, p.z - 10, 1.2);
+    put('car/truck-flat', p.x + 25, p.z - 10, 1.2, 1, undefined, RUST);
     reserve.add(p.x + 25, p.z - 10, 4);
+    body(p.x - 6, p.z + 12, true);
+    put('zk/axe', p.x - 4, p.z + 13, 0.7, 1, surface(p.x - 4, p.z + 13) + 0.02);
+    massacre(p.x + 10, p.z + 20, 8, 4, 0);
   }
 
   // --- брошенные машины: пробки на выездах, одиночки на шоссе ---
   const wreck = (x: number, z: number, yaw: number) => {
     if (!reserve.free(x, z, 2.6)) return;
-    put(pick(CARS), x, z, yaw);
+    const roll = rand();
+    put(
+      pick(CARS),
+      x,
+      z,
+      yaw,
+      1,
+      undefined,
+      roll < 0.35 ? BURNED : roll < 0.55 ? RUST : undefined,
+    );
     reserve.add(x, z, 2.6);
+    // У открытой двери — водитель, не успевший уйти, или тот, кто его догнал.
+    if (rand() < 0.3) {
+      const side = rand() < 0.5 ? -1 : 1;
+      body(
+        x + Math.cos(yaw) * side * 2.4,
+        z - Math.sin(yaw) * side * 2.4,
+        rand() < 0.6,
+      );
+    } else if (rand() < 0.2)
+      blood(x + (rand() - 0.5) * 5, z + (rand() - 0.5) * 5);
     if (rand() < 0.3) {
       const dx = (rand() - 0.5) * 8,
         dz = (rand() - 0.5) * 8;
@@ -1375,7 +1720,41 @@ function generate() {
       z + Math.cos(yaw) * -8 - Math.sin(yaw) * 5,
       yaw + 0.2,
     );
+    // Блокпост не удержали: за заграждением — полицейские и солдаты, перед ним — волна зомби.
+    const bx = x - Math.sin(yaw) * 12,
+      bz = z - Math.cos(yaw) * 12;
+    massacre(bx, bz, 9, 12, 0.15);
+    massacre(x + Math.sin(yaw) * 6, z + Math.cos(yaw) * 6, 6, 5, 0.8);
+    for (const k of [-6, 6]) {
+      const px = x + Math.cos(yaw) * k,
+        pz = z - Math.sin(yaw) * k;
+      if (reserve.free(px, pz, 0.8))
+        put('zk/plastic-barrier', px, pz, yaw - Math.PI / 2);
+    }
   }
+  // Указатели на въездах в города.
+  for (const [x, z, yaw] of [
+    [-300, 188, 0],
+    [340, 9, 0],
+    [-38, 280, Math.PI / 2],
+  ] as const)
+    if (reserve.free(x, z, 3)) {
+      put('zk/town-sign', x, z, yaw, 1, undefined, SOOT);
+      reserve.add(x, z, 3);
+    }
+  // Одиночные тела и кровь вдоль шоссе — следы тех, кто уходил пешком.
+  for (const road of ROADS)
+    for (let i = 1; i < road.length; i++) {
+      const [ax, az] = road[i - 1],
+        [bx, bz] = road[i];
+      const len = Math.hypot(bx - ax, bz - az);
+      for (let d = 40 + rand() * 80; d < len - 10; d += 90 + rand() * 160) {
+        const x = ax + ((bx - ax) * d) / len + (rand() - 0.5) * 12,
+          z = az + ((bz - az) * d) / len + (rand() - 0.5) * 12;
+        if (rand() < 0.6) body(x, z, rand() < 0.4);
+        else blood(x, z);
+      }
+    }
   // Фонари вдоль улиц города и мегаполиса.
   for (const g of [CITY_GRID, MEGA_GRID]) {
     for (const x of gridLines(g.x0, g.x1, g.step))
@@ -1593,6 +1972,14 @@ function generate() {
       maxZ: p.z + p.hd,
     })),
     {
+      id: 'camp',
+      name: 'Лагерь выживших',
+      minX: -143,
+      maxX: -97,
+      minZ: 7,
+      maxZ: 53,
+    },
+    {
       id: 'lake',
       name: 'Озеро',
       minX: LAKE.x - LAKE.r,
@@ -1675,6 +2062,7 @@ export function buildOutbreak(): ArenaDef {
     spawns,
     zones,
     navCell: 3,
+    mood: 'grim',
     viewDistance: 320,
   };
 }

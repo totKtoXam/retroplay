@@ -689,6 +689,51 @@ h3 {
   height: 100%;
   outline: 0;
 }
+/*
+ * Мрачная карта («Зона заражения», ArenaDef.mood = 'grim'): кадр выцветший и чуть
+ * бурый, по краям — тяжёлая виньетка, поверх — едва заметное зерно. Всё это только
+ * поверх мира: HUD, чат и меню остаются чистыми и читаемыми.
+ */
+.is-grim .world-canvas {
+  /* Свой слой: виньетка и зерно ложатся поверх холста, но не поверх HUD рядом. */
+  isolation: isolate;
+}
+.is-grim .world-canvas canvas {
+  filter: saturate(0.74) contrast(1.06) brightness(0.98) sepia(0.14);
+}
+.is-grim .world-canvas::before,
+.is-grim .world-canvas::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.is-grim .world-canvas::after {
+  background: radial-gradient(ellipse at center, transparent 48%, rgba(12, 9, 7, 0.5) 100%);
+}
+.is-grim .world-canvas::before {
+  opacity: 0.08;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: grim-grain 0.9s steps(3) infinite;
+}
+@keyframes grim-grain {
+  0% {
+    background-position: 0 0;
+  }
+  33% {
+    background-position: -53px 31px;
+  }
+  66% {
+    background-position: 47px -61px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-grim .world-canvas::before {
+    animation: none;
+  }
+}
 @keyframes hitGlowPulse {
   0% {
     opacity: 0;

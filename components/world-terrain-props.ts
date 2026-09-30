@@ -128,9 +128,51 @@ function fastInstanceRaycast(mesh: T.InstancedMesh, spheres: Float32Array) {
   };
 }
 
+/**
+ * Мрачный вид моделей (`ArenaDef.mood = 'grim'`). Цвета наборов яркие и чистые, а мир
+ * после катастрофы — выцветший и грязный. Шейдер без новых текстур:
+ *   - выцветание — цвет наполовину к серому и чуть темнее;
+ *   - грязь снизу — у земли (по высоте над основанием копии) бурее и темнее, как
+ *     налипшая грязь и потёки;
+ *   - пятна копоти — крупный шум по мировым координатам, у соседних домов разный.
+ * Высота основания копии — атрибут `aBase` (y её места в мире).
+ */
+function grimMaterial(base: T.MeshStandardMaterial) {
+  base.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nattribute float aBase;\nvarying vec3 vGrimWorld;\nvarying float vGrimBase;',
+      )
+      .replace(
+        '#include <project_vertex>',
+        '#include <project_vertex>\nvGrimWorld = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\nvGrimBase = aBase;',
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 vGrimWorld;\nvarying float vGrimBase;\nfloat grimHash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }',
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        float grimLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(grimLum), 0.42) * 0.84;
+        float grimLow = 1.0 - smoothstep(0.0, 2.2, vGrimWorld.y - vGrimBase);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.52, 0.45, 0.38), grimLow * 0.65);
+        vec2 grimCell = floor(vGrimWorld.xz * 0.35 + vec2(0.0, vGrimWorld.y * 0.2));
+        float grimSoot = smoothstep(0.62, 1.0, grimHash(grimCell));
+        diffuseColor.rgb *= 1.0 - grimSoot * 0.35;`,
+      );
+  };
+  base.customProgramCacheKey = () => 'outbreak-grim';
+  return base;
+}
+
 type PropBucket = {
   model: string;
   small: boolean;
+  gore: boolean;
   items: MapProp[];
   cx: number;
   cz: number;
@@ -145,12 +187,26 @@ export function createPropLayer(def: ArenaDef) {
   group.name = 'props';
   const kit = def.propKit;
   const props = def.props ?? [];
-  const material = new T.MeshStandardMaterial({
+  const grim = def.mood === 'grim';
+  const plain = () =>
+    new T.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.85,
+      metalness: 0,
+    });
+  const material = grim ? grimMaterial(plain()) : plain();
+  // Кровь — влажная, с бликом, и не выцветает: иначе на мрачной карте она бурая, как грязь.
+  const blood = new T.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.85,
-    metalness: 0,
+    roughness: 0.28,
+    metalness: 0.05,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
   });
   const smallMeshes: T.InstancedMesh[] = [];
+  const goreMeshes: T.InstancedMesh[] = [];
+  let goreOn = true;
   const meshes: T.InstancedMesh[] = [];
   let disposed = false;
 
@@ -166,11 +222,13 @@ export function createPropLayer(def: ArenaDef) {
       const cx = Math.floor(p.x / size),
         cz = Math.floor(p.z / size);
       const key = `${p.m}|${small ? 's' : 'b'}|${cx}|${cz}`;
+      const gore = !!info.gore;
       let b = buckets.get(key);
       if (!b) {
         b = {
           model: p.m,
           small,
+          gore,
           items: [],
           cx: (cx + 0.5) * size,
           cz: (cz + 0.5) * size,
@@ -213,6 +271,7 @@ export function createPropLayer(def: ArenaDef) {
             sources.set(id, s);
             return s;
           };
+          const tintColor = new T.Color();
           const m = new T.Matrix4(),
             q = new T.Quaternion(),
             pos = new T.Vector3(),
@@ -221,9 +280,23 @@ export function createPropLayer(def: ArenaDef) {
           for (const b of buckets.values()) {
             const src = source(b.model);
             if (!src) continue;
+            const isBlood = b.model.startsWith('zk/blood');
+            // Своя геометрия на меш — только ради атрибута копий `aBase`; вершины и
+            // индексы общие с исходной моделью (те же буферы на видеокарте).
+            const geometry = new T.BufferGeometry();
+            for (const [name, attr] of Object.entries(src.geometry.attributes))
+              geometry.setAttribute(name, attr);
+            geometry.setIndex(src.geometry.index);
+            geometry.boundingSphere = src.geometry.boundingSphere;
+            geometry.boundingBox = src.geometry.boundingBox;
+            const bases = new Float32Array(b.items.length);
+            geometry.setAttribute(
+              'aBase',
+              new T.InstancedBufferAttribute(bases, 1),
+            );
             const mesh = new T.InstancedMesh(
-              src.geometry,
-              material,
+              geometry,
+              isBlood ? blood : material,
               b.items.length,
             );
             if (!src.geometry.boundingSphere)
@@ -235,6 +308,9 @@ export function createPropLayer(def: ArenaDef) {
               scale.setScalar(p.s ?? 1);
               m.compose(pos, q, scale).multiply(src.matrix);
               mesh.setMatrixAt(i, m);
+              bases[i] = p.y;
+              if (b.items.some((it) => it.tint))
+                mesh.setColorAt(i, tintColor.set(p.tint ?? '#ffffff'));
               // Слой моделей стоит в начале координат: матрица копии — это и есть её место в мире.
               const sphere = rayScratch.sphere
                 .copy(src.geometry.boundingSphere!)
@@ -255,6 +331,14 @@ export function createPropLayer(def: ArenaDef) {
             mesh.receiveShadow = true;
             mesh.castShadow = !b.small;
             mesh.userData.chunk = { x: b.cx, z: b.cz };
+            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            if (b.gore) {
+              // Кровь и тела не мишень и не стена: краска и камера их не замечают.
+              mesh.userData.noCameraCollision = true;
+              mesh.userData.projectileCollision = 'ignore';
+              mesh.visible = goreOn;
+              goreMeshes.push(mesh);
+            }
             if (b.small) {
               // Трава и цветы не мешают камере и не мишень для краски.
               mesh.userData.noCameraCollision = true;
@@ -277,16 +361,27 @@ export function createPropLayer(def: ArenaDef) {
       const reach = SMALL_VIEW + SMALL_CHUNK * 0.71;
       for (const mesh of smallMeshes) {
         const c = mesh.userData.chunk as { x: number; z: number };
-        mesh.visible = Math.hypot(c.x - eye.x, c.z - eye.z) < reach;
+        mesh.visible =
+          Math.hypot(c.x - eye.x, c.z - eye.z) < reach &&
+          (goreOn || !goreMeshes.includes(mesh));
       }
+    },
+    /** Настройка «Кровь и жестокость»: кровь и тела видны или спрятаны целиком. */
+    setGore(on: boolean) {
+      goreOn = on;
+      for (const mesh of goreMeshes) mesh.visible = on;
+      lastCull = -Infinity;
     },
     dispose() {
       disposed = true;
       // Геометрия общая у всех копий модели и принадлежит загруженному файлу.
-      const geometries = new Set(meshes.map((mesh) => mesh.geometry));
-      meshes.forEach((mesh) => mesh.dispose());
-      geometries.forEach((g) => g.dispose());
+      // Вершины у мешей одной модели общие: освобождение любой геометрии отпускает и их.
+      meshes.forEach((mesh) => {
+        mesh.geometry.dispose();
+        mesh.dispose();
+      });
       material.dispose();
+      blood.dispose();
     },
   };
 }

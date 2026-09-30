@@ -8,6 +8,8 @@ export type WorldKit = ReturnType<typeof createWorldScene> & {
   stations: number[][];
   /** Каждый кадр — откуда смотрит камера: карта может подстроить под неё свет. */
   view?: (eye: T.Vector3, dt: number) => void;
+  /** Настройка «Кровь и жестокость»: показать или спрятать кровь и тела (мрачные карты). */
+  setGore?: (on: boolean) => void;
 };
 
 export type MapSceneOptions = {

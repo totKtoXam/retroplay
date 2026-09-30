@@ -16,12 +16,21 @@
 //   - масштабирует в метры (SCALE по набору, `s` у отдельной модели), не трогая начало
 //     координат: у плиток дорог оно в центре клетки, у деревьев — у корня.
 //
+// Мрачная часть (разруха, кровь, тела) — Zombie Apocalypse Kit от Quaternius (CC0,
+// https://quaternius.com/packs/zombieapocalypsekit.html) из зеркала
+// https://github.com/agentkaerf/FreeModels, тоже по зафиксированному коммиту. Его
+// .gltf самодостаточны (данные внутри), цвет — палитра Zombie_Atlas.png. Зомби и
+// выжившие скинованы: для тел берётся последний кадр их анимации Death, вершины
+// запекаются в эту позу (скиннинг на процессоре), и тело лежит на земле.
+//
 // Результат: public/models/outbreak/props.glb (узлы `prop:<id>`) и
-// lib/maps/outbreak-models.ts — рамки моделей в метрах и их столкновение.
+// lib/maps/outbreak-models.ts — рамки моделей в метрах, их столкновение и пометка
+// `gore` (кровь и тела: их прячет настройка игрока «Кровь и жестокость»).
 //
 // Запуск (зависимости ставятся рядом, в проект не добавляются):
 //   npm i --no-save @gltf-transform/core@4 @gltf-transform/extensions@4 @gltf-transform/functions@4 meshoptimizer sharp
-//   node scripts/build-outbreak-models.mjs [папка packs зеркала]
+//   node scripts/build-outbreak-models.mjs [папка packs зеркала Kenney]
+// Папку уже скачанного Zombie Apocalypse Kit можно передать в KIT_DIR.
 import { Document, NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import {
@@ -41,6 +50,9 @@ const OUT = path.resolve(process.env.OUT ?? 'public/models/outbreak');
 const TABLE = path.resolve(process.env.TABLE ?? 'lib/maps/outbreak-models.ts');
 const MIRROR =
   'https://raw.githubusercontent.com/Hidencod/tge-assets/dc56ea9f77595fc96433b7d944ad5ce5ef1b61c2/packs';
+const KIT_MIRROR =
+  'https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Zombie%20Apocalypse%20Kit%20-%20March%202024';
+const KIT_DIR = process.env.KIT_DIR;
 
 /** Набор → короткий префикс id и масштаб в метры по умолчанию. */
 const PACKS = {
@@ -50,6 +62,8 @@ const PACKS = {
   car: { pack: 'car-kit', scale: 1.8 },
   nat: { pack: 'nature-kit', scale: 7 },
   grave: { pack: 'graveyard-kit', scale: 2.4 },
+  // Zombie Apocalypse Kit уже в метрах; чуть крупнее — под бойцов ростом 2,1 м.
+  zk: { kit: true, scale: 1.15 },
 };
 
 /**
@@ -352,6 +366,72 @@ const MODELS = [
     0.3,
     { s: 4.5 },
   ),
+  // Zombie Apocalypse Kit: `f` — путь файла в наборе без .gltf.
+  ...[
+    ['zk/barrel', 'Environment/glTF/Barrel', 'box'],
+    ['zk/cinder-block', 'Environment/glTF/CinderBlock', 'none'],
+    ['zk/container-green', 'Environment/glTF/Container_Green', 'box'],
+    ['zk/container-red', 'Environment/glTF/Container_Red', 'box'],
+    ['zk/couch', 'Environment/glTF/Couch', 'box'],
+    ['zk/fire-hydrant', 'Environment/glTF/FireHydrant', 'box'],
+    ['zk/pallet', 'Environment/glTF/Pallet', 'none'],
+    ['zk/pallet-broken', 'Environment/glTF/Pallet_Broken', 'none'],
+    ['zk/pipes', 'Environment/glTF/Pipes', 'box'],
+    ['zk/plastic-barrier', 'Environment/glTF/PlasticBarrier', 'box'],
+    ['zk/traffic-barrier-1', 'Environment/glTF/TrafficBarrier_1', 'box'],
+    ['zk/traffic-barrier-2', 'Environment/glTF/TrafficBarrier_2', 'box'],
+    ['zk/traffic-cone-1', 'Environment/glTF/TrafficCone_1', 'none'],
+    ['zk/traffic-cone-2', 'Environment/glTF/TrafficCone_2', 'none'],
+    ['zk/trash-bag-1', 'Environment/glTF/TrashBag_1', 'none'],
+    ['zk/trash-bag-2', 'Environment/glTF/TrashBag_2', 'none'],
+    ['zk/water-tower', 'Environment/glTF/WaterTower', 'box'],
+    ['zk/wheel', 'Environment/glTF/Wheel', 'none'],
+    ['zk/wheels-stack', 'Environment/glTF/Wheels_Stack', 'box'],
+    ['zk/chest', 'Environment/glTF/Chest', 'box'],
+    ['zk/chest-special', 'Environment/glTF/Chest_Special', 'box'],
+    ['zk/town-sign', 'Environment/glTF/TownSign', 'none'],
+    ['zk/street', 'Environment/glTF/Street_Straight', 'none'],
+    ['zk/street-4way', 'Environment/glTF/Street_4Way', 'none'],
+    ['zk/street-t', 'Environment/glTF/Street_T', 'none'],
+    ['zk/street-turn', 'Environment/glTF/Street_Turn', 'none'],
+    ['zk/street-crack-1', 'Environment/glTF/Street_Straight_Crack1', 'none'],
+    ['zk/street-crack-2', 'Environment/glTF/Street_Straight_Crack2', 'none'],
+    ['zk/pickup', 'Vehicles/glTF/Vehicle_Pickup', 'box'],
+    ['zk/pickup-armored', 'Vehicles/glTF/Vehicle_Pickup_Armored', 'box'],
+    ['zk/sports', 'Vehicles/glTF/Vehicle_Sports', 'box'],
+    ['zk/sports-armored', 'Vehicles/glTF/Vehicle_Sports_Armored', 'box'],
+    ['zk/truck', 'Vehicles/glTF/Vehicle_Truck', 'box'],
+    ['zk/truck-armored', 'Vehicles/glTF/Vehicle_Truck_Armored', 'box'],
+    ['zk/axe', 'Weapons/glTF/Axe', 'none'],
+    ['zk/bat-barbed', 'Weapons/glTF/WoodenBat_Barbed', 'none'],
+    ['zk/bat-saw', 'Weapons/glTF/WoodenBat_Saw', 'none'],
+    ['zk/shotgun', 'Weapons/glTF/Shotgun', 'none'],
+    ['zk/rifle', 'Weapons/glTF/Rifle', 'none'],
+  ].map(([id, f, hit]) => ({
+    id,
+    f,
+    hit,
+    // Плитки улиц набора — ровно 8 м, как сетка дорог карты.
+    ...(id.startsWith('zk/street') ? { s: 1 } : {}),
+  })),
+  // Кровь и тела — «гор»: без столкновений, чтобы выключенная настройка ничего не
+  // меняла в игре, кроме картинки.
+  ...[
+    ['zk/blood-1', 'Environment/glTF/Blood_1'],
+    ['zk/blood-2', 'Environment/glTF/Blood_2'],
+    ['zk/blood-3', 'Environment/glTF/Blood_3'],
+  ].map(([id, f]) => ({ id, f, hit: 'none', gore: true })),
+  ...[
+    ['zk/dead-zombie', 'Characters/glTF/Zombie_Basic'],
+    ['zk/dead-zombie-chubby', 'Characters/glTF/Zombie_Chubby'],
+    ['zk/dead-zombie-arm', 'Characters/glTF/Zombie_Arm'],
+    ['zk/dead-zombie-ribcage', 'Characters/glTF/Zombie_Ribcage'],
+    ['zk/dead-lis', 'Characters/glTF/Characters_Lis_SingleWeapon'],
+    ['zk/dead-matt', 'Characters/glTF/Characters_Matt_SingleWeapon'],
+    ['zk/dead-sam', 'Characters/glTF/Characters_Sam_SingleWeapon'],
+    ['zk/dead-shaun', 'Characters/glTF/Characters_Shaun_SingleWeapon'],
+    ['zk/dead-dog', 'Characters/glTF/Characters_GermanShepherd'],
+  ].map(([id, f]) => ({ id, f, hit: 'none', gore: true, pose: 'Death', center: true, s: 1.2 })),
 ];
 
 await mkdir(OUT, { recursive: true });
@@ -359,6 +439,71 @@ await MeshoptEncoder.ready;
 const io = new NodeIO()
   .registerExtensions(ALL_EXTENSIONS)
   .registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
+
+async function kitSource(file) {
+  const text = KIT_DIR
+    ? await readFile(path.join(KIT_DIR, `${file}.gltf`), 'utf8')
+    : await (async () => {
+        for (let attempt = 0; ; attempt++) {
+          const response = await fetch(`${KIT_MIRROR}/${encodeURI(file)}.gltf`);
+          if (response.ok) return response.text();
+          if (attempt >= 3) throw Error(`${file}: ${response.status}`);
+          await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+        }
+      })();
+  // Буферы и палитра — data:-адреса внутри .gltf, внешних файлов нет.
+  return io.readJSON({ json: JSON.parse(text), resources: {} });
+}
+
+/** Узлы скелета — в позу последнего кадра анимации `name` (у тел — Death). */
+function applyLastFrame(doc, name) {
+  const anim = doc.getRoot().listAnimations().find((a) => a.getName() === name);
+  if (!anim) throw Error(`нет анимации ${name}`);
+  for (const channel of anim.listChannels()) {
+    const node = channel.getTargetNode(),
+      sampler = channel.getSampler();
+    const input = sampler.getInput(),
+      output = sampler.getOutput();
+    const last = input.getCount() - 1;
+    // У CUBICSPLINE на ключ три значения: касательная, значение, касательная.
+    const cubic = sampler.getInterpolation() === 'CUBICSPLINE';
+    const value = output.getElement(cubic ? last * 3 + 1 : last, []);
+    const target = channel.getTargetPath();
+    if (target === 'translation') node.setTranslation(value);
+    else if (target === 'rotation') node.setRotation(value);
+    else if (target === 'scale') node.setScale(value);
+  }
+}
+
+/** Произведение матриц 4×4 (столбцами). */
+const mul4 = (a, b) => {
+  const o = new Array(16).fill(0);
+  for (let c = 0; c < 4; c++)
+    for (let r = 0; r < 4; r++)
+      for (let k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+  return o;
+};
+
+/**
+ * Матрица вершины `i`: у обычного узла — его мировая, у скинованного — смесь матриц
+ * костей по весам (мировая кости × обратная привязки), как это делает шейдер.
+ */
+function vertexMatrices(node, prim) {
+  const world = node.getWorldMatrix();
+  const skin = node.getSkin();
+  const joints = prim.getAttribute('JOINTS_0'),
+    weights = prim.getAttribute('WEIGHTS_0');
+  if (!skin || !joints || !weights) return () => world;
+  const ibm = skin.getInverseBindMatrices();
+  const jointMats = skin.listJoints().map((j, k) => mul4(j.getWorldMatrix(), ibm ? ibm.getElement(k, []) : [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]));
+  return (i) => {
+    const jn = joints.getElement(i, []),
+      w = weights.getElement(i, []);
+    const m = new Array(16).fill(0);
+    for (let k = 0; k < 4; k++) if (w[k]) for (let e = 0; e < 16; e++) m[e] += jointMats[jn[k]][e] * w[k];
+    return m;
+  };
+}
 
 async function source(pack, file) {
   if (dir) return readFile(path.join(dir, pack, `${file}.glb`));
@@ -409,9 +554,10 @@ const table = [];
 
 for (const entry of MODELS) {
   const [short, file] = entry.id.split('/');
-  const { pack, scale: packScale } = PACKS[short];
+  const { pack, scale: packScale, kit } = PACKS[short];
   const scale = entry.s ?? packScale;
-  const src = await io.readBinary(await source(pack, file));
+  const src = kit ? await kitSource(entry.f) : await io.readBinary(await source(pack, file));
+  if (entry.pose) applyLastFrame(src, entry.pose);
   const positions = [],
     normals = [],
     colors = [],
@@ -421,8 +567,8 @@ for (const entry of MODELS) {
     (n) => n.getMesh() && nodes.push(n),
   );
   for (const node of nodes) {
-    const m = node.getWorldMatrix();
     for (const prim of node.getMesh().listPrimitives()) {
+      const matrixOf = vertexMatrices(node, prim);
       const pos = prim.getAttribute('POSITION'),
         nor = prim.getAttribute('NORMAL'),
         col = prim.getAttribute('COLOR_0');
@@ -442,6 +588,7 @@ for (const entry of MODELS) {
       const base = positions.length / 3;
       for (let i = 0; i < pos.getCount(); i++) {
         const p = pos.getElement(i, []);
+        const m = matrixOf(i);
         const [x, y, z] = apply(m, p[0], p[1], p[2], 1);
         positions.push(x * scale, y * scale, z * scale);
         const n = nor ? nor.getElement(i, []) : [0, 1, 0];
@@ -481,13 +628,29 @@ for (const entry of MODELS) {
       else for (let i = 0; i < pos.getCount(); i++) indices.push(base + i);
     }
   }
-  const min = [Infinity, Infinity, Infinity],
-    max = [-Infinity, -Infinity, -Infinity];
-  for (let i = 0; i < positions.length; i += 3)
-    for (let j = 0; j < 3; j++) {
-      min[j] = Math.min(min[j], positions[i + j]);
-      max[j] = Math.max(max[j], positions[i + j]);
+  const bounds = () => {
+    const min = [Infinity, Infinity, Infinity],
+      max = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < positions.length; i += 3)
+      for (let j = 0; j < 3; j++) {
+        min[j] = Math.min(min[j], positions[i + j]);
+        max[j] = Math.max(max[j], positions[i + j]);
+      }
+    return { min, max };
+  };
+  let { min, max } = bounds();
+  // Тело после анимации смерти лежит где придётся: ставим его серединой в начало
+  // координат и низом на землю.
+  if (entry.center) {
+    const cx = (min[0] + max[0]) / 2,
+      cz = (min[2] + max[2]) / 2;
+    for (let i = 0; i < positions.length; i += 3) {
+      positions[i] -= cx;
+      positions[i + 1] -= min[1];
+      positions[i + 2] -= cz;
     }
+    ({ min, max } = bounds());
+  }
   const accessor = (type, array) =>
     out.createAccessor().setType(type).setArray(array).setBuffer(buffer);
   const prim = out
@@ -515,6 +678,7 @@ for (const entry of MODELS) {
     max: max.map(r),
     hit: entry.hit,
     ...(entry.t ? { t: entry.t } : {}),
+    ...(entry.gore ? { gore: true } : {}),
   });
   console.log(
     entry.id,
@@ -543,13 +707,14 @@ console.log(
 
 const lines = table.map(
   (t) =>
-    `  '${t.id}': { min: [${t.min.join(', ')}], max: [${t.max.join(', ')}], hit: '${t.hit}'${t.t ? `, t: ${t.t}` : ''} },`,
+    `  '${t.id}': { min: [${t.min.join(', ')}], max: [${t.max.join(', ')}], hit: '${t.hit}'${t.t ? `, t: ${t.t}` : ''}${t.gore ? ', gore: true' : ''} },`,
 );
 await writeFile(
   TABLE,
   `// Создано scripts/build-outbreak-models.mjs — не править руками.
 // Рамки моделей карты «Зона заражения» в метрах (у начала координат модели, до поворота)
 // и их столкновение: 'box' — вся рамка, 'trunk' — ствол полушириной \`t\` м, 'none' — сквозь.
+// \`gore\` — кровь и тела: их прячет настройка «Кровь и жестокость».
 
 export type PropHit = 'box' | 'trunk' | 'none';
 export type PropModel = {
@@ -557,6 +722,7 @@ export type PropModel = {
   max: readonly [number, number, number];
   hit: PropHit;
   t?: number;
+  gore?: boolean;
 };
 
 export const OUTBREAK_MODELS = {

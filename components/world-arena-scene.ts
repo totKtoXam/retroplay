@@ -23,6 +23,21 @@ const ARENA_SUNLIGHT_COLOR: Record<TimeOfDay, string> = { dawn: '#ffedce', day: 
 const ARENA_SUN_HEIGHT: Record<TimeOfDay, number> = { dawn: 36, day: 36, sunset: 10, night: 20 };
 
 /**
+ * Мрачные сутки (`ArenaDef.mood = 'grim'`): небо затянуто пеплом и дымом, днём оно
+ * серо-бурое, закат ржавый, ночь почти чёрная; дымка зеленовато-серая, солнце
+ * тусклее и желтее, рассеянный свет холоднее.
+ */
+const GRIM = {
+  skyTop: { dawn: '#6b6a72', day: '#707a80', sunset: '#5d4a44', night: '#07090d' } as Record<TimeOfDay, string>,
+  skyBottom: { dawn: '#b09a86', day: '#aaa895', sunset: '#a5673f', night: '#1a1b1f' } as Record<TimeOfDay, string>,
+  fog: { dawn: '#8f8b7c', day: '#8d9083', sunset: '#7d6250', night: '#101214' } as Record<TimeOfDay, string>,
+  hemi: { dawn: 0.85, day: 0.95, sunset: 0.75, night: 0.3 } as Record<TimeOfDay, number>,
+  hemiColor: { dawn: '#d8d6cc', day: '#d9dcd2', sunset: '#d8b9a0', night: '#6f7f99' } as Record<TimeOfDay, string>,
+  sun: { dawn: 2.2, day: 2.5, sunset: 1.9, night: 0.3 } as Record<TimeOfDay, number>,
+  sunColor: { dawn: '#f0d9b0', day: '#eee0bf', sunset: '#e8925a', night: '#8090b8' } as Record<TimeOfDay, string>,
+};
+
+/**
  * Scene for a team-battle map described by an ArenaDef (lib/maps). Everything static is
  * built from the same boxes, ramps and cylinders that the collision uses, then merged by
  * material to keep draw calls low.
@@ -85,6 +100,7 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
   // Огромная карта (с рельефом) целиком в одну тень не влезет: тень покрывает квадрат
   // вокруг камеры и едет за ней (см. `view`).
   const huge = !!def.terrain;
+  const grim = def.mood === 'grim';
   const half = huge ? 90 : span / 2 + 6;
   sunlight.shadow.camera.left = -half;
   sunlight.shadow.camera.right = half;
@@ -266,15 +282,15 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
       sunlight.intensity = 0;
       return;
     } else {
-      mixInto(skyMaterial.uniforms.top.value as T.Color, ARENA_SKY_TOP, m);
-      mixInto(skyMaterial.uniforms.bottom.value as T.Color, ARENA_SKY_BOTTOM, m);
-      mixInto(fog.color, ARENA_FOG, m);
+      mixInto(skyMaterial.uniforms.top.value as T.Color, grim ? GRIM.skyTop : ARENA_SKY_TOP, m);
+      mixInto(skyMaterial.uniforms.bottom.value as T.Color, grim ? GRIM.skyBottom : ARENA_SKY_BOTTOM, m);
+      mixInto(fog.color, grim ? GRIM.fog : ARENA_FOG, m);
     }
     scene.fog = fog;
-    hemi.intensity = mixValue(ARENA_HEMI, m);
-    mixInto(hemi.color, ARENA_HEMI_COLOR, m);
-    sunlight.intensity = mixValue(ARENA_SUNLIGHT, m);
-    mixInto(sunlight.color, ARENA_SUNLIGHT_COLOR, m);
+    hemi.intensity = mixValue(grim ? GRIM.hemi : ARENA_HEMI, m);
+    mixInto(hemi.color, grim ? GRIM.hemiColor : ARENA_HEMI_COLOR, m);
+    sunlight.intensity = mixValue(grim ? GRIM.sun : ARENA_SUNLIGHT, m);
+    mixInto(sunlight.color, grim ? GRIM.sunColor : ARENA_SUNLIGHT_COLOR, m);
     sunHeight = mixValue(ARENA_SUN_HEIGHT, m);
     placeSun();
     sunlight.shadow.needsUpdate = true;
@@ -335,6 +351,7 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
     setNotes: () => {},
     clouds: new T.Group(),
     sunlight,
+    setGore: (on: boolean) => propLayer?.setGore(on),
     view: (eye: T.Vector3, dt: number) => {
       lampLights.update(eye, dt);
       if (huge) {

@@ -168,7 +168,7 @@ function atlasOf(map: GameMap) {
     ctx.restore();
   };
   const props = arena.props ?? [];
-  for (const p of props) if (p.m.startsWith('road/road-')) footprint(p, 'rgb(64, 68, 76)', 0.3);
+  for (const p of props) if (p.m.startsWith('road/road-') || p.m.startsWith('zk/street')) footprint(p, 'rgb(60, 62, 66)', 0.3);
   for (const p of props) {
     const info = models[p.m];
     if (!info) continue;

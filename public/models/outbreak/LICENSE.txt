@@ -11,7 +11,16 @@
 Исходные .glb взяты из зеркала https://github.com/Hidencod/tge-assets
 (коммит dc56ea9f77595fc96433b7d944ad5ce5ef1b61c2; все модели там — Kenney, CC0).
 
-  props.glb — узлы `prop:<набор>/<модель>`, например `prop:com/building-a`.
+Мрачная часть (улицы с трещинами, контейнеры, мусор, баррикады, бронированная техника,
+водонапорная башня, ящики с припасами, оружие, лужи крови, тела зомби и выживших) —
+Quaternius, Zombie Apocalypse Kit, лицензия CC0 1.0 Universal:
+  https://quaternius.com/packs/zombieapocalypsekit.html
+Исходные .gltf взяты из зеркала https://github.com/agentkaerf/FreeModels
+(папка «Zombie Apocalypse Kit - March 2024», коммит db3df04d1e4714298a09510b26fb6de6645138a2).
+Тела запечены в позе последнего кадра анимации Death из того же набора.
+
+  props.glb — узлы `prop:<набор>/<модель>`, например `prop:com/building-a` или
+  `prop:zk/dead-zombie`.
 
 Файл собран скриптом scripts/build-outbreak-models.mjs: части каждой модели сведены
 в один примитив, цвет палитры и материалов запечён в цвета вершин (у всех моделей
