@@ -358,6 +358,12 @@ export type Note = {
   author: string;
   anonymous: boolean;
   hidden: boolean;
+  /**
+   * Скрыта режимом комнаты «приватное написание», а не по желанию автора. Только
+   * такие заметки ведущий может раскрыть все разом (`reveal` с `all`): личную
+   * приватную заметку раскрывает только её автор.
+   */
+  sealed?: boolean;
   x: number;
   y: number;
   width: number;
@@ -711,6 +717,7 @@ export function applyOperation(
       hidden:
         ['sticky', 'index', 'page'].includes(k) &&
         (s.privateWriting || !!op.hidden),
+      sealed: ['sticky', 'index', 'page'].includes(k) && s.privateWriting,
       x: finite(op.x ?? 50),
       y: finite(op.y ?? 50),
       width: finite(op.width ?? 220, 40, 1800),
@@ -760,6 +767,8 @@ export function applyOperation(
     if ('hidden' in p) {
       if (n.author !== user) throw Error('Раскрыть заметку может её автор');
       n.hidden = !!p.hidden;
+      // Автор сам решил, видна ли заметка: ведущий её больше не раскрывает.
+      n.sealed = false;
     }
     if ('locked' in p) n.locked = !!p.locked;
     if ('done' in p) n.done = !!p.done;
@@ -797,9 +806,21 @@ export function applyOperation(
       if (n.group === op.id) n.group = '';
     });
   } else if (kind === 'reveal') {
-    s.notes.forEach((n) => {
-      if (n.author === user) n.hidden = false;
-    });
+    if (op.all) {
+      // Ведущий открывает идеи, скрытые приватным написанием, — конец этапа
+      // «Пишем идеи». Личные приватные заметки остаются за авторами.
+      hostOnly();
+      s.notes.forEach((n) => {
+        if (n.hidden && n.sealed) n.hidden = false;
+        n.sealed = false;
+      });
+    } else
+      s.notes.forEach((n) => {
+        if (n.author === user) {
+          n.hidden = false;
+          n.sealed = false;
+        }
+      });
   } else if (kind === 'room.settings') {
     hostOnly();
     const p = op.patch as Record<string, unknown>;
@@ -1193,6 +1214,8 @@ export function publicState(
           author: '',
           anonymous: true,
           hidden: true,
+          // Не выдаёт содержимого: ведущему нужно знать, сколько идей он может открыть.
+          sealed: !!n.sealed,
           redacted: true,
           locked: true,
           group: '',

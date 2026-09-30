@@ -209,8 +209,8 @@ export default function RoomApp({ id }: { id: string }) {
     [celebrate, setCelebrate] = useState(''),
     // Меню «⋯» в шапке: пока оно открыто, мир не ловит ввод.
     [menuOpen, setMenuOpen] = useState(false),
-    // Тост «Удалено · Отменить»: версия комнаты сразу после удаления. Отмена
-    // возвращает последнее действие, поэтому годится, только пока версия та же.
+    // Тост «Удалено · Отменить»: версия комнаты сразу после удаления — номер
+    // записи истории, по которой `restore` вернёт удалённое.
     [undoToast, setUndoToast] = useState<{ text: string; version: number } | null>(null),
     [undoBusy, setUndoBusy] = useState(false),
     [historyOpen, setHistoryOpen] = useState(false),
@@ -1189,6 +1189,7 @@ export default function RoomApp({ id }: { id: string }) {
           nextVoteLimit: Number(voteLimit) || 5,
           groups: s.groups.length,
           actions: s.notes.filter((n) => isActionKind(n.kind)).length,
+          sealed: s.notes.filter((n) => n.hidden && n.sealed).length,
         })
       : undefined;
   /** Главная кнопка этапа: те же операции, что и в панелях голосования и этапов. */
@@ -1204,6 +1205,10 @@ export default function RoomApp({ id }: { id: string }) {
       if (action.id === 'vote.start')
         await act({ type: 'vote.start', limit: Number(voteLimit) || 5 });
       if (action.id === 'vote.end') await act({ type: 'vote.end' });
+      if (action.id === 'reveal.all') {
+        const r = await act({ type: 'reveal', all: true });
+        if (r) flash('Идеи открыты всем');
+      }
     } finally {
       setGuideBusy(false);
     }
@@ -1284,16 +1289,12 @@ export default function RoomApp({ id }: { id: string }) {
     const r = await act({ type: 'group.delete', id: groupId });
     if (r) setUndoToast({ text: 'Тема удалена', version: r.version });
   };
-  /** Вернуть удалённое — серверной отменой последнего действия (db/room-ops.ts). */
+  /** Вернуть удалённое по записи истории (`restore`, db/room-ops.ts): работает,
+   *  даже если после удаления комнату успели изменить другие. */
   const undoDelete = async () => {
     if (!undoToast) return;
-    if ((roomRef.current?.version ?? -1) !== undoToast.version) {
-      setUndoToast(null);
-      flash('Вернуть уже нельзя: после удаления комнату успели изменить');
-      return;
-    }
     setUndoBusy(true);
-    const r = await act({ type: 'undo' });
+    const r = await act({ type: 'restore', version: undoToast.version });
     setUndoBusy(false);
     setUndoToast(null);
     if (r) flash('Удаление отменено');
