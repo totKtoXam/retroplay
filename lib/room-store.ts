@@ -23,6 +23,8 @@ export type RoomPatch = {
    */
   anonPlayers?: boolean;
   anonNotes?: boolean;
+  /** Ключ операции: по нему сервер узнаёт повтор (db/room-ops.ts). */
+  opId?: string;
 };
 /** Rows to insert or update, ids to delete, and the new `rooms.state` (null: unchanged). */
 export type RoomWrite = { upsert: NoteRow[]; remove: string[]; state: string | null };
@@ -171,4 +173,9 @@ export function restoreDeleted(
   }
   if (!restored) throw Error('Уже возвращено или вернуть нельзя');
   return next;
+}
+
+/** Ключ операции от клиента (lib/room-connection.ts, newOpId) или null. */
+export function operationId(value: unknown) {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(value) ? value : null;
 }
