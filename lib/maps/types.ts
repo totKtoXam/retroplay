@@ -3,6 +3,7 @@
 // from which both the scene (components/world-arena-scene.ts) and the collision are built,
 // so what players see and what blocks them cannot drift apart.
 import { forEachColliderNear, type BoxCollider3D } from '../world-collision.ts';
+import { procBuildingInfo } from './proc-buildings.ts';
 
 export type Stance = 'stand' | 'sit' | 'lie';
 /** Body height for collisions: crouching ('sit') and lying fit through low openings. */
@@ -200,7 +201,11 @@ export type MapTerrain = {
    * Только для сцены и миникарты.
    */
   kinds?: Uint8Array;
-  palette?: { color: string; name: string }[];
+  /**
+   * `texture` — id PBR-набора в public/textures/outbreak/<id>/ (трава, асфальт, грязь):
+   * им рельеф рисуется вблизи, а `color` остаётся для миникарты и дальнего плана.
+   */
+  palette?: { color: string; name: string; texture?: string }[];
 };
 
 /** Готовая модель из набора карты (`ArenaDef.propKit`), поставленная в мир. */
@@ -230,8 +235,53 @@ export type PropModelInfo = {
   /** Кровь и тела: их прячет настройка игрока «Кровь и жестокость». Столкновений у них нет. */
   gore?: boolean;
 };
-/** Набор моделей: один .glb с узлами `prop:<id>` и их рамки. */
-export type PropKit = { url: string; models: Readonly<Record<string, PropModelInfo>> };
+/**
+ * Модель набора. С `file` она грузится из своего .glb (сканы со своими материалами и
+ * текстурами, часто из нескольких мешей), без него — узлом `prop:<id>` из общего `PropKit.url`.
+ */
+export type PropKitModel = PropModelInfo & {
+  /** URL своего .glb, например `/models/outbreak-real/vehicles/sedan.glb`. */
+  file?: string;
+  /** Треугольников в модели: тяжёлые сканы рисуются только вблизи. */
+  tris?: number;
+  /** Модель со скелетом (фигуры `ArenaDef.npcs`) и имена её анимаций. */
+  skinned?: boolean;
+  clips?: readonly string[];
+};
+/**
+ * Набор моделей карты и их рамки. `url` — старый общий .glb с узлами `prop:<id>` для
+ * моделей без своего `file`.
+ */
+export type PropKit = { url?: string; models: Readonly<Record<string, PropKitModel>> };
+
+/** Процедурное здание: id вида `proc/building:<w>x<d>x<этажей>:<зерно>:<стиль>` (lib/maps/proc-buildings.ts). */
+export const PROC_PREFIX = 'proc/';
+export const isProcModel = (id: string) => id.startsWith(PROC_PREFIX);
+
+/**
+ * Рамка модели по id: из набора карты, а у процедурных зданий — по разбору самого id,
+ * чтобы столкновения, миникарта и сцена считали их одинаково.
+ */
+export function propModelInfo(kit: PropKit | undefined, id: string): PropKitModel | undefined {
+  return kit?.models[id] ?? (isProcModel(id) ? procBuildingInfo(id) : undefined);
+}
+
+/**
+ * Пятно на земле (кровь, грязь, ржавые потёки): квадрат стороной `s` м, повёрнутый на `yaw`,
+ * лежит на высоте `y` (без неё — на рельефе). Столкновений нет. Как id текстуры превращается
+ * в файлы и какие пятна прячет настройка «Кровь и жестокость» — lib/maps/decals.ts.
+ */
+export type MapDecal = { x: number; y?: number; z: number; yaw?: number; s?: number; texture: string };
+/**
+ * Живая фигура для атмосферы (components/world-ambient-npcs.ts): зомби бредёт на месте,
+ * выживший стоит. `m` — id скелетной модели в `propKit.models`, `clip` — имя анимации.
+ * Без `y` стоит на рельефе. Столкновений нет: это декор, а не боты.
+ */
+export type MapNpc = { m: string; x: number; y?: number; z: number; yaw?: number; clip: string; s?: number };
+/** Дорога: лента шириной `width` м по точкам осевой линии, `texture` — PBR-набор (асфальт). */
+export type MapRoad = { points: [number, number][]; width: number; texture?: string };
+/** HDRI-небо и освещение окружения: файл public/hdri/<hdri>.hdr. */
+export type MapSky = { hdri: string; exposure?: number };
 
 export type ArenaDef = {
   id: string;
@@ -284,6 +334,14 @@ export type ArenaDef = {
   /** Готовые модели (дома, деревья, машины) из `propKit`. */
   props?: MapProp[];
   propKit?: PropKit;
+  /** Пятна крови и грязи на земле. */
+  decals?: MapDecal[];
+  /** Анимированные фигуры для атмосферы. */
+  npcs?: MapNpc[];
+  /** Асфальтовые ленты дорог поверх рельефа. */
+  roads?: MapRoad[];
+  /** Небо из HDRI вместо градиента. */
+  sky?: MapSky;
   /**
    * Шаг сетки проходимости ботов, м (по умолчанию 0,75). Огромной карте нужен крупнее:
    * мелкая сетка на квадратные километры не поместилась бы в память объекта комнаты.
@@ -460,7 +518,7 @@ export function propColliders(p: MapProp, info: PropModelInfo): BoxCollider3D[] 
 
 /** Collision for a declarative map. Base ground is y = 0 everywhere, or the terrain. */
 export function buildArena(def: ArenaDef): GameMap {
-  const models = def.propKit?.models ?? {};
+  const kit = def.propKit;
   const colliders: BoxCollider3D[] = [
     ...def.boxes.filter((b) => b.solid).map((b) => boxCollider(b)),
     ...(def.cylinders ?? [])
@@ -473,7 +531,10 @@ export function buildArena(def: ArenaDef): GameMap {
         minY: c.y - c.h / 2,
         maxY: c.y + c.h / 2,
       })),
-    ...(def.props ?? []).flatMap((p) => (models[p.m] ? propColliders(p, models[p.m]) : [])),
+    ...(def.props ?? []).flatMap((p) => {
+      const info = propModelInfo(kit, p.m);
+      return info ? propColliders(p, info) : [];
+    }),
     ...(def.terrain ? terrainColliders(def.terrain) : []),
   ];
   const floors = def.boxes.filter((b) => b.floor).map((b) => boxCollider(b));

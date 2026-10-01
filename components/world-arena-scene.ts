@@ -8,7 +8,11 @@ import { createSurfaceLibrary } from './world-cinematic';
 import { createArenaMaterials } from './world-arena-materials';
 import type { MapSceneOptions, WorldKit } from './world-map-scene';
 import { createLampLights } from './world-lamp-lights';
-import { createPropLayer, createTerrainMeshes } from './world-terrain-props';
+import { createPropLayer } from './world-terrain-props';
+import { createTerrainMeshes, createTerrainSplat, terrainHasTextures } from './world-terrain-material';
+import { createRoads } from './world-roads';
+import { createAmbientNpcs } from './world-ambient-npcs';
+import { createTextureSetLoader } from './world-pbr-textures';
 import { mixValue, type DayMix, type TimeOfDay } from '@/lib/day-cycle';
 import { seasonColor } from '@/lib/season-colors';
 
@@ -36,6 +40,31 @@ const GRIM = {
   sun: { dawn: 2.2, day: 2.5, sunset: 1.9, night: 0.3 } as Record<TimeOfDay, number>,
   sunColor: { dawn: '#f0d9b0', day: '#eee0bf', sunset: '#e8925a', night: '#8090b8' } as Record<TimeOfDay, string>,
 };
+
+/**
+ * HDRI-небо (`ArenaDef.sky`). Снимок неба один, а сутки идут: его яркость и цвет
+ * умножаются на множитель фазы (линейный RGB) — днём как есть, закат тёплый и тусклее,
+ * ночью остаётся синеватая восьмая часть. Окружение (отражения и рассеянный свет
+ * PBR-материалов) гаснет вместе с небом; мрачной карте его нужно немного, иначе сканы
+ * выглядят студийными.
+ */
+const HDRI_TINT: Record<TimeOfDay, readonly [number, number, number]> = {
+  dawn: [0.86, 0.78, 0.72],
+  day: [1, 1, 1],
+  sunset: [0.96, 0.76, 0.56],
+  night: [0.035, 0.045, 0.075],
+};
+const HDRI_ENVIRONMENT: Record<TimeOfDay, number> = { dawn: 0.5, day: 0.6, sunset: 0.45, night: 0.06 };
+/**
+ * Яркость горизонта, к которой приводится любой снимок (линейная): HDRI с разных сайтов
+ * отличаются на порядок, а солнце и туман карты настроены под одну.
+ */
+const HDRI_HORIZON = 0.85;
+/**
+ * Доля прежнего рассеянного света полусферы при HDRI: днём «небесный» свет даёт окружение,
+ * а ночью снимок дневного неба почти погашен, и синеватая полусфера светит как раньше.
+ */
+const HDRI_HEMI: Record<TimeOfDay, number> = { dawn: 0.45, day: 0.4, sunset: 0.5, night: 0.9 };
 
 /**
  * Scene for a team-battle map described by an ArenaDef (lib/maps). Everything static is
@@ -131,6 +160,16 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
   sky.userData.noCameraCollision = true;
   sky.userData.presentationOnly = true;
   if (!def.hull) scene.add(sky);
+  const hdri = def.sky && !def.hull && !def.indoor ? createHdriSky(def.sky.hdri, def.sky.exposure ?? 1, grim) : undefined;
+  // Пока снимок грузится, светит прежний градиент; потом сфера получает HDRI, а солнце
+  // поворачивается туда, где солнце на снимке.
+  void hdri?.ready.then((ok) => {
+    if (!ok) return;
+    sky.material = hdri.material;
+    scene.environment = hdri.texture ?? null;
+    if (hdri.sunAzimuth !== undefined) sunAzimuth = hdri.sunAzimuth;
+    if (lastMix) setDayMix(lastMix);
+  });
 
   // Ground inside the walls and a wider backdrop outside them.
   // На карте с рельефом землю рисует он сам (и шире границ), плоская земля не нужна.
@@ -138,16 +177,30 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
     add(new T.BoxGeometry(maxX - minX, 0.2, maxZ - minZ), def.groundColor, cx, -0.1, cz, def.groundMaterial);
     add(new T.BoxGeometry(span + 200, 0.2, span + 200), def.outsideColor ?? '#6f7f63', cx, -0.14, cz);
   }
-  // Рельеф: трава-текстура в оттенках серого, цвет земли — в вершинах (луг, лес, степь, скалы, снег).
-  const terrainMaterial = def.terrain ? arenaMaterials.material('#ffffff', 'grass') : undefined;
-  if (def.terrain && terrainMaterial) {
+  // Рельеф с PBR-наборами в палитре — сплат сканов (components/world-terrain-material.ts).
+  // На слабом качестве (три лампы — так его отличает world.tsx) слои вдвое меньше: вчетверо меньше видеопамяти.
+  const splat =
+    def.terrain && terrainHasTextures(def.terrain)
+      ? createTerrainSplat(def.terrain, { size: (options.lampLights ?? 4) <= 3 ? 512 : 1024 })
+      : undefined;
+  if (splat) scene.add(splat.group);
+  // Без наборов — трава-текстура в оттенках серого, цвет земли в вершинах (луг, лес, степь, скалы, снег).
+  const terrainMaterial = splat?.material ?? (def.terrain ? arenaMaterials.material('#ffffff', 'grass') : undefined);
+  // Серая текстура травы темнит цвет вершин; поднимаем обратно, чтобы палитра совпала с миникартой.
+  // Сканы своего цвета не теряют.
+  const terrainGain = splat ? 1 : 1.45;
+  if (def.terrain && terrainMaterial && !splat) {
     terrainMaterial.vertexColors = true;
-    // Серая текстура травы темнит цвет вершин; поднимаем обратно, чтобы палитра совпала с миникартой.
-    terrainMaterial.color.setScalar(1.45);
+    terrainMaterial.color.setScalar(terrainGain);
     scene.add(createTerrainMeshes(def.terrain, terrainMaterial));
   }
   const propLayer = def.props?.length ? createPropLayer(def) : undefined;
   if (propLayer) scene.add(propLayer.group);
+  const textureSets = def.roads?.length ? createTextureSetLoader() : undefined;
+  const roads = textureSets ? createRoads(def, textureSets) : undefined;
+  if (roads) scene.add(roads.group);
+  const npcs = def.npcs?.length ? createAmbientNpcs(def) : undefined;
+  if (npcs) scene.add(npcs.group);
   // Коробки и цилиндры с меткой `art` рисует интерьер (текстуры и модели), остальные — сцена,
   // с материалом поверхности, если он задан.
   const interior = def.boxes.some((b) => b.art) || def.decor?.length ? createInterior(def) : undefined;
@@ -261,14 +314,23 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
   // Центр, над которым стоит солнце: середина карты, а на огромной — точка у камеры.
   const sunAnchor = new T.Vector3(cx, 0, cz);
   let sunHeight = ARENA_SUN_HEIGHT.day;
+  /** Азимут солнца (atan2(z, x) направления на него); с HDRI — как на снимке. */
+  let sunAzimuth = Math.atan2(-24, -30);
   const placeSun = () => {
     // На огромной карте свет выше и дальше: тень покрывает рельеф вокруг камеры, а горы
     // до сотни метров не должны заслонять само солнце.
     const k = huge ? 4 : 1;
-    sunlight.position.set(sunAnchor.x - 30 * k, sunAnchor.y + sunHeight * k, sunAnchor.z - 24 * k);
+    const reach = Math.hypot(30, 24) * k;
+    sunlight.position.set(
+      sunAnchor.x + Math.cos(sunAzimuth) * reach,
+      sunAnchor.y + sunHeight * k,
+      sunAnchor.z + Math.sin(sunAzimuth) * reach,
+    );
     sunlight.target.position.copy(sunAnchor);
   };
+  let lastMix: DayMix | undefined;
   const setDayMix = (m: DayMix) => {
+    lastMix = m;
     if (def.indoor) {
       // В помещении (корабль) за стенами — тёмный космос, и сутки здесь ни при чём: свет отсеков
       // одинаков всегда, а солнце светит только через иллюминаторы.
@@ -288,6 +350,16 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
     }
     scene.fog = fog;
     hemi.intensity = mixValue(grim ? GRIM.hemi : ARENA_HEMI, m);
+    if (hdri?.loaded) {
+      // Цвет фазы — смесь множителей соседних фаз; им красится и небо, и дымка, чтобы
+      // дальние горы растворялись ровно в цвет горизонта.
+      const a = HDRI_TINT[m.from],
+        b = HDRI_TINT[m.to];
+      hdri.tint.setRGB(a[0] + (b[0] - a[0]) * m.blend, a[1] + (b[1] - a[1]) * m.blend, a[2] + (b[2] - a[2]) * m.blend);
+      fog.color.copy(hdri.horizon).multiply(hdri.tint);
+      scene.environmentIntensity = mixValue(HDRI_ENVIRONMENT, m) * hdri.gain;
+      hemi.intensity *= mixValue(HDRI_HEMI, m);
+    }
     mixInto(hemi.color, grim ? GRIM.hemiColor : ARENA_HEMI_COLOR, m);
     sunlight.intensity = mixValue(grim ? GRIM.sun : ARENA_SUNLIGHT, m);
     mixInto(sunlight.color, grim ? GRIM.sunColor : ARENA_SUNLIGHT_COLOR, m);
@@ -312,9 +384,9 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
     if (terrainMaterial) {
       terrainSeason.set(seasonColor(def.groundColor, season, native, 'ground'));
       terrainMaterial.color.setRGB(
-        (1.45 * terrainSeason.r) / Math.max(0.05, terrainBase.r),
-        (1.45 * terrainSeason.g) / Math.max(0.05, terrainBase.g),
-        (1.45 * terrainSeason.b) / Math.max(0.05, terrainBase.b),
+        (terrainGain * terrainSeason.r) / Math.max(0.05, terrainBase.r),
+        (terrainGain * terrainSeason.g) / Math.max(0.05, terrainBase.g),
+        (terrainGain * terrainSeason.b) / Math.max(0.05, terrainBase.b),
       );
     }
     // Зимой вода на летней карте — лёд: матовый и неподвижный. Кроме фонтана: его вода
@@ -351,9 +423,13 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
     setNotes: () => {},
     clouds: new T.Group(),
     sunlight,
-    setGore: (on: boolean) => propLayer?.setGore(on),
+    setGore: (on: boolean) => {
+      propLayer?.setGore(on);
+      npcs?.setGore(on);
+    },
     view: (eye: T.Vector3, dt: number) => {
       lampLights.update(eye, dt);
+      npcs?.update(dt, eye);
       if (huge) {
         viewSeconds += dt;
         sky.position.copy(eye);
@@ -380,15 +456,137 @@ export function createArenaScene(map: GameMap & { arena: ArenaDef }, options: Ma
       lampLights.dispose();
       interior?.dispose();
       propLayer?.dispose();
-      terrainMaterial?.dispose();
-      scene.getObjectByName('terrain')?.traverse((o) => {
-        if (o instanceof T.Mesh) o.geometry.dispose();
-      });
+      roads?.dispose();
+      textureSets?.dispose();
+      npcs?.dispose();
+      hdri?.dispose();
+      if (splat) splat.dispose();
+      else {
+        terrainMaterial?.dispose();
+        scene.getObjectByName('terrain')?.traverse((o) => {
+          if (o instanceof T.Mesh) o.geometry.dispose();
+        });
+      }
       arenaMaterials.dispose();
       waters.forEach((w) => w.geometry.dispose());
       fountains.forEach((f) => f.dispose());
     },
   };
+}
+
+/**
+ * Небо из HDRI (public/hdri/<id>.hdr): снимок на сфере неба и он же — окружение для
+ * PBR-материалов (`scene.environment`, three.js сам сворачивает его в PMREM). При загрузке
+ * снимок один раз меряется:
+ *   - средний цвет полосы над горизонтом (0–8°) — цвет дымки: дальние горы тонут ровно
+ *     в цвет неба за ними;
+ *   - яркость горизонта приводится к HDRI_HORIZON (`gain`), чтобы любой снимок подходил к
+ *     солнцу и туману карты;
+ *   - самая яркая точка выше 3°, если она заметно ярче остального неба, — солнце: туда
+ *     поворачивается свет карты, и тени падают от солнца на снимке.
+ */
+function createHdriSky(id: string, exposure: number, grim: boolean) {
+  const tint = new T.Color(1, 1, 1);
+  // Мрачной карте снимок ясного неба слишком синий: треть цвета уходит в серый, как и у дымки.
+  const desaturate = grim ? 0.35 : 0;
+  const material = new T.ShaderMaterial({
+    uniforms: {
+      uMap: { value: null as T.Texture | null },
+      uTint: { value: tint },
+      uGain: { value: 1 },
+      uDesaturate: { value: desaturate },
+    },
+    vertexShader:
+      'varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    // Те же UV, что у three.js для equirect-окружения (equirectUv): небо и отражения совпадают.
+    fragmentShader: `#include <common>
+      uniform sampler2D uMap; uniform vec3 uTint; uniform float uGain; uniform float uDesaturate; varying vec3 vDir;
+      void main() {
+        vec3 d = normalize(vDir);
+        vec2 uv = vec2(atan(d.z, d.x) * RECIPROCAL_PI2 + 0.5, asin(clamp(d.y, -1.0, 1.0)) * RECIPROCAL_PI + 0.5);
+        vec3 c = texture2D(uMap, uv).rgb;
+        c = mix(c, vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), uDesaturate);
+        gl_FragColor = vec4(c * uTint * uGain, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+    side: T.BackSide,
+    depthWrite: false,
+  });
+  let disposed = false;
+  const sky = {
+    material,
+    texture: undefined as T.DataTexture | undefined,
+    tint,
+    /** Цвет горизонта (линейный, уже с `gain`). */
+    horizon: new T.Color(),
+    gain: 1,
+    sunAzimuth: undefined as number | undefined,
+    loaded: false,
+    ready: Promise.resolve(false),
+    dispose() {
+      disposed = true;
+      sky.texture?.dispose();
+      material.dispose();
+    },
+  };
+  sky.ready = import('three/addons/loaders/HDRLoader.js')
+    .then(({ HDRLoader }) => new HDRLoader().loadAsync(`/hdri/${id}.hdr`))
+    .then((texture) => {
+      if (disposed) {
+        texture.dispose();
+        return false;
+      }
+      texture.mapping = T.EquirectangularReflectionMapping;
+      const { data, width, height } = texture.image as { data: Uint16Array | Float32Array; width: number; height: number };
+      const read = data instanceof Uint16Array ? (i: number) => T.DataUtils.fromHalfFloat(data[i]) : (i: number) => data[i];
+      // Строка 0 данных — верх снимка (зенит); flipY переворачивает её только при загрузке в видеокарту.
+      const rowAt = (elevation: number) => Math.round((0.5 - elevation / 180) * height);
+      let r = 0,
+        g = 0,
+        b = 0,
+        n = 0;
+      for (let y = rowAt(8); y <= rowAt(0); y++)
+        for (let x = 0; x < width; x += 4) {
+          const i = (y * width + x) * 4;
+          r += read(i);
+          g += read(i + 1);
+          b += read(i + 2);
+          n++;
+        }
+      const horizon = new T.Color(r / n, g / n, b / n);
+      const grey = 0.2126 * horizon.r + 0.7152 * horizon.g + 0.0722 * horizon.b;
+      horizon.lerp(new T.Color(grey, grey, grey), desaturate);
+      const luminance = (c: T.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+      sky.gain = (HDRI_HORIZON / Math.max(1e-3, luminance(horizon))) * exposure;
+      sky.horizon.copy(horizon).multiplyScalar(sky.gain);
+      let best = 0,
+        bestX = 0,
+        sum = 0,
+        count = 0;
+      for (let y = rowAt(80); y <= rowAt(3); y += 2)
+        for (let x = 0; x < width; x += 2) {
+          const i = (y * width + x) * 4;
+          const l = 0.2126 * read(i) + 0.7152 * read(i + 1) + 0.0722 * read(i + 2);
+          sum += l;
+          count++;
+          if (l > best) {
+            best = l;
+            bestX = x;
+          }
+        }
+      if (best > (8 * sum) / count) sky.sunAzimuth = ((bestX + 0.5) / width - 0.5) * Math.PI * 2;
+      material.uniforms.uMap.value = texture;
+      material.uniforms.uGain.value = sky.gain;
+      sky.texture = texture;
+      sky.loaded = true;
+      return true;
+    })
+    .catch((error) => {
+      console.warn('Небо HDRI не загрузилось', id, error);
+      return false;
+    });
+  return sky;
 }
 
 /** Шум для листвы: гладкий, зависит только от точки, поэтому совпадающие вершины сдвигаются одинаково. */

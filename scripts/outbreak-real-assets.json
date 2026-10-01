@@ -1,0 +1,3108 @@
+{
+  "_about": "Манифест реалистичных ассетов карты «Зона заражения»: модели, PBR-наборы, декали, HDRI. Пути file/dir — относительно папки --src скрипта scripts/build-outbreak-real-models.mjs (scratchpad/real: assets/… и proc/…). Источник правды для public/models/outbreak-real/CREDITS.md и lib/maps/outbreak-real-models.ts (оба генерируются скриптом). fit: target [ось x|y|z|max, метры] — равномерный масштаб до размера по оси; rot — поворот в градусах по x, y, z; после них низ рамки ставится на y=0, центр по x/z — в 0. drop — модель не собирается (причина).",
+  "models": [
+    {
+      "id": "buildings/abandoned-house-2",
+      "group": "buildings",
+      "title": "Abandoned House",
+      "author": "Sengchor",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/abandoned-house-a0c01ce35a474545b805c0739806aace",
+        "repo": "https://github.com/Oscar-Ryley/Game-Projects",
+        "commit": "012bb85a8b9ad6ca134b23ddd34c5bce0d07aac6",
+        "path": "itslithers/Godot/3D Models/Structures (Buildings)/Abandoned_house_2/ahouse2.gltf"
+      },
+      "file": "assets/buildings/abandoned-house-2.glb",
+      "hit": "box"
+    },
+    {
+      "id": "buildings/abandoned-house-3",
+      "group": "buildings",
+      "title": "Abandoned_House",
+      "author": "fan7774",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/abandoned-house-6f837859fb344a80bd96473559fed0b0",
+        "repo": "https://github.com/Oscar-Ryley/Game-Projects",
+        "commit": "012bb85a8b9ad6ca134b23ddd34c5bce0d07aac6",
+        "path": "itslithers/Godot/3D Models/Structures (Buildings)/Abandoned_house_3/ahouse3.gltf"
+      },
+      "file": "assets/buildings/abandoned-house-3.glb",
+      "hit": "box"
+    },
+    {
+      "id": "buildings/barn",
+      "group": "buildings",
+      "title": "Abandoned Barn",
+      "author": "Arsen Ismailov",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/abandoned-barn-ee392002953a4aa180dc14965e73fb3d",
+        "repo": "https://github.com/Oscar-Ryley/Game-Projects",
+        "commit": "012bb85a8b9ad6ca134b23ddd34c5bce0d07aac6",
+        "path": "itslithers/Godot/3D Models/Structures (Buildings)/abandoned_barn/abarn.gltf"
+      },
+      "file": "assets/buildings/barn.glb",
+      "hit": "box"
+    },
+    {
+      "id": "buildings/container-building",
+      "group": "buildings",
+      "title": "Building | Container | Metal",
+      "author": "Erroratten",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/building-container-metal-36380c606bae46848237e9bbe073fa3b",
+        "repo": "https://github.com/AaronDinesh/Computer-Graphics",
+        "commit": "8b1ac0f38c72cad3202ac0b4c9c05198e025aed4",
+        "path": "HelloOBJ/Objects/Building2/scene.gltf"
+      },
+      "file": "assets/buildings/container-building.glb",
+      "hit": "box"
+    },
+    {
+      "id": "buildings/destroyed-building",
+      "group": "buildings",
+      "title": "BUILDING DESTROYED",
+      "author": "danieljorge435",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/building-destroyed-ca13adc8bba0480a8bdde834889c5444",
+        "repo": "https://github.com/AaronDinesh/Computer-Graphics",
+        "commit": "8b1ac0f38c72cad3202ac0b4c9c05198e025aed4",
+        "path": "HelloOBJ/Objects/RuinedBuilding2/scene.gltf"
+      },
+      "file": "assets/buildings/destroyed-building.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["y", 18]
+      }
+    },
+    {
+      "id": "buildings/destroyed-house",
+      "group": "buildings",
+      "title": "destroyed house",
+      "author": "chanmagomed",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/destroyed-house-32928796ada54eddaf2e9ae9d3cdf026",
+        "repo": "https://github.com/DaViLlS/ZombieSurvival",
+        "commit": "bbb8aa547a75ebcda9b9fae78ec35ac9cc4ea631",
+        "path": "Assets/_Project/Content/Models/Imported/destroyed_house/scene.gltf"
+      },
+      "file": "assets/buildings/destroyed-house.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["y", 7.5]
+      }
+    },
+    {
+      "id": "buildings/factory",
+      "group": "buildings",
+      "title": "Abandoned factory",
+      "author": "Rixael",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/abandoned-factory-e510537c72a848879171cbbb1ec2f648",
+        "repo": "https://github.com/Dramalf/MotionStrike-VR",
+        "commit": "244a18ef9620ee98fd63362dea0037ccdc972702",
+        "path": "client/public/abandoned_factory/scene.gltf"
+      },
+      "file": "assets/buildings/factory.glb",
+      "hit": "box"
+    },
+    {
+      "id": "buildings/panel-house",
+      "group": "buildings",
+      "title": "Soviet Panel House",
+      "author": "mrsanya333",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/soviet-panel-house-75dc0bb868f64b9f920d3b85f307886c",
+        "repo": "https://github.com/Makar210807/horror_game",
+        "commit": "149b43c47258e28cddef3a690fff92ceb4d9322a",
+        "path": "demo/props/soviet_panel_house/scene.gltf"
+      },
+      "file": "assets/buildings/panel-house.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["y", 28]
+      }
+    },
+    {
+      "id": "buildings/ruined-building",
+      "group": "buildings",
+      "title": "Ruined Building",
+      "author": "Yo.Ri",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/ruined-building-14c79f1a4d8548acb6592072549569ff",
+        "repo": "https://github.com/AaronDinesh/Computer-Graphics",
+        "commit": "8b1ac0f38c72cad3202ac0b4c9c05198e025aed4",
+        "path": "HelloOBJ/Objects/RuinedBuilding/scene.gltf"
+      },
+      "file": "assets/buildings/ruined-building.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["x", 22]
+      }
+    },
+    {
+      "id": "buildings/ukraine-apartment",
+      "group": "buildings",
+      "title": "ukraine war - destroyed apartment building scan",
+      "author": "scanforge",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/ukraine-war-destroyed-apartment-building-scan-79914ce6b77a48d2a102e4cc47b9a882",
+        "repo": "https://github.com/konstantine811/hillel-shop-map",
+        "commit": "8a6b0af06461a854894a02aa45bb4424dd1235d5",
+        "path": "public/3d-models/ukraine_war_build/scene.gltf"
+      },
+      "file": "assets/buildings/ukraine-apartment.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["y", 16]
+      }
+    },
+    {
+      "id": "buildings/warehouse",
+      "group": "buildings",
+      "title": "old brick warehouse",
+      "author": "Pinos",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/old-brick-warehouse-e472f3da03e0420e8d008cf7951d34f6",
+        "repo": "https://github.com/AaronDinesh/Computer-Graphics",
+        "commit": "8b1ac0f38c72cad3202ac0b4c9c05198e025aed4",
+        "path": "HelloOBJ/Objects/OldWarehouse/scene.gltf"
+      },
+      "file": "assets/buildings/warehouse.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["y", 7.5]
+      }
+    },
+    {
+      "id": "corpses/c1",
+      "group": "corpses",
+      "title": "Corpse v02",
+      "author": "Alexandr Zhilkin (https://sketchfab.com/allexandr007)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/corpse-v02-e5de11d7b18d4db5a87494afc7de1b5f",
+        "repo": "https://github.com/adrientremblay/dark-altar-2",
+        "commit": "8c3dcc3",
+        "path": "assets/models/corpse_v02/scene.gltf"
+      },
+      "file": "assets/corpses/c1.glb",
+      "hit": "none",
+      "fit": {
+        "rot": [90, 0, 0]
+      },
+      "gore": true,
+      "note": "shrouded body ships standing; lay it on its back"
+    },
+    {
+      "id": "corpses/c2",
+      "group": "corpses",
+      "title": "Dead Hazmat Female",
+      "author": "OHR3D (https://sketchfab.com/ohrtg)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/dead-hazmat-female-2e879c914d6b4e15a05f8496977854fd",
+        "repo": "https://github.com/juanmigrivera/Project-Tartarus",
+        "commit": "c069050",
+        "path": "assets/DeadHazmat/scene.gltf"
+      },
+      "file": "assets/corpses/c2.glb",
+      "hit": "none",
+      "gore": true
+    },
+    {
+      "id": "corpses/c3",
+      "group": "corpses",
+      "title": "zombies under sheets animated (pack 2)",
+      "author": "vicente betoret ferrero / deathcow (https://sketchfab.com/deathcow)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/zombies-under-sheets-animated-pack-2-98751f4c67074ff1a9d4213e5cfcdc43",
+        "repo": "https://github.com/Babalang/fear-mansion",
+        "commit": "41567fa",
+        "path": "Objects/zombies_under_sheets_animated_pack_2/scene.gltf"
+      },
+      "file": "assets/corpses/c3.glb",
+      "hit": "none",
+      "fit": {
+        "target": ["x", 3.8]
+      },
+      "gore": true
+    },
+    {
+      "id": "corpses/c4",
+      "group": "corpses",
+      "title": "Corpse",
+      "author": "Tamal De Quezo (https://sketchfab.com/Tamaldequeso)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/corpse-be9b034525c246cebab3620acb5a8027",
+        "repo": "https://github.com/daniquemois/tech-track-22-23-2",
+        "commit": "a062a00",
+        "path": "public/models/corpse/scene.gltf"
+      },
+      "file": "assets/corpses/c4.glb",
+      "hit": "none",
+      "gore": true
+    },
+    {
+      "id": "corpses/c6",
+      "group": "corpses",
+      "title": "Infinite, 3D Head Scan (Lee Perry-Smith)",
+      "author": "Lee Perry-Smith / Infinite-Realities (www.ir-ltd.net), scan via triplegangers.com",
+      "license": "CC-BY-3.0",
+      "source": {
+        "url": "http://www.ir-ltd.net/",
+        "repo": "https://github.com/mrdoob/three.js",
+        "commit": "035cfb7",
+        "path": "examples/models/gltf/LeePerrySmith/LeePerrySmith.glb (+ Map-COL.jpg, Infinite-Level_02_Tangent_SmoothUV.jpg)"
+      },
+      "file": "assets/corpses/c6.glb",
+      "hit": "none",
+      "fit": {
+        "target": ["y", 0.3]
+      },
+      "gore": true
+    },
+    {
+      "id": "nature/boulder-01",
+      "group": "nature",
+      "title": "Boulder",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/boulder_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/boulder_01/boulder_01.glb"
+      },
+      "file": "assets/ph-nature/boulder-01.glb",
+      "hit": "box"
+    },
+    {
+      "id": "nature/dead-tree-trunk-02",
+      "group": "nature",
+      "title": "Dead Tree Trunk 02",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/dead_tree_trunk_02",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/dead_tree_trunk_02/dead_tree_trunk_02.glb"
+      },
+      "file": "assets/ph-nature/dead-tree-trunk-02.glb",
+      "hit": "box"
+    },
+    {
+      "id": "nature/dead-tree-trunk",
+      "group": "nature",
+      "title": "Dead Tree Trunk",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/dead_tree_trunk",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/dead_tree_trunk/dead_tree_trunk.glb"
+      },
+      "file": "assets/ph-nature/dead-tree-trunk.glb",
+      "hit": "box"
+    },
+    {
+      "id": "nature/dead-trees-demo",
+      "group": "nature",
+      "title": "Dead Trees Demo",
+      "author": "Quadra3D",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/dead-trees-demo-9bdd36641ef541adb51f0d01ddb07b2c",
+        "repo": "https://github.com/SapienzaInteractiveGraphicsCourse/final-project-giasca-team",
+        "commit": "4fdde62151e4521261638dcd15467804a6fbd451",
+        "path": "models/tree forest/scene.gltf"
+      },
+      "file": "assets/ph-nature/dead-trees-demo.glb",
+      "hit": "trunk"
+    },
+    {
+      "id": "nature/dry-branches-medium-01",
+      "group": "nature",
+      "title": "Dry Branches",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/dry_branches_medium_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/dry_branches_medium_01/dry_branches_medium_01.glb"
+      },
+      "file": "assets/ph-nature/dry-branches-medium-01.glb",
+      "hit": "none"
+    },
+    {
+      "id": "nature/fern-02",
+      "group": "nature",
+      "title": "Fern",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/fern_02",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/fern_02/fern_02.glb"
+      },
+      "file": "assets/ph-nature/fern-02.glb",
+      "hit": "none"
+    },
+    {
+      "id": "nature/grass-bermuda-01",
+      "group": "nature",
+      "title": "Bermuda Grass",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/grass_bermuda_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/grass_bermuda_01/grass_bermuda_01.glb"
+      },
+      "file": "assets/ph-nature/grass-bermuda-01.glb",
+      "hit": "none"
+    },
+    {
+      "id": "nature/island-tree-01",
+      "group": "nature",
+      "title": "Island Tree 01",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/island_tree_01",
+        "repo": "https://github.com/Joshkaki00/godotmark",
+        "commit": "cb9d9f5a944cfe24741c528014317b960efc62a5",
+        "path": "art/nature-benchmark-archive-20260311_173846/island_tree_01_1k.gltf/island_tree_01_1k.gltf"
+      },
+      "file": "assets/ph-nature/island-tree-01.glb",
+      "hit": "trunk"
+    },
+    {
+      "id": "nature/namaqualand-boulder-02",
+      "group": "nature",
+      "title": "Namaqualand Boulder",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/namaqualand_boulder_02",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/namaqualand_boulder_02/namaqualand_boulder_02.glb"
+      },
+      "file": "assets/ph-nature/namaqualand-boulder-02.glb",
+      "hit": "box"
+    },
+    {
+      "id": "nature/namaqualand-boulder-04",
+      "group": "nature",
+      "title": "Namaqualand Boulder 04",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/namaqualand_boulder_04",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/namaqualand_boulder_04/namaqualand_boulder_04.glb"
+      },
+      "file": "assets/ph-nature/namaqualand-boulder-04.glb",
+      "hit": "box"
+    },
+    {
+      "id": "nature/namaqualand-boulder-06",
+      "group": "nature",
+      "title": "Namaqualand Boulder 06",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/namaqualand_boulder_06",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/namaqualand_boulder_06/namaqualand_boulder_06.glb"
+      },
+      "file": "assets/ph-nature/namaqualand-boulder-06.glb",
+      "hit": "box"
+    },
+    {
+      "id": "nature/nettle-plant",
+      "group": "nature",
+      "title": "Nettle Plant",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/nettle_plant",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/nettle_plant/nettle_plant.glb"
+      },
+      "file": "assets/ph-nature/nettle-plant.glb",
+      "hit": "none"
+    },
+    {
+      "id": "nature/old-tree",
+      "group": "nature",
+      "title": "Old tree",
+      "author": "evolveduk",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/old-tree-3cb4d59eb4844dc4802480e9ee53785e",
+        "repo": "https://github.com/Oscar-Ryley/Game-Projects",
+        "commit": "012bb85a8b9ad6ca134b23ddd34c5bce0d07aac6",
+        "path": "itslithers/Godot/3D Models/Trees/old_tree/old_tree.gltf"
+      },
+      "file": "assets/ph-nature/old-tree.glb",
+      "hit": "trunk"
+    },
+    {
+      "id": "nature/pine-sapling-small",
+      "group": "nature",
+      "title": "Pine Sapling Small",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/pine_sapling_small",
+        "repo": "https://github.com/Joshkaki00/godotmark",
+        "commit": "cb9d9f5a944cfe24741c528014317b960efc62a5",
+        "path": "art/nature-benchmark-archive-20260311_173846/pine_sapling_small_1k.gltf/pine_sapling_small_1k.gltf"
+      },
+      "file": "assets/ph-nature/pine-sapling-small.glb",
+      "hit": "trunk"
+    },
+    {
+      "id": "nature/rock-07",
+      "group": "nature",
+      "title": "Rock",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/rock_07",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/rock_07/rock_07.glb"
+      },
+      "file": "assets/ph-nature/rock-07.glb",
+      "hit": "none"
+    },
+    {
+      "id": "nature/rock-09",
+      "group": "nature",
+      "title": "Rock 09",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/rock_09",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/rock_09/rock_09.glb"
+      },
+      "file": "assets/ph-nature/rock-09.glb",
+      "hit": "none"
+    },
+    {
+      "id": "nature/rock-face-01",
+      "group": "nature",
+      "title": "Rock Face",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/rock_face_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/rock_face_01/rock_face_01.glb"
+      },
+      "file": "assets/ph-nature/rock-face-01.glb",
+      "hit": "box"
+    },
+    {
+      "id": "nature/rock-face-02",
+      "group": "nature",
+      "title": "Rock Face 02",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/rock_face_02",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/rock_face_02/rock_face_02.glb"
+      },
+      "file": "assets/ph-nature/rock-face-02.glb",
+      "hit": "box"
+    },
+    {
+      "id": "nature/rock-moss-set-01",
+      "group": "nature",
+      "title": "Moss Rock Set",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/rock_moss_set_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/rock_moss_set_01/rock_moss_set_01.glb"
+      },
+      "file": "assets/ph-nature/rock-moss-set-01.glb",
+      "hit": "box"
+    },
+    {
+      "id": "nature/root-cluster-01",
+      "group": "nature",
+      "title": "Root Cluster",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/root_cluster_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/root_cluster_01/root_cluster_01.glb"
+      },
+      "file": "assets/ph-nature/root-cluster-01.glb",
+      "hit": "box"
+    },
+    {
+      "id": "nature/shrub-01",
+      "group": "nature",
+      "title": "Shrub",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/shrub_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/shrub_01/shrub_01.glb"
+      },
+      "file": "assets/ph-nature/shrub-01.glb",
+      "hit": "none"
+    },
+    {
+      "id": "nature/shrub-02",
+      "group": "nature",
+      "title": "Shrub 02",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/shrub_02",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/shrub_02/shrub_02.glb"
+      },
+      "file": "assets/ph-nature/shrub-02.glb",
+      "hit": "none"
+    },
+    {
+      "id": "nature/shrub-03",
+      "group": "nature",
+      "title": "Shrub 03",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/shrub_03",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/shrub_03/shrub_03.glb"
+      },
+      "file": "assets/ph-nature/shrub-03.glb",
+      "hit": "none"
+    },
+    {
+      "id": "nature/shrub-04",
+      "group": "nature",
+      "title": "Shrub 04",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/shrub_04",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/shrub_04/shrub_04.glb"
+      },
+      "file": "assets/ph-nature/shrub-04.glb",
+      "hit": "none"
+    },
+    {
+      "id": "nature/stone-01",
+      "group": "nature",
+      "title": "Quartz Gravel",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/stone_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/stone_01/stone_01.glb"
+      },
+      "file": "assets/ph-nature/stone-01.glb",
+      "hit": "none"
+    },
+    {
+      "id": "nature/tree-stump-02",
+      "group": "nature",
+      "title": "Tree Stump",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/tree_stump_02",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/tree_stump_02/tree_stump_02.glb"
+      },
+      "file": "assets/ph-nature/tree-stump-02.glb",
+      "hit": "box"
+    },
+    {
+      "id": "nature/weed-plant-02",
+      "group": "nature",
+      "title": "Weed Plant",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/weed_plant_02",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/weed_plant_02/weed_plant_02.glb"
+      },
+      "file": "assets/ph-nature/weed-plant-02.glb",
+      "hit": "none"
+    },
+    {
+      "id": "nature/wild-rooibos-bush",
+      "group": "nature",
+      "title": "Wild Rooibos Bush",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/wild_rooibos_bush",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/wild_rooibos_bush/wild_rooibos_bush.glb"
+      },
+      "file": "assets/ph-nature/wild-rooibos-bush.glb",
+      "hit": "none"
+    },
+    {
+      "id": "items/barrel-stove",
+      "group": "items",
+      "title": "Barrel Stove",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/barrel_stove",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/barrel_stove/barrel_stove.glb"
+      },
+      "file": "assets/ph-props/barrel-stove.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/barrel",
+      "group": "items",
+      "title": "Barrel 03",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/barrel_03",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/barrel_03/barrel_03.glb"
+      },
+      "file": "assets/ph-props/barrel.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/cardboard-box",
+      "group": "items",
+      "title": "Cardboard Box 01",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/cardboard_box_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/cardboard_box_01/cardboard_box_01.glb"
+      },
+      "file": "assets/ph-props/cardboard-box.glb",
+      "hit": "none"
+    },
+    {
+      "id": "items/concrete-road-barrier",
+      "group": "items",
+      "title": "Concrete Road Barrier",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/concrete_road_barrier",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/concrete_road_barrier/concrete_road_barrier.glb"
+      },
+      "file": "assets/ph-props/concrete-road-barrier.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/covered-car",
+      "group": "items",
+      "title": "Covered Car",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/covered_car",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/covered_car/covered_car.glb"
+      },
+      "file": "assets/ph-props/covered-car.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/fire-hydrant",
+      "group": "items",
+      "title": "Fire Hydrant",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/fire_hydrant",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/fire_hydrant/fire_hydrant.glb"
+      },
+      "file": "assets/ph-props/fire-hydrant.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/hand-truck",
+      "group": "items",
+      "title": "Hand Truck",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/hand_truck",
+        "repo": "https://github.com/TheMarco/liminal",
+        "commit": "a825b26763fc7f65e740422534a80bc00f0e08e6",
+        "path": "models/cc0/hand_truck/hand_truck_1k.gltf"
+      },
+      "file": "assets/ph-props/hand-truck.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/jerrycan",
+      "group": "items",
+      "title": "Metal Jerrycan",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/metal_jerrycan",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/metal_jerrycan/metal_jerrycan.glb"
+      },
+      "file": "assets/ph-props/jerrycan.glb",
+      "hit": "none"
+    },
+    {
+      "id": "items/metal-trash-can",
+      "group": "items",
+      "title": "Metal Trash Can",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/metal_trash_can",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/metal_trash_can/metal_trash_can.glb"
+      },
+      "file": "assets/ph-props/metal-trash-can.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/military-crate",
+      "group": "items",
+      "title": "Old Military Crate",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/old_military_crate",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/old_military_crate/old_military_crate.glb"
+      },
+      "file": "assets/ph-props/military-crate.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/old-tyre",
+      "group": "items",
+      "title": "Old Tyre",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/old_tyre",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/old_tyre/old_tyre.glb"
+      },
+      "file": "assets/ph-props/old-tyre.glb",
+      "hit": "none"
+    },
+    {
+      "id": "items/plastic-crate-3",
+      "group": "items",
+      "title": "Plastic Crate 03",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/plastic_crate_03",
+        "repo": "https://github.com/TheMarco/liminal",
+        "commit": "a825b26763fc7f65e740422534a80bc00f0e08e6",
+        "path": "models/cc0/plastic_crate_03/plastic_crate_03_1k.gltf"
+      },
+      "file": "assets/ph-props/plastic-crate-3.glb",
+      "hit": "none"
+    },
+    {
+      "id": "items/plastic-crate",
+      "group": "items",
+      "title": "Plastic Crate 02",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/plastic_crate_02",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/plastic_crate_02/plastic_crate_02.glb"
+      },
+      "file": "assets/ph-props/plastic-crate.glb",
+      "hit": "none"
+    },
+    {
+      "id": "items/propane-tank",
+      "group": "items",
+      "title": "Propane Tank",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/propane_tank",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/propane_tank/propane_tank.glb"
+      },
+      "file": "assets/ph-props/propane-tank.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/rusted-can",
+      "group": "items",
+      "title": "Can Rusted",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/can_rusted",
+        "repo": "https://github.com/TheMarco/liminal",
+        "commit": "a825b26763fc7f65e740422534a80bc00f0e08e6",
+        "path": "models/cc0/can_rusted/can_rusted_1k.gltf"
+      },
+      "file": "assets/ph-props/rusted-can.glb",
+      "hit": "none"
+    },
+    {
+      "id": "items/rusted-wheel-rim",
+      "group": "items",
+      "title": "Rusted Wheel Rim 01",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/rusted_wheel_rim_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/rusted_wheel_rim_01/rusted_wheel_rim_01.glb"
+      },
+      "file": "assets/ph-props/rusted-wheel-rim.glb",
+      "hit": "none"
+    },
+    {
+      "id": "items/steel-shelves",
+      "group": "items",
+      "title": "Steel Frame Shelves 01",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/steel_frame_shelves_01",
+        "repo": "https://github.com/TheMarco/liminal",
+        "commit": "a825b26763fc7f65e740422534a80bc00f0e08e6",
+        "path": "models/cc0/steel_frame_shelves_01/steel_frame_shelves_01_1k.gltf"
+      },
+      "file": "assets/ph-props/steel-shelves.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["y", 2.0]
+      }
+    },
+    {
+      "id": "items/stone-fire-pit",
+      "group": "items",
+      "title": "Stone Fire Pit",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/stone_fire_pit",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/stone_fire_pit/stone_fire_pit.glb"
+      },
+      "file": "assets/ph-props/stone-fire-pit.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/storage-cart",
+      "group": "items",
+      "title": "Industrial Storage Cart",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/industrial_storage_cart",
+        "repo": "https://github.com/TheMarco/liminal",
+        "commit": "a825b26763fc7f65e740422534a80bc00f0e08e6",
+        "path": "models/cc0/industrial_storage_cart/industrial_storage_cart_1k.gltf"
+      },
+      "file": "assets/ph-props/storage-cart.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/street-rat",
+      "group": "items",
+      "title": "Street Rat",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/street_rat",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/street_rat/street_rat.glb"
+      },
+      "file": "assets/ph-props/street-rat.glb",
+      "hit": "none"
+    },
+    {
+      "id": "items/trashbag",
+      "group": "items",
+      "title": "Trashbag",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/trashbag",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/trashbag/trashbag.glb"
+      },
+      "file": "assets/ph-props/trashbag.glb",
+      "hit": "none"
+    },
+    {
+      "id": "items/wooden-barrels",
+      "group": "items",
+      "title": "Wooden Barrels 01",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/wooden_barrels_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/wooden_barrels_01/wooden_barrels_01.glb"
+      },
+      "file": "assets/ph-props/wooden-barrels.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/wooden-crate-2",
+      "group": "items",
+      "title": "Wooden Crate 02",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/wooden_crate_02",
+        "repo": "https://github.com/TheMarco/liminal",
+        "commit": "a825b26763fc7f65e740422534a80bc00f0e08e6",
+        "path": "models/cc0/wooden_crate_02/wooden_crate_02_1k.gltf"
+      },
+      "file": "assets/ph-props/wooden-crate-2.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/wooden-crate",
+      "group": "items",
+      "title": "Wooden Crate 01",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/wooden_crate_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/wooden_crate_01/wooden_crate_01.glb"
+      },
+      "file": "assets/ph-props/wooden-crate.glb",
+      "hit": "box"
+    },
+    {
+      "id": "items/wooden-ladder",
+      "group": "items",
+      "title": "Wooden Ladder",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/wooden_ladder",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/wooden_ladder/wooden_ladder.glb"
+      },
+      "file": "assets/ph-props/wooden-ladder.glb",
+      "hit": "box"
+    },
+    {
+      "id": "structures/exterior-aircon-unit",
+      "group": "structures",
+      "title": "Exterior Aircon Unit",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/exterior_aircon_unit",
+        "repo": "https://github.com/zainxco/GAME",
+        "commit": "9373c7c3ff56d89860d7016fd889555af454e6aa",
+        "path": "assets/realistic/exterior_aircon_unit/exterior_aircon_unit.gltf"
+      },
+      "file": "assets/ph-structures/exterior-aircon-unit.glb",
+      "hit": "none"
+    },
+    {
+      "id": "structures/large-iron-gate",
+      "group": "structures",
+      "title": "Iron Gate",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/large_iron_gate",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/large_iron_gate/large_iron_gate.glb"
+      },
+      "file": "assets/ph-structures/large-iron-gate.glb",
+      "hit": "box"
+    },
+    {
+      "id": "structures/modular-airduct-circular-01",
+      "group": "structures",
+      "title": "Airduct",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/modular_airduct_circular_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/modular_airduct_circular_01/modular_airduct_circular_01.glb"
+      },
+      "file": "assets/ph-structures/modular-airduct-circular-01.glb",
+      "hit": "box"
+    },
+    {
+      "id": "structures/modular-chainlink-fence",
+      "group": "structures",
+      "title": "Chainlink Fence",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/modular_chainlink_fence",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/modular_chainlink_fence/modular_chainlink_fence.glb"
+      },
+      "file": "assets/ph-structures/modular-chainlink-fence.glb",
+      "hit": "box"
+    },
+    {
+      "id": "structures/modular-electric-cables",
+      "group": "structures",
+      "title": "Electric Cables",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/modular_electric_cables",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/modular_electric_cables/modular_electric_cables.glb"
+      },
+      "file": "assets/ph-structures/modular-electric-cables.glb",
+      "hit": "none"
+    },
+    {
+      "id": "structures/modular-electricity-poles",
+      "group": "structures",
+      "title": "Electricity Poles",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/modular_electricity_poles",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/modular_electricity_poles/modular_electricity_poles.glb"
+      },
+      "file": "assets/ph-structures/modular-electricity-poles.glb",
+      "hit": "trunk"
+    },
+    {
+      "id": "structures/modular-factory-facade",
+      "group": "structures",
+      "title": "Factory Facade",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/modular_factory_facade",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/modular_factory_facade/modular_factory_facade.glb"
+      },
+      "file": "assets/ph-structures/modular-factory-facade.glb",
+      "hit": "box"
+    },
+    {
+      "id": "structures/modular-fire-escape",
+      "group": "structures",
+      "title": "Fire Escape",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/modular_fire_escape",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/modular_fire_escape/modular_fire_escape.glb"
+      },
+      "file": "assets/ph-structures/modular-fire-escape.glb",
+      "hit": "box"
+    },
+    {
+      "id": "structures/modular-industrial-pipes-01",
+      "group": "structures",
+      "title": "Industrial Pipes",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/modular_industrial_pipes_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/modular_industrial_pipes_01/modular_industrial_pipes_01.glb"
+      },
+      "file": "assets/ph-structures/modular-industrial-pipes-01.glb",
+      "hit": "box"
+    },
+    {
+      "id": "structures/overhead-crane",
+      "group": "structures",
+      "title": "Overhead Crane",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/overhead_crane",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/overhead_crane/overhead_crane.glb"
+      },
+      "file": "assets/ph-structures/overhead-crane.glb",
+      "hit": "box"
+    },
+    {
+      "id": "structures/power-box-01",
+      "group": "structures",
+      "title": "Power Box",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/power_box_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/power_box_01/power_box_01.glb"
+      },
+      "file": "assets/ph-structures/power-box-01.glb",
+      "hit": "none"
+    },
+    {
+      "id": "structures/rollershutter-door",
+      "group": "structures",
+      "title": "Rollershutter Door",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/rollershutter_door",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/rollershutter_door/rollershutter_door.glb"
+      },
+      "file": "assets/ph-structures/rollershutter-door.glb",
+      "hit": "box"
+    },
+    {
+      "id": "structures/security-light",
+      "group": "structures",
+      "title": "Security Light",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/security_light",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/security_light/security_light.glb"
+      },
+      "file": "assets/ph-structures/security-light.glb",
+      "hit": "none"
+    },
+    {
+      "id": "structures/street-lamp-01",
+      "group": "structures",
+      "title": "Street Lamp",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/street_lamp_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/street_lamp_01/street_lamp_01.glb"
+      },
+      "file": "assets/ph-structures/street-lamp-01.glb",
+      "hit": "trunk"
+    },
+    {
+      "id": "structures/street-lamp-02",
+      "group": "structures",
+      "title": "Street Lamp",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/street_lamp_02",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/street_lamp_02/street_lamp_02.glb"
+      },
+      "file": "assets/ph-structures/street-lamp-02.glb",
+      "hit": "none"
+    },
+    {
+      "id": "structures/utility-box-01",
+      "group": "structures",
+      "title": "Utility Box",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/utility_box_01",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/utility_box_01/utility_box_01.glb"
+      },
+      "file": "assets/ph-structures/utility-box-01.glb",
+      "hit": "box"
+    },
+    {
+      "id": "structures/water-manhole-cover",
+      "group": "structures",
+      "title": "Manhole Cover",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/water_manhole_cover",
+        "repo": "https://github.com/localgpt-app/localgpt-world-assets",
+        "commit": "5d200a5b0b380ee134fab5e4d439cfa33230647b",
+        "path": "models/water_manhole_cover/water_manhole_cover.glb"
+      },
+      "file": "assets/ph-structures/water-manhole-cover.glb",
+      "hit": "none"
+    },
+    {
+      "id": "props/barrels-pallet",
+      "group": "props",
+      "title": "Barrels on a pallet",
+      "author": "JSlyin",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/barrels-on-a-pallet-ab550a0d20c147a08b9cf0ee97c50188",
+        "repo": "https://github.com/robi244/Proiect_Disertatie",
+        "commit": "5bd36bdd83baaeaf5c87a08c2e73fe50052a2336",
+        "path": "public/models/barrels_on_a_pallet/"
+      },
+      "file": "assets/props/barrels-pallet.glb",
+      "hit": "box"
+    },
+    {
+      "id": "props/barriers",
+      "group": "props",
+      "title": "Road Barrier Collection",
+      "author": "Miguel Teixeira",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/road-barrier-collection-bbc824137db540cabcccb0091fcd3222",
+        "repo": "https://github.com/Ibrahim-1rfan/Opengl-Alleyway-Scene",
+        "commit": "d05380f5ce2469ea191b10e81ba33a058cef200e",
+        "path": "assets/models/barrier_scene.gltf (+ barrier_scene.bin, textures/)"
+      },
+      "file": "assets/props/barriers.glb",
+      "hit": "box"
+    },
+    {
+      "id": "props/bricks-pallet",
+      "group": "props",
+      "title": "Construction Pallet - Photoscan (Optimized)",
+      "author": "GameDev Nick",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/construction-pallet-photoscan-optimized-ee1dc525a33d499bbad75c4e110050cd",
+        "repo": "https://github.com/robi244/Proiect_Disertatie",
+        "commit": "5bd36bdd83baaeaf5c87a08c2e73fe50052a2336",
+        "path": "public/models/bricks/"
+      },
+      "file": "assets/props/bricks-pallet.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["x", 1.2]
+      }
+    },
+    {
+      "id": "props/broken-glass-window",
+      "group": "props",
+      "title": "Glass Broken Window",
+      "author": "Eric Chadwick (Wayfair)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/f36bfdabd1031c3cf6689a50570b8cdf3678b49c/Models/GlassBrokenWindow",
+        "repo": "https://github.com/KhronosGroup/glTF-Sample-Assets",
+        "commit": "f36bfdabd1031c3cf6689a50570b8cdf3678b49c",
+        "path": "Models/GlassBrokenWindow/glTF-Binary/GlassBrokenWindow.glb"
+      },
+      "file": "assets/props/broken-glass-window.glb",
+      "hit": "none",
+      "fit": {
+        "target": ["y", 1.0]
+      }
+    },
+    {
+      "id": "props/broken-window",
+      "group": "props",
+      "title": "Broken Window 05",
+      "author": "Game Ready Art",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/broken-window-05-ec90485639ae4e3bad900e7f91006066",
+        "repo": "https://github.com/Ibrahim-1rfan/Opengl-Alleyway-Scene",
+        "commit": "d05380f5ce2469ea191b10e81ba33a058cef200e",
+        "path": "assets/models/window_scene.gltf (+ window_scene.bin, textures/)"
+      },
+      "file": "assets/props/broken-window.glb",
+      "hit": "none"
+    },
+    {
+      "id": "props/canister",
+      "group": "props",
+      "title": "Canister_low_poly",
+      "author": "dupak88",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/canister-low-poly-f2e5fa066a9540af8c8212ea149239dd",
+        "repo": "https://github.com/Djinux/RG-project",
+        "commit": "c305f62fea0738a8fc4310c550406ff4e44bd08a",
+        "path": "resources/objects/canister/"
+      },
+      "file": "assets/props/canister.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["y", 0.47]
+      }
+    },
+    {
+      "id": "props/concrete-barrier-scan",
+      "group": "props",
+      "title": "concrete road barrier photoscanned",
+      "author": "widthRider",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/concrete-road-barrier-photoscanned-a09622c043724a1b92e7920b22edb6bf",
+        "repo": "https://github.com/1221074/sem5pi-24-25-g051",
+        "commit": "56a2db785494e73d6787653a77ff6a0d3cbe2c0c",
+        "path": "3DVisualizationModule/angular-three/public/models/concrete_road_barrier_photoscanned/"
+      },
+      "file": "assets/props/concrete-barrier-scan.glb",
+      "hit": "box"
+    },
+    {
+      "id": "props/dirt-pile",
+      "group": "props",
+      "title": "Photoscan Low-poly Construction Sand Pile",
+      "author": "Martin Topolski",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/photoscan-low-poly-construction-sand-pile-7a7533e1ecab4b1d96da55cc3ad9ad98",
+        "repo": "https://github.com/JacobJablon/480-jnj-final",
+        "commit": "7cddb2a245c966f3405ce6b332faef777ee49478",
+        "path": "assets/EnvativeScene/dirt-pile/"
+      },
+      "file": "assets/props/dirt-pile.glb",
+      "hit": "none"
+    },
+    {
+      "id": "props/dumpster-4k",
+      "group": "props",
+      "title": "Dumpster - 4096px²",
+      "author": "Mark Peters",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/dumpster-4096px2-da3f439610fc4a2083fa4db92188e8f0",
+        "repo": "https://github.com/Ibrahim-1rfan/Opengl-Alleyway-Scene",
+        "commit": "d05380f5ce2469ea191b10e81ba33a058cef200e",
+        "path": "assets/models/dumpster_scene.gltf (+ dumpster_scene.bin, textures/)"
+      },
+      "file": "assets/props/dumpster-4k.glb",
+      "hit": "box"
+    },
+    {
+      "id": "props/dumpster",
+      "group": "props",
+      "title": "Dumpster",
+      "author": "George Hager",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/dumpster-e8b38df736994cf8b4f7a3a9d2980f6b",
+        "repo": "https://github.com/Djinux/RG-project",
+        "commit": "c305f62fea0738a8fc4310c550406ff4e44bd08a",
+        "path": "resources/objects/dumpster/"
+      },
+      "file": "assets/props/dumpster.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["y", 1.3]
+      }
+    },
+    {
+      "id": "props/lantern",
+      "group": "props",
+      "title": "Lantern",
+      "author": "sbtron (Microsoft)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/f36bfdabd1031c3cf6689a50570b8cdf3678b49c/Models/Lantern",
+        "repo": "https://github.com/KhronosGroup/glTF-Sample-Assets",
+        "commit": "f36bfdabd1031c3cf6689a50570b8cdf3678b49c",
+        "path": "Models/Lantern/glTF-Binary/Lantern.glb"
+      },
+      "file": "assets/props/lantern.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["y", 0.5]
+      }
+    },
+    {
+      "id": "props/oil-barrel",
+      "group": "props",
+      "title": "Rusty and Oil Stained Oil Barrel",
+      "author": "Sunbox Games",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/rusty-and-oil-stained-oil-barrel-c879b42696634752892c7f5e747c4ae4",
+        "repo": "https://github.com/Djinux/RG-project",
+        "commit": "c305f62fea0738a8fc4310c550406ff4e44bd08a",
+        "path": "resources/objects/oil_barrel/"
+      },
+      "file": "assets/props/oil-barrel.glb",
+      "hit": "box"
+    },
+    {
+      "id": "props/pallet",
+      "group": "props",
+      "title": "Realistic Wood pallet",
+      "author": "karollinemac",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/realistic-wood-pallet-b7fa874128a04db386fb7e32bebac2fc",
+        "repo": "https://github.com/RyanJamesLutes/dbdlike",
+        "commit": "db966c94ac553f3fb8aa5d8f9e40307c68ee1c6e",
+        "path": "models/pallet/"
+      },
+      "file": "assets/props/pallet.glb",
+      "hit": "none"
+    },
+    {
+      "id": "props/police-tape",
+      "group": "props",
+      "title": "Police Tape #132067",
+      "author": "pngslol78",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/police-tape-132067-0f60797545494db09d1059639560a2ad",
+        "repo": "https://github.com/Ibrahim-1rfan/Opengl-Alleyway-Scene",
+        "commit": "d05380f5ce2469ea191b10e81ba33a058cef200e",
+        "path": "assets/models/tape_scene.gltf (+ tape_scene.bin, textures/)"
+      },
+      "file": "assets/props/police-tape.glb",
+      "hit": "box",
+      "drop": "empty geometry"
+    },
+    {
+      "id": "props/remains",
+      "group": "props",
+      "title": "Remains",
+      "author": "seenoise",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/remains-7663ab71893f44b2b6466db3c625b061",
+        "repo": "https://github.com/DaViLlS/ZombieSurvival",
+        "commit": "bbb8aa547a75ebcda9b9fae78ec35ac9cc4ea631",
+        "path": "Assets/_Project/Content/Prefabs/Nature/remains/"
+      },
+      "file": "assets/props/remains.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["x", 2.2]
+      }
+    },
+    {
+      "id": "props/rubble-pile",
+      "group": "props",
+      "title": "Optimized Rubble Photoscan",
+      "author": "shash_wut",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/optimized-rubble-photoscan-4b1e5269b3554ceda313b7302d0ddd67",
+        "repo": "https://github.com/Djinux/RG-project",
+        "commit": "c305f62fea0738a8fc4310c550406ff4e44bd08a",
+        "path": "resources/objects/pile/"
+      },
+      "file": "assets/props/rubble-pile.glb",
+      "hit": "box"
+    },
+    {
+      "id": "props/rusty-sign",
+      "group": "props",
+      "title": "Derelict Road Sign",
+      "author": "Abandoned Scans",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/derelict-road-sign-8720bc1d4e7b4e10be6c670fe058d489",
+        "repo": "https://github.com/1zhanN/Computer-Graphics",
+        "commit": "c1b3b7c1b3e094976aa789c75136b98c4fe5418d",
+        "path": "KARACHI CITY PROJECT/TESTFILE/Assets/rustySignBoard/"
+      },
+      "file": "assets/props/rusty-sign.glb",
+      "hit": "trunk",
+      "fit": {
+        "target": ["y", 3.2]
+      }
+    },
+    {
+      "id": "props/street-lamp",
+      "group": "props",
+      "title": "Old Street Lamp",
+      "author": "wolfgar74",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/old-street-lamp-2a3702c1fa62426998715fc11ff84024",
+        "repo": "https://github.com/SapienzaInteractiveGraphicsCourse/final-project-giasca-team",
+        "commit": "4fdde62151e4521261638dcd15467804a6fbd451",
+        "path": "models/street lamp/"
+      },
+      "file": "assets/props/street-lamp.glb",
+      "hit": "trunk",
+      "fit": {
+        "target": ["y", 4.5]
+      }
+    },
+    {
+      "id": "props/traffic-cone",
+      "group": "props",
+      "title": "Traffic Cone",
+      "author": "hinndia",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/traffic-cone-573feef839d7450cb3e12da9986e7a98",
+        "repo": "https://github.com/KhronosGroup/glTF-Sample-Assets",
+        "commit": "f36bfdabd1031c3cf6689a50570b8cdf3678b49c",
+        "path": "Models/TrafficCone/glTF-Binary/TrafficCone.glb"
+      },
+      "file": "assets/props/traffic-cone.glb",
+      "hit": "none"
+    },
+    {
+      "id": "props/trash-bag",
+      "group": "props",
+      "title": "Trash Bag v2 free",
+      "author": "George B",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/trash-bag-v2-free-9ef36ddf03bb4db99bc32a369cc2c871",
+        "repo": "https://github.com/Djinux/RG-project",
+        "commit": "c305f62fea0738a8fc4310c550406ff4e44bd08a",
+        "path": "resources/objects/trash_bag/"
+      },
+      "file": "assets/props/trash-bag.glb",
+      "hit": "none",
+      "fit": {
+        "target": ["y", 0.7]
+      }
+    },
+    {
+      "id": "survivors/rb-female03",
+      "group": "survivors",
+      "title": "Rocketbox Female_Adult_03",
+      "author": "Microsoft Rocketbox avatar library (Microsoft)",
+      "license": "MIT",
+      "source": {
+        "url": "https://github.com/microsoft/Microsoft-Rocketbox",
+        "repo": "https://github.com/microsoft/Microsoft-Rocketbox",
+        "commit": "0943055db6ec570bcef9f2c8b41c9e5467c808f9",
+        "path": "Assets/Avatars/Adults/Female_Adult_03/Export/Female_Adult_03.fbx"
+      },
+      "file": "assets/survivors/rb-female03.glb",
+      "hit": "none",
+      "skinned": true
+    },
+    {
+      "id": "survivors/rb-male05",
+      "group": "survivors",
+      "title": "Rocketbox Male_Adult_05",
+      "author": "Microsoft Rocketbox avatar library (Microsoft)",
+      "license": "MIT",
+      "source": {
+        "url": "https://github.com/microsoft/Microsoft-Rocketbox",
+        "repo": "https://github.com/microsoft/Microsoft-Rocketbox",
+        "commit": "0943055db6ec570bcef9f2c8b41c9e5467c808f9",
+        "path": "Assets/Avatars/Adults/Male_Adult_05/Export/Male_Adult_05.fbx"
+      },
+      "file": "assets/survivors/rb-male05.glb",
+      "hit": "none",
+      "skinned": true
+    },
+    {
+      "id": "survivors/rb-medic",
+      "group": "survivors",
+      "title": "Rocketbox Medical_Female_01",
+      "author": "Microsoft Rocketbox avatar library (Microsoft)",
+      "license": "MIT",
+      "source": {
+        "url": "https://github.com/microsoft/Microsoft-Rocketbox",
+        "repo": "https://github.com/microsoft/Microsoft-Rocketbox",
+        "commit": "0943055db6ec570bcef9f2c8b41c9e5467c808f9",
+        "path": "Assets/Avatars/Professions/Medical_Female_01/Export/Medical_Female_01.fbx"
+      },
+      "file": "assets/survivors/rb-medic.glb",
+      "hit": "none",
+      "skinned": true
+    },
+    {
+      "id": "survivors/rb-military",
+      "group": "survivors",
+      "title": "Rocketbox Military_Male_01",
+      "author": "Microsoft Rocketbox avatar library (Microsoft)",
+      "license": "MIT",
+      "source": {
+        "url": "https://github.com/microsoft/Microsoft-Rocketbox",
+        "repo": "https://github.com/microsoft/Microsoft-Rocketbox",
+        "commit": "0943055db6ec570bcef9f2c8b41c9e5467c808f9",
+        "path": "Assets/Avatars/Professions/Military_Male_01/Export/Military_Male_01.fbx"
+      },
+      "file": "assets/survivors/rb-military.glb",
+      "hit": "none",
+      "skinned": true
+    },
+    {
+      "id": "survivors/rb-police",
+      "group": "survivors",
+      "title": "Rocketbox Police_Male_01",
+      "author": "Microsoft Rocketbox avatar library (Microsoft)",
+      "license": "MIT",
+      "source": {
+        "url": "https://github.com/microsoft/Microsoft-Rocketbox",
+        "repo": "https://github.com/microsoft/Microsoft-Rocketbox",
+        "commit": "0943055db6ec570bcef9f2c8b41c9e5467c808f9",
+        "path": "Assets/Avatars/Professions/Police_Male_01/Export/Police_Male_01.fbx"
+      },
+      "file": "assets/survivors/rb-police.glb",
+      "hit": "none",
+      "skinned": true
+    },
+    {
+      "id": "survivors/s2",
+      "group": "survivors",
+      "title": "Ukrainian Soldier (optimized for games)",
+      "author": "Kovname (https://sketchfab.com/Kovname)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/ukrainian-soldier-optimized-for-games-c2fecaf558424216baa69f3a15f72fd1",
+        "repo": "https://github.com/danyloosypov/diploma-front",
+        "commit": "6e1449ef5253133cfdb96b55107351f015bc0b88",
+        "path": "public/squadlead/scene.gltf"
+      },
+      "file": "assets/survivors/s2.glb",
+      "hit": "none",
+      "skinned": true
+    },
+    {
+      "id": "survivors/s3",
+      "group": "survivors",
+      "title": "City Soldier (outdated)",
+      "author": "buh (https://sketchfab.com/buh-late)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/city-soldier-outdated-636b5a7c7e0c400abda269ba382f3252",
+        "repo": "https://github.com/perara-libs/3d-models",
+        "commit": "b63bd92446832698fe10113739b8fef4a4940b0c",
+        "path": "city_soldier/soldier.gltf"
+      },
+      "file": "assets/survivors/s3.glb",
+      "hit": "none",
+      "skinned": true
+    },
+    {
+      "id": "survivors/s4",
+      "group": "survivors",
+      "title": "Soldier",
+      "author": "Vr-cvantorium (https://sketchfab.com/Vr-cvantorium)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/soldier-6746867266f04bf5aed3b4f0a6df278c",
+        "repo": "https://github.com/actcfx/CGLProject3",
+        "commit": "0b6075125a7b43202da5f6607262794d202c3833",
+        "path": "assets/models/soldier/scene.gltf"
+      },
+      "file": "assets/survivors/s4.glb",
+      "hit": "none",
+      "skinned": true
+    },
+    {
+      "id": "vehicles/btr80",
+      "group": "vehicles",
+      "title": "Abandoned Soviet BTR - 80",
+      "author": "GameDev Nick",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/abandoned-soviet-btr-80-32145d6303e5487e9d92097b9845ef02",
+        "repo": "https://github.com/Felicitas12/NSC-2025-Zorepad",
+        "commit": "c45ccc6f391d629082104cb35e2e0ff6740855e1",
+        "path": "out/build/x64-Release/assets/objects/abandoned_soviet_btr_-_80/scene.gltf"
+      },
+      "file": "assets/vehicles/btr80.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["z", 7.7]
+      }
+    },
+    {
+      "id": "vehicles/burnt-cars",
+      "group": "vehicles",
+      "title": "Burned-out Cars",
+      "author": "Renafox",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/burned-out-cars-701066df6b914fd08318524c7ccd96a7",
+        "repo": "https://github.com/AaronDinesh/Computer-Graphics",
+        "commit": "8b1ac0f38c72cad3202ac0b4c9c05198e025aed4",
+        "path": "HelloOBJ/Objects/burntCar/scene.gltf"
+      },
+      "file": "assets/vehicles/burnt-cars.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["x", 8]
+      }
+    },
+    {
+      "id": "vehicles/bus",
+      "group": "vehicles",
+      "title": "Abandoned Wrecked Bus",
+      "author": "BytesCrafter",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/abandoned-wrecked-bus-0cbd1d8122f442d0a3a4b8a6df4f0e2e",
+        "repo": "https://github.com/bishal0602/UrbanLabyrinth",
+        "commit": "2a2dd9fee7585e4b754995edf3ebfb14bdadd711",
+        "path": "src/Resources/Cars/abandoned_wrecked_bus/scene.gltf"
+      },
+      "file": "assets/vehicles/bus.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["max", 11]
+      },
+      "skinned": true,
+      "note": "bbox from skinned mesh may be wrong: bake skin to static first, then fit; a city bus is 11 m long"
+    },
+    {
+      "id": "vehicles/car",
+      "group": "vehicles",
+      "title": "Abandoned Car",
+      "author": "Leandro Andrade",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/abandoned-car-c25ccc5a116342218d02dd57607e3f71",
+        "repo": "https://github.com/TiagoBrito36/Projeto_ICG_2024-25",
+        "commit": "750d0dbba84192e25e370f190b6ec5b416e04e48",
+        "path": "assets/models/abandoned_car/scene.gltf"
+      },
+      "file": "assets/vehicles/car.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["x", 4.6]
+      }
+    },
+    {
+      "id": "vehicles/destroyed-bus",
+      "group": "vehicles",
+      "title": "destroyed Bus 01",
+      "author": "o0ozexo0o",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/destroyed-bus-01-fdf39ca893a64368af45f82a6b6d68a4",
+        "repo": "https://github.com/Graphic-task-22/220812032-",
+        "commit": "d4a3e0fd06091b97e5cd3f08a083d4cf11178a6d",
+        "path": "Big task/public/assets/GLTF/destroyed_bus/scene.gltf"
+      },
+      "file": "assets/vehicles/destroyed-bus.glb",
+      "hit": "box"
+    },
+    {
+      "id": "vehicles/gaz66",
+      "group": "vehicles",
+      "title": "Gaz-66",
+      "author": "Ashkelon",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/gaz-66-7ded7bb56ffc4f8c9a3ab68de876073e",
+        "repo": "https://github.com/AaronDinesh/Computer-Graphics",
+        "commit": "8b1ac0f38c72cad3202ac0b4c9c05198e025aed4",
+        "path": "HelloOBJ/Objects/gaz-66/scene.gltf"
+      },
+      "file": "assets/vehicles/gaz66.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["z", 5.8]
+      }
+    },
+    {
+      "id": "vehicles/junk-car",
+      "group": "vehicles",
+      "title": "Abandoned & junk Car",
+      "author": "Plexus Game Assets",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/abandoned-junk-car-05380656cca847feb3c2a423afb04c65",
+        "repo": "https://github.com/Babalang/fear-mansion",
+        "commit": "41567fae725901078d7e75af021960778b71b1e0",
+        "path": "Objects/abandoned__junk_car/scene.gltf"
+      },
+      "file": "assets/vehicles/junk-car.glb",
+      "hit": "box"
+    },
+    {
+      "id": "vehicles/sedan",
+      "group": "vehicles",
+      "title": "Abandoned Generic Sedan 1 - Game Ready",
+      "author": "Rashad Ibrahimli",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/abandoned-generic-sedan-1-game-ready-6a2169dafc254f399387a679305bb1bf",
+        "repo": "https://github.com/alikomurcu/cg25-renderforge",
+        "commit": "5316f3a60c3ae285cc6956e07a0516c8e229ff0d",
+        "path": "resources/models/abandoned_car/scene.gltf"
+      },
+      "file": "assets/vehicles/sedan.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["z", 4.6]
+      }
+    },
+    {
+      "id": "vehicles/tractor",
+      "group": "vehicles",
+      "title": "Tractor",
+      "author": "selfie 3D scan",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/tractor-1b258bcc01bf4ed0935ef73e80442c30",
+        "repo": "https://github.com/DaViLlS/ZombieSurvival",
+        "commit": "bbb8aa547a75ebcda9b9fae78ec35ac9cc4ea631",
+        "path": "Assets/_Project/Content/Prefabs/VillageProps/tractor/scene.gltf"
+      },
+      "file": "assets/vehicles/tractor.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["z", 3.5]
+      }
+    },
+    {
+      "id": "vehicles/van",
+      "group": "vehicles",
+      "title": "van realistic abandoned PBR low poly",
+      "author": "mortalityrexotable",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/van-realistic-abandoned-pbr-low-poly-e6d6f69a2bf748789f60066ffa9371a6",
+        "repo": "https://github.com/onepal-was-taken/computer-graphics-sandbox",
+        "commit": "80bbd8ddd8e3dd2b8ea86b3e4937733f5d9c6c7a",
+        "path": "assets/van_realistic_abandoned_pbr_low_poly/scene.gltf"
+      },
+      "file": "assets/vehicles/van.glb",
+      "hit": "box",
+      "fit": {
+        "target": ["x", 5.6]
+      }
+    },
+    {
+      "id": "zombies/peter-d-death",
+      "group": "zombies",
+      "title": "Zombie Soldier (death clip)",
+      "author": "Peter_D (https://sketchfab.com/better_peter)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/zombie-soldier-176e930e63d144cc8f615b8dd3a8c74f",
+        "repo": "https://github.com/je55pr/zombonz",
+        "commit": "2ebf285f4e611ad8cd218ea2d55169c336d5e1fd",
+        "path": "public/assets/zombies/peter_d/death.glb"
+      },
+      "file": "assets/zombies/peter-d-death.glb",
+      "hit": "none",
+      "gore": true
+    },
+    {
+      "id": "zombies/z1b",
+      "group": "zombies",
+      "title": "Zombie",
+      "author": "pxltiger (https://sketchfab.com/pxltiger)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/zombie-73ef58af341e46afba1da53366ed79cf",
+        "repo": "https://github.com/RealAbdurRehman/decay",
+        "commit": "31c1e23133780d741019f6281b37ad84fa536147",
+        "path": "public/Enemies/Zombie Normal/scene.gltf"
+      },
+      "file": "assets/zombies/z1b.glb",
+      "hit": "none",
+      "skinned": true,
+      "gore": true
+    },
+    {
+      "id": "zombies/z2",
+      "group": "zombies",
+      "title": "zombie",
+      "author": "rato biônico games (https://sketchfab.com/felip32pppp)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/zombie-c82e9d41565c4e1da7346629a77921b2",
+        "repo": "https://github.com/RealAbdurRehman/decay",
+        "commit": "31c1e23133780d741019f6281b37ad84fa536147",
+        "path": "public/Enemies/Zombie Normal 2/scene.gltf"
+      },
+      "file": "assets/zombies/z2.glb",
+      "hit": "none",
+      "fit": {
+        "target": ["y", 1.9]
+      },
+      "skinned": true,
+      "gore": true
+    },
+    {
+      "id": "zombies/z3",
+      "group": "zombies",
+      "title": "ZOMBIE. Animation test for the game",
+      "author": "stasbelyk13 (https://sketchfab.com/stasbelyk13)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/zombie-animation-test-for-the-game-093d4624339c43afb277a2abab9b4735",
+        "repo": "https://github.com/RealAbdurRehman/decay",
+        "commit": "31c1e23133780d741019f6281b37ad84fa536147",
+        "path": "public/Enemies/Zombie Skinny/skinny.glb"
+      },
+      "file": "assets/zombies/z3.glb",
+      "hit": "none",
+      "fit": {
+        "target": ["y", 2.0]
+      },
+      "skinned": true,
+      "gore": true
+    },
+    {
+      "id": "zombies/z4",
+      "group": "zombies",
+      "title": "Zombie Hazmat",
+      "author": "LxNazarov (https://sketchfab.com/LxNazarov)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/zombie-hazmat-49b3b4307f6a4d2386fdb02354158d04",
+        "repo": "https://github.com/VixidDev/Heatstroke",
+        "commit": "96fdc4c94ba6c37786b0af6e8caf44b6cf2913f0",
+        "path": "Game/assets/characters/zombie/scene.gltf"
+      },
+      "file": "assets/zombies/z4.glb",
+      "hit": "none",
+      "skinned": true,
+      "gore": true
+    },
+    {
+      "id": "zombies/z5",
+      "group": "zombies",
+      "title": "Zombie Soldier",
+      "author": "Peter_D (https://sketchfab.com/better_peter)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/zombie-soldier-176e930e63d144cc8f615b8dd3a8c74f",
+        "repo": "https://github.com/je55pr/zombonz",
+        "commit": "2ebf285f4e611ad8cd218ea2d55169c336d5e1fd",
+        "path": "public/assets/zombies/peter_d/model.glb"
+      },
+      "file": "assets/zombies/z5.glb",
+      "hit": "none",
+      "skinned": true,
+      "gore": true
+    },
+    {
+      "id": "zombies/z6",
+      "group": "zombies",
+      "title": "Zombie (Rigged & Animated)",
+      "author": "Aiden Studios (https://sketchfab.com/aidenstudios)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/zombie-rigged-animated-131688807ad444609ed9b2ed572dc4aa",
+        "repo": "https://github.com/jabrailkhalil/saber-slasher",
+        "commit": "77d684913e1967199b8415b6b9e618765b184ea7",
+        "path": "public/models/zombie_rigged__animated/scene.gltf"
+      },
+      "file": "assets/zombies/z6.glb",
+      "hit": "none",
+      "skinned": true,
+      "gore": true
+    },
+    {
+      "id": "zombies/z7",
+      "group": "zombies",
+      "title": "Zombie",
+      "author": "DJMaesen (https://sketchfab.com/bumstrum)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/zombie-25c230a1e2f2462fa3de298fc8bca30a",
+        "repo": "https://github.com/Nick-hub3/hand-cannon",
+        "commit": "2e161e5bf1ddfeb05b79af622f071234e69aeb6f",
+        "path": "assets/enemies/Zombie_25c230a1e2f2462fa3de298fc8bca30a_extracted/scene.gltf"
+      },
+      "file": "assets/zombies/z7.glb",
+      "hit": "none",
+      "fit": {
+        "target": ["y", 2.0]
+      },
+      "skinned": true,
+      "gore": true
+    },
+    {
+      "id": "zombies/z8",
+      "group": "zombies",
+      "title": "Zombie",
+      "author": "πRat (https://sketchfab.com/GrimZu)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/zombie-0541416bd635486f95cb3d44f8f676c1",
+        "repo": "https://github.com/GrecoLucas/epic-game",
+        "commit": "927446221bad96b0423f37d75811112ce4db3ef3",
+        "path": "models/Zombie2/scene.gltf"
+      },
+      "file": "assets/zombies/z8.glb",
+      "hit": "none",
+      "gore": true
+    },
+    {
+      "id": "zombies/z9",
+      "group": "zombies",
+      "title": "Zombie-Boss1",
+      "author": "vera_grande (https://sketchfab.com/vera_grande)",
+      "license": "CC-BY-4.0",
+      "source": {
+        "url": "https://sketchfab.com/3d-models/zombie-boss1-11febec406e248cbbafef450304b683a",
+        "repo": "https://github.com/ShubhamPhogat/AR-project",
+        "commit": "c7c0b6ec67be16632f3b3fe52b4947dbb3dc1ece",
+        "path": "AR1/alphabetModels/zombie-boss1/scene.gltf"
+      },
+      "file": "assets/zombies/z9.glb",
+      "hit": "none",
+      "fit": {
+        "target": ["y", 2.4]
+      },
+      "gore": true
+    }
+  ],
+  "textures": [
+    {
+      "id": "grass004",
+      "title": "Трава газонная (Grass 004)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Grass004",
+        "repo": "https://github.com/Kevin-Liu-01/Claude-of-Tanks",
+        "commit": "47754dc39535fe97386149d8c9af1c0c104a2d39",
+        "path": "public/textures/terrain/"
+      },
+      "dir": "assets/textures/grass004"
+    },
+    {
+      "id": "ground037",
+      "title": "Дикая трава с проплешинами (Ground 037)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Ground037",
+        "repo": "https://github.com/Krupnikas/osm-racing",
+        "commit": "7a62f053879ebe945ef722d6c7a472ee9e686474",
+        "path": "textures/"
+      },
+      "dir": "assets/textures/ground037"
+    },
+    {
+      "id": "ground071",
+      "title": "Сухая земля с соломой (Ground 071)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Ground071",
+        "repo": "https://github.com/Kevin-Liu-01/Claude-of-Tanks",
+        "commit": "47754dc39535fe97386149d8c9af1c0c104a2d39",
+        "path": "public/textures/terrain/"
+      },
+      "dir": "assets/textures/ground071"
+    },
+    {
+      "id": "ground093c",
+      "title": "Песок ровный бежевый (Ground 093C)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Ground093C",
+        "repo": "https://github.com/Kevin-Liu-01/Claude-of-Tanks",
+        "commit": "47754dc39535fe97386149d8c9af1c0c104a2d39",
+        "path": "public/textures/terrain/"
+      },
+      "dir": "assets/textures/ground093c"
+    },
+    {
+      "id": "withered_grass",
+      "title": "Пожухлая трава (Withered Grass)",
+      "category": "ground",
+      "author": "Charlotte Baglioni / Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/withered_grass",
+        "repo": "https://github.com/Kevin-Liu-01/Claude-of-Tanks",
+        "commit": "47754dc39535fe97386149d8c9af1c0c104a2d39",
+        "path": "public/textures/terrain/"
+      },
+      "dir": "assets/textures/withered_grass"
+    },
+    {
+      "id": "aerial_grass_rock",
+      "title": "Камень с травой и мхом, вид сверху (Aerial Grass Rock)",
+      "category": "ground",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/aerial_grass_rock",
+        "repo": "https://github.com/shuangboxu/alpenruhe",
+        "commit": "9b0c29f82764159630ce875537f9fa70e3d538ab",
+        "path": "public/assets/textures/"
+      },
+      "dir": "assets/textures/aerial_grass_rock"
+    },
+    {
+      "id": "forest_ground_04",
+      "title": "Лесная земля тёмная (Forest Ground 04)",
+      "category": "ground",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/forest_ground_04",
+        "repo": "https://github.com/shuangboxu/alpenruhe",
+        "commit": "9b0c29f82764159630ce875537f9fa70e3d538ab",
+        "path": "public/assets/textures/"
+      },
+      "dir": "assets/textures/forest_ground_04"
+    },
+    {
+      "id": "forest_leaves_02",
+      "title": "Лесная подстилка с листвой и мхом (Forest Leaves 02)",
+      "category": "ground",
+      "author": "Rob Tuytel / Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/forest_leaves_02",
+        "repo": "https://github.com/shuangboxu/alpenruhe",
+        "commit": "9b0c29f82764159630ce875537f9fa70e3d538ab",
+        "path": "public/assets/landscape-detail/"
+      },
+      "dir": "assets/textures/forest_leaves_02"
+    },
+    {
+      "id": "forrest_ground_01",
+      "title": "Лесная земля с травой (Forrest Ground 01)",
+      "category": "ground",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/forrest_ground_01",
+        "repo": "https://github.com/Joshkaki00/godotmark",
+        "commit": "cb9d9f5a944cfe24741c528014317b960efc62a5",
+        "path": "art/nature-benchmark-archive-20260311_173846/forrest_ground_01_1k.gltf/textures/"
+      },
+      "dir": "assets/textures/forrest_ground_01"
+    },
+    {
+      "id": "brown_mud_02",
+      "title": "Бурая грязь тёмная влажная (Brown Mud 02)",
+      "category": "ground",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/brown_mud_02",
+        "repo": "https://github.com/Joshkaki00/godotmark",
+        "commit": "cb9d9f5a944cfe24741c528014317b960efc62a5",
+        "path": "art/nature-benchmark-archive-20260311_173846/brown_mud_02_1k.gltf/textures/"
+      },
+      "dir": "assets/textures/brown_mud_02"
+    },
+    {
+      "id": "brown_mud_dry",
+      "title": "Сухая бурая грязь с камешками (Brown Mud Dry)",
+      "category": "ground",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/brown_mud_dry",
+        "repo": "https://github.com/Joshkaki00/godotmark",
+        "commit": "cb9d9f5a944cfe24741c528014317b960efc62a5",
+        "path": "art/nature-benchmark-archive-20260311_173846/brown_mud_dry_1k.gltf/textures/"
+      },
+      "dir": "assets/textures/brown_mud_dry"
+    },
+    {
+      "id": "brown_mud_leaves_01",
+      "title": "Грязь с мелкой зеленью и листьями (Brown Mud Leaves 01)",
+      "category": "ground",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/brown_mud_leaves_01",
+        "repo": "https://github.com/Joshkaki00/godotmark",
+        "commit": "cb9d9f5a944cfe24741c528014317b960efc62a5",
+        "path": "art/nature-benchmark-archive-20260311_173846/brown_mud_leaves_01_1k.gltf/textures/"
+      },
+      "dir": "assets/textures/brown_mud_leaves_01"
+    },
+    {
+      "id": "brown_mud_rocks_01",
+      "title": "Грязь с камнями влажная (Brown Mud Rocks 01)",
+      "category": "ground",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/brown_mud_rocks_01",
+        "repo": "https://github.com/Joshkaki00/godotmark",
+        "commit": "cb9d9f5a944cfe24741c528014317b960efc62a5",
+        "path": "art/nature-benchmark-archive-20260311_173846/brown_mud_rocks_01_1k.gltf/textures/"
+      },
+      "dir": "assets/textures/brown_mud_rocks_01"
+    },
+    {
+      "id": "rocky_trail",
+      "title": "Каменистая тропа, гравий (Rocky Trail)",
+      "category": "ground",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/rocky_trail",
+        "repo": "https://github.com/Joshkaki00/godotmark",
+        "commit": "cb9d9f5a944cfe24741c528014317b960efc62a5",
+        "path": "art/nature-benchmark-archive-20260311_173846/rocky_trail_1k.gltf/textures/"
+      },
+      "dir": "assets/textures/rocky_trail"
+    },
+    {
+      "id": "rocky_terrain_02",
+      "title": "Каменистая земля со мхом (Rocky Terrain 02)",
+      "category": "ground",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/rocky_terrain_02",
+        "repo": "https://github.com/shuangboxu/alpenruhe",
+        "commit": "9b0c29f82764159630ce875537f9fa70e3d538ab",
+        "path": "public/assets/textures/"
+      },
+      "dir": "assets/textures/rocky_terrain_02"
+    },
+    {
+      "id": "cliff_side",
+      "title": "Скальный обрыв слоистый, рыжий (Cliff Side)",
+      "category": "ground",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/cliff_side",
+        "repo": "https://github.com/shuangboxu/alpenruhe",
+        "commit": "9b0c29f82764159630ce875537f9fa70e3d538ab",
+        "path": "public/assets/textures/"
+      },
+      "dir": "assets/textures/cliff_side"
+    },
+    {
+      "id": "rock058",
+      "title": "Тёмная скала с прожилками (Rock 058)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Rock058",
+        "repo": "https://github.com/Kevin-Liu-01/Claude-of-Tanks",
+        "commit": "47754dc39535fe97386149d8c9af1c0c104a2d39",
+        "path": "public/textures/terrain/"
+      },
+      "dir": "assets/textures/rock058"
+    },
+    {
+      "id": "rock063",
+      "title": "Камень со мхом и лишайником (Rock 063)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Rock063",
+        "repo": "https://github.com/Kevin-Liu-01/Claude-of-Tanks",
+        "commit": "47754dc39535fe97386149d8c9af1c0c104a2d39",
+        "path": "public/textures/terrain/"
+      },
+      "dir": "assets/textures/rock063"
+    },
+    {
+      "id": "dry_river_pebbles",
+      "title": "Речная галька (Dry River Pebbles)",
+      "category": "ground",
+      "author": "Amal Kumar / Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/dry_river_pebbles",
+        "repo": "https://github.com/shuangboxu/alpenruhe",
+        "commit": "9b0c29f82764159630ce875537f9fa70e3d538ab",
+        "path": "public/assets/landscape-detail/"
+      },
+      "dir": "assets/textures/dry_river_pebbles"
+    },
+    {
+      "id": "moss_wood",
+      "title": "Замшелые доски (Moss Wood)",
+      "category": "ground",
+      "author": "Rob Tuytel / Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/moss_wood",
+        "repo": "https://github.com/shuangboxu/alpenruhe",
+        "commit": "9b0c29f82764159630ce875537f9fa70e3d538ab",
+        "path": "public/assets/landscape-detail/"
+      },
+      "dir": "assets/textures/moss_wood"
+    },
+    {
+      "id": "snow010a",
+      "title": "Снег ровный (Snow 010A)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Snow010A",
+        "repo": "https://github.com/Kevin-Liu-01/Claude-of-Tanks",
+        "commit": "47754dc39535fe97386149d8c9af1c0c104a2d39",
+        "path": "public/textures/terrain/"
+      },
+      "dir": "assets/textures/snow010a"
+    },
+    {
+      "id": "pavingstones046",
+      "title": "Брусчатка серая (Paving Stones 046)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=PavingStones046",
+        "repo": "https://github.com/Kevin-Liu-01/Claude-of-Tanks",
+        "commit": "47754dc39535fe97386149d8c9af1c0c104a2d39",
+        "path": "public/textures/terrain/"
+      },
+      "dir": "assets/textures/pavingstones046"
+    },
+    {
+      "id": "asphalt009",
+      "title": "Асфальт светло-серый (Asphalt 009)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Asphalt009",
+        "repo": "https://github.com/oh-ashen-one/grindline",
+        "commit": "2c0932270778ee1392f72d9815860987b0b4080c",
+        "path": "assets/textures/Asphalt009/"
+      },
+      "dir": "assets/textures/asphalt009"
+    },
+    {
+      "id": "asphalt014",
+      "title": "Асфальт серо-синий гладкий (Asphalt 014)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Asphalt014",
+        "repo": "https://github.com/Krupnikas/osm-racing",
+        "commit": "7a62f053879ebe945ef722d6c7a472ee9e686474",
+        "path": "textures/road/"
+      },
+      "dir": "assets/textures/asphalt014"
+    },
+    {
+      "id": "asphalt022",
+      "title": "Асфальт тротуарный с пятнами (Asphalt 022)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Asphalt022",
+        "repo": "https://github.com/Krupnikas/osm-racing",
+        "commit": "7a62f053879ebe945ef722d6c7a472ee9e686474",
+        "path": "textures/road/"
+      },
+      "dir": "assets/textures/asphalt022"
+    },
+    {
+      "id": "asphalt026b",
+      "title": "Асфальт тёмный с трещинами (Asphalt 026B)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Asphalt026B",
+        "repo": "https://github.com/Krupnikas/osm-racing",
+        "commit": "7a62f053879ebe945ef722d6c7a472ee9e686474",
+        "path": "textures/road/"
+      },
+      "dir": "assets/textures/asphalt026b"
+    },
+    {
+      "id": "asphalt025c",
+      "title": "Асфальт мокрый почти чёрный (Asphalt 025C)",
+      "category": "ground",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Asphalt025C",
+        "repo": "https://github.com/TheMarco/liminal",
+        "commit": "a825b26763fc7f65e740422534a80bc00f0e08e6",
+        "path": "textures/cc0/Asphalt025C/"
+      },
+      "dir": "assets/textures/asphalt025c"
+    },
+    {
+      "id": "asphalt_02",
+      "title": "Асфальт потрескавшийся (Asphalt 02)",
+      "category": "ground",
+      "author": "Rob Tuytel / Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/asphalt_02",
+        "repo": "https://github.com/zainxco/GAME",
+        "commit": "9373c7c3ff56d89860d7016fd889555af454e6aa",
+        "path": "assets/realistic/"
+      },
+      "dir": "assets/textures/asphalt_02"
+    },
+    {
+      "id": "damaged_concrete_floor_02",
+      "title": "Повреждённый бетонный пол (Damaged Concrete Floor 02)",
+      "category": "ground",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/damaged_concrete_floor_02",
+        "repo": "https://github.com/TheMarco/liminal",
+        "commit": "a825b26763fc7f65e740422534a80bc00f0e08e6",
+        "path": "textures/brutalist/damaged_concrete_floor_02/"
+      },
+      "dir": "assets/textures/damaged_concrete_floor_02"
+    },
+    {
+      "id": "bricks097",
+      "title": "Кирпич красный старый (Bricks 097)",
+      "category": "walls",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Bricks097",
+        "repo": "https://github.com/Kevin-Liu-01/Claude-of-Tanks",
+        "commit": "47754dc39535fe97386149d8c9af1c0c104a2d39",
+        "path": "public/textures/buildings/"
+      },
+      "dir": "assets/textures/bricks097"
+    },
+    {
+      "id": "paintedbricks001",
+      "title": "Кирпич крашеный синий (Painted Bricks 001)",
+      "category": "walls",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=PaintedBricks001",
+        "repo": "https://github.com/TheMarco/liminal",
+        "commit": "a825b26763fc7f65e740422534a80bc00f0e08e6",
+        "path": "textures/mall/PaintedBricks001/"
+      },
+      "dir": "assets/textures/paintedbricks001"
+    },
+    {
+      "id": "brick_wall_02",
+      "title": "Кирпичная стена пёстрая (Brick Wall 02)",
+      "category": "walls",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/brick_wall_02",
+        "repo": "https://github.com/zainxco/GAME",
+        "commit": "9373c7c3ff56d89860d7016fd889555af454e6aa",
+        "path": "assets/realistic/"
+      },
+      "dir": "assets/textures/brick_wall_02"
+    },
+    {
+      "id": "plaster007",
+      "title": "Штукатурка белая обветшалая (Plaster 007)",
+      "category": "walls",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Plaster007",
+        "repo": "https://github.com/Kevin-Liu-01/Claude-of-Tanks",
+        "commit": "47754dc39535fe97386149d8c9af1c0c104a2d39",
+        "path": "public/textures/buildings/"
+      },
+      "dir": "assets/textures/plaster007"
+    },
+    {
+      "id": "concrete016",
+      "title": "Бетон гладкий серый (Concrete 016)",
+      "category": "walls",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Concrete016",
+        "repo": "https://github.com/TheMarco/liminal",
+        "commit": "a825b26763fc7f65e740422534a80bc00f0e08e6",
+        "path": "textures/prison/Concrete016/"
+      },
+      "dir": "assets/textures/concrete016"
+    },
+    {
+      "id": "concrete034",
+      "title": "Бетон светлый затёртый (Concrete 034)",
+      "category": "walls",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Concrete034",
+        "repo": "https://github.com/oh-ashen-one/grindline",
+        "commit": "2c0932270778ee1392f72d9815860987b0b4080c",
+        "path": "assets/textures/Concrete034/"
+      },
+      "dir": "assets/textures/concrete034"
+    },
+    {
+      "id": "concrete_wall_006",
+      "title": "Бетонная стена с подтёками (Concrete Wall 006)",
+      "category": "walls",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/concrete_wall_006",
+        "repo": "https://github.com/TheMarco/liminal",
+        "commit": "a825b26763fc7f65e740422534a80bc00f0e08e6",
+        "path": "textures/brutalist/concrete_wall_006/"
+      },
+      "dir": "assets/textures/concrete_wall_006"
+    },
+    {
+      "id": "planks023a",
+      "title": "Доски тёмные выветренные (Planks 023A)",
+      "category": "walls",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Planks023A",
+        "repo": "https://github.com/Kevin-Liu-01/Claude-of-Tanks",
+        "commit": "47754dc39535fe97386149d8c9af1c0c104a2d39",
+        "path": "public/textures/buildings/"
+      },
+      "dir": "assets/textures/planks023a"
+    },
+    {
+      "id": "roofingtiles012a",
+      "title": "Черепица терракотовая (Roofing Tiles 012A)",
+      "category": "walls",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=RoofingTiles012A",
+        "repo": "https://github.com/Kevin-Liu-01/Claude-of-Tanks",
+        "commit": "47754dc39535fe97386149d8c9af1c0c104a2d39",
+        "path": "public/textures/buildings/"
+      },
+      "dir": "assets/textures/roofingtiles012a"
+    },
+    {
+      "id": "corrugatedsteel005",
+      "title": "Профнастил, гофросталь (Corrugated Steel 005)",
+      "category": "walls",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=CorrugatedSteel005",
+        "repo": "https://github.com/TheMarco/liminal",
+        "commit": "a825b26763fc7f65e740422534a80bc00f0e08e6",
+        "path": "textures/mall/CorrugatedSteel005/"
+      },
+      "dir": "assets/textures/corrugatedsteel005"
+    },
+    {
+      "id": "metal032",
+      "title": "Металл серо-голубой матовый (Metal 032)",
+      "category": "walls",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/view?id=Metal032",
+        "repo": "https://github.com/oh-ashen-one/grindline",
+        "commit": "2c0932270778ee1392f72d9815860987b0b4080c",
+        "path": "assets/textures/Metal032/"
+      },
+      "dir": "assets/textures/metal032"
+    },
+    {
+      "id": "proc-asphalt",
+      "title": "Асфальт (процедурно)",
+      "category": "proc",
+      "author": "Jinaly · Retro 3D",
+      "license": "проект, процедурно",
+      "source": {
+        "path": "scratchpad/real/proc/asphalt_*.png"
+      },
+      "files": {
+        "albedo": "proc/asphalt_albedo.png",
+        "normal": "proc/asphalt_normal.png",
+        "rough": "proc/asphalt_rough.png"
+      }
+    },
+    {
+      "id": "proc-concrete",
+      "title": "Бетон (процедурно)",
+      "category": "proc",
+      "author": "Jinaly · Retro 3D",
+      "license": "проект, процедурно",
+      "source": {
+        "path": "scratchpad/real/proc/concrete_*.png"
+      },
+      "files": {
+        "albedo": "proc/concrete_albedo.png",
+        "normal": "proc/concrete_normal.png",
+        "rough": "proc/concrete_rough.png"
+      }
+    },
+    {
+      "id": "proc-brick",
+      "title": "Кирпич (процедурно)",
+      "category": "proc",
+      "author": "Jinaly · Retro 3D",
+      "license": "проект, процедурно",
+      "source": {
+        "path": "scratchpad/real/proc/brick_*.png"
+      },
+      "files": {
+        "albedo": "proc/brick_albedo.png",
+        "normal": "proc/brick_normal.png",
+        "rough": "proc/brick_rough.png"
+      }
+    },
+    {
+      "id": "proc-plaster",
+      "title": "Штукатурка (процедурно)",
+      "category": "proc",
+      "author": "Jinaly · Retro 3D",
+      "license": "проект, процедурно",
+      "source": {
+        "path": "scratchpad/real/proc/plaster_*.png"
+      },
+      "files": {
+        "albedo": "proc/plaster_albedo.png",
+        "normal": "proc/plaster_normal.png",
+        "rough": "proc/plaster_rough.png"
+      }
+    },
+    {
+      "id": "proc-rust",
+      "title": "Ржавый металл (процедурно)",
+      "category": "proc",
+      "author": "Jinaly · Retro 3D",
+      "license": "проект, процедурно",
+      "source": {
+        "path": "scratchpad/real/proc/rust_*.png"
+      },
+      "files": {
+        "albedo": "proc/rust_albedo.png",
+        "normal": "proc/rust_normal.png",
+        "rough": "proc/rust_rough.png"
+      }
+    },
+    {
+      "id": "proc-dirt",
+      "title": "Земля (процедурно)",
+      "category": "proc",
+      "author": "Jinaly · Retro 3D",
+      "license": "проект, процедурно",
+      "source": {
+        "path": "scratchpad/real/proc/dirt_*.png"
+      },
+      "files": {
+        "albedo": "proc/dirt_albedo.png",
+        "normal": "proc/dirt_normal.png",
+        "rough": "proc/dirt_rough.png"
+      }
+    },
+    {
+      "id": "proc-grass",
+      "title": "Трава (процедурно)",
+      "category": "proc",
+      "author": "Jinaly · Retro 3D",
+      "license": "проект, процедурно",
+      "source": {
+        "path": "scratchpad/real/proc/grass_*.png"
+      },
+      "files": {
+        "albedo": "proc/grass_albedo.png",
+        "normal": "proc/grass_normal.png",
+        "rough": "proc/grass_rough.png"
+      }
+    },
+    {
+      "id": "proc-blood",
+      "title": "Кровь (RGBA) (процедурно)",
+      "category": "proc",
+      "author": "Jinaly · Retro 3D",
+      "license": "проект, процедурно",
+      "source": {
+        "path": "scratchpad/real/proc/blood_*.png"
+      },
+      "files": {
+        "albedo": "proc/blood_albedo.png",
+        "normal": "proc/blood_normal.png",
+        "rough": "proc/blood_rough.png"
+      }
+    }
+  ],
+  "decals": [
+    {
+      "id": "d1",
+      "title": "Blood Splatter",
+      "author": "ExileGL",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://opengameart.org/content/blood-splatter",
+        "repo": "https://github.com/BentleyBlanks/bentleyblanks.github.io",
+        "commit": "61f3b36",
+        "path": "Taierzhuang1938/Texture/Texture_BloodSplatterCc0.webp"
+      },
+      "gore": true,
+      "files": {
+        "color": "assets/decals/d1-blood-splatter-exilegl.webp"
+      },
+      "note": "alpha = splatter mask; RGB lossy webp q90 re-encode of the original PNG"
+    },
+    {
+      "id": "d2",
+      "title": "Blood splat",
+      "author": "TobiasM (per research attribution)",
+      "license": "CC0-1.0 (attribution per research; in-repo evidence only repo-wide MIT, no per-file credit)",
+      "source": {
+        "url": "https://opengameart.org/ (TobiasM blood splats)",
+        "repo": "https://github.com/RealAbdurRehman/decay",
+        "commit": "31c1e23",
+        "path": "public/Enemies/BloodSplatter.png"
+      },
+      "gore": true,
+      "files": {
+        "color": "assets/decals/d2-blood-splat-tobiasm.png"
+      },
+      "note": "soft red splat with alpha; verify OGA page before shipping"
+    },
+    {
+      "id": "d3",
+      "title": "three.js decal example textures",
+      "author": "three.js authors",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://github.com/mrdoob/three.js/tree/dev/examples/textures/decal",
+        "repo": "https://github.com/mrdoob/three.js",
+        "commit": "035cfb7",
+        "path": "examples/textures/decal/decal-diffuse.png + decal-normal.jpg"
+      },
+      "gore": true,
+      "files": {
+        "diffuse": "assets/decals/d3-threejs-decal-diffuse.png",
+        "normal": "assets/decals/d3-threejs-decal-normal.jpg"
+      },
+      "note": "white splat mask + alpha; tint red in material (sheet shows it tinted); normal map included"
+    },
+    {
+      "id": "d4",
+      "title": "BloodFX BloodSplat flipbook",
+      "author": "Knower Coder",
+      "license": "MIT",
+      "source": {
+        "url": "https://github.com/knowercoder/BloodFX",
+        "repo": "https://github.com/knowercoder/BloodFX",
+        "commit": "9f879e2",
+        "path": "Assets/BloodFX/Textures/BloodSplat.png"
+      },
+      "gore": true,
+      "files": {
+        "flipbook": "assets/decals/d4-bloodfx-flipbook.png"
+      },
+      "note": "3x3 flipbook, white splat frames on black, no alpha: use as additive/multiply mask or derive alpha from luminance"
+    },
+    {
+      "id": "d5a",
+      "title": "ambientCG Leaking006 (leaking-grime)",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/a/Leaking006",
+        "repo": "https://github.com/je55pr/zombonz",
+        "commit": "2ebf285",
+        "path": "public/assets/environment/decals/leaking-grime/"
+      },
+      "gore": false,
+      "files": {
+        "basecolor": "assets/decals/d5-ambientcg/leaking-grime/basecolor.webp",
+        "normal": "assets/decals/d5-ambientcg/leaking-grime/normal.webp",
+        "opacity": "assets/decals/d5-ambientcg/leaking-grime/opacity.webp",
+        "roughness": "assets/decals/d5-ambientcg/leaking-grime/roughness.webp"
+      },
+      "note": "maps: basecolor sRGB, normal OpenGL, opacity grayscale alpha, roughness/ao linear; 1024 px webp re-encodes of 2K sources"
+    },
+    {
+      "id": "d5b",
+      "title": "ambientCG Smear005 (smear-grime)",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/a/Smear005",
+        "repo": "https://github.com/je55pr/zombonz",
+        "commit": "2ebf285",
+        "path": "public/assets/environment/decals/smear-grime/"
+      },
+      "gore": false,
+      "files": {
+        "basecolor": "assets/decals/d5-ambientcg/smear-grime/basecolor.webp",
+        "normal": "assets/decals/d5-ambientcg/smear-grime/normal.webp",
+        "opacity": "assets/decals/d5-ambientcg/smear-grime/opacity.webp"
+      },
+      "note": "maps: basecolor sRGB, normal OpenGL, opacity grayscale alpha, roughness/ao linear; 1024 px webp re-encodes of 2K sources; basecolor appears identical to opacity (white strokes), use with a tint"
+    },
+    {
+      "id": "d5c",
+      "title": "ambientCG SurfaceImperfections017 (surface-imperfections)",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/a/SurfaceImperfections017",
+        "repo": "https://github.com/je55pr/zombonz",
+        "commit": "2ebf285",
+        "path": "public/assets/environment/decals/surface-imperfections/"
+      },
+      "gore": false,
+      "files": {
+        "basecolor": "assets/decals/d5-ambientcg/surface-imperfections/basecolor.webp",
+        "normal": "assets/decals/d5-ambientcg/surface-imperfections/normal.webp",
+        "opacity": "assets/decals/d5-ambientcg/surface-imperfections/opacity.webp",
+        "roughness": "assets/decals/d5-ambientcg/surface-imperfections/roughness.webp"
+      },
+      "note": "maps: basecolor sRGB, normal OpenGL, opacity grayscale alpha, roughness/ao linear; 1024 px webp re-encodes of 2K sources"
+    },
+    {
+      "id": "d5d",
+      "title": "ambientCG Rust001 (rust-decal)",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/a/Rust001",
+        "repo": "https://github.com/je55pr/zombonz",
+        "commit": "2ebf285",
+        "path": "public/assets/environment/decals/rust-decal/"
+      },
+      "gore": false,
+      "files": {
+        "basecolor": "assets/decals/d5-ambientcg/rust-decal/basecolor.webp",
+        "normal": "assets/decals/d5-ambientcg/rust-decal/normal.webp",
+        "opacity": "assets/decals/d5-ambientcg/rust-decal/opacity.webp",
+        "roughness": "assets/decals/d5-ambientcg/rust-decal/roughness.webp"
+      },
+      "note": "maps: basecolor sRGB, normal OpenGL, opacity grayscale alpha, roughness/ao linear; 1024 px webp re-encodes of 2K sources"
+    },
+    {
+      "id": "d5e",
+      "title": "ambientCG GraffitiSet001 (graffiti)",
+      "author": "ambientCG (Lennart Demes)",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://ambientcg.com/a/GraffitiSet001",
+        "repo": "https://github.com/je55pr/zombonz",
+        "commit": "2ebf285",
+        "path": "public/assets/environment/decals/graffiti/"
+      },
+      "gore": false,
+      "files": {
+        "basecolor": "assets/decals/d5-ambientcg/graffiti/basecolor.webp",
+        "normal": "assets/decals/d5-ambientcg/graffiti/normal.webp",
+        "opacity": "assets/decals/d5-ambientcg/graffiti/opacity.webp",
+        "roughness": "assets/decals/d5-ambientcg/graffiti/roughness.webp"
+      },
+      "note": "maps: basecolor sRGB, normal OpenGL, opacity grayscale alpha, roughness/ao linear; 1024 px webp re-encodes of 2K sources"
+    }
+  ],
+  "hdris": [
+    {
+      "id": "kloofendal_48d_partly_cloudy_puresky",
+      "title": "Полдень, кучевые облака, яркое солнце (только небо)",
+      "author": "Greg Zaal (Original), Jarod Guest (Sky edits) / Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky",
+        "repo": "https://github.com/bumbeishvili/green-diamond",
+        "commit": "4d0fc086f71d89040c6a9355b782fea4de7d6e7c",
+        "path": "assets/hdri/kloofendal_48d_partly_cloudy_puresky_2k.hdr"
+      },
+      "file": "assets/hdri/kloofendal_48d_partly_cloudy_puresky.hdr",
+      "resolution": [2048, 1024]
+    },
+    {
+      "id": "kloofendal_overcast_puresky",
+      "title": "Пасмурное небо, ровный свет (только небо)",
+      "author": "Greg Zaal / Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/kloofendal_overcast_puresky",
+        "repo": "https://github.com/EliteGamer007/6dof-drone-sim",
+        "commit": "3b97077101bedb1326cf6483e04dc51ccf130fa3",
+        "path": "assets/polyhaven/hdris/kloofendal_overcast_puresky_2k.hdr"
+      },
+      "file": "assets/hdri/kloofendal_overcast_puresky.hdr",
+      "resolution": [2048, 1024]
+    },
+    {
+      "id": "overcast_soil_puresky",
+      "title": "Пасмурно, низкие серые облака (только небо)",
+      "author": "Sergej Majboroda (Original), Jarod Guest (Sky edits) / Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/overcast_soil_puresky",
+        "repo": "https://github.com/bumbeishvili/green-diamond",
+        "commit": "4d0fc086f71d89040c6a9355b782fea4de7d6e7c",
+        "path": "assets/hdri/overcast_soil_puresky_2k.hdr"
+      },
+      "file": "assets/hdri/overcast_soil_puresky.hdr",
+      "resolution": [2048, 1024]
+    },
+    {
+      "id": "wasteland_clouds_puresky",
+      "title": "Дымка, высокое солнце за облаками (только небо)",
+      "author": "Jarod Guest, Sergej Majboroda / Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/wasteland_clouds_puresky",
+        "repo": "https://github.com/EliteGamer007/6dof-drone-sim",
+        "commit": "3b97077101bedb1326cf6483e04dc51ccf130fa3",
+        "path": "assets/polyhaven/hdris/wasteland_clouds_puresky_2k.hdr"
+      },
+      "file": "assets/hdri/wasteland_clouds_puresky.hdr",
+      "resolution": [2048, 1024]
+    },
+    {
+      "id": "industrial_sunset_02_puresky",
+      "title": "Закат, лёгкая облачность (только небо)",
+      "author": "Jarod Guest, Sergej Majboroda / Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/industrial_sunset_02_puresky",
+        "repo": "https://github.com/EliteGamer007/6dof-drone-sim",
+        "commit": "3b97077101bedb1326cf6483e04dc51ccf130fa3",
+        "path": "assets/polyhaven/hdris/industrial_sunset_02_puresky_2k.hdr"
+      },
+      "file": "assets/hdri/industrial_sunset_02_puresky.hdr",
+      "resolution": [2048, 1024]
+    },
+    {
+      "id": "quarry_01",
+      "title": "Карьер, ясный день, низкое солнце (с землёй)",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/quarry_01",
+        "repo": "https://github.com/mrdoob/three.js",
+        "commit": "035cfb74a2422b34e1988195659bc5f05306d718",
+        "path": "examples/textures/equirectangular/quarry_01_1k.hdr"
+      },
+      "file": "assets/hdri/quarry_01.hdr",
+      "resolution": [1024, 512]
+    },
+    {
+      "id": "pedestrian_overpass",
+      "title": "Пешеходный мост, закат (с землёй)",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/pedestrian_overpass",
+        "repo": "https://github.com/mrdoob/three.js",
+        "commit": "035cfb74a2422b34e1988195659bc5f05306d718",
+        "path": "examples/textures/equirectangular/pedestrian_overpass_1k.hdr"
+      },
+      "file": "assets/hdri/pedestrian_overpass.hdr",
+      "resolution": [1024, 512]
+    },
+    {
+      "id": "moonless_golf",
+      "title": "Безлунная ночь, звёзды, огни города (с землёй)",
+      "author": "Poly Haven",
+      "license": "CC0-1.0",
+      "source": {
+        "url": "https://polyhaven.com/a/moonless_golf",
+        "repo": "https://github.com/mrdoob/three.js",
+        "commit": "035cfb74a2422b34e1988195659bc5f05306d718",
+        "path": "examples/textures/equirectangular/moonless_golf_1k.hdr"
+      },
+      "file": "assets/hdri/moonless_golf.hdr",
+      "resolution": [1024, 512]
+    }
+  ]
+}
