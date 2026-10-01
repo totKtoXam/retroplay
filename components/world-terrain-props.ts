@@ -29,6 +29,11 @@ const SMALL_HEIGHT = 1.6;
 /** Тяжёлые сканы (больше HEAVY_TRIS треугольников) не рисуются дальше HEAVY_VIEW м. */
 const HEAVY_TRIS = 20000;
 const HEAVY_VIEW = 220;
+/** Совсем тяжёлые (деревья-сканы по 50 тыс.) — ещё ближе. */
+const HUGE_TRIS = 40000;
+const HUGE_VIEW = 150;
+/** Тени отбрасывают только ближние чанки: проход теней рисует всё второй раз. */
+const SHADOW_VIEW = 140;
 /** Дальность без `def.viewDistance` — как туман огромной карты. */
 const DEFAULT_VIEW = 320;
 /** Сколько файлов моделей грузится разом. */
@@ -181,7 +186,13 @@ type PropBucket = {
   cz: number;
 };
 
-type Cull = { x: number; z: number; reach: number; gore: boolean };
+type Cull = {
+  x: number;
+  z: number;
+  reach: number;
+  gore: boolean;
+  shadow?: boolean;
+};
 
 /** Не больше `n` загрузок разом: 150 файлов одновременно забили бы сеть и декодер. */
 function limiter(n: number) {
@@ -289,9 +300,11 @@ export function createPropLayer(def: ArenaDef) {
     if (!b) {
       const view = small
         ? SMALL_VIEW
-        : (info.tris ?? 0) > HEAVY_TRIS
-          ? Math.min(HEAVY_VIEW, viewDistance)
-          : viewDistance;
+        : (info.tris ?? 0) > HUGE_TRIS
+          ? Math.min(HUGE_VIEW, viewDistance)
+          : (info.tris ?? 0) > HEAVY_TRIS
+            ? Math.min(HEAVY_VIEW, viewDistance)
+            : viewDistance;
       b = {
         model: p.m,
         small,
@@ -378,6 +391,7 @@ export function createPropLayer(def: ArenaDef) {
         z: b.cz,
         reach: b.reach + b.extent,
         gore: b.gore,
+        shadow: !b.small,
       } satisfies Cull;
       if (b.gore) {
         // Кровь и тела не мишень и не стена: краска и камера их не замечают.
@@ -537,8 +551,9 @@ export function createPropLayer(def: ArenaDef) {
       lastCull = seconds;
       for (const mesh of meshes) {
         const c = mesh.userData.cull as Cull;
-        mesh.visible =
-          (goreOn || !c.gore) && Math.hypot(c.x - eye.x, c.z - eye.z) < c.reach;
+        const dist = Math.hypot(c.x - eye.x, c.z - eye.z);
+        mesh.visible = (goreOn || !c.gore) && dist < c.reach;
+        if (c.shadow) mesh.castShadow = dist < SHADOW_VIEW + PROP_CHUNK * 0.71;
       }
       decals.view(eye);
     },

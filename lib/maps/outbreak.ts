@@ -2705,22 +2705,22 @@ function generate() {
     reserve.free(x, z, r);
   /**
    * Дерево леса. Сканы тяжёлые (сосенки и лиственное дерево — по 50 тыс. треугольников),
-   * поэтому основа леса — лёгкое старое дерево и набор сухих деревьев, а тяжёлых — четверть:
-   * в круге видимости леса их иначе было бы под тысячу (дальше 220 м их не рисует сцена).
+   * поэтому основа леса — лёгкое старое дерево и набор сухих деревьев, а тяжёлых — ~14 %:
+   * в круге видимости леса их иначе было бы под тысячу (дальше 150 м их не рисует сцена).
    */
   const forestTree = (x: number, z: number): [RealModelId, number] => {
     const r = rand();
     if (pineForest(x, z))
-      return r < 0.25
+      return r < 0.12
         ? ['nature/pine-sapling-small', 4 + rand() * 1.5]
-        : r < 0.85
+        : r < 0.8
           ? ['nature/old-tree', 2.2 + rand() * 0.8]
           : ['nature/dead-trees-demo', 0.9 + rand() * 0.3];
-    return r < 0.6
+    return r < 0.62
       ? ['nature/old-tree', 2.2 + rand() * 0.8]
-      : r < 0.75
+      : r < 0.86
         ? ['nature/dead-trees-demo', 0.9 + rand() * 0.3]
-        : r < 0.9
+        : r < 0.94
           ? ['nature/island-tree-01', 1.9 + rand() * 0.6]
           : ['nature/pine-sapling-small', 4 + rand() * 1.5];
   };
