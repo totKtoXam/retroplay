@@ -33,10 +33,19 @@ export function isGoreDecal(texture: string) {
  * Id текстуры → файлы:
  *   - `proc-blood` — процедурный набор public/textures/outbreak/proc-blood/{albedo,normal}.webp (RGBA);
  *   - `d4…[#кадр]` — флипбук 3 × 3 белых брызг на чёрном без альфы: он маска, цвет — тёмно-красный;
- *   - `d5…` — набор ambientCG в папке decals/<id>/{basecolor,opacity,normal}.webp;
- *   - `d3…` — цвет decals/<id>.webp и рельеф decals/<id>-normal.webp;
+ *   - `d5-<имя>` — набор ambientCG decals/d5<буква>-{basecolor,opacity,normal}.webp;
+ *   - `d3…` — цвет decals/<id>.webp и рельеф decals/d3-normal.webp;
  *   - остальное — один RGBA-файл decals/<id>.webp.
  */
+/** Id наборов грязи → префикс файлов в decals/ (сборка scripts/build-outbreak-real-models.mjs). */
+const D5_FILES: Record<string, string> = {
+  'd5-leaking-grime': 'd5a',
+  'd5-smear-grime': 'd5b',
+  'd5-surface-imperfections': 'd5c',
+  'd5-rust-decal': 'd5d',
+  'd5-graffiti': 'd5e',
+};
+
 export function decalTextures(texture: string): DecalTextures {
   const [id, frameText] = texture.split('#');
   const roughness = isGoreDecal(id) ? 0.3 : 0.9;
@@ -55,17 +64,20 @@ export function decalTextures(texture: string): DecalTextures {
       roughness,
     };
   }
-  if (id.startsWith('d5'))
+  if (id.startsWith('d5')) {
+    // Файлы наборов ambientCG лежат как decals/d5a-basecolor.webp…: буква — по имени набора.
+    const prefix = D5_FILES[id] ?? id;
     return {
-      map: `${DECALS}/${id}/basecolor.webp`,
-      alphaMap: `${DECALS}/${id}/opacity.webp`,
-      normalMap: `${DECALS}/${id}/normal.webp`,
+      map: `${DECALS}/${prefix}-basecolor.webp`,
+      alphaMap: `${DECALS}/${prefix}-opacity.webp`,
+      normalMap: `${DECALS}/${prefix}-normal.webp`,
       roughness,
     };
+  }
   if (id.startsWith('d3'))
     return {
       map: `${DECALS}/${id}.webp`,
-      normalMap: `${DECALS}/${id}-normal.webp`,
+      normalMap: `${DECALS}/d3-normal.webp`,
       roughness,
     };
   return { map: `${DECALS}/${id}.webp`, roughness };

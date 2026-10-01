@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef } from 'react';
-import type { GameMap } from '@/lib/maps/types';
+import { isProcModel, propModelInfo, type GameMap } from '@/lib/maps/types';
 import type { MinimapBlip } from '@/lib/minimap-blips';
 import { PREF_KEYS } from '@/lib/user-prefs';
 import { teamCss } from '@/lib/team-colors';
@@ -153,10 +153,10 @@ function atlasOf(map: GameMap) {
     else ctx.rect(X(water.minX), Z(water.minZ), (water.maxX - water.minX) * k, (water.maxZ - water.minZ) * k);
     ctx.fill();
   }
-  const models = arena.propKit?.models ?? {};
-  /** Повёрнутый прямоугольник рамки модели. */
+  const kit = arena.propKit;
+  /** Повёрнутый прямоугольник рамки модели (у процедурных домов рамка — из их id). */
   const footprint = (p: NonNullable<typeof arena.props>[number], color: string, grow = 0) => {
-    const info = models[p.m];
+    const info = propModelInfo(kit, p.m);
     if (!info) return;
     const s = p.s ?? 1;
     ctx.save();
@@ -168,9 +168,19 @@ function atlasOf(map: GameMap) {
     ctx.restore();
   };
   const props = arena.props ?? [];
-  for (const p of props) if (p.m.startsWith('road/road-') || p.m.startsWith('zk/street')) footprint(p, 'rgb(60, 62, 66)', 0.3);
+  // Дороги — ленты по осевой: асфальт тёмный, грунтовки бурые.
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const road of arena.roads ?? []) {
+    if (road.points.length < 2) continue;
+    ctx.strokeStyle = road.width <= 5 ? 'rgb(112, 92, 70)' : 'rgb(60, 62, 66)';
+    ctx.lineWidth = (road.width + 0.6) * k;
+    ctx.beginPath();
+    road.points.forEach(([x, z], i) => (i ? ctx.lineTo(X(x), Z(z)) : ctx.moveTo(X(x), Z(z))));
+    ctx.stroke();
+  }
   for (const p of props) {
-    const info = models[p.m];
+    const info = propModelInfo(kit, p.m);
     if (!info) continue;
     if (info.hit === 'trunk' && (info.max[1] - info.min[1]) * (p.s ?? 1) > 5) {
       ctx.fillStyle = 'rgba(28, 64, 40, 0.75)';
@@ -180,10 +190,10 @@ function atlasOf(map: GameMap) {
     }
   }
   for (const p of props) {
-    const info = models[p.m];
+    const info = propModelInfo(kit, p.m);
     if (!info || info.hit !== 'box') continue;
     const area = (info.max[0] - info.min[0]) * (info.max[2] - info.min[2]) * (p.s ?? 1) ** 2;
-    if (p.m.startsWith('com/') || p.m.startsWith('sub/') || p.m.startsWith('grave/crypt')) footprint(p, 'rgb(214, 220, 230)');
+    if (p.m.startsWith('buildings/') || isProcModel(p.m)) footprint(p, 'rgb(214, 220, 230)');
     else if (area > 1.5) footprint(p, 'rgba(34, 38, 46, 0.8)');
   }
   atlases.set(map, atlas);

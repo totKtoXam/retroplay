@@ -161,7 +161,7 @@ export const OUTBREAK_REAL_MODELS = {
     min: [-9.531, 0, -2.19],
     max: [9.531, 11.366, 2.19],
     hit: 'trunk',
-    t: 0.5,
+    t: 0.18,
     tris: 17188,
   },
   'nature/dry-branches-medium-01': {
@@ -190,7 +190,7 @@ export const OUTBREAK_REAL_MODELS = {
     min: [-2.377, 0, -2.409],
     max: [2.377, 5.024, 2.409],
     hit: 'trunk',
-    t: 0.5,
+    t: 0.22,
     tris: 56410,
   },
   'nature/namaqualand-boulder-02': {
@@ -226,7 +226,7 @@ export const OUTBREAK_REAL_MODELS = {
     min: [-1.285, 0, -1.178],
     max: [1.285, 4.239, 1.178],
     hit: 'trunk',
-    t: 0.5,
+    t: 0.16,
     tris: 4932,
   },
   'nature/pine-sapling-small': {
@@ -234,7 +234,7 @@ export const OUTBREAK_REAL_MODELS = {
     min: [-1.321, 0, -0.385],
     max: [1.321, 1.299, 0.385],
     hit: 'trunk',
-    t: 0.385,
+    t: 0.07,
     tris: 46928,
   },
   'nature/rock-07': {
@@ -550,7 +550,7 @@ export const OUTBREAK_REAL_MODELS = {
     min: [-6.56, 0, -0.977],
     max: [6.56, 7, 0.977],
     hit: 'trunk',
-    t: 0.5,
+    t: 0.15,
     tris: 58496,
   },
   'structures/modular-factory-facade': {

@@ -71,9 +71,14 @@ test('кровь прячется настройкой, грязь и ржавч
 });
 
 test('файлы декалей и кадр флипбука', () => {
+  // Файлы грязи лежат с буквенным префиксом сборки: d5-graffiti → d5e-*.
   assert.deepEqual(
     decalTextures('d5-graffiti').alphaMap,
-    '/textures/outbreak/decals/d5-graffiti/opacity.webp',
+    '/textures/outbreak/decals/d5e-opacity.webp',
+  );
+  assert.equal(
+    decalTextures('d3-diffuse').normalMap,
+    '/textures/outbreak/decals/d3-normal.webp',
   );
   const flip = decalTextures('d4-bloodfx-flipbook#5');
   assert.equal(flip.map, undefined);

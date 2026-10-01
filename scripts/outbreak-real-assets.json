@@ -332,7 +332,8 @@
         "path": "models/tree forest/scene.gltf"
       },
       "file": "assets/ph-nature/dead-trees-demo.glb",
-      "hit": "trunk"
+      "hit": "trunk",
+      "t": 0.18
     },
     {
       "id": "nature/dry-branches-medium-01",
@@ -392,7 +393,8 @@
         "path": "art/nature-benchmark-archive-20260311_173846/island_tree_01_1k.gltf/island_tree_01_1k.gltf"
       },
       "file": "assets/ph-nature/island-tree-01.glb",
-      "hit": "trunk"
+      "hit": "trunk",
+      "t": 0.22
     },
     {
       "id": "nature/namaqualand-boulder-02",
@@ -467,7 +469,8 @@
         "path": "itslithers/Godot/3D Models/Trees/old_tree/old_tree.gltf"
       },
       "file": "assets/ph-nature/old-tree.glb",
-      "hit": "trunk"
+      "hit": "trunk",
+      "t": 0.16
     },
     {
       "id": "nature/pine-sapling-small",
@@ -482,7 +485,8 @@
         "path": "art/nature-benchmark-archive-20260311_173846/pine_sapling_small_1k.gltf/pine_sapling_small_1k.gltf"
       },
       "file": "assets/ph-nature/pine-sapling-small.glb",
-      "hit": "trunk"
+      "hit": "trunk",
+      "t": 0.07
     },
     {
       "id": "nature/rock-07",
@@ -1160,7 +1164,8 @@
         "path": "models/modular_electricity_poles/modular_electricity_poles.glb"
       },
       "file": "assets/ph-structures/modular-electricity-poles.glb",
-      "hit": "trunk"
+      "hit": "trunk",
+      "t": 0.15
     },
     {
       "id": "structures/modular-factory-facade",

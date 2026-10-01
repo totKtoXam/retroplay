@@ -442,8 +442,9 @@ async function buildModel(model) {
     min: box.min.map(r3),
     max: box.max.map(r3),
     hit: model.hit,
+    // Полуширина ствола: из манифеста (у деревьев рамка — крона, а не ствол), иначе по рамке.
     ...(model.hit === 'trunk'
-      ? { t: r3(Math.min(0.5, Math.min(size[0], size[2]) / 2)) }
+      ? { t: r3(model.t ?? Math.min(0.5, Math.min(size[0], size[2]) / 2)) }
       : {}),
     ...(model.gore ? { gore: true } : {}),
     ...(hasSkin ? { skinned: true } : {}),
