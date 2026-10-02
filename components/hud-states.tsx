@@ -20,6 +20,7 @@ const START_HINTS: Partial<Record<GameMode, string>> = {
   retro: 'Esc — свободный курсор · ЛКМ — предмет в руках · E у доски — открыть',
   battle: 'Esc — пауза · ЛКМ — стрелять · R — перезарядка',
   impostor: 'Esc — пауза · E — использовать · F — фонарик',
+  survival: 'Esc — пауза · ЛКМ — стрелять · N — навыки',
 };
 
 /**
@@ -167,9 +168,10 @@ export function HudDeathCard(props: {
   const info = props.info;
   const self = info?.killer === props.selfId;
   const share = props.waitsForRound || props.total <= 0 ? 1 : Math.min(1, props.seconds / props.total);
+  // Укус зомби — не предмет из GAME_TOOLS: подпись своя, иначе было бы «Оружие».
   const details = info
     ? [
-        weaponName(info.tool),
+        info.tool === 'bite' ? 'укус зомби' : weaponName(info.tool),
         info.headshot ? 'в голову' : '',
         info.noScope ? 'без прицела' : '',
         info.distance !== undefined && !self ? `${Math.round(info.distance)} м` : '',

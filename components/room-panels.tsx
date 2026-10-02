@@ -45,6 +45,13 @@ import {
   type ImpostorSettings,
 } from '@/lib/impostor-settings';
 import { IMPOSTOR_BOT_LEVELS } from '@/lib/impostor-bot-levels';
+import {
+  SURVIVAL_DEFAULTS,
+  SURVIVAL_DIFFICULTIES,
+  SURVIVAL_LIMITS,
+  type SurvivalSettings,
+} from '@/lib/survival-settings';
+import { DIFFICULTY } from '@/lib/survival';
 import type { Slot } from '@/lib/loadout';
 import { TOOL_ICONS } from './tool-icons';
 import { Choice, Toggle } from './controls';
@@ -1015,8 +1022,10 @@ export function ModePanel({
         </>
       )}
       {mode === 'impostor' && <ImpostorSettingsSection s={s} host={host} onSettings={onSettings} />}
-      {/* В «Предателе» не возрождаются и не стреляют: возрождение и щит там ни на что не влияют. */}
-      {mode !== 'impostor' && (
+      {mode === 'survival' && <SurvivalSettingsSection s={s} host={host} onSettings={onSettings} />}
+      {/* В «Предателе» не возрождаются и не стреляют: возрождение и щит там ни на что не влияют.
+          В «Выживании» погибший ждёт следующей волны — таймер возрождения не нужен, щит есть. */}
+      {mode !== 'impostor' && mode !== 'survival' && (
       <label className="field">
         Возрождение, секунд
         <input
@@ -1182,6 +1191,79 @@ function ImpostorSettingsSection({
   );
 }
 
+/** Числовые настройки «Выживания»: ключ, подпись и пояснение; пределы — SURVIVAL_LIMITS. */
+const SURVIVAL_NUMBER_FIELDS = [
+  ['waves', 'Волн до победы', '0 — бесконечно, пока все не погибнут'],
+  ['prepSeconds', 'Подготовка между волнами, секунд', 'Погибшие встают на базе, у живых полное здоровье'],
+] as const;
+
+/**
+ * Правила режима «Выживание». Сложность сервер читает при старте каждой волны,
+ * число волн и подготовку — при смене фаз, поэтому правка посреди партии
+ * вступает в силу со следующей волны.
+ */
+function SurvivalSettingsSection({
+  s,
+  host,
+  onSettings,
+}: {
+  s: RoomState;
+  host: boolean;
+  onSettings: (patch: Record<string, unknown>) => void;
+}) {
+  const cfg = { ...SURVIVAL_DEFAULTS, ...s.survival };
+  const set = (patch: Partial<SurvivalSettings>) => onSettings({ survival: patch });
+  return (
+    <>
+      <p className="muted">Сложность и число волн применяются со следующей волны.</p>
+      <fieldset className="mode-grid survival-difficulty" aria-label="Сложность">
+        {SURVIVAL_DIFFICULTIES.map((id) => (
+          <button
+            key={id}
+            type="button"
+            disabled={!host}
+            title={host ? undefined : 'Сложность меняет ведущий'}
+            aria-pressed={cfg.difficulty === id}
+            className={`mode-card ${cfg.difficulty === id ? 'selected' : ''}`}
+            onClick={() => cfg.difficulty !== id && set({ difficulty: id })}
+          >
+            <strong>{DIFFICULTY[id].label}</strong>
+            <small>{DIFFICULTY[id].hint}</small>
+          </button>
+        ))}
+      </fieldset>
+      <div className="two-fields">
+        {SURVIVAL_NUMBER_FIELDS.map(([key, label, hint]) => {
+          const [min, max] = SURVIVAL_LIMITS[key];
+          return (
+            <label className="field" key={key}>
+              {label}
+              <input
+                type="number"
+                aria-label={label}
+                key={cfg[key]}
+                defaultValue={cfg[key]}
+                min={min}
+                max={max}
+                step="1"
+                disabled={!host}
+                onBlur={(e) => {
+                  const value = Number(e.target.value);
+                  if (Number.isInteger(value) && value >= min && value <= max) set({ [key]: value });
+                  else e.target.value = String(cfg[key]);
+                }}
+              />
+              <small>
+                {hint} ({min}–{max})
+              </small>
+            </label>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 const LEVEL_OPTIONS = BOT_LEVEL_IDS.map((id) => ({ value: id, label: BOT_LEVELS[id].label }));
 
 /**
@@ -1206,15 +1288,18 @@ export function BotsPanel({
   const [count, setCount] = useState(1);
   const bots = s.bots ?? [];
   const mode = modeOf(s);
-  if (mode !== 'battle' && mode !== 'impostor')
+  if (mode !== 'battle' && mode !== 'impostor' && mode !== 'survival')
     return (
       <p className="bots-note">
-        Боты играют в командном бою и в «Предателе». Переключите режим в разделе «Режим и карта» —
+        Боты играют в командном бою, в «Предателе» и в «Выживании». Переключите режим в разделе «Режим и карта» —
         {bots.length ? ` добавленные раньше боты (${bots.length}) вернутся в игру сами.` : ' и добавляйте.'}
       </p>
     );
   // В «Предателе» сторон нет, а роли боту раздаёт сервер при старте партии — и держит в тайне.
+  // В «Выживании» сторон тоже нет: все боты — союзники, бьют только зомби.
   const impostor = mode === 'impostor';
+  const survival = mode === 'survival';
+  const noSides = impostor || survival;
   const hint = impostor ? IMPOSTOR_BOT_LEVELS[level].hint : BOT_LEVELS[level].hint;
   const live = new Map(members.map((m) => [m.id, m]));
   const left = MAX_BOTS - bots.length;
@@ -1222,7 +1307,7 @@ export function BotsPanel({
   return (
     <>
       <div className="bots-add">
-        <div className={impostor ? undefined : 'two-fields'}>
+        <div className={noSides ? undefined : 'two-fields'}>
           <Choice
             label="Уровень"
             value={level}
@@ -1230,7 +1315,7 @@ export function BotsPanel({
             onChange={(value) => setLevel(value as BotLevel)}
             options={LEVEL_OPTIONS}
           />
-          {!impostor && (
+          {!noSides && (
             <Choice
               label="Сторона"
               value={team}
@@ -1248,6 +1333,11 @@ export function BotsPanel({
         {impostor && (
           <p className="bots-level-hint">
             Роль бот получает при старте партии, как и люди. Боты считаются в минимум из {4} игроков.
+          </p>
+        )}
+        {survival && (
+          <p className="bots-level-hint">
+            Боты-союзники держат базу вместе с вами: бьют только зомби, между волнами встают на базе.
           </p>
         )}
         <div className="bots-add-row">
@@ -1271,7 +1361,7 @@ export function BotsPanel({
             type="button"
             className="primary"
             disabled={!host || left <= 0}
-            onClick={() => onAct({ type: 'bots.add', level, team: impostor ? 'auto' : team, count: amount })}
+            onClick={() => onAct({ type: 'bots.add', level, team: noSides ? 'auto' : team, count: amount })}
           >
             <Bot size={16} /> Добавить {amount > 1 ? amount : ''}
           </button>
@@ -1293,7 +1383,9 @@ export function BotsPanel({
                   <small>
                     {impostor
                       ? IMPOSTOR_BOT_LEVELS[b.level].hint.split(':')[0]
-                      : `${side ? teamName(side).toLowerCase() : 'сторона при входе'}${m ? ` · ${m.kills ?? 0}/${m.deaths ?? 0}/${m.assists ?? 0}` : ''}`}
+                      : survival
+                        ? `союзник${m ? ` · убийств ${m.kills ?? 0}` : ''}`
+                        : `${side ? teamName(side).toLowerCase() : 'сторона при входе'}${m ? ` · ${m.kills ?? 0}/${m.deaths ?? 0}/${m.assists ?? 0}` : ''}`}
                   </small>
                 </span>
                 <Choice

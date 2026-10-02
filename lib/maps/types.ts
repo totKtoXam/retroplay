@@ -312,6 +312,8 @@ export type ArenaDef = {
   fountains?: MapFountain[];
   lights?: MapLight[];
   spawns: Record<Team, SpawnPoint[]>;
+  /** База кооперативных режимов («Выживание»): откуда начинают и где встают между волнами. */
+  base?: SpawnPoint[];
   /** Task stations of the impostor mode. */
   stations?: TaskStation[];
   meeting?: MeetingPoint;
@@ -369,6 +371,8 @@ export type GameMap = {
   /** Lowest ceiling above feet at `y` (Infinity: open sky). */
   ceilingHeight: (x: number, z: number, y?: number) => number;
   spawns: Record<Team, SpawnPoint[]>;
+  /** База кооперативных режимов; без неё — красные точки возрождения. */
+  base?: SpawnPoint[];
   /** Set for declarative maps; the hub builds its own scene. */
   arena?: ArenaDef;
   /** Task stations of the impostor mode; empty on other maps. */
@@ -574,6 +578,7 @@ export function buildArena(def: ArenaDef): GameMap {
     groundHeight,
     ceilingHeight,
     spawns: def.spawns,
+    base: def.base,
     arena: def,
     stations: def.stations ?? [],
     meeting: def.meeting,

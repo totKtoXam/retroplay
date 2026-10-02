@@ -131,6 +131,8 @@ import { BOT_LEVELS } from '@/lib/bot-levels';
 const World = lazy(() => import('./world'));
 // Как и мир, интерфейс «Предателя» тянет геометрию карт — грузится отдельно и только в этом режиме.
 const ImpostorOverlay = lazy(() => import('./impostor-overlay'));
+// Интерфейс «Выживания» нужен только в этом режиме: волны, опыт и панель навыков.
+const SurvivalOverlay = lazy(() => import('./survival-overlay'));
 const kinds: Record<string, string> = {
   pointer: 'sticky',
   sticky: 'sticky',
@@ -195,8 +197,9 @@ export default function RoomApp({ id }: { id: string }) {
     [quality, setQuality] = useState('balanced'),
     [fps, setFps] = useState(0),
     [monitor, setMonitor] = useState(false),
-    // Экран режима «Предатель» (мини-игра, собрание) держит курсор — мир не слушает ввод.
-    [impostorBlocked, setImpostorBlocked] = useState(false),
+    // Экран режима («Предатель»: мини-игра, собрание; «Выживание»: панель навыков, итоги)
+    // держит курсор — мир не слушает ввод.
+    [overlayBlocked, setOverlayBlocked] = useState(false),
     [chatOpen, setChatOpen] = useState(false),
     // Растёт, когда чат закрыт клавишей: мир снова захватывает мышь.
     [resumeWorld, setResumeWorld] = useState(0),
@@ -325,6 +328,7 @@ export default function RoomApp({ id }: { id: string }) {
     fire,
     weapon,
     impostor,
+    survival,
     sendVoice,
     setVoiceSink,
     serverNow,
@@ -741,11 +745,15 @@ export default function RoomApp({ id }: { id: string }) {
               ? s?.bots?.length
                 ? `На корабле: ${s.bots.length}`
                 : 'Экипаж и предатели четырёх уровней'
-              : gameMode !== 'battle'
-                ? 'Играют в бою и в «Предателе»'
-                : s?.bots?.length
-                  ? `В бою: ${s.bots.length}`
-                  : 'Соперники и напарники четырёх уровней',
+              : gameMode === 'survival'
+                ? s?.bots?.length
+                  ? `На базе: ${s.bots.length}`
+                  : 'Боты-союзники держат базу вместе с вами'
+                : gameMode !== 'battle'
+                  ? 'Играют в бою, в «Предателе» и в «Выживании»'
+                  : s?.bots?.length
+                    ? `В бою: ${s.bots.length}`
+                    : 'Соперники и напарники четырёх уровней',
           icon: Bot,
           hostOnly: true,
         },
@@ -1415,6 +1423,10 @@ export default function RoomApp({ id }: { id: string }) {
               <MatchBar match={room.match} rounds={s.roundWins ?? 5} now={now} />
               <GameClock state={s} now={now} />
             </div>
+          ) : gameMode === 'survival' ? (
+            // Таймер встречи и голоса — для ретро; волну и отсчёт показывает
+            // оверлей режима поверх сцены, в шапке остаются только часы суток.
+            <GameClock state={s} now={now} />
           ) : (
             <>
               {/* Этапы уехали из шапки в PhaseBar над сценой, приватное
@@ -1516,7 +1528,7 @@ export default function RoomApp({ id }: { id: string }) {
           onOpenChange={setMenuOpen}
           status={connection}
           compact={[
-            ...(gameMode !== 'battle'
+            ...(gameMode !== 'battle' && gameMode !== 'survival'
               ? [
                   {
                     id: 'timer',
@@ -1591,7 +1603,7 @@ export default function RoomApp({ id }: { id: string }) {
             ) : undefined
           }
           privacy={
-            gameMode !== 'battle'
+            gameMode !== 'battle' && gameMode !== 'survival'
               ? {
                   value: s.privateWriting,
                   host,
@@ -1717,7 +1729,7 @@ export default function RoomApp({ id }: { id: string }) {
                   menuOpen ||
                   !!draft ||
                   !!selectedZone ||
-                  impostorBlocked ||
+                  overlayBlocked ||
                   chatOpen
                 }
               />
@@ -1731,7 +1743,18 @@ export default function RoomApp({ id }: { id: string }) {
                 serverNow={serverNow}
                 pose={pose}
                 send={impostor}
-                onBlocked={setImpostorBlocked}
+                onBlocked={setOverlayBlocked}
+              />
+            </Suspense>
+          )}
+          {gameMode === 'survival' && !webglFailed && (
+            <Suspense fallback={null}>
+              <SurvivalOverlay
+                room={room}
+                host={host}
+                serverNow={serverNow}
+                send={survival}
+                onBlocked={setOverlayBlocked}
               />
             </Suspense>
           )}
@@ -2519,7 +2542,7 @@ export default function RoomApp({ id }: { id: string }) {
                   ? 'Личные настройки, встреча и правила комнаты. Esc закрывает.'
                   : panel === 'team'
                     ? 'Сторона, скин и цвет банданы вашего бойца'
-                    : gameMode === 'battle'
+                    : gameMode === 'battle' || gameMode === 'survival'
                       ? 'Снаряжение бойца'
                       : 'Инструменты вашей ретроспективы'}
           </DialogDescription>

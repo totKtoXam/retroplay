@@ -32,6 +32,9 @@ const COLORS = {
   ally: '#6ee7a8',
   /** Тёмная обводка знаков в режиме для дальтоников: форма читается на любом полу. */
   outline: 'rgba(8, 13, 25, 0.9)',
+  /** Зомби — `--npc-hostile` из app/tokens.css: холст CSS-переменные не читает. */
+  zombie: '#3ee8b0',
+  drop: '#ffffff',
 };
 
 /**
@@ -39,9 +42,22 @@ const COLORS = {
  * ромб, враг — треугольник остриём вверх (как знаки над бойцами в мире), чтобы
  * сторона читалась формой, а не только цветом.
  */
-function blipPath(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, shape: 'dot' | 'ally' | 'enemy') {
+function blipPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  shape: 'dot' | 'ally' | 'enemy' | 'zombie',
+) {
   ctx.beginPath();
-  if (shape === 'ally') {
+  if (shape === 'zombie') {
+    // Треугольник остриём вниз: не спутать ни с врагом (остриём вверх), ни с ромбом своего.
+    const d = r * 1.45;
+    ctx.moveTo(x, y + d);
+    ctx.lineTo(x + d * 0.95, y - d * 0.7);
+    ctx.lineTo(x - d * 0.95, y - d * 0.7);
+    ctx.closePath();
+  } else if (shape === 'ally') {
     // Ромб на той же площади выглядит мельче круга — чуть больше по диагонали.
     const d = r * 1.35;
     ctx.moveTo(x, y - d);
@@ -416,6 +432,36 @@ export function WorldMinimap(props: {
       // Отметки и стрелка — одного размера на экране при любой стороне плашки.
       const unit = props.expanded ? px / (SIZE * dpr) : 1;
       for (const blip of data.blips) {
+        if (blip.kind === 'drop') {
+          // Аптечка — маленький белый крест с тёмной обводкой, как на коробке в мире.
+          const a = 3 * dpr * unit,
+            cx = p.toX(blip.x),
+            cy = p.toZ(blip.z);
+          ctx.lineCap = 'butt';
+          ctx.strokeStyle = COLORS.outline;
+          ctx.lineWidth = 3.4 * dpr * unit;
+          ctx.beginPath();
+          ctx.moveTo(cx - a, cy);
+          ctx.lineTo(cx + a, cy);
+          ctx.moveTo(cx, cy - a);
+          ctx.lineTo(cx, cy + a);
+          ctx.stroke();
+          ctx.strokeStyle = COLORS.drop;
+          ctx.lineWidth = 1.6 * dpr * unit;
+          ctx.stroke();
+          continue;
+        }
+        if (blip.kind === 'zombie') {
+          // Зомби: форма своя при любых настройках — цвет один на всю толпу, и
+          // по нему не отличить его от союзника в режиме без знаков.
+          blipPath(ctx, p.toX(blip.x), p.toZ(blip.z), 3.2 * dpr * unit, 'zombie');
+          ctx.fillStyle = COLORS.zombie;
+          ctx.fill();
+          ctx.strokeStyle = COLORS.outline;
+          ctx.lineWidth = 1.2 * dpr * unit;
+          ctx.stroke();
+          continue;
+        }
         const r = (blip.enemy ? 3.6 : 3) * dpr * unit;
         ctx.globalAlpha = blip.dead ? 0.3 : (blip.fresh ?? 1);
         const shaped = shapes.current;

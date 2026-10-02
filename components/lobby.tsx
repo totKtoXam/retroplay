@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo, type CSSProperties } from 'react';
 import {
   Plus,
   ArrowUpRight,
+  Biohazard,
   LayoutGrid,
   Link2,
   Clock3,
@@ -81,6 +82,12 @@ const MODE_COPY: Partial<
     title: 'Кто из экипажа — предатель?',
     hint: 'Создайте комнату для партии: нужно от 4 до 15 игроков, боты тоже считаются.',
     cta: 'Создать партию',
+  },
+  survival: {
+    icon: Biohazard,
+    title: 'Выживание',
+    hint: 'Кооператив против волн зомби: держите базу вместе, прокачивайте навыки. Боты — союзники.',
+    cta: 'Выжить',
   },
 };
 const modeCopy = (mode: GameMode) => {

@@ -2,6 +2,7 @@
 // it is shared by the worker, the lobby and the room.
 import {
   defaultMapFor,
+  GAME_MODES,
   MAP_IDS,
   modeOf,
   modeOfMap,
@@ -9,6 +10,8 @@ import {
 } from './maps/catalog.ts';
 import { IMPOSTOR_LIMITS, type ImpostorSettings } from './impostor-settings.ts';
 import type { ImpostorView } from './impostor.ts';
+import { isSurvivalDifficulty, SURVIVAL_LIMITS, type SurvivalSettings } from './survival-settings.ts';
+import type { SurvivalView, ZombieKind } from './survival.ts';
 import {
   anchorFor,
   dayMoment,
@@ -325,6 +328,10 @@ export type Person = {
   id: string;
   /** Серверный бот и его уровень сложности; у людей поля нет. */
   bot?: BotLevel;
+  /** Зомби «Выживания» и его вид (lib/survival.ts); у людей и ботов поля нет. */
+  zombie?: ZombieKind;
+  /** Запас здоровья: у зомби свой, у игрока растёт навыком; нет — 100. */
+  maxHp?: number;
   name: string;
   color: string;
   /** 'red' | 'blue' in team battles, empty in free-for-all. */
@@ -499,6 +506,8 @@ export type RoomState = {
   roundWins?: number;
   /** Настройки режима «Предатель»; недостающее берётся по умолчанию (lib/impostor.ts). */
   impostor?: Partial<ImpostorSettings>;
+  /** Настройки режима «Выживание»; недостающее берётся по умолчанию (lib/survival.ts). */
+  survival?: Partial<SurvivalSettings>;
   access?: RoomAccess;
   readyCheck?: {
     active: boolean;
@@ -526,6 +535,8 @@ export type Room = {
   match?: Match;
   /** Партия «Предателя» глазами этого игрока (lib/impostor.ts); только в этом режиме. */
   impostor?: ImpostorView;
+  /** Партия «Выживания» (lib/survival.ts); только в этом режиме. */
+  survival?: SurvivalView;
   version: number;
   state: RoomState;
   members: Person[];
@@ -901,7 +912,7 @@ export function applyOperation(
     // The mode comes first: a map only counts if it belongs to that mode. Switching the
     // mode moves the room to that mode's default map when the old one does not fit.
     if ('mode' in p || 'map' in p) {
-      const mode = ('mode' in p ? oneOf(p.mode, ['retro', 'battle', 'impostor']) : modeOf(s)) as GameMode;
+      const mode = ('mode' in p ? oneOf(p.mode, [...GAME_MODES]) : modeOf(s)) as GameMode;
       const map = 'map' in p ? oneOf(p.map, MAP_IDS) : (s.map ?? 'hub');
       if (modeOfMap(map) !== mode) {
         if ('map' in p) throw Error('Эта карта не для выбранного режима');
@@ -931,6 +942,21 @@ export function applyOperation(
         }
       if ('confirmEjects' in src) next.confirmEjects = !!src.confirmEjects;
       s.impostor = next;
+    }
+    if ('survival' in p) {
+      const src = p.survival as Record<string, unknown> | null;
+      if (!src || typeof src !== 'object' || Array.isArray(src)) throw Error('Некорректные настройки режима');
+      const next: Partial<SurvivalSettings> = { ...s.survival };
+      for (const [key, [min, max]] of Object.entries(SURVIVAL_LIMITS) as [keyof typeof SURVIVAL_LIMITS, readonly [number, number]][])
+        if (key in src) {
+          next[key] = finite(src[key], min, max);
+          if (!Number.isInteger(next[key])) throw Error('Значение должно быть целым числом');
+        }
+      if ('difficulty' in src) {
+        if (!isSurvivalDifficulty(src.difficulty)) throw Error('Неизвестная сложность');
+        next.difficulty = src.difficulty;
+      }
+      s.survival = next;
     }
     for (const [key, min, max] of [
       ['killLimit', 0, 200],
@@ -967,8 +993,8 @@ export function applyOperation(
     s.voiceMuted = [...muted];
   } else if (kind === 'bots.add') {
     hostOnly();
-    if (modeOf(s) !== 'battle' && modeOf(s) !== 'impostor')
-      throw Error('Боты играют в командном бою и в «Предателе»');
+    if (modeOf(s) === 'retro')
+      throw Error('Боты играют в командном бою, в «Предателе» и в «Выживании»');
     if (!isBotLevel(op.level)) throw Error('Неизвестный уровень сложности');
     const level = op.level;
     // «auto» и пустое — сторону выберет сервер: в меньшую команду.

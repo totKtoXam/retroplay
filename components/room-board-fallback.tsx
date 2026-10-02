@@ -97,7 +97,7 @@ export default function RoomBoardFallback({
         <p>
           <strong>3D недоступно в этом браузере</strong> — работаем на обычной
           доске.
-          {gameMode !== 'retro' && ' Бой и «Предатель» без 3D не запустятся.'}
+          {gameMode !== 'retro' && ' Бой, «Предатель» и «Выживание» без 3D не запустятся.'}
         </p>
         <button
           type="button"

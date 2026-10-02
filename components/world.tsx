@@ -39,6 +39,7 @@ import { PAINTS, CONFETTI, GRENADES, FIREWORKS, SHOTGUN_PELLET_OFFSETS, type Hit
 import { createWorldVfx } from './world-vfx';
 import { createWorldProjectiles } from './world-projectiles';
 import { createWorldRemotePlayers } from './world-remote-players';
+import { createWorldZombies, type WorldZombies } from './world-zombies';
 import {
   avatarMuzzle,
   createFlashlightBeam,
@@ -317,6 +318,8 @@ export default function World(props: Props) {
   const tabletInWorldRef = useRef(false);
   const tabletInspectRef = useRef(0);
 
+  /** Зомби «Выживания» (components/world-zombies.ts): настройке крови нужен доступ извне кадра. */
+  const zombiesRef = useRef<WorldZombies | null>(null);
   const engine = useRef<{
     kit: WorldKit;
     visuals: ReturnType<typeof createVisualProvider>;
@@ -408,6 +411,9 @@ export default function World(props: Props) {
           },
           colliders: minimapMap.colliders,
           memory: spotted.current,
+          // «Выживание»: аптечки и зомби в окне угловой плашки (320 м на огромной карте).
+          drops: room.survival?.drops,
+          range: 170,
         }),
       };
     }
@@ -943,6 +949,17 @@ export default function World(props: Props) {
       onDied: (remote) => vfx.clearPaint(remote),
     });
     const { remoteAvatars, deadTimers } = remotePlayers;
+    // Зомби «Выживания» — скелетные модели по снимку, отдельно от бойцов; в других
+    // режимах участников с `zombie` нет, и слой пуст.
+    const zombies = createWorldZombies({
+      scene,
+      latest,
+      map,
+      gore: hudPrefsRef.current.gore,
+      shadows: props.quality !== 'low',
+      eye: () => camera.position,
+    });
+    zombiesRef.current = zombies;
     const shadow = new T.Mesh(
       new T.CircleGeometry(0.5, 20),
       new T.MeshBasicMaterial({
@@ -1114,7 +1131,10 @@ export default function World(props: Props) {
         if (
           o instanceof T.Mesh &&
           !excluded.has(o.id) &&
-          !o.userData.transientProjectile
+          !o.userData.transientProjectile &&
+          // Зомби и аптечки приходят и уходят каждую волну: их мишени собираются
+          // отдельно (gatherRemoteAvatarMeshes), а не из кэша сцены.
+          !o.userData.survivalProp
         )
           list.push(o);
       });
@@ -1136,6 +1156,8 @@ export default function World(props: Props) {
           )
             list.push(o);
         });
+      // Живые зомби — мишени как и бойцы: по ним работают маркер попадания и краска.
+      for (const hit of zombies.meshes()) list.push(hit);
       return list;
     };
 
@@ -2569,6 +2591,7 @@ export default function World(props: Props) {
         flashlight.aim(flashlightOrigin, camera.getWorldDirection(flashlightDirection));
       }
       remotePlayers.update(now, dt);
+      zombies.update(now, dt);
       // Шаги во всех режимах: в бою и в «Предателе» на слух узнают, что кто-то идёт за
       // поворотом. Призраки «Предателя» парят беззвучно — и сам призрак, и чужие (их видят
       // только другие призраки); павшие в бою тоже не шагают. В хабе шаги тише.
@@ -2784,6 +2807,8 @@ export default function World(props: Props) {
       unmountHuman(avatar);
       viewArms.dispose();
       for (const remote of remoteAvatars.values()) unmountHuman(remote);
+      zombies.dispose();
+      zombiesRef.current = null;
       scene.traverse((o) => {
         if (
           o instanceof T.Mesh ||
@@ -2852,6 +2877,7 @@ export default function World(props: Props) {
   }, [props.room.version]);
   useEffect(() => {
     engine.current?.kit.setGore?.(hudPrefs.gore);
+    zombiesRef.current?.setGore(hudPrefs.gore);
   }, [hudPrefs.gore]);
   useEffect(() => {
     for (const effect of props.room.effects || []) engine.current?.fire(effect);

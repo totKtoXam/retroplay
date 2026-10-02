@@ -35,7 +35,7 @@ export async function noteRows(id: string) {
 
 /** Сколько ботов сервер комнаты сейчас выпускает играть (lib/room-hub-core.ts, roomFromState). */
 export const activeBots = (state: RoomState) =>
-  modeOf(state) === 'battle' ? (state.bots?.length ?? 0) : 0;
+  modeOf(state) === 'battle' || modeOf(state) === 'survival' ? (state.bots?.length ?? 0) : 0;
 
 /**
  * Занятые места: люди, заходившие за последнюю минуту, и боты. Бот занимает

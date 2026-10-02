@@ -15,6 +15,7 @@ test('lobby: этап ретро не выдаётся за статус боя'
   assert.equal(roomStatusLabel({ ...room, mode: 'retro' }), 'Пишем идеи');
   assert.equal(roomStatusLabel({ ...room, mode: 'battle' }), 'Активна');
   assert.equal(roomStatusLabel({ ...room, mode: 'battle', mine: false, status: 'in_progress' }), 'Идёт бой');
+  assert.equal(roomStatusLabel({ ...room, mode: 'survival', mine: false, status: 'in_progress' }), 'Идёт волна');
   assert.equal(roomStatusLabel({ ...room, mode: null, mine: false, status: 'in_progress' }), 'Уже идёт');
   assert.equal(roomStatusLabel({ ...room, mode: 'retro', archived: true }), 'Завершена');
 });

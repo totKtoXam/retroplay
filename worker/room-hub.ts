@@ -6,6 +6,8 @@ import type { Person, WorldEffect } from '@/lib/model';
 import type { BotBrain } from '@/lib/bot-brain';
 import { isBotId } from '@/lib/bot-levels';
 import { impostorView, newImpostorGame, type ImpostorView } from '@/lib/impostor';
+import { newSurvivalGame, survivalActive, survivalView, type SurvivalView } from '@/lib/survival';
+import type { ZombieBrain } from '@/lib/zombie-brain';
 import { stepImpostorBots, type ImpostorBot } from '@/lib/impostor-bot';
 import { getMap } from '@/lib/maps';
 import { chatFor, postChat, readsChat, type ChatChannel, type ChatEntry } from '@/lib/room-chat';
@@ -29,6 +31,8 @@ import {
   roomFromState,
   seatMember,
   stepBots,
+  stepZombies,
+  survivalAction,
   syncBots,
   type HubMatch,
   type HubMember,
@@ -53,6 +57,8 @@ export type LiveView = {
   match: HubMatch;
   /** Партия «Предателя» глазами получателя; только в этом режиме. */
   impostor?: ImpostorView;
+  /** Партия «Выживания»; только в этом режиме. */
+  survival?: SurvivalView;
 };
 
 /**
@@ -71,6 +77,8 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
   private brains = new Map<string, BotBrain>();
   /** Мозги ботов «Предателя»: наблюдения и подозрения живут только в памяти объекта. */
   private impostorBrains = new Map<string, ImpostorBot>();
+  /** Мозги зомби «Выживания»: цель и маршрут; после перезапуска зомби заново принюхивается. */
+  private zombieBrains = new Map<string, ZombieBrain>();
   private sentSeq = 0;
   private dirty = false;
   private flushScheduled = false;
@@ -140,6 +148,26 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const hub = await this.state(room);
     await this.member(hub, self);
     return this.impostorAct(hub, self, op);
+  }
+
+  /** Действие режима «Выживание» по HTTP (без сокета). */
+  async survival(room: string, self: string, op: Record<string, unknown>) {
+    const hub = await this.state(room);
+    await this.member(hub, self);
+    return this.survivalAct(hub, self, op);
+  }
+
+  /** Старт волны и навыки — горячее состояние: сразу в checkpoint и сразу всем сокетам. */
+  private survivalAct(hub: HubState, self: string, op: Record<string, unknown>) {
+    const now = Date.now();
+    const result = survivalAction(hub, self, op, now);
+    if (result.ok) {
+      resolveCombat(hub, now);
+      this.markDirty();
+      this.sendTicks(hub, now, []);
+      this.wakeBots(hub);
+    }
+    return result;
   }
 
   /**
@@ -272,6 +300,9 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     } else if (msg.t === 'impostor') {
       const result = this.impostorAct(hub, self, msg);
       ws.send(JSON.stringify({ t: 'impostor', id: typeof msg.id === 'string' ? msg.id : '', ...result }));
+    } else if (msg.t === 'survival') {
+      const result = this.survivalAct(hub, self, msg);
+      ws.send(JSON.stringify({ t: 'survival', id: typeof msg.id === 'string' ? msg.id : '', ...result }));
     }
   }
 
@@ -343,7 +374,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
    * останавливается, когда не остаётся ни сокетов, ни людей в сети.
    */
   private wakeBots(hub: HubState) {
-    if (hub.room.bots.length && humansOnline(hub, Date.now())) this.startTicking();
+    if ((hub.room.bots.length || survivalActive(hub.survival)) && humansOnline(hub, Date.now())) this.startTicking();
   }
 
   private startTicking() {
@@ -359,8 +390,11 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     const hub = this.hub;
     if (!hub) return this.stopTicking();
     const now = Date.now();
-    const bots = hub.room.bots.length > 0 && humansOnline(hub, now);
-    if (!this.sockets.size && !bots) return this.stopTicking();
+    const humans = humansOnline(hub, now);
+    const bots = hub.room.bots.length > 0 && humans;
+    // Толпа зомби идёт, пока есть кому от неё отбиваться, — как и боты.
+    const zombies = hub.room.mode === 'survival' && survivalActive(hub.survival) && humans;
+    if (!this.sockets.size && !bots && !zombies) return this.stopTicking();
     if (bots && hub.room.mode === 'impostor') {
       stepImpostorBots(hub, this.impostorBrains, getMap(hub.room.map), now, {
         act: (id, op) => impostorAction(hub, id, op, now),
@@ -375,6 +409,10 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     } else if (bots) {
       stepBots(hub, this.brains, now);
       // Шаги ботов, как и presence людей, уходят в D1 редкой записью без checkpoint.
+      this.markDirty(false);
+    }
+    if (zombies) {
+      stepZombies(hub, this.zombieBrains, now);
       this.markDirty(false);
     }
     if (resolveCombat(hub, now)) this.markDirty();
@@ -430,6 +468,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       effects: publicEffects(effects, hub.room.anonymous),
       match: hub.match,
       ...(impostor ? { impostor: impostorView(hub, viewer) } : {}),
+      ...(hub.room.mode === 'survival' ? { survival: survivalView(hub, now) } : {}),
     };
   }
 
@@ -461,6 +500,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       seq: 0,
       match: newMatch(settings, Date.now()),
       impostor: newImpostorGame(),
+      survival: newSurvivalGame(),
       connected: (id) => {
         for (const owner of this.sockets.values()) if (owner === id) return true;
         return false;
@@ -550,7 +590,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       'UPDATE members SET seen=?,pose=?,ping=?,cursor=?,hp=?,respawn_at=?,immune_until=?,life=?,kills=?,deaths=?,assists=?,recent_damage=?,last_shot=?,team=? WHERE room=? AND session=?',
     );
     // У ботов нет строк в D1: их состояние живёт только здесь и в checkpoint.
-    const statements = [...hub.members.values()].filter((m) => !isBotId(m.id)).map((m) =>
+    const statements = [...hub.members.values()].filter((m) => !isBotId(m.id) && !m.zombie).map((m) =>
       update.bind(
         m.seen,
         JSON.stringify(m.pose),

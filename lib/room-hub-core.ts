@@ -60,6 +60,34 @@ import {
 } from './impostor.ts';
 import type { ChatEntry } from './room-chat.ts';
 import { stanceHeight, type Bounds, type GameMap, type SpawnPoint, type Team } from './maps/types.ts';
+import {
+  baseSpawns,
+  BITE_MS,
+  damageDealt,
+  damageTaken,
+  isZombieId,
+  isSurvivalDifficulty,
+  maxHpOf,
+  newSurvivalGame,
+  pickDrops,
+  playerHurt,
+  survivalAction as survivalRules,
+  survivalActive,
+  SURVIVAL_DEFAULTS,
+  SURVIVAL_LIMITS,
+  updateSurvival,
+  ZOMBIE_NAME,
+  ZOMBIES,
+  zombieBite,
+  zombieKilled,
+  type SurvivalGame,
+  type SurvivalIo,
+  type SurvivalResponse,
+  type SurvivalSettings,
+  type ZombieKind,
+} from './survival.ts';
+import { navFor } from './bot-brain.ts';
+import { ZombieBrain } from './zombie-brain.ts';
 
 /** Effects older than this are neither resolved nor sent to clients. */
 export const EFFECT_TTL_MS = 15_000;
@@ -84,7 +112,8 @@ const ENDED_MS = 12_000;
 /** Server-side body radius: below the client's 0.32 so rounded poses near walls still pass. */
 const BODY_RADIUS = 0.25;
 const EFFECT_KINDS = ['paint', 'confetti', 'grenade', 'sniper', 'like', 'melee'];
-const TOOLS = ['paint', 'confetti', 'grenade', 'sniper', 'melee', 'pointer', 'flashlight', 'other'];
+// `bite` — укус зомби «Выживания»: по нему клиент играет клип атаки.
+const TOOLS = ['paint', 'confetti', 'grenade', 'sniper', 'melee', 'pointer', 'flashlight', 'bite', 'other'];
 /**
  * Удар бьёт от глаз бойца: дальше этого от его позы начало удара быть не может.
  * Запас на то, что поза на сервере отстаёт от бегущего игрока на пинг.
@@ -133,6 +162,8 @@ export type HubMember = {
   team: Team | '';
   /** Когда участник писал в чат последние секунды (lib/room-chat.ts): защита от флуда. */
   chatTimes?: number[];
+  /** Зомби «Выживания» и его вид; у людей и ботов поля нет. */
+  zombie?: ZombieKind;
 };
 export type HubEffect = WorldEffect & {
   resolveAt: number;
@@ -161,6 +192,8 @@ export type HubRoom = {
   mode: GameMode;
   /** Настройки режима «Предатель» (lib/impostor.ts). */
   impostor: ImpostorSettings;
+  /** Настройки режима «Выживание» (lib/survival.ts). */
+  survival: SurvivalSettings;
   /** Team battle: on for battle maps, off for the hub. */
   teams: boolean;
   friendlyFire: boolean;
@@ -191,6 +224,8 @@ export type HubState = {
   match: HubMatch;
   /** Партия режима «Предатель»; в других режимах стоит в лобби. */
   impostor: ImpostorGame;
+  /** Партия режима «Выживание»; в других режимах стоит в лобби. */
+  survival: SurvivalGame;
   /** Открыт ли у участника сокет (ставит объект комнаты; в checkpoint не входит). */
   connected?: (id: string) => boolean;
   /** Последние сообщения текстового чата (lib/room-chat.ts); в checkpoint не входят. */
@@ -200,7 +235,8 @@ export type HubState = {
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 const isVec3 = (p: unknown): p is number[] =>
-  Array.isArray(p) && p.length === 3 && p.every((n) => finite(n) && Math.abs(n) < 200);
+  // Предел — по самой большой карте (±1000 м «Зоны заражения») с запасом.
+  Array.isArray(p) && p.length === 3 && p.every((n) => finite(n) && Math.abs(n) < 2100);
 /**
  * Щит держит урон. Выключенный в настройках щит снимается сразу со всех, даже с
  * тех, кто получил его до выключения и с тех пор не двигался: иначе после
@@ -235,8 +271,8 @@ export function roomFromState(host: string, state: Partial<RoomState>): HubRoom 
     shieldSeconds: modeOf(state) === 'impostor' ? 0 : clamp(state.shieldSeconds ?? 5, 0, 30),
     voiceEnabled: state.voiceEnabled !== false,
     voiceMuted: new Set(Array.isArray(state.voiceMuted) ? state.voiceMuted : []),
-    // Боты — участники боя и «Предателя»: в ретроспективе сервер их не выпускает.
-    bots: ((modeOf(state) === 'battle' || modeOf(state) === 'impostor') && Array.isArray(state.bots) ? state.bots : [])
+    // Боты — участники боя, «Предателя» и «Выживания»: в ретроспективе сервер их не выпускает.
+    bots: (modeOf(state) !== 'retro' && Array.isArray(state.bots) ? state.bots : [])
       .filter((b) => b && isBotId(b.id) && isBotLevel(b.level))
       .slice(0, MAX_BOTS)
       .map((b) => ({
@@ -249,6 +285,7 @@ export function roomFromState(host: string, state: Partial<RoomState>): HubRoom 
     map: getMap(state.map).id,
     mode: modeOf(state),
     impostor: impostorSettings(state.impostor),
+    survival: survivalSettings(state.survival),
     // Teams belong to the battle mode; a retrospective is free-for-all.
     teams: modeOf(state) === 'battle',
     friendlyFire: !!state.friendlyFire,
@@ -273,6 +310,32 @@ export function impostorSettings(raw: unknown): ImpostorSettings {
 }
 
 /** A `members` row from D1 (snake_case columns) as a hub member. */
+export function survivalSettings(raw: unknown): SurvivalSettings {
+  const src = (raw && typeof raw === 'object' ? raw : {}) as Partial<SurvivalSettings>;
+  const out: SurvivalSettings = { ...SURVIVAL_DEFAULTS };
+  for (const key of Object.keys(SURVIVAL_LIMITS) as (keyof typeof SURVIVAL_LIMITS)[]) {
+    const [min, max] = SURVIVAL_LIMITS[key];
+    const v = src[key];
+    if (finite(v)) out[key] = clamp(Math.round(v), min, max);
+  }
+  if (isSurvivalDifficulty(src.difficulty)) out.difficulty = src.difficulty;
+  return out;
+}
+
+/**
+ * Партия «Выживания» комнаты. Состояние, собранное до появления режима (старые
+ * тесты, чекпоинты), поля не имеет — тогда партия просто стоит в лобби.
+ */
+export function survivalOf(state: HubState): SurvivalGame {
+  return (state.survival ??= newSurvivalGame());
+}
+
+/** Полное здоровье участника: в «Выживании» растёт навыком, у зомби — своё. */
+export function fullHp(state: HubState, m: HubMember) {
+  if (m.zombie) return survivalOf(state).zombies[m.id]?.hpMax ?? m.hp;
+  return state.room.mode === 'survival' ? maxHpOf(survivalOf(state), m.id) : 100;
+}
+
 export function memberFromRow(row: Record<string, unknown>): HubMember {
   const cursor = parseJson<Partial<Cursor> | null>(row.cursor, null);
   const num = (v: unknown, fallback = 0) => (v == null || !Number.isFinite(Number(v)) ? fallback : Number(v));
@@ -467,6 +530,10 @@ export function presence(
   // В вентиляции игрок стоит на месте решётки: поворот принимается, шаги — нет.
   const frozen = isFrozen(state, now) || (impostor && inVent(state.impostor, m.id));
   applyPresence(m, op, now, getMap(state.room.map), frozen, state.room.shieldSeconds * 1000, ghost);
+  if (state.room.mode === 'survival') {
+    survivalOf(state);
+    pickDrops(state, m, survivalIo(state));
+  }
 }
 
 export type FireResult = {
@@ -561,9 +628,15 @@ export function chooseSpawn(
   now: number,
   team: Team | '' = '',
 ): SpawnPoint {
-  const points = state.room.teams && team ? map.spawns[team] : [...map.spawns.red, ...map.spawns.blue];
+  // В «Выживании» все встают на базе — вместе, а не по разным концам карты.
+  const points =
+    state.room.mode === 'survival'
+      ? baseSpawns(map)
+      : state.room.teams && team
+        ? map.spawns[team]
+        : [...map.spawns.red, ...map.spawns.blue];
   const living = [...state.members.values()].filter(
-    (o) => o.id !== self && o.hp > 0 && o.seen > now - ONLINE_MS,
+    (o) => o.id !== self && o.hp > 0 && o.seen > now - ONLINE_MS && !o.zombie,
   );
   const rivals = living.filter((o) => !(state.room.teams && team && o.team === team));
   // Never stack two players on one point while another is free.
@@ -649,7 +722,7 @@ export function setTeam(state: HubState, self: string, team: Team, now: number) 
   m.recentDamage = {};
   if (!state.room.teams || !previous) {
     m.life += 1;
-    m.hp = 100;
+    m.hp = fullHp(state, m);
     m.respawnAt = 0;
     armShield(state, m);
     placeAt(m, chooseSpawn(state, getMap(state.room.map), m.id, now, team));
@@ -697,8 +770,9 @@ export function isFrozen(state: HubState, now: number) {
 export function respawnAll(state: HubState, now: number) {
   const map = getMap(state.room.map);
   for (const m of state.members.values()) {
+    if (m.zombie) continue;
     m.life += 1;
-    m.hp = 100;
+    m.hp = fullHp(state, m);
     m.respawnAt = 0;
     armShield(state, m);
     m.recentDamage = {};
@@ -776,6 +850,8 @@ export function updateMatch(state: HubState, now: number) {
 export function changeMap(state: HubState, now: number) {
   state.effects = [];
   state.impostor = { ...newImpostorGame(), game: state.impostor.game };
+  for (const id of Array.from(state.members.keys())) if (isZombieId(id)) state.members.delete(id);
+  state.survival = { ...newSurvivalGame(), game: survivalOf(state).game };
   state.match = newMatch(state.room, now);
   for (const m of state.members.values()) {
     m.kills = 0;
@@ -793,7 +869,7 @@ function revive(state: HubState, now: number) {
   if (state.room.teams && state.room.matchMode === 'rounds') return changed;
   for (const m of state.members.values()) {
     if (m.hp !== 0 || m.respawnAt <= 0 || m.respawnAt > now) continue;
-    m.hp = 100;
+    m.hp = fullHp(state, m);
     m.respawnAt = 0;
     m.life += 1;
     armShield(state, m);
@@ -867,8 +943,11 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
   }
   const author = state.members.get(e.author);
   const authorImmune = !!author && isImmune(state, author, now);
+  const survival = state.room.mode === 'survival';
   for (const p of state.members.values()) {
     if (p.id === e.author || p.hp <= 0 || p.seen <= now - ONLINE_MS) continue;
+    // Кооператив: выжившие друг друга не ранят вовсе, какой бы ни был огонь по своим.
+    if (survival && !p.zombie) continue;
     const pose = poseAt(p, e.rewindTo);
     const hit =
       e.kind === 'melee'
@@ -914,6 +993,17 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
     // Teammates take no damage, or the share the host allows.
     const friendly = !!(state.room.teams && author && p.team && author.team === p.team);
     if (friendly) damage = Math.round(damage * (state.room.friendlyFire ? state.room.friendlyFirePercent / 100 : 0));
+    if (p.zombie) {
+      // У зомби запас здоровья больше сотни, и «в голову — насмерть» для него значит
+      // не смерть, а тяжёлую рану: базовый урон оружия с множителем. Навыки стрелка —
+      // сверху.
+      if (head && e.kind !== 'melee' && e.kind !== 'grenade') {
+        const distance = Math.hypot(target[0] - origin[0], target[1] - origin[1], target[2] - origin[2]);
+        const base = e.kind === 'confetti' ? (pelletsHit ?? 0) * 13 : effectDamage(e.kind, distance);
+        damage = Math.round(base * 2.5);
+      }
+      damage = Math.round(damage * damageDealt(survivalOf(state), e.author, e.kind === 'melee'));
+    }
     if (damage <= 0) continue;
     if (p.hp > damage) {
       p.hp = Math.max(0, p.hp - damage);
@@ -931,9 +1021,11 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
     }
     const assisterMember = assister ? state.members.get(assister) : undefined;
     p.hp = 0;
-    p.respawnAt = now + state.room.respawnSeconds * 1000;
+    // Зомби не возрождается, а в «Выживании» погибший ждёт следующей волны.
+    p.respawnAt = p.zombie || survival ? 0 : now + state.room.respawnSeconds * 1000;
     p.deaths += 1;
     p.recentDamage = {};
+    if (p.zombie) zombieKilled(state, p.id, e.author, assister, now, survivalIo(state));
     // A team kill earns nothing; a proper kill scores for the shooter's team.
     if (author && !friendly) {
       author.kills += 1;
@@ -976,6 +1068,8 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
 export function resolveCombat(state: HubState, now: number) {
   let changed = updateMatch(state, now);
   changed = updateImpostor(state, now, (id, seat) => seatMember(state, id, seat)) || changed;
+  survivalOf(state);
+  changed = updateSurvival(state, now, survivalIo(state)) || changed;
   changed = revive(state, now) || changed;
   const before = state.effects.length;
   state.effects = state.effects.filter((e) => e.at > now - EFFECT_TTL_MS);
@@ -1067,7 +1161,9 @@ export function publicMembers(state: HubState, now: number, viewer?: string): Pe
     .map((m) => ({
       id: m.id,
       ...(bots.has(m.id) ? { bot: bots.get(m.id) } : {}),
-      name: anonymous ? 'Участник' : m.name,
+      ...(m.zombie ? { zombie: m.zombie } : {}),
+      ...(m.zombie || state.room.mode === 'survival' ? { maxHp: fullHp(state, m) } : {}),
+      name: anonymous && !m.zombie ? 'Участник' : m.name,
       color: m.color,
       team: m.team,
       lastSeen: m.seen,
@@ -1211,7 +1307,7 @@ export function seatMember(state: HubState, id: string, seat: SpawnPoint) {
   const m = state.members.get(id);
   if (!m) return;
   m.life += 1;
-  m.hp = 100;
+  m.hp = fullHp(state, m);
   m.respawnAt = 0;
   m.immuneUntil = 0;
   m.recentDamage = {};
@@ -1253,4 +1349,171 @@ export function impostorAction(state: HubState, self: string, op: Record<string,
     default:
       return { ok: false, error: 'Неизвестное действие' };
   }
+}
+
+// ------------------------------------------------------------------ «Выживание»
+
+const ZOMBIE_COLOR = '#6f8a3c';
+/** Зомби выходит не ближе и не дальше этого от ближайшего выжившего, м. */
+const ZOMBIE_SPAWN_NEAR = 28;
+const ZOMBIE_SPAWN_FAR = 55;
+/** И не ближе этого ни к кому из выживших: не из воздуха за спиной. */
+const ZOMBIE_SPAWN_CLEAR = 20;
+
+function zombieId(state: HubState) {
+  for (;;) {
+    let hex = '';
+    for (let i = 0; i < 12; i++) hex += Math.floor(Math.random() * 16).toString(16);
+    const id = `zed-${hex}`;
+    if (!state.members.has(id)) return id;
+  }
+}
+
+/** Живые выжившие в сети: вокруг них и выходят зомби. */
+function survivorsAlive(state: HubState, now: number) {
+  return [...state.members.values()].filter((m) => !m.zombie && m.hp > 0 && m.seen > now - ONLINE_MS);
+}
+
+/**
+ * Поставить зомби на проходимую клетку сетки ботов в кольце вокруг случайного
+ * выжившего, не на виду у остальных. Клетки сетки достижимы с точек возрождения по
+ * построению (волна от спавнов), так что путь к базе у зомби есть всегда.
+ */
+export function spawnZombie(state: HubState, kind: ZombieKind, hp: number, now: number, random = Math.random) {
+  const players = survivorsAlive(state, now);
+  if (!players.length) return null;
+  const map = getMap(state.room.map);
+  const nav = navFor(map);
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const around = players[Math.floor(random() * players.length)];
+    const a = random() * Math.PI * 2;
+    const r = ZOMBIE_SPAWN_NEAR + random() * (ZOMBIE_SPAWN_FAR - ZOMBIE_SPAWN_NEAR);
+    const idx = nav.nearest(around.pose.x + Math.cos(a) * r, around.pose.z + Math.sin(a) * r);
+    if (idx < 0 || nav.kind[idx] !== 1) continue;
+    const x = nav.cx(idx % nav.cols);
+    const z = nav.cz(Math.floor(idx / nav.cols));
+    if (players.some((p) => Math.hypot(p.pose.x - x, p.pose.z - z) < ZOMBIE_SPAWN_CLEAR)) continue;
+    const id = zombieId(state);
+    const m = memberFromRow({ session: id, name: ZOMBIE_NAME(kind), color: ZOMBIE_COLOR, seen: now });
+    m.zombie = kind;
+    m.hp = hp;
+    m.immuneUntil = 0;
+    placeAt(m, { x, z, y: nav.height[idx], yaw: random() * Math.PI * 2 });
+    state.members.set(id, m);
+    return id;
+  }
+  return null;
+}
+
+/** Что правила «Выживания» просят у сервера комнаты. */
+export function survivalIo(state: HubState): SurvivalIo {
+  return {
+    spawn: (kind, hp, now) => spawnZombie(state, kind, hp, now),
+    remove: (id) => {
+      state.members.delete(id);
+    },
+    revive: (id, now) => {
+      const m = state.members.get(id);
+      if (!m) return;
+      m.life += 1;
+      m.hp = fullHp(state, m);
+      m.respawnAt = 0;
+      m.recentDamage = {};
+      armShield(state, m);
+      placeAt(m, chooseSpawn(state, getMap(state.room.map), id, now));
+    },
+    heal: (id, hp) => {
+      const m = state.members.get(id);
+      if (m && m.hp > 0) m.hp = Math.max(m.hp, Math.round(hp));
+    },
+  };
+}
+
+/** Действие игрока в режиме «Выживание»: старт и стоп — ведущему, навык — себе. */
+export function survivalAction(state: HubState, self: string, op: Record<string, unknown>, now: number): SurvivalResponse {
+  if (state.room.mode !== 'survival') return { ok: false, error: 'Комната не в режиме «Выживание»' };
+  if (state.room.archived) return { ok: false, error: 'Комната в архиве' };
+  survivalOf(state);
+  return survivalRules(state, self, op, now, survivalIo(state));
+}
+
+/**
+ * Укус: урон с поправкой на волну, сложность и броню жертвы; щит возрождения держит.
+ * Смерть — как от выстрела: лента убийств, счёт смертей, ожидание следующей волны.
+ */
+function bite(state: HubState, z: HubMember, victim: HubMember, now: number) {
+  const g = survivalOf(state);
+  const zed = g.zombies[z.id];
+  if (!zed || !z.zombie || victim.hp <= 0) return;
+  zed.attackAt = now + ZOMBIES[z.zombie].attackMs;
+  zed.biteUntil = now + BITE_MS;
+  if (isImmune(state, victim, now)) return;
+  const damage = Math.max(1, Math.round(zombieBite(z.zombie, zed.wave, state.room.survival.difficulty) * damageTaken(g, victim.id)));
+  victim.recentDamage[z.id] = now;
+  playerHurt(g, victim.id, now);
+  if (victim.hp > damage) {
+    victim.hp -= damage;
+    return;
+  }
+  victim.hp = 0;
+  victim.respawnAt = 0;
+  victim.deaths += 1;
+  victim.recentDamage = {};
+  state.effects.push({
+    id: uid(),
+    kind: 'kill',
+    killer: z.id,
+    killerName: z.name,
+    victim: victim.id,
+    victimName: victim.name || 'Игрок',
+    color: z.color,
+    tool: 'bite',
+    author: z.id,
+    at: now,
+    resolveAt: 0,
+    applied: true,
+    rewindTo: 0,
+    seq: ++state.seq,
+  });
+}
+
+/**
+ * Такт толпы: каждый зомби думает по одному снимку, потом все шагают через
+ * `applyPresence` (скорость и стены — как у людей), потом кусают. Возвращает,
+ * изменилось ли что-то, что стоит сохранить.
+ */
+export function stepZombies(state: HubState, brains: Map<string, ZombieBrain>, now: number) {
+  const g = survivalOf(state);
+  for (const id of brains.keys()) if (!g.zombies[id]) brains.delete(id);
+  if (!survivalActive(g) || !humansOnline(state, now)) return false;
+  const map = getMap(state.room.map);
+  const ctx = { state, map, now };
+  const turns: { m: HubMember; turn: ReturnType<ZombieBrain['think']> }[] = [];
+  for (const zed of Object.values(g.zombies)) {
+    const m = state.members.get(zed.id);
+    if (!m) continue;
+    // Зомби всегда «в сети»: иначе через 15 с его нельзя было бы ни ранить, ни увидеть.
+    m.seen = now;
+    if (m.hp <= 0 || zed.diedAt) continue;
+    let brain = brains.get(zed.id);
+    if (!brain) {
+      brain = new ZombieBrain(zed.id, zed.kind);
+      brains.set(zed.id, brain);
+    }
+    turns.push({ m, turn: brain.think(ctx, m) });
+  }
+  for (const { m, turn } of turns) applyPresence(m, turn.presence, now, map, false, 0);
+  let bitten = false;
+  for (const { m, turn } of turns) {
+    if (!turn.bite) continue;
+    const victim = state.members.get(turn.bite);
+    if (!victim || victim.zombie) continue;
+    // Досягаемость проверяется по признанным сервером позам, а не по замыслу мозга.
+    const reach = ZOMBIES[m.zombie as ZombieKind].reach + 0.3;
+    if (Math.hypot(victim.pose.x - m.pose.x, victim.pose.z - m.pose.z) > reach || Math.abs(victim.pose.y - m.pose.y) > 2)
+      continue;
+    bite(state, m, victim, now);
+    bitten = true;
+  }
+  return bitten;
 }

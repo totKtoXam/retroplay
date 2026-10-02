@@ -1,6 +1,6 @@
 // Which maps exist and what mode each belongs to — names only, no geometry, so the
 // lobby and lib/model.ts can reason about modes without loading every map's boxes.
-export type GameMode = 'retro' | 'battle' | 'impostor';
+export type GameMode = 'retro' | 'battle' | 'impostor' | 'survival';
 
 export const MAP_CATALOG = [
   { id: 'hub', title: 'Хаб', mode: 'retro' },
@@ -8,8 +8,8 @@ export const MAP_CATALOG = [
   { id: 'bazaar', title: 'Базар', mode: 'battle' },
   { id: 'mountain', title: 'Горный лагерь', mode: 'battle' },
   { id: 'valley', title: 'Ледниковая долина', mode: 'battle' },
-  // Огромная карта для режима с зомби; пока режима нет — играется как командный бой.
-  { id: 'outbreak', title: 'Зона заражения', mode: 'battle' },
+  // Огромная карта «Выживания»: волны зомби, база — лагерь выживших.
+  { id: 'outbreak', title: 'Зона заражения', mode: 'survival' },
   { id: 'ship', title: 'Корабль', mode: 'impostor' },
 ] as const satisfies readonly { id: string; title: string; mode: GameMode }[];
 
@@ -28,9 +28,16 @@ export const MODES: { id: GameMode; title: string; hint: string }[] = [
     title: 'Предатель',
     hint: 'Экипаж чинит корабль, предатели тайно мешают; собрания и голосование',
   },
+  {
+    id: 'survival',
+    title: 'Выживание',
+    hint: 'Кооператив против волн зомби: опыт, уровни и навыки за партию',
+  },
 ];
 
-const GAME_MODES: readonly string[] = ['retro', 'battle', 'impostor'];
+export const GAME_MODES: readonly GameMode[] = ['retro', 'battle', 'impostor', 'survival'];
+export const isGameMode = (v: unknown): v is GameMode =>
+  typeof v === 'string' && (GAME_MODES as readonly string[]).includes(v);
 
 /** Maps the host can pick in this mode. */
 export const mapsForMode = (mode: GameMode) => MAP_CATALOG.filter((m) => m.mode === mode);
@@ -41,4 +48,4 @@ export const modeOfMap = (id?: string): GameMode =>
   MAP_CATALOG.find((m) => m.id === id)?.mode ?? 'retro';
 /** The mode a room is in: its own setting, or the one its map belongs to. */
 export const modeOf = (state: { mode?: string; map?: string }): GameMode =>
-  GAME_MODES.includes(state.mode as string) ? (state.mode as GameMode) : modeOfMap(state.map);
+  isGameMode(state.mode) ? state.mode : modeOfMap(state.map);

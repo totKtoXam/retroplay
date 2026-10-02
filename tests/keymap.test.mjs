@@ -47,6 +47,7 @@ test('every key the handlers react to is in the keymap', () => {
     'components/world.tsx',
     'components/world-player.ts',
     'components/impostor-overlay.tsx',
+    'components/survival-overlay.tsx',
     'components/game-chat.tsx',
     'components/room-app.tsx',
   ];
@@ -151,6 +152,12 @@ test('mode filters', () => {
   assert.ok(!actions('impostor').has('reload'));
   assert.ok(actions('impostor').has('impostor-report'));
   assert.ok(!actions('retro').has('impostor-kill'));
+  // «Выживание»: боевой набор плюс панель навыков на N; оптика снайперки работает.
+  assert.ok(actions('survival').has('perks'));
+  assert.ok(actions('survival').has('reload'));
+  assert.ok(actions('survival').has('sniper-zoom'));
+  assert.ok(!actions('battle').has('perks'));
+  assert.deepEqual(codesFor('perks', 'survival'), ['KeyN']);
   // Общие клавиши есть везде.
   for (const mode of modes) for (const a of ['move', 'pause', 'chat-open', 'scoreboard']) assert.ok(actions(mode).has(a), `${mode}: ${a}`);
 });

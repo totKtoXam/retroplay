@@ -1112,6 +1112,18 @@ function generate() {
     reserve.add(x, z, 3.5);
     return { x, z, y: round(heightAt(x, z)), yaw };
   };
+  // База «Выживания» — внутри лагеря выживших (-120, 30): стены из бытовок, ворота на
+  // север и юг. Точки в стороне от костров и грузовика, чтобы никто не вставал в них.
+  const base: SpawnPoint[] = [
+    spawnAt(-126, 24, 0),
+    spawnAt(-114, 24, 0),
+    spawnAt(-126, 36, Math.PI),
+    spawnAt(-114, 36, Math.PI),
+    spawnAt(-132, 30, Math.PI / 2),
+    spawnAt(-108, 30, -Math.PI / 2),
+    spawnAt(-120, 18, 0),
+    spawnAt(-120, 42, Math.PI),
+  ];
   const spawns = {
     red: [
       spawnAt(-560, 184, 0),
@@ -1695,7 +1707,9 @@ function generate() {
           Math.PI / 2,
         );
       }
-      put('structures/large-iron-gate', cx, cz + side * half, 0);
+      // Ворота распахнуты: створка стоит вдоль прохода, а не поперёк — иначе лагерь был бы
+      // запечатан, и в «Выживании» толпе было бы не войти, а игрокам не выйти.
+      put('structures/large-iron-gate', cx + 1.8, cz + side * (half + 1.6), Math.PI / 2);
       for (const k of [-1, 1])
         put(
           'items/concrete-road-barrier',
@@ -3015,14 +3029,14 @@ function generate() {
       round: true,
     },
   ];
-  return { terrain, props, decals, npcs, spawns, zones, water };
+  return { terrain, props, decals, npcs, spawns, base, zones, water };
 }
 
 const round = (v: number) => Math.round(v * 100) / 100;
 
 /** Описание карты строится при первом обращении: генерация занимает доли секунды, но не нужна другим картам. */
 export function buildOutbreak(): ArenaDef {
-  const { terrain, props, decals, npcs, spawns, zones, water } = generate();
+  const { terrain, props, decals, npcs, spawns, base, zones, water } = generate();
   return {
     id: 'outbreak',
     title: 'Зона заражения',
@@ -3042,6 +3056,7 @@ export function buildOutbreak(): ArenaDef {
     // Мрачный дневной HDRI: пасмурное небо над пустошью.
     sky: { hdri: 'wasteland_clouds_puresky' },
     spawns,
+    base,
     zones,
     navCell: 3,
     mood: 'grim',

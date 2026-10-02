@@ -427,7 +427,14 @@ export function GrenadeRecharge(props: { readyAt: number; cooldown: number }) {
 
 export function WorldHud(props: WorldHudProps) {
   useLoadoutAnchor();
-  const hp = Math.min(100, Math.max(0, props.self?.hp ?? 100));
+  // Запас здоровья в «Выживании» растёт навыком (Person.maxHp): полоса заливается
+  // долей от запаса, а число показывает само здоровье.
+  const maxHp = Math.max(1, props.self?.maxHp ?? 100);
+  const hp = Math.min(maxHp, Math.max(0, props.self?.hp ?? maxHp));
+  const hpShare = (hp / maxHp) * 100;
+  // Боевые виджеты (урон, попадания, щит, лента убийств) нужны везде, где стреляют
+  // всерьёз: в бою и в «Выживании». Счёт команд и баннер матча — только в бою.
+  const combat = props.mode === 'battle' || props.mode === 'survival';
   const kills = props.self?.kills ?? 0;
   const deaths = props.self?.deaths ?? 0;
   // При нуле смертей отношение не определено, и «∞» в углу экрана в начале
@@ -457,7 +464,7 @@ export function WorldHud(props: WorldHudProps) {
     props.perspective === 'first' &&
     !props.dead;
   const paintAiming = throughSights && props.current?.id === 'paint';
-  const low = props.mode === 'battle' && lowHealth(hp, props.dead);
+  const low = combat && lowHealth(hp, props.dead);
   // Имена в ленте окрашены по сторонам: сразу видно, чей это размен. Светлый
   // оттенок цвета команды — имя читается на тёмной подложке.
   const teamColor = (id?: string) =>
@@ -471,7 +478,7 @@ export function WorldHud(props: WorldHudProps) {
   const sideHint = props.room.match ? props.room.match.phase !== 'live' : false;
   return (
     <>
-      {props.mode === 'battle' && <HudDamage hits={props.damageHits} view={props.damageView} />}
+      {combat && <HudDamage hits={props.damageHits} view={props.damageView} />}
       {low && <HudLowHealth />}
       <HudCrosshair
         style={props.prefs.crosshairStyle}
@@ -479,7 +486,7 @@ export function WorldHud(props: WorldHudProps) {
         hidden={props.current?.id === 'sniper' || throughSights}
       />
       {paintAiming && <PaintAimReticle />}
-      {props.mode === 'battle' && props.hitMark && (
+      {combat && props.hitMark && (
         <HudHitMark key={props.hitMark.key} zone={props.hitMark.zone} />
       )}
       {props.current?.id === 'sniper' && props.aiming && props.perspective === 'first' && !props.dead && (
@@ -707,7 +714,7 @@ export function WorldHud(props: WorldHudProps) {
           </div>
         </div>
       )}
-      {props.mode === 'battle' && props.shieldSeconds > 0 && !props.dead && (
+      {combat && props.shieldSeconds > 0 && !props.dead && (
         <div
           className="spawn-immunity-hud"
           title="Бессмертие после возрождения: длительность задаёт ведущий в настройках комнаты"
@@ -746,7 +753,7 @@ export function WorldHud(props: WorldHudProps) {
         </div>
       </div>
       )}
-      {props.mode === 'battle' && (
+      {combat && (
       // Без aria-live: чужие убийства скринридеру ни к чему, своё убийство и
       // своя смерть объявляются отдельно (world.tsx).
       <div className="killfeed-container">
@@ -790,9 +797,10 @@ export function WorldHud(props: WorldHudProps) {
             )}
             <span
               className={`killfeed-weapon ${msg.noScope ? 'is-noscope' : ''}`}
-              title={weaponName(msg.tool)}
+              title={msg.tool === 'bite' ? 'Укус зомби' : weaponName(msg.tool)}
             >
-              <WeaponIcon tool={msg.tool} />
+              {/* Укус зомби — не предмет из GAME_TOOLS: вместо иконки оружия слово. */}
+              {msg.tool === 'bite' ? <span className="killfeed-bite">укус</span> : <WeaponIcon tool={msg.tool} />}
               {msg.headshot && (
                 <span className="killfeed-badge is-headshot" title="В голову">
                   <HeadshotIcon />
@@ -837,11 +845,11 @@ export function WorldHud(props: WorldHudProps) {
         className={`health-bar-hud ${props.dead ? 'is-depleted' : ''} ${low ? 'is-low' : ''}`}
         style={
           {
-            '--hp-fill': `${hp}%`,
-            '--hp-color': `hsl(${healthHue(hp)} 62% 42%)`,
+            '--hp-fill': `${hpShare}%`,
+            '--hp-color': `hsl(${healthHue(hpShare)} 62% 42%)`,
           } as React.CSSProperties
         }
-        title="Здоровье"
+        title={maxHp > 100 ? `Здоровье: ${hp} из ${maxHp}` : 'Здоровье'}
       >
         <i className="health-bar-fill" aria-hidden="true" />
         {/* Только число: «HP» рядом с залитой полоской здоровья ничего не

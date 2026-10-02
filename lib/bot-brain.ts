@@ -16,7 +16,7 @@
 // него убрана сеть и журнал аномалий.
 import type { HubMember, HubState } from './room-hub-core.ts';
 import { stanceHeight, type GameMap } from './maps/types.ts';
-import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
+import { forEachColliderNear, isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
 import { WEAPONS, cooledDown, isBlaster, weaponCooldown, type Blaster } from './weapon-definition.ts';
 import { memberWeapon } from './weapon-authority.ts';
 import { aimGrenadeAt } from './grenade-physics.ts';
@@ -179,8 +179,12 @@ const NEIGHBOURS: [number, number, number][] = [
   [-1, 1, Math.SQRT2],
   [-1, -1, Math.SQRT2],
 ];
+/** Противоположное направление для каждого из NEIGHBOURS: ребро симметрично. */
+const OPPOSITE = NEIGHBOURS.map(([dx, dz]) => NEIGHBOURS.findIndex(([ox, oz]) => ox === -dx && oz === -dz));
 /** A* не обходит больше клеток: цель дальше считается недостижимой. */
 const MAX_VISITS = 9000;
+/** Высота луча между соседними клетками: пояс идущего. */
+const EDGE_RAY_Y = 0.9;
 
 type PathNode = { x: number; z: number; y: number; crouch: boolean };
 
@@ -253,6 +257,16 @@ export class NavGrid {
   readonly kind: Uint8Array;
   readonly height: Float32Array;
   walkable = 0;
+  /**
+   * Тонкие стены между центрами соседних клеток сетка не видит: на крупной клетке
+   * (3 м на «Зоне заражения») забор или ряд столбов умещается между центрами, и обе
+   * клетки проходимы, а пройти между ними нельзя. Поэтому ребро к соседу проверяется
+   * лучом — лениво, при первом обходе, и запоминается битами по направлению. Луч
+   * нужен только там, где рядом есть коллайдер (`near`): в чистом поле рёбра свободны.
+   */
+  private near: Uint8Array;
+  private edgeKnown: Uint8Array;
+  private edgeBlocked: Uint8Array;
   private gScore: Float32Array;
   private came: Int32Array;
   private stamp: Int32Array;
@@ -270,6 +284,9 @@ export class NavGrid {
     const size = this.cols * this.rows;
     this.kind = new Uint8Array(size);
     this.height = new Float32Array(size);
+    this.near = new Uint8Array(size);
+    this.edgeKnown = new Uint8Array(size);
+    this.edgeBlocked = new Uint8Array(size);
     this.gScore = new Float32Array(size);
     this.came = new Int32Array(size);
     this.stamp = new Int32Array(size);
@@ -289,6 +306,70 @@ export class NavGrid {
     const iz = Math.floor((z - this.minZ) / this.cell);
     if (ix < 0 || iz < 0 || ix >= this.cols || iz >= this.rows) return -1;
     return iz * this.cols + ix;
+  }
+
+  /**
+   * Сколько можно подняться, шагая в точку (x, z) на высоту y. Крупная клетка берёт
+   * большой перепад — но только по рельефу (склон длиной в клетку); на ящик или крышу
+   * высотой выше колена с земли не шагнуть, какой бы крупной ни была клетка.
+   */
+  private climbLimit(x: number, z: number, y: number) {
+    const terrain = this.map.terrainHeight;
+    if (!terrain || Math.abs(terrain(x, z) - y) < 0.3) return this.climb;
+    return CLIMB;
+  }
+
+  /** Рядом с клеткой есть коллайдер (0 — не считали, 1 — чисто, 2 — есть). */
+  private nearCollider(idx: number) {
+    let v = this.near[idx];
+    if (v) return v === 2;
+    const x = this.cx(idx % this.cols);
+    const z = this.cz(Math.floor(idx / this.cols));
+    const r = this.cell + BODY_RADIUS;
+    let found = false;
+    forEachColliderNear(this.map.colliders, x - r, x + r, z - r, z + r, () => {
+      found = true;
+      return true;
+    });
+    v = found ? 2 : 1;
+    this.near[idx] = v;
+    return found;
+  }
+
+  /** Между центрами соседних клеток `idx` → `nidx` (направление `dir` из NEIGHBOURS) нет стены. */
+  edgeOpen(idx: number, nidx: number, dir: number) {
+    const bit = 1 << dir;
+    if (this.edgeKnown[idx] & bit) return !(this.edgeBlocked[idx] & bit);
+    let blocked = false;
+    if (this.nearCollider(idx) || this.nearCollider(nidx)) {
+      const ax = this.cx(idx % this.cols);
+      const az = this.cz(Math.floor(idx / this.cols));
+      const bx = this.cx(nidx % this.cols);
+      const bz = this.cz(Math.floor(nidx / this.cols));
+      const wall = rayCastWorldObstacle(
+        [ax, this.height[idx] + EDGE_RAY_Y, az],
+        [bx, this.height[nidx] + EDGE_RAY_Y, bz],
+        this.map.colliders,
+      );
+      blocked = !!(wall && wall.hit);
+    }
+    this.edgeKnown[idx] |= bit;
+    const back = 1 << OPPOSITE[dir];
+    this.edgeKnown[nidx] |= back;
+    if (blocked) {
+      this.edgeBlocked[idx] |= bit;
+      this.edgeBlocked[nidx] |= back;
+    }
+    return !blocked;
+  }
+
+  /** Ребро между любыми двумя соседними клетками (по индексам); не соседи — закрыто. */
+  private cellsLinked(a: number, b: number) {
+    if (a === b) return true;
+    const dx = (b % this.cols) - (a % this.cols);
+    const dz = Math.floor(b / this.cols) - Math.floor(a / this.cols);
+    const dir = NEIGHBOURS.findIndex(([nx, nz]) => nx === dx && nz === dz);
+    return dir >= 0 && this.edgeOpen(a, b, dir);
   }
 
   /** Какой стойкой клетка проходима на высоте y. */
@@ -334,7 +415,7 @@ export class NavGrid {
         // Высоту считаем «от текущей ноги»: так работает и сам движок.
         const ny = this.map.groundHeight(wx, wz, y);
         seen[nidx] = 1;
-        if (ny - y > this.climb || y - ny > FALL) continue;
+        if (ny - y > this.climbLimit(wx, wz, ny) || y - ny > FALL) continue;
         const kind = this.passable(wx, wz, ny);
         if (!kind) continue;
         this.kind[nidx] = kind;
@@ -388,14 +469,19 @@ export class NavGrid {
     const sx = (-(bz - az) / dist) * BODY_RADIUS;
     const sz = ((bx - ax) / dist) * BODY_RADIUS;
     let y = ay;
+    let prev = this.at(ax, az);
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
       const x = ax + (bx - ax) * t;
       const z = az + (bz - az) * t;
       const idx = this.at(x, z);
       if (idx < 0 || this.kind[idx] !== 1) return false;
+      // Шаг меньше клетки: соседние отсчёты — та же клетка или смежные, и между
+      // смежными не должно быть стены.
+      if (prev >= 0 && !this.cellsLinked(prev, idx)) return false;
+      prev = idx;
       const ny = this.height[idx];
-      if (ny - y > this.climb || y - ny > FALL) return false;
+      if (ny - y > this.climbLimit(x, z, ny) || y - ny > FALL) return false;
       for (const side of [1, -1]) {
         const edge = this.at(x + sx * side, z + sz * side);
         if (edge < 0 || this.kind[edge] !== 1 || Math.abs(this.height[edge] - ny) > this.climb) return false;
@@ -432,7 +518,8 @@ export class NavGrid {
       const ix = current % this.cols;
       const iz = Math.floor(current / this.cols);
       const g = this.gScore[current];
-      for (const [dx, dz, cost] of NEIGHBOURS) {
+      for (let dir = 0; dir < NEIGHBOURS.length; dir++) {
+        const [dx, dz, cost] = NEIGHBOURS[dir];
         const nx = ix + dx;
         const nz = iz + dz;
         if (nx < 0 || nz < 0 || nx >= this.cols || nz >= this.rows) continue;
@@ -440,6 +527,7 @@ export class NavGrid {
         if (!this.kind[nidx]) continue;
         // Углы не срезаем: по диагонали только если обе стороны свободны.
         if (dx && dz && (!this.kind[iz * this.cols + nx] || !this.kind[nz * this.cols + ix])) continue;
+        if (!this.edgeOpen(current, nidx, dir)) continue;
         const climb = Math.abs(this.height[nidx] - this.height[current]);
         // Присев ходят медленнее, крутые места тоже не бесплатны.
         const next = g + cost * this.cell + (this.kind[nidx] === 2 ? 1.4 : 0) + climb * 0.6;
@@ -835,6 +923,8 @@ export class BotBrain {
   private isFoe(ctx: BotContext, me: HubMember, m: HubMember) {
     if (m.id === me.id || m.hp <= 0) return false;
     if (m.seen <= ctx.now - ONLINE_MS) return false;
+    // В «Выживании» бот — союзник людей: враг только зомби.
+    if (ctx.state.room.mode === 'survival') return !!m.zombie;
     if (ctx.state.room.teams && me.team && m.team === me.team) return false;
     return true;
   }
@@ -1003,6 +1093,12 @@ export class BotBrain {
     const nav = this.nav ?? navFor(map);
     this.nav = nav;
     const points: Point[] = [];
+    // В «Выживании» бот держится базы: патруль — по её точкам, а не по всей карте.
+    if (map.base?.length) {
+      this.waypoints = map.base.map((p) => ({ x: p.x, z: p.z }));
+      this.waypointIndex = this.index % this.waypoints.length;
+      return;
+    }
     for (let guard = 0; points.length < 9 && guard < 800; guard++) {
       const idx = Math.floor(this.random() * nav.kind.length);
       if (nav.kind[idx] !== 1) continue;

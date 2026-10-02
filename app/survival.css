@@ -1,0 +1,463 @@
+/*
+ * Режим «Выживание» поверх 3D-сцены (components/survival-overlay.tsx) и его раздел в
+ * настройках комнаты. Как HUD (app/hud.css) и «Предатель» (app/impostor.css), цвета
+ * свои — под интерфейсом произвольный кадр сцены; токены из app/tokens.css.
+ */
+
+.survival-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-hud-float);
+  color: var(--hud-text);
+  font-size: var(--fs-md);
+}
+.survival-layer button,
+.survival-layer .survival-card,
+.survival-layer .survival-top {
+  pointer-events: auto;
+}
+
+.survival-top,
+.survival-card,
+.survival-toast,
+.survival-dead,
+.survival-xp {
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.35);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.survival-muted {
+  color: var(--hud-text-dim);
+  font-size: var(--fs-xs);
+}
+
+/* --- Фаза партии: верх по центру --- */
+.survival-top {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-1) var(--space-3);
+  max-width: calc(100vw - 32px);
+  padding: var(--space-2) var(--space-4);
+  text-align: center;
+}
+.survival-top strong {
+  font-size: var(--fs-base);
+  letter-spacing: 0.02em;
+}
+.survival-top.is-wave strong {
+  color: var(--npc-hostile);
+}
+.survival-top.is-prep strong {
+  color: var(--hud-warning);
+}
+.survival-top.is-ended strong {
+  color: var(--hud-accent);
+}
+.survival-timer {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+  color: var(--hud-warning);
+}
+.survival-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--hud-text-dim);
+  font-size: var(--fs-sm);
+}
+.survival-stat b {
+  color: var(--hud-text);
+  font-variant-numeric: tabular-nums;
+}
+.survival-top button.primary {
+  padding: 6px 14px;
+  border-radius: var(--rd-md);
+  border: 1px solid #6d5dfc;
+  background: #6d5dfc;
+  color: #fff;
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.survival-dead {
+  position: absolute;
+  top: 116px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: 4px 12px;
+  font-size: var(--fs-xs);
+  color: #ffd2da;
+  border-color: rgb(255 45 85 / 0.45);
+}
+
+.survival-stop {
+  position: absolute;
+  z-index: 2;
+  top: 64px;
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  padding: 4px 10px;
+  border-radius: var(--rd-md);
+  border: 1px solid var(--hud-border);
+  background: var(--hud-bg);
+  color: var(--hud-text-dim);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+/* --- Опыт и уровень: нижний левый угол, где в бою стоит счёт K/D/A --- */
+.survival-xp {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: min(360px, calc(100vw - 48px));
+  padding: var(--space-1-5) var(--space-2);
+  pointer-events: auto;
+}
+.survival-level {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, #6d5dfc, #3b2f9c);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25);
+  font-size: var(--fs-base);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+.survival-xp-body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.survival-xp-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.12);
+  overflow: hidden;
+}
+.survival-xp-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #a79bff, #6d5dfc);
+  transition: width var(--dur-base) ease;
+}
+.survival-xp-label {
+  font-size: var(--fs-2xs);
+  color: var(--hud-text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.survival-perks-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  padding: 5px 8px;
+  border-radius: var(--rd-md);
+  border: 1px solid var(--hud-border);
+  background: rgb(255 255 255 / 0.06);
+  color: var(--hud-text-dim);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+/* Нерастраченные очки — повод открыть панель: кнопка подсвечена и мигает. */
+.survival-perks-button.has-points {
+  color: #0b1020;
+  background: var(--hud-warning);
+  border-color: var(--hud-warning);
+  font-weight: var(--weight-semibold);
+  animation: survival-pulse 1.6s ease-in-out infinite;
+}
+.survival-perks-button kbd,
+.survival-card kbd {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: var(--rd-xs);
+  border: 1px solid rgb(255 255 255 / 0.3);
+  background: rgb(255 255 255 / 0.08);
+  font-family: inherit;
+  font-size: var(--fs-2xs);
+  text-align: center;
+}
+.survival-perks-button.has-points kbd {
+  border-color: rgb(0 0 0 / 0.3);
+  background: rgb(0 0 0 / 0.08);
+}
+@keyframes survival-pulse {
+  50% {
+    box-shadow: 0 0 0 4px rgb(255 224 102 / 0.35);
+  }
+}
+
+/* --- Модальные экраны: навыки и итог --- */
+.survival-modal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(3 6 12 / 0.55);
+  pointer-events: auto;
+  animation: survival-fade var(--dur-base) ease;
+}
+.survival-card {
+  width: min(560px, 100%);
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  padding: 14px 16px;
+}
+/* Окно навыков — <dialog open>: снимаем стили браузера, остальное задаёт .survival-card. */
+dialog.survival-card {
+  position: static;
+  height: auto;
+  margin: 0;
+  color: inherit;
+}
+.survival-card header,
+.survival-card footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.survival-card header {
+  margin-bottom: var(--space-3);
+}
+.survival-card footer {
+  margin-top: var(--space-3);
+}
+.survival-card header strong {
+  font-size: var(--fs-lg);
+}
+.survival-points {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--hud-text-dim);
+}
+.survival-points.has-points {
+  color: var(--hud-warning);
+  font-weight: var(--weight-semibold);
+}
+.survival-close {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.survival-card button.primary {
+  padding: 6px 14px;
+  border-radius: var(--rd-md);
+  border: 1px solid #6d5dfc;
+  background: #6d5dfc;
+  color: #fff;
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+.survival-card button.primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.survival-card p {
+  margin: 0 0 var(--space-2);
+}
+
+.survival-perks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-1-5);
+}
+.survival-perks li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--rd-md);
+  border: 1px solid var(--hud-border);
+  background: rgb(255 255 255 / 0.04);
+}
+.survival-perks li.is-taken {
+  border-color: rgb(167 155 255 / 0.5);
+}
+.survival-perks li.is-max {
+  border-color: rgb(74 222 128 / 0.5);
+}
+.survival-perks li > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.survival-rank {
+  display: inline-flex;
+  gap: 3px;
+}
+.survival-rank i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.14);
+}
+.survival-rank i.is-on {
+  background: #a79bff;
+}
+.survival-perks li.is-max .survival-rank i.is-on {
+  background: var(--hud-success);
+}
+
+/* Итог */
+.survival-ended {
+  text-align: center;
+}
+.survival-ended h2 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--fs-2xl);
+}
+.survival-ended.is-won h2 {
+  color: var(--hud-success);
+}
+.survival-ended.is-lost h2 {
+  color: #ff5a5f;
+}
+.survival-result {
+  color: var(--hud-text-dim);
+  font-size: var(--fs-sm);
+}
+.survival-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.survival-table th,
+.survival-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  text-align: right;
+}
+.survival-table th:first-child,
+.survival-table td:first-child {
+  text-align: left;
+}
+.survival-table th {
+  color: var(--hud-text-dim);
+  font-weight: var(--weight-medium);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.survival-table tr.is-me td {
+  color: var(--hud-warning);
+  font-weight: var(--weight-semibold);
+}
+.survival-ended footer {
+  justify-content: center;
+}
+
+.survival-toast {
+  position: absolute;
+  bottom: 280px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  white-space: nowrap;
+}
+
+@keyframes survival-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* --- Настройки комнаты: три сложности в ряд --- */
+.survival-difficulty.mode-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Узкий экран: панель предметов внизу по центру становится шире, и углы уходят под
+   неё — поднимаем полосу опыта над доком, как счёт K/D/A в бою (app/hud.css). */
+@media (max-width: 900px) {
+  .survival-xp {
+    left: 16px;
+    bottom: 96px;
+  }
+}
+@media (max-width: 680px) {
+  .survival-xp {
+    bottom: 128px;
+    width: min(300px, calc(100vw - 32px));
+  }
+  .survival-xp-label {
+    display: none;
+  }
+  .survival-top {
+    top: 56px;
+    font-size: var(--fs-sm);
+  }
+  .survival-perks li {
+    grid-template-columns: 1fr auto;
+  }
+  .survival-perks li .survival-rank {
+    grid-column: 1;
+  }
+  .survival-perks li button {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+  .survival-difficulty.mode-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .survival-perks-button.has-points,
+  .survival-modal {
+    animation: none;
+  }
+  .survival-xp-bar span {
+    transition: none;
+  }
+}
+/* Тач-цели: на экране с грубым указателем кнопки режима — от 44px. */
+@media (pointer: coarse) {
+  .survival-layer button:not(.survival-close) {
+    min-height: 44px;
+  }
+  .survival-close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
