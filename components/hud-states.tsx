@@ -163,7 +163,7 @@ export function HudDeathCard(props: {
   killerColor?: string;
   seconds: number;
   total: number;
-  waitsForRound: boolean;
+  waitsForRound: boolean | 'wave';
 }) {
   const info = props.info;
   const self = info?.killer === props.selfId;

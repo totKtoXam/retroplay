@@ -60,7 +60,7 @@ type WorldHudProps = {
   /** Полное время возрождения в комнате, с: для кольца отсчёта. */
   respawnTotal: number;
   /** Погибшие ждут следующего раунда (режим раундов): числа отсчёта у них нет. */
-  waitsForRound: boolean;
+  waitsForRound: boolean | 'wave';
   /** Кто и чем убил игрока; `null` — данных нет. */
   deathInfo: DeathInfo | null;
   /** Настройки игрока: прицел, масштаб HUD, режим для дальтоников. */

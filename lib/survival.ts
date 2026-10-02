@@ -312,8 +312,14 @@ const OK: SurvivalResponse = { ok: true };
 
 /** Игроки партии: люди и боты-союзники, не зомби. */
 const survivors = (hub: SurvivalHub) => [...hub.members.values()].filter((m) => !isZombieId(m.id));
+/**
+ * Живые люди партии. Порог — LEFT_MS, а не ONLINE_MS: короткий обрыв связи или
+ * свёрнутая вкладка одного игрока не должны кончать партию для всех.
+ */
 const humansAlive = (hub: SurvivalHub, now: number) =>
-  survivors(hub).filter((m) => m.hp > 0 && m.seen > now - ONLINE_MS && !m.id.startsWith('bot-'));
+  survivors(hub).filter(
+    (m) => m.hp > 0 && !m.id.startsWith('bot-') && (m.seen > now - LEFT_MS || hub.connected?.(m.id)),
+  );
 const humansHere = (hub: SurvivalHub, now: number) =>
   survivors(hub).some((m) => !m.id.startsWith('bot-') && (m.seen > now - LEFT_MS || hub.connected?.(m.id)));
 

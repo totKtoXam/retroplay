@@ -3016,7 +3016,7 @@ export default function World(props: Props) {
         personalAlert={personalAlert}
         respawnSeconds={respawnSeconds}
         respawnTotal={props.room.state.respawnSeconds ?? 5}
-        waitsForRound={gameMode === 'battle' && match?.mode === 'rounds'}
+        waitsForRound={gameMode === 'survival' ? 'wave' : gameMode === 'battle' && match?.mode === 'rounds'}
         deathInfo={deathInfo}
         prefs={hudPrefs}
         voice={props.voice}

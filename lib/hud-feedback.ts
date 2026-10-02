@@ -112,7 +112,9 @@ export function roundCountdown(phase: Match['phase'] | undefined, secondsLeft: n
  * `|| 1` рисовал «1», пока сервер ещё не вернул игрока. В раундах погибшие ждут
  * следующего раунда, и никакого числа у них нет.
  */
-export function respawnCaption(seconds: number, waitsForRound: boolean) {
+/** `waitsForRound`: true — раунды боя; 'wave' — «Выживание», где погибший ждёт следующей волны. */
+export function respawnCaption(seconds: number, waitsForRound: boolean | 'wave') {
+  if (waitsForRound === 'wave') return 'Возрождение — к следующей волне';
   if (waitsForRound) return 'Возрождение — в следующем раунде';
   return seconds > 0 ? `Возрождение через ${seconds} с` : 'Возрождение…';
 }
