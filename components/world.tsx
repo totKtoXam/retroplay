@@ -880,7 +880,7 @@ export default function World(props: Props) {
       }
     };
     const vfx = createWorldVfx({ scene, quality: props.quality, camera });
-    const { burst, paintDropletGeo } = vfx;
+    const { burst } = vfx;
     // Per-frame camera-update scratch vectors, reused to avoid allocating on every tick.
     const scratchCamDir = new T.Vector3(),
       scratchLookTarget = new T.Vector3();
@@ -1038,7 +1038,7 @@ export default function World(props: Props) {
       // Вспышка у дула, искры ракеты и фитиля гранаты.
       vfx,
     });
-    const { flights, spawn } = projectiles;
+    const { spawn } = projectiles;
     let weaponDisposed = false;
     const isDead = () =>
       latest.current.room.members.find((m) => m.id === latest.current.room.self)
@@ -1063,7 +1063,6 @@ export default function World(props: Props) {
         setPersonalAlert,
         weaponSounds,
         weaponVolume,
-        scene,
         camera,
         ray,
         mouse,
@@ -1076,11 +1075,8 @@ export default function World(props: Props) {
         hands,
         pos,
         player,
-        projectiles,
-        flights,
         spawn,
         burst,
-        paintDropletGeo,
         viewRecoil,
         sceneryTargets: () => sceneryTargetCache,
         gatherRemoteAvatarMeshes,
