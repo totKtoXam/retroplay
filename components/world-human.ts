@@ -299,7 +299,8 @@ type HumanRig = {
   lodOn: boolean;
   proneLift: number;
   suitKey: string;
-  shadows: boolean;
+  /** Какие тени бойца сейчас включены (humanShadows); '' — ещё не выставлены. */
+  shadows: '' | HumanShadows;
   /** Сколько кадров пропускать между обновлениями анимации (дальние бойцы). */
   skip: number;
   skipped: number;
@@ -461,7 +462,7 @@ function attachHuman(avatar: T.Group, seed: string) {
     lodOn: false,
     proneLift: 0,
     suitKey: '',
-    shadows: true,
+    shadows: '',
     skip: 0,
     skipped: 0,
     skippedDt: 0,
@@ -672,6 +673,25 @@ export function syncHuman(avatar: T.Group, want: boolean, seed: string, memberCo
   return true;
 }
 
+type HumanShadows = 'none' | 'far' | 'near';
+/** Детали внутри силуэта головы: их тень целиком закрыта тенью головы. */
+const INSIDE_SILHOUETTE = new Set(['eyes', 'eyebrows', 'human-bandana']);
+
+/**
+ * Отбрасывает ли тень деталь бойца. Тени бойцов рисуются каждый кадр, и на
+ * каждую деталь — отдельный проход: у человека их 14 (~17 тыс. треугольников),
+ * а с семью ботами тени бойцов были дороже теней всей карты. Глаза, брови и
+ * бандана тени не дают никогда. Дальний боец (упрощённое тело) отбрасывает
+ * тень одним упрощённым телом: в карте теней на всю карту причёска и
+ * снаряжение вдали всё равно сливаются в одно пятно.
+ */
+export function castsHumanShadow(mesh: T.Object3D, mode: HumanShadows) {
+  if (mode === 'none') return false;
+  const name = mesh.name || mesh.parent?.name || '';
+  if (INSIDE_SILHOUETTE.has(name)) return false;
+  return mode === 'near' || name === 'body-lod';
+}
+
 /**
  * Подробность по расстоянию до камеры: вдали — упрощённое тело и анимация
  * через кадр-два. `lite` — облегчённый режим настроек: упрощённое тело всегда,
@@ -680,13 +700,18 @@ export function syncHuman(avatar: T.Group, want: boolean, seed: string, memberCo
 export function updateHumanLod(avatar: T.Object3D, distance: number, lite: boolean) {
   const r = humans.get(avatar);
   if (!r) return;
-  setHumanDetail(avatar, lite || distance > 16);
+  const far = lite || distance > 16;
+  setHumanDetail(avatar, far);
   r.skip = lite ? (distance > 25 ? 2 : distance > 8 ? 1 : 0) : distance > 40 ? 2 : distance > 22 ? 1 : 0;
-  if (r.shadows !== !lite) {
-    r.shadows = !lite;
-    r.group.traverse((o) => {
-      if (o instanceof T.Mesh) o.castShadow = !lite;
-    });
+  const shadows: HumanShadows = lite ? 'none' : far ? 'far' : 'near';
+  if (r.shadows !== shadows) {
+    r.shadows = shadows;
+    const cast = (o: T.Object3D) => {
+      if (o instanceof T.Mesh) o.castShadow = castsHumanShadow(o, shadows);
+    };
+    r.group.traverse(cast);
+    // Оружие, планшет и граната висят в держателях у кистей — вне группы человека.
+    for (const socket of Object.values(r.sockets)) socket.traverse(cast);
   }
 }
 

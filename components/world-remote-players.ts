@@ -404,7 +404,9 @@ export function createWorldRemotePlayers({
         if (diffYaw < -Math.PI) diffYaw += Math.PI * 2;
         remote.rotation.y += diffYaw * (1 - Math.exp(-16 * dt));
       }
-      animateAvatar(
+      // Скрытого бойца (за стеной в «Предателе», давно погибшего) не видно и в него не
+      // попасть (world-projectiles.ts пропускает невидимых) — скелет ему не нужен.
+      if (remote.visible) animateAvatar(
         remote,
         {
           speed: p.speed ?? (p.moving ? 3.4 : 0),

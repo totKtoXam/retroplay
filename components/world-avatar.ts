@@ -6,6 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { animateHuman, hasHuman, humanShoot } from './world-human.ts';
 import { attachCustomSkins } from './world-skins.ts';
 import { WORLD_WEAPON_PIVOT, dressWorldWeapons } from './world-weapon-models.ts';
+import { findNamed } from './find-named.ts';
 
 export type AvatarMotion = {
   speed: number;
@@ -665,10 +666,12 @@ export function setAvatarStyle(avatar: T.Group, anime: boolean) {
   r.coat.visible = anime;
   r.head.scale.setScalar(anime ? 1.17 : 1);
   r.scarf.visible = anime;
+  // Стиль заново включил тела legacy-skin/agent-skin — скин нужно применить снова (world-skins.ts).
+  avatar.userData.skinApplied = undefined;
 }
 export function setAvatarAnonymous(avatar: T.Group, value: boolean) {
-  const face = avatar.getObjectByName('unmasked-head'),
-    bag = avatar.getObjectByName('anonymous-bag');
+  const face = findNamed(avatar, 'unmasked-head'),
+    bag = findNamed(avatar, 'anonymous-bag');
   if (face) face.visible = !value;
   if (bag) bag.visible = value;
 }
@@ -695,9 +698,9 @@ export function animateAvatar(
     if (m.hp === 0) {
       // Погибший роняет всё, что держал.
       r.gun.visible = r.tablet.visible = false;
-      const grenade = avatar.getObjectByName('held-grenade');
+      const grenade = findNamed(avatar, 'held-grenade');
       if (grenade) grenade.visible = false;
-      const melee = avatar.getObjectByName('held-melee');
+      const melee = findNamed(avatar, 'held-melee');
       if (melee) melee.visible = false;
     }
     r.gun.position.set(0, 0, 0);
@@ -732,9 +735,9 @@ export function animateAvatar(
     r.knees[1].rotation.x = follow(r.knees[1].rotation.x, -0.2, 6);
     r.gun.visible = false;
     r.tablet.visible = false;
-    const g = avatar.getObjectByName('held-grenade');
+    const g = findNamed(avatar, 'held-grenade');
     if (g) g.visible = false;
-    const held = avatar.getObjectByName('held-melee');
+    const held = findNamed(avatar, 'held-melee');
     if (held) held.visible = false;
     return;
   }
@@ -897,18 +900,18 @@ export function animateAvatar(
 
 /** Что в руках: граната, одна из моделей оружия или планшет. */
 function showHeldItem(avatar: T.Group, r: Rig, m: AvatarMotion) {
-  const grenade = avatar.getObjectByName('held-grenade');
+  const grenade = findNamed(avatar, 'held-grenade');
   if (grenade) {
     grenade.visible = m.tool === 'grenade';
     if (grenade.visible) setGrenadeStyle(grenade, m.variant || 'pinata');
   }
-  const melee = avatar.getObjectByName('held-melee');
+  const melee = findNamed(avatar, 'held-melee');
   if (melee) {
     melee.visible = m.tool === 'melee' && !m.working && !m.inventory;
     if (melee.visible) {
       const held = meleeStyle(m.variant);
       for (const id of ['hammer', 'knife', 'baguette'])
-        melee.getObjectByName(`held-melee-${id}`)!.visible = held === id;
+        findNamed(melee, `held-melee-${id}`)!.visible = held === id;
     }
   }
   const armed = ['paint', 'confetti', 'grenade', 'sniper', 'like', 'flashlight'].includes(m.tool);
@@ -916,10 +919,10 @@ function showHeldItem(avatar: T.Group, r: Rig, m: AvatarMotion) {
   // Модели оружия из файла заменяют процедурные стволы, как только загрузятся.
   dressWorldWeapons(r.gun);
   for (const [tool, name] of Object.entries(WORLD_WEAPON_PIVOT)) {
-    const pivot = r.gun.getObjectByName(name);
+    const pivot = findNamed(r.gun, name);
     if (pivot) pivot.visible = m.tool === tool;
   }
-  const gunTorch = r.gun.getObjectByName('gun-torch');
+  const gunTorch = findNamed(r.gun, 'gun-torch');
   if (gunTorch) gunTorch.visible = m.tool === 'flashlight';
   r.tablet.visible = !!m.working || !!m.inventory || m.tool === 'pointer';
 }

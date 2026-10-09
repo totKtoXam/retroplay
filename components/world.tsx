@@ -602,6 +602,9 @@ export default function World(props: Props) {
         ? Math.min(devicePixelRatio, 1.25)
         : 1.0;
     renderer.setPixelRatio(pixelRatio);
+    // Иначе каждый проход постобработки обнуляет счётчики, и в диагностике
+    // кадра остаётся один последний полноэкранный проход. Сброс — в начале кадра.
+    renderer.info.autoReset = false;
     renderer.outputColorSpace = T.SRGBColorSpace;
     renderer.toneMapping = T.ACESFilmicToneMapping;
     renderer.toneMappingExposure = isCinematic ? 1.08 : isBalanced ? 0.98 : 0.92;
@@ -934,29 +937,22 @@ export default function World(props: Props) {
     // scenery mesh candidates once and rebuild only when scenery actually
     // changes (style/interior/season/pack switches, or periodically as a
     // safety net for content packs that resync scenery outside those events).
-    // Local avatar, hands, shadow and landingMarker never change shape, so a
-    // one-time id set is enough to exclude them cheaply. Remote avatars come
-    // and go, so they're excluded from the cache and gathered fresh (but only
-    // from their own small subtree, not the whole scene) where needed.
-    const staticTargetExclusions = new Set<number>();
-    avatar.traverse((o) => staticTargetExclusions.add(o.id));
-    hands.group.traverse((o) => staticTargetExclusions.add(o.id));
-    staticTargetExclusions.add(shadow.id);
-    staticTargetExclusions.add(landingMarker.id);
+    // Local avatar, hands, shadow and landingMarker are skipped as whole
+    // subtrees: the avatar grows after this point (the human model and weapon
+    // models are attached once loaded), so a one-time id set would miss them.
+    // Remote avatars come and go, so they're excluded from the cache and
+    // gathered fresh (but only from their own small subtree) where needed.
+    const staticTargetExclusions = new Set<T.Object3D>([avatar, hands.group, shadow, landingMarker]);
     let sceneryTargetCache: T.Mesh[] = [];
     const rebuildSceneryTargets = () => {
-      const excluded = new Set(staticTargetExclusions);
-      for (const remote of remoteAvatars.values())
-        remote.traverse((o) => excluded.add(o.id));
       const list: T.Mesh[] = [];
-      scene.traverse((o) => {
-        if (
-          o instanceof T.Mesh &&
-          !excluded.has(o.id) &&
-          !o.userData.transientProjectile
-        )
-          list.push(o);
-      });
+      const remotes = new Set<T.Object3D>(remoteAvatars.values());
+      const walk = (o: T.Object3D) => {
+        if (staticTargetExclusions.has(o) || remotes.has(o)) return;
+        if (o instanceof T.Mesh && !o.userData.transientProjectile) list.push(o);
+        for (const child of o.children) walk(child);
+      };
+      walk(scene);
       sceneryTargetCache = list;
     };
     rebuildSceneryTargets();
@@ -1275,6 +1271,8 @@ export default function World(props: Props) {
         canvas.dataset.textures = String(renderer.info.memory.textures);
         canvas.dataset.packTextureMib = (visuals.textureBytes / 1048576).toFixed(1);
       }
+      // Счётчики — за весь прошлый кадр: тени, сцена и проходы постобработки.
+      renderer.info.reset();
       const own = latest.current.room.members.find(
         (m) => m.id === latest.current.room.self,
       );
