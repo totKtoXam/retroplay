@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { findNamed } from './find-named.ts';
 
 /**
  * Attaches the custom skin accessory sets (ninja/cyber/knight/hazmat/cosmo), the crewmate
@@ -523,6 +524,10 @@ const CREW_SKIN_IDS = new Set([
 
 /**
  * Toggles visibility of the selected skin accessory set and updates bandana color.
+ *
+ * Сетевые бойцы зовут это каждый кадр, а обход всего бойца дорогой — поэтому
+ * работа идёт только при смене скина, цвета или стиля. setAvatarStyle
+ * сбрасывает запомненное: он сам переключает тела, которые здесь уточняются.
  */
 export function applyAvatarSkin(
   avatar: T.Group,
@@ -530,13 +535,24 @@ export function applyAvatarSkin(
   bandanaColor = '#3b82f6',
   bandanaMat?: T.MeshStandardMaterial,
 ) {
+  /*
+   * Тело у аватара ровно одно из двух: блочное legacy-skin («Классика» и аниме-стиль)
+   * или костюм AERO agent-skin. Ниндзя, рыцарь и прочие — это накладки ПОВЕРХ него.
+   * Раньше здесь для них гасились оба тела сразу, и от бойца оставались висящие в
+   * воздухе аксессуары; текущий стиль читаем по группе 'anime-detail', которую
+   * переключает setAvatarStyle, чтобы не спорить с ней.
+   */
+  const anime = !!findNamed(avatar, 'anime-detail')?.visible;
+  const applied = `${skinId}|${bandanaColor}|${anime}`;
+  if (avatar.userData.skinApplied === applied) return;
+  avatar.userData.skinApplied = applied;
   if (bandanaMat) {
     bandanaMat.color.set(bandanaColor);
   }
   // Бойцу-человеку (world-human.ts) нужен скин и личный цвет: из них его костюм и снаряжение.
   avatar.userData.skinLook = { skin: skinId, accent: bandanaColor };
   // Скафандр экипажа красится в тот же личный/командный цвет, что и бандана.
-  const suitMesh = avatar.getObjectByName('crew-torso') as T.Mesh | undefined;
+  const suitMesh = findNamed(avatar, 'crew-torso') as T.Mesh | undefined;
   const suitMat = suitMesh?.material as T.MeshStandardMaterial | undefined;
   if (suitMat) suitMat.color.set(bandanaColor);
 
@@ -546,15 +562,6 @@ export function applyAvatarSkin(
   const isHazmat = skinId === 'hazmat';
   const isCosmo = skinId === 'cosmo';
   const isCrew = CREW_SKIN_IDS.has(skinId);
-
-  /*
-   * Тело у аватара ровно одно из двух: блочное legacy-skin («Классика» и аниме-стиль)
-   * или костюм AERO agent-skin. Ниндзя, рыцарь и прочие — это накладки ПОВЕРХ него.
-   * Раньше здесь для них гасились оба тела сразу, и от бойца оставались висящие в
-   * воздухе аксессуары; текущий стиль читаем по группе 'anime-detail', которую
-   * переключает setAvatarStyle, чтобы не спорить с ней.
-   */
-  const anime = !!avatar.getObjectByName('anime-detail')?.visible;
   const legacyBody = anime || skinId === 'classic';
 
   avatar.traverse((o) => {
