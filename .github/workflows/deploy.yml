@@ -52,7 +52,7 @@ jobs:
       - name: Сборка, миграции и перезапуск
         run: |
           set -euo pipefail
-          # Раннер — системный сервис; пользовательскому systemd нужен его сокет.
-          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          # retro3d.service перезапускается через `systemctl --user`: нужен сокет пользовательского systemd.
+          export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
           cd "$DEPLOY_DIR"
           bash scripts/server-deploy.sh "$PREV_HEAD"
