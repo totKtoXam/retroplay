@@ -10,6 +10,7 @@
 # и попросить эту метку, поэтому запуски для внешних участников требуют одобрения
 # (Settings → Actions → Fork pull request workflows). Чужой PR не одобрять не глядя.
 #
+# Root не нужен: раннер — пользовательский сервис systemd, как и retro3d.service.
 # Повторный запуск безопасен: уже настроенный раннер не трогается, сервис
 # переустанавливается.
 
@@ -53,17 +54,43 @@ else
   echo "==> Раннер уже зарегистрирован ($(grep -o '"agentName": *"[^"]*"' .runner || echo .runner))."
 fi
 
-# Деплой перезапускает retro3d.service через `systemctl --user`. Раннер — системный
-# сервис, поэтому пользовательскому systemd нужно жить и без входа в систему.
+# Пользовательскому systemd нужно жить и без входа по SSH — иначе сервис раннера
+# остановится вместе с сессией. retro3d.service живёт так же, поэтому linger,
+# скорее всего, уже включён; включить его для себя обычно можно и без sudo.
 if [ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" != "yes" ]; then
-  echo "==> Включаю linger для $USER (нужен sudo)..."
-  sudo loginctl enable-linger "$USER"
+  echo "==> Включаю linger для $USER..."
+  if ! loginctl enable-linger "$USER"; then
+    echo "!! Не вышло включить linger без прав root. Раннер будет работать, пока" >&2
+    echo "!! открыта сессия; для работы после перезагрузки нужен root:" >&2
+    echo "!!   loginctl enable-linger $USER" >&2
+  fi
 fi
 
-echo "==> Ставлю раннер системным сервисом (нужен sudo)..."
-if sudo ./svc.sh status >/dev/null 2>&1; then sudo ./svc.sh stop || true; sudo ./svc.sh uninstall; fi
-sudo ./svc.sh install "$USER"
-sudo ./svc.sh start
-sudo ./svc.sh status --no-pager | head -n 5
+echo "==> Ставлю раннер пользовательским сервисом systemd..."
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+UNIT_DIR="$HOME/.config/systemd/user"
+mkdir -p "$UNIT_DIR"
+cat > "$UNIT_DIR/actions-runner.service" <<UNIT
+[Unit]
+Description=GitHub Actions runner ($RUNNER_NAME)
+After=network-online.target
+
+[Service]
+WorkingDirectory=$RUNNER_DIR
+ExecStart=$RUNNER_DIR/run.sh
+Restart=always
+RestartSec=5
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=5min
+
+[Install]
+WantedBy=default.target
+UNIT
+systemctl --user daemon-reload
+systemctl --user enable actions-runner.service
+systemctl --user restart actions-runner.service
+sleep 3
+systemctl --user --no-pager status actions-runner.service | head -n 5
 
 echo "==> Готово. Раннер виден в $REPO_URL/settings/actions/runners"

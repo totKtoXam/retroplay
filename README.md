@@ -179,7 +179,7 @@ LAN-сервер работает в продакшен-режиме: `retro3d.s
 
 Автодеплой: на сервере стоит свой раннер GitHub Actions с меткой `retro3d-lan` (`scripts/install-runner.sh`). После зелёного CI на пуше в `main` workflow `.github/workflows/deploy.yml` подтягивает прошедший проверку коммит в `/home/user/projects/retro3d` и запускает тот же `scripts/server-deploy.sh`; вручную — «Run workflow» у Deploy на ветке `main`. Проверки PR идут на раннерах GitHub: репозиторий публичный, и код из PR на сервер не попадает. Запуски workflow от внешних участников требуют одобрения — чужой PR не одобрять не глядя, иначе его workflow может попросить серверный раннер.
 
-Установка раннера (один раз, из PowerShell на машине с `gh`; токен регистрации живёт час, `sudo` спросит пароль):
+Установка раннера (один раз, из PowerShell на машине с `gh`; токен регистрации живёт час; root не нужен — раннер ставится пользовательским сервисом systemd, как `retro3d.service`):
 
 ```powershell
 $t = gh api -X POST repos/totKtoXam/retroplay/actions/runners/registration-token --jq .token
