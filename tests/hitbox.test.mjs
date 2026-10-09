@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import {
   inHitRange,
   isHeadshot,
-  calculatePelletsHit,
   hitZone,
   effectDamage,
 } from '../lib/game-items.ts';
+import { pelletEnds, shotgunVolley, SHOTGUN_PELLETS } from '../lib/shotgun.ts';
 
 test('Headshot is strictly registered on head, not on chest or torso', () => {
   const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
@@ -79,61 +79,79 @@ test('Sitting stance headshot vs chest detection', () => {
   assert.equal(isHeadshot('paint', chest.origin, chest.target, pose), false);
 });
 
-test('Shotgun point-blank blast delivers all 8 pellets and lethal 104 damage', () => {
+/** Залп по одной цели без стен карты; несколько разных id — разные рисунки разлёта. */
+const volleyAt = (origin, target, pose, id, colliders = []) =>
+  shotgunVolley(origin, target, id, [{ id: 'v', pose }], colliders).hits.get('v') ?? { pellets: 0, damage: 0, head: false };
+const IDS = Array.from({ length: 60 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+
+test('Дробовик в упор: все дробины в корпус — убийство', () => {
   const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
-
-  // Firing directly into center mass from 2.5m (close quarters <= 3.2m)
-  const pointBlank = calculatePelletsHit([0, 1.15, 2.5], [0, 1.15, -2.5], pose);
-  assert.equal(pointBlank.pelletsHit, 8, 'All 8 pellets must hit at point blank range');
-  assert.equal(pointBlank.damage, 104, 'Point blank shotgun hit must deal 104 lethal damage (100+ HP kill)');
-
-  // From 1.5m
-  const ultraClose = calculatePelletsHit([0, 1.15, 1.5], [0, 1.15, -1.5], pose);
-  assert.equal(ultraClose.pelletsHit, 8);
-  assert.equal(ultraClose.damage, 104);
+  for (const id of IDS) {
+    for (const d of [1.5, 2.5]) {
+      const hit = volleyAt([0, 1.4, d], [0, 1.4, 0], pose, id);
+      assert.equal(hit.pellets, SHOTGUN_PELLETS, `все дробины на ${d} м`);
+      assert.ok(hit.damage >= 100, `в упор убивает (${hit.damage})`);
+    }
+  }
+  const sit = { x: 0, y: 0, z: 0, yaw: 0, stance: 'sit' };
+  assert.equal(volleyAt([0, 1.1, 2], [0, 1.1, 0], sit, IDS[0]).pellets, SHOTGUN_PELLETS);
 });
 
-test('Shotgun conical dispersion reduces pellet count and damage at medium and long range', () => {
+test('Дробовик: разлёт растёт с дистанцией, урон — по числу попавших дробин', () => {
   const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
-
-  // At 6.0m: cone opens up (~0.49m radius), partial pellets strike torso
-  const midRange = calculatePelletsHit([0, 1.15, 6.0], [0, 1.15, -6.0], pose);
-  assert.ok(midRange.pelletsHit >= 4 && midRange.pelletsHit <= 7, `Expected 4-7 pellets at 6m, got ${midRange.pelletsHit}`);
-  assert.equal(midRange.damage, midRange.pelletsHit * 13);
-
-  // At 16.0m: wide cone (~1.31m radius), only tightest central pellets strike
-  const longRange = calculatePelletsHit([0, 1.15, 16.0], [0, 1.15, -16.0], pose);
-  assert.ok(longRange.pelletsHit >= 1 && longRange.pelletsHit <= 3, `Expected 1-3 pellets at 16m, got ${longRange.pelletsHit}`);
-  assert.equal(longRange.damage, longRange.pelletsHit * 13);
-
-  // Far beyond effective shotgun range (30m)
-  const outOfRange = calculatePelletsHit([0, 1.15, 30.0], [0, 1.15, -30.0], pose);
-  assert.equal(outOfRange.pelletsHit, 0);
-  assert.equal(outOfRange.damage, 0);
+  const avg = (d) =>
+    IDS.reduce((sum, id) => sum + volleyAt([0, 1.4, d], [0, 1.4, 0], pose, id).pellets, 0) / IDS.length;
+  const near = avg(4), mid = avg(10), far = avg(16), edge = avg(26);
+  assert.ok(near > mid && mid > far && far > edge, `дробин меньше с дистанцией: ${near} ${mid} ${far} ${edge}`);
+  assert.ok(mid >= 3 && mid <= 7, `на 10 м попадает часть залпа (${mid})`);
+  assert.ok(far >= 1 && far <= 4, `на 16 м — пара дробин (${far})`);
+  // За пределом дальности дробь не долетает.
+  for (const id of IDS) assert.equal(volleyAt([0, 1.4, 30], [0, 1.4, 0], pose, id).pellets, 0);
+  // Больше дробин — больше урона.
+  const byPellets = new Map();
+  for (const id of IDS) {
+    const hit = volleyAt([0, 1.4, 10], [0, 1.4, 0], pose, id);
+    if (!hit.head) byPellets.set(hit.pellets, Math.max(byPellets.get(hit.pellets) ?? 0, hit.damage));
+  }
+  const counts = [...byPellets.keys()].sort((a, b) => a - b);
+  for (let i = 1; i < counts.length; i++)
+    assert.ok(byPellets.get(counts[i]) > byPellets.get(counts[i - 1]) - 10, 'урон растёт с числом дробин');
 });
 
-test('Shotgun misses target off-center or backwards', () => {
+test('Дробовик: рисунок разлёта свой у каждого выстрела и одинаков у сервера и клиента', () => {
+  const a = pelletEnds([0, 1.4, 10], [0, 1.4, 0], IDS[0]);
+  assert.deepEqual(a, pelletEnds([0, 1.4, 10], [0, 1.4, 0], IDS[0]), 'тот же id — тот же рисунок');
+  assert.notDeepEqual(a, pelletEnds([0, 1.4, 10], [0, 1.4, 0], IDS[1]), 'другой выстрел — другой рисунок');
+  // На 10 м дробины расходятся заметно, но в пределах конуса.
+  const spread = a.map(([x, y, z]) => {
+    const k = 10 / Math.hypot(x, y - 1.4, z - 10);
+    return Math.hypot(x * k, (y - 1.4) * k);
+  });
+  assert.ok(Math.max(...spread) > 0.5 && Math.max(...spread) < 0.95, `радиус разлёта на 10 м: ${Math.max(...spread)}`);
+});
+
+test('Дробовик: мимо, назад и сквозь первого — не попадает', () => {
   const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
-
-  // Firing 5m to the side
-  const wideMiss = calculatePelletsHit([5, 1.15, 5], [5, 1.15, -5], pose);
-  assert.equal(wideMiss.pelletsHit, 0);
-  assert.equal(wideMiss.damage, 0);
-
-  // Firing away from victim (backwards)
-  const backwards = calculatePelletsHit([0, 1.15, 2.5], [0, 1.15, 10], pose);
-  assert.equal(backwards.pelletsHit, 0);
-  assert.equal(backwards.damage, 0);
+  assert.equal(volleyAt([5, 1.4, 5], [5, 1.4, -5], pose, IDS[0]).pellets, 0, 'в стороне');
+  assert.equal(volleyAt([0, 1.4, 2.5], [0, 1.4, 10], pose, IDS[0]).pellets, 0, 'за спиной стрелка');
+  // Дробина ранит только первого на своём пути.
+  const front = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
+  const back = { x: 0, y: 0, z: -2, yaw: 0, stance: 'stand' };
+  const { hits } = shotgunVolley([0, 1.4, 3], [0, 1.4, 0], IDS[0], [{ id: 'back', pose: back }, { id: 'front', pose: front }], []);
+  assert.equal(hits.get('front')?.pellets, SHOTGUN_PELLETS);
+  assert.equal(hits.get('back'), undefined);
 });
 
-test('Shotgun point-blank against sitting stance adapts capsule height', () => {
-  const sittingPose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'sit' };
-  // Sitting center of mass around y = 0.95
-  const sitHit = calculatePelletsHit([0, 0.95, 2.0], [0, 0.95, -2.0], sittingPose);
-  assert.equal(sitHit.pelletsHit, 8);
-  assert.equal(sitHit.damage, 104);
+test('Дробовик: в голову больнее, чем в корпус', () => {
+  const pose = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
+  const head = volleyAt([0, 2.07, 3], [0, 2.07, 0], pose, IDS[0]);
+  const chest = volleyAt([0, 1.4, 3], [0, 1.4, 0], pose, IDS[0]);
+  assert.ok(head.head);
+  assert.ok(head.damage > chest.damage);
+  // Хедшот издалека — уже не мгновенная смерть, как было с центральным лучом.
+  const farHead = volleyAt([0, 2.07, 18], [0, 2.07, 0], pose, IDS[0]);
+  assert.ok(farHead.damage < 100, `в голову с 18 м: ${farHead.damage}`);
 });
-
 
 test('Hit zones: head, torso and limbs are told apart', () => {
   const stand = { x: 0, y: 0, z: 0, yaw: 0, stance: 'stand' };
@@ -229,9 +247,9 @@ test('Стена засчитывается только там, где реал
   // 4. Сплошная стена по-прежнему держит дробовик.
   const solid = { minX: -12, maxX: 12, minZ: 2, maxZ: 2.4, minY: 0, maxY: 4 };
   const blast = { origin: [0, 1.15, 6], target: [0, 1.15, 0] };
-  assert.ok(calculatePelletsHit(blast.origin, blast.target, pose, 8, []).pelletsHit > 0);
+  assert.ok(volleyAt(blast.origin, blast.target, pose, IDS[0]).pellets > 0);
   assert.equal(
-    calculatePelletsHit(blast.origin, blast.target, pose, 8, [solid]).pelletsHit,
+    volleyAt(blast.origin, blast.target, pose, IDS[0], [solid]).pellets,
     0,
     'дробь не проходит сквозь сплошную стену',
   );

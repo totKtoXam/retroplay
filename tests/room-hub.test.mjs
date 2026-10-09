@@ -705,3 +705,17 @@ test('vertical teleports at unchanged XZ stay rejected after repeated attempts',
   for (let i = 1; i <= 50; i++) applyPresence(v, { pose: { ...v.pose, y: 10 }, life: 0 }, T + i * 100);
   assert.equal(v.pose.y, 0, 'waiting longer does not grant a vertical teleport');
 });
+
+test('дробовик ранит по числу попавших дробин: в упор убивает, издалека задевает', () => {
+  const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  // В упор — все дробины в корпус, смерть, в ленте видно, сколько попало.
+  const close = duel();
+  fire(close, 'a', T, 'confetti', { id: id(1), target: [0, 1.4, 0] });
+  assert.equal(close.members.get('v').hp, 0);
+  assert.equal(close.effects.find((e) => e.kind === 'kill')?.pelletsHit, 8);
+  // С 16 м — пара дробин: ранен, но жив.
+  const far = hub(member('a'), member('v', { pose: stand(0, -12) }));
+  fire(far, 'a', T, 'confetti', { id: id(2), target: [0, 1.4, -12] });
+  const hp = far.members.get('v').hp;
+  assert.ok(hp > 40 && hp < 100, `на 16 м задело частью залпа: hp ${hp}`);
+});

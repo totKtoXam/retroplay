@@ -55,16 +55,6 @@ export const effectStyle = (kind: string, value: unknown) => {
   return CONFETTI.find((v) => v.id === value)?.id || 'classic';
 };
 export { weaponCooldown as effectCooldown } from './weapon-definition.ts';
-export const SHOTGUN_PELLET_OFFSETS: [number, number][] = [
-  [0, 0.18],
-  [Math.PI * 0.25, 0.45],
-  [Math.PI * 0.75, 0.48],
-  [Math.PI * 1.25, 0.50],
-  [Math.PI * 1.75, 0.46],
-  [Math.PI * 0.1, 0.90],
-  [Math.PI * 0.8, 0.94],
-  [Math.PI * 1.45, 0.92],
-];
 
 /** Снайперка: попадание в туловище или голову — смерть, по конечностям — ранение. */
 export const SNIPER_LIMB_DAMAGE = 45;
@@ -82,8 +72,8 @@ export const blastCenter = (pose: { x: number; y: number; z: number; stance: str
 ];
 
 /**
- * Урон. У дробовика `distance` — от ствола до цели, у гранаты — от взрыва до
- * центра тела: вплотную 80, на краю радиуса 15.
+ * Урон. У гранаты `distance` — от взрыва до центра тела: вплотную 80, на краю
+ * радиуса 15. Дробовик считает урон по дробинам — см. `shotgun.ts`.
  */
 export const effectDamage = (kind: string, distance?: number) => {
   if (kind === 'like') return 0;
@@ -93,16 +83,6 @@ export const effectDamage = (kind: string, distance?: number) => {
   }
   if (kind === 'sniper') return 75;
   if (kind === 'paint') return 20;
-  if (kind === 'confetti') {
-    if (distance !== undefined) {
-      if (distance <= 3.2) return 104; // All 8 pellets hit at point blank
-      if (distance <= 6.5) return 65;  // ~5 pellets hit
-      if (distance <= 11) return 39;   // ~3 pellets hit
-      if (distance <= 17) return 26;   // ~2 pellets hit
-      return 13;                       // 1 grazing pellet
-    }
-    return 65;
-  }
   return 20;
 };
 /** Shortest distance from a 3D point to a 3D line segment [a, b]. */
@@ -424,123 +404,3 @@ export function hitZone(
   const { along, dist } = shotVsBodyAxis(origin, target, hips, neck);
   return dist < TORSO_RADIUS && along >= 0 && along <= 1 ? 'torso' : 'limb';
 }
-
-/** Calculate how many shotgun pellets from an 8-pellet conical blast strike the player capsule. */
-export function calculatePelletsHit(
-  origin: number[],
-  target: number[],
-  pose: { x: number; y: number; z: number; yaw?: number; stance: string },
-  totalPellets = 8,
-  /** The room map's walls; defaults to the hub. */
-  colliders?: BoxCollider3D[],
-): { pelletsHit: number; damage: number } {
-  const yaw = pose.yaw || 0;
-  let spineBottom: number[];
-  let spineTop: number[];
-  let hitRadius = 0.46;
-
-  if (pose.stance === 'lie') {
-    const sinY = Math.sin(yaw);
-    const cosY = Math.cos(yaw);
-    spineBottom = [pose.x, pose.y + 0.25, pose.z];
-    spineTop = [pose.x - sinY * 1.6, pose.y + 0.25, pose.z - cosY * 1.6];
-    hitRadius = 0.42;
-  } else if (pose.stance === 'sit') {
-    spineBottom = [pose.x, pose.y + 0.2, pose.z];
-    spineTop = [pose.x, pose.y + 1.7, pose.z];
-    hitRadius = 0.48;
-  } else {
-    // Stand
-    spineBottom = [pose.x, pose.y + 0.2, pose.z];
-    spineTop = [pose.x, pose.y + 2.1, pose.z];
-    hitRadius = 0.46;
-  }
-
-  // Distance from origin to victim center of mass
-  const centerY = (spineBottom[1] + spineTop[1]) * 0.5;
-  const centerX = (spineBottom[0] + spineTop[0]) * 0.5;
-  const centerZ = (spineBottom[2] + spineTop[2]) * 0.5;
-  const toVictimX = centerX - origin[0];
-  const toVictimY = centerY - origin[1];
-  const toVictimZ = centerZ - origin[2];
-  const dist = Math.hypot(toVictimX, toVictimY, toVictimZ);
-
-  if (dist > 28 || dist < 0.05) {
-    return { pelletsHit: 0, damage: 0 };
-  }
-
-  // Normalized direction of shot
-  const shotDirX = target[0] - origin[0];
-  const shotDirY = target[1] - origin[1];
-  const shotDirZ = target[2] - origin[2];
-  const shotLen = Math.hypot(shotDirX, shotDirY, shotDirZ);
-  if (shotLen < 1e-4) return { pelletsHit: 0, damage: 0 };
-
-  const ndx = shotDirX / shotLen;
-  const ndy = shotDirY / shotLen;
-  const ndz = shotDirZ / shotLen;
-
-  // Check that victim is in front of the shooter
-  const dot = (toVictimX * ndx + toVictimY * ndy + toVictimZ * ndz) / dist;
-  if (dot < 0.2) return { pelletsHit: 0, damage: 0 };
-
-  // Shortest distance from central shot ray to victim spine
-  const closest = segmentSegmentClosest(origin, target, spineBottom, spineTop);
-  const dPerp = closest.dist;
-
-  // Maximum spread cone radius at distance dist (~4.7 degrees half-angle)
-  const coneRadius = dist * 0.082;
-
-  // If outside cone envelope + body radius, 0 hits
-  if (dPerp > coneRadius + hitRadius) {
-    return { pelletsHit: 0, damage: 0 };
-  }
-
-  // Check if a solid building/world wall occludes the shotgun blast before reaching victim
-  if (shotBlocked(origin, closest.point, colliders)) {
-    return { pelletsHit: 0, damage: 0 }; // Shotgun blast is blocked by a solid wall
-  }
-
-  // Compute local perpendicular basis for the shot ray
-  let pxX = -ndz, pxY = 0, pxZ = ndx;
-  const pxLen = Math.hypot(pxX, pxZ);
-  if (pxLen < 1e-4) {
-    pxX = 1; pxY = 0; pxZ = 0;
-  } else {
-    pxX /= pxLen; pxZ /= pxLen;
-  }
-  const pyX = ndy * pxZ - ndz * pxY;
-  const pyY = ndz * pxX - ndx * pxZ;
-  const pyZ = ndx * pxY - ndy * pxX;
-
-  // Position of victim center relative to point on central ray at distance dist
-  const rayAtDistX = origin[0] + ndx * dist;
-  const rayAtDistY = origin[1] + ndy * dist;
-  const rayAtDistZ = origin[2] + ndz * dist;
-  const targetOffsetX = centerX - rayAtDistX;
-  const targetOffsetY = centerY - rayAtDistY;
-  const targetOffsetZ = centerZ - rayAtDistZ;
-
-  const victimU = targetOffsetX * pxX + targetOffsetY * pxY + targetOffsetZ * pxZ;
-  const victimV = targetOffsetX * pyX + targetOffsetY * pyY + targetOffsetZ * pyZ;
-
-  let hits = 0;
-  for (let i = 0; i < totalPellets; i++) {
-    const [ang, rFrac] = SHOTGUN_PELLET_OFFSETS[i % SHOTGUN_PELLET_OFFSETS.length];
-    const pelletU = Math.cos(ang) * (coneRadius * rFrac);
-    const pelletV = Math.sin(ang) * (coneRadius * rFrac);
-    const distToPellet = Math.hypot(victimU - pelletU, victimV - pelletV);
-    if (distToPellet <= hitRadius) {
-      hits++;
-    }
-  }
-
-  // At close quarters (<= 3.2m), if central aim is on target, ensure all 8 pellets hit for lethal damage
-  if (dist <= 3.2 && dPerp <= hitRadius) {
-    hits = Math.max(hits, totalPellets);
-  }
-
-  const damage = hits * 13;
-  return { pelletsHit: hits, damage };
-}
-

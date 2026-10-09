@@ -1,6 +1,6 @@
 import * as T from 'three';
 import { GAME_TOOLS, uid, type Room, type WorldEffect } from '@/lib/model';
-import { CONFETTI, FIREWORKS, GRENADES, SHOTGUN_PELLET_OFFSETS } from '@/lib/game-items';
+import { CONFETTI, FIREWORKS, GRENADES } from '@/lib/game-items';
 import { MELEE, meleeStats } from '@/lib/melee';
 import { aimedSpread, recoilKick, spreadScale, type Handling, type ViewRecoil } from '@/lib/weapon-recoil';
 import { blocksProjectile, eyeHeight, type Perspective } from '@/lib/game-camera';
@@ -54,7 +54,6 @@ export function createWorldWeapons({
   setPersonalAlert,
   weaponSounds,
   weaponVolume,
-  scene,
   camera,
   ray,
   mouse,
@@ -67,11 +66,8 @@ export function createWorldWeapons({
   hands,
   pos,
   player,
-  projectiles,
-  flights,
   spawn,
   burst,
-  paintDropletGeo,
   viewRecoil,
   sceneryTargets,
   gatherRemoteAvatarMeshes,
@@ -118,7 +114,6 @@ export function createWorldWeapons({
   setPersonalAlert: (alert: PersonalAlert) => void;
   weaponSounds: ReturnType<typeof createWeaponSounds>;
   weaponVolume: () => number;
-  scene: T.Scene;
   camera: T.Camera;
   /** Общий луч движка: им же целится граната. */
   ray: T.Raycaster;
@@ -134,11 +129,8 @@ export function createWorldWeapons({
   hands: ReturnType<typeof createFirstPersonHands>;
   pos: T.Vector3;
   player: ReturnType<typeof createWorldPlayer>;
-  projectiles: Projectiles;
-  flights: Projectiles['flights'];
   spawn: Projectiles['spawn'];
   burst: Vfx['burst'];
-  paintDropletGeo: Vfx['paintDropletGeo'];
   viewRecoil: ViewRecoil;
   /** Кэш статичных мешей сцены. Движок его пересобирает — поэтому геттер. */
   sceneryTargets: () => readonly T.Mesh[];
@@ -472,43 +464,6 @@ export function createWorldWeapons({
       noScope: isNoScope,
     };
     spawn(e);
-    if (tool === 'confetti') {
-      const dir = target.clone().sub(origin).normalize();
-      const perpX = new T.Vector3()
-        .crossVectors(dir, new T.Vector3(0, 1, 0))
-        .normalize();
-      if (perpX.lengthSq() < 0.01) perpX.set(1, 0, 0);
-      const perpY = new T.Vector3().crossVectors(perpX, dir).normalize();
-      const dist = origin.distanceTo(target);
-
-      const coneHalfAngle = 0.082;
-      for (let s = 0; s < 8; s++) {
-        const [ang, rFrac] = SHOTGUN_PELLET_OFFSETS[s];
-        const spreadRadius = Math.tan(coneHalfAngle) * rFrac;
-        const spreadDir = dir
-          .clone()
-          .addScaledVector(perpX, Math.cos(ang) * spreadRadius)
-          .addScaledVector(perpY, Math.sin(ang) * spreadRadius)
-          .normalize();
-        const pelletTarget = origin.clone().addScaledVector(spreadDir, dist);
-        const pelletBall = projectiles.ball(color, paintDropletGeo);
-        pelletBall.position.copy(origin);
-        pelletBall.userData.transientProjectile = true;
-        scene.add(pelletBall);
-        flights.push({
-          mesh: pelletBall,
-          origin: origin.clone(),
-          target: pelletTarget,
-          normal: normal.clone(),
-          born: performance.now(),
-          duration: Math.max(65, dist * 16),
-          variant,
-          color,
-          kind: 'confetti',
-          author: p.room.self,
-        });
-      }
-    }
     avatarShoot(avatar);
     hands.shoot(tool);
     viewRecoil.kick(recoilKick(tool, shotIndex, handling));
