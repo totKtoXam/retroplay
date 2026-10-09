@@ -1,0 +1,58 @@
+name: Deploy
+
+# Автодеплой на LAN-сервер своим раннером (scripts/install-runner.sh).
+# Запускается после зелёного CI на пуше в main или вручную. Проверки PR идут на
+# раннерах GitHub (ci.yml): репозиторий публичный, и код из PR на сервер не попадает.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# Деплои по очереди: два параллельных дрались бы за сервис и базу.
+concurrency:
+  group: deploy-lan
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    # Только пуш в main этого репозитория, а не PR (в том числе из форка с веткой main).
+    # Ручной запуск — тоже только с main: иначе на сервер уехала бы неслитая ветка.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: [self-hosted, linux, retro3d-lan]
+    timeout-minutes: 20
+    environment:
+      name: lan
+      url: https://192.168.56.70:3001/
+    env:
+      DEPLOY_DIR: /home/user/projects/retro3d
+      # Коммит, прошедший CI; при ручном запуске — свежий main.
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Обновить рабочую копию сервера
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+          echo "PREV_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          git fetch origin main
+          git checkout main
+          # Только вперёд: правки руками на сервере или переписанная история — повод
+          # остановиться и разобраться, а не затирать.
+          git merge --ff-only "$DEPLOY_SHA"
+          git log -1 --pretty='==> Деплою %h — %s'
+
+      - name: Сборка, миграции и перезапуск
+        run: |
+          set -euo pipefail
+          # Раннер — системный сервис; пользовательскому systemd нужен его сокет.
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          cd "$DEPLOY_DIR"
+          bash scripts/server-deploy.sh "$PREV_HEAD"

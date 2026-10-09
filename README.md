@@ -177,6 +177,15 @@ npm start -- --ip 0.0.0.0 --port 3001
 
 LAN-сервер работает в продакшен-режиме: `retro3d.service` запускает `start-lan.sh` (порт 3001). `scripts/deploy.ps1` (или `scripts/deploy.sh`) проверяет код локально, отправляет `main` и по SSH запускает на сервере `scripts/server-deploy.sh`: `npm ci` при изменении `package-lock.json`, миграции D1, тесты, `npm run build`, перезапуск сервиса и проверку HTTP. Во время сборки (около минуты) старый сервер может отдавать ошибки для статических файлов.
 
+Автодеплой: на сервере стоит свой раннер GitHub Actions с меткой `retro3d-lan` (`scripts/install-runner.sh`). После зелёного CI на пуше в `main` workflow `.github/workflows/deploy.yml` подтягивает прошедший проверку коммит в `/home/user/projects/retro3d` и запускает тот же `scripts/server-deploy.sh`; вручную — «Run workflow» у Deploy на ветке `main`. Проверки PR идут на раннерах GitHub: репозиторий публичный, и код из PR на сервер не попадает. Запуски workflow от внешних участников требуют одобрения — чужой PR не одобрять не глядя, иначе его workflow может попросить серверный раннер.
+
+Установка раннера (один раз, из PowerShell на машине с `gh`; токен регистрации живёт час, `sudo` спросит пароль):
+
+```powershell
+$t = gh api -X POST repos/totKtoXam/retroplay/actions/runners/registration-token --jq .token
+ssh -t -p 2222 user@192.168.56.70 "cd ~/projects/retro3d && git pull --ff-only origin main && RUNNER_TOKEN=$t bash scripts/install-runner.sh"
+```
+
 Миграции D1 применяются до перезапуска сервиса, а базу в это время держит ещё работающий сервер. На нагруженной комнате шаг падает с `SQLITE_BUSY: database is locked` — тогда деплой стоит делать, когда в комнате никого нет.
 
 ### HTTPS на LAN-сервере
