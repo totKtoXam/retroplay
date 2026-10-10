@@ -183,7 +183,9 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
       .first<{ host: string; state: string }>();
     if (row) {
       const next = roomFromState(row.host, JSON.parse(row.state));
-      const mapChanged = next.map !== hub.room.map;
+      // Команды включили или сняли («Каждый за себя») — это новая игра, как и смена карты:
+      // стороны раздаются или снимаются, счёт и убийства с нуля, все на спавн.
+      const mapChanged = next.map !== hub.room.map || next.teams !== hub.room.teams;
       hub.room = next;
       if (mapChanged) {
         changeMap(hub, Date.now());
@@ -482,7 +484,7 @@ export class RoomHub extends DurableObject<Cloudflare.Env> {
     }
     // Legacy rooms initialize once; a restored match keeps its lives, score and deadlines.
     // В «Предателе» все начинают за столом собраний, а не там, где их оставила прошлая карта.
-    if ((hub.room.teams || hub.room.mode === 'impostor') && !restored) {
+    if ((hub.room.mode === 'battle' || hub.room.mode === 'impostor') && !restored) {
       respawnAll(hub, now);
       this.markDirty();
     }

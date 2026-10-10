@@ -16,6 +16,7 @@ import {
   publicEffects,
   publicMembers,
   resolveCombat,
+  roomFromState,
   sanitizePose,
   voiceAudience,
   voiceSilenced,
@@ -704,4 +705,75 @@ test('vertical teleports at unchanged XZ stay rejected after repeated attempts',
   assert.equal(v.positionRevision, 1);
   for (let i = 1; i <= 50; i++) applyPresence(v, { pose: { ...v.pose, y: 10 }, life: 0 }, T + i * 100);
   assert.equal(v.pose.y, 0, 'waiting longer does not grant a vertical teleport');
+});
+
+// ---- «Каждый за себя»: бой без команд (lib/maps/catalog.ts, isFreeForAll) ----
+
+const ffa = (...members) => {
+  const h = hub(...members);
+  h.room = room({ map: 'mansion', mode: 'battle', teams: false });
+  h.match = newMatch(h.room, T);
+  return h;
+};
+
+test('«Каждый за себя»: без команд и только бой с возрождением', () => {
+  const free = roomFromState('a', { mode: 'battle', map: 'mansion', freeForAll: true, matchMode: 'rounds' });
+  assert.deepEqual([free.teams, free.matchMode], [false, 'deathmatch']);
+  const teams = roomFromState('a', { mode: 'battle', map: 'mansion', matchMode: 'rounds' });
+  assert.deepEqual([teams.teams, teams.matchMode], [true, 'rounds']);
+  // Флаг вне боя ничего не значит: хаб остаётся хабом.
+  assert.equal(roomFromState('a', { mode: 'retro', freeForAll: true }).teams, false);
+  assert.equal(newMatch(free, T).ffa, true);
+  assert.equal(newMatch(teams, T).ffa, undefined);
+});
+
+test('«Каждый за себя»: убийство идёт в личный счёт, командного счёта нет', () => {
+  const h = ffa(member('a'), member('v', { pose: stand(0, 0) }));
+  for (let i = 0; i < 5; i++) fire(h, 'a', T + i * WEAPONS.paint.cooldown);
+  const kill = h.effects.find((e) => e.kind === 'kill');
+  assert.deepEqual(
+    [h.members.get('a').kills, h.members.get('v').deaths, h.match.score, kill.teamkill],
+    [1, 1, { red: 0, blue: 0 }, undefined],
+  );
+});
+
+test('«Каждый за себя»: матч до лимита личных убийств, победитель — человек, новый матч с нуля', () => {
+  const h = ffa(member('a', { kills: 2 }), member('b', { kills: 1, deaths: 3 }));
+  h.room.killLimit = 3;
+  assert.equal(updateMatch(h, T + 10), false, 'до лимита матч идёт');
+  h.members.get('a').kills = 3;
+  assert.equal(updateMatch(h, T + 20), true);
+  assert.deepEqual(
+    [h.match.phase, h.match.winner, h.match.champion, h.match.wins],
+    ['ended', undefined, { id: 'a', name: 'Name a', kills: 3 }, { red: 0, blue: 0 }],
+  );
+  assert.equal(updateMatch(h, h.match.until + 1), true);
+  assert.deepEqual(
+    [h.match.phase, h.match.ffa, h.members.get('a').kills, h.members.get('b').deaths],
+    ['live', true, 0, 0],
+  );
+});
+
+test('«Каждый за себя»: по времени при равенстве лучших — ничья', () => {
+  const h = ffa(member('a', { kills: 2 }), member('b', { kills: 2 }));
+  h.room.killLimit = 0;
+  h.room.matchMinutes = 1;
+  h.match = newMatch(h.room, T);
+  assert.equal(updateMatch(h, h.match.until + 1), true);
+  assert.deepEqual([h.match.phase, h.match.winner, h.match.champion], ['ended', 'draw', undefined]);
+});
+
+test('«Каждый за себя»: сторона из командной игры снимается, выбрать её нельзя', () => {
+  const h = ffa(member('a', { team: 'red' }));
+  assert.equal(balanceTeam(h, h.members.get('a'), T), true);
+  assert.equal(h.members.get('a').team, '');
+  assert.equal(setTeam(h, 'a', 'blue', T), false);
+  assert.equal(h.members.get('a').team, '');
+});
+
+test('переключение команд на лету начинает матч заново', () => {
+  const h = ffa(member('a'));
+  h.room.teams = true;
+  assert.equal(updateMatch(h, T + 10), true);
+  assert.equal(h.match.ffa, undefined);
 });

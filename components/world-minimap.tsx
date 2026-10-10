@@ -30,6 +30,8 @@ const COLORS = {
   red: teamCss('red'),
   blue: teamCss('blue'),
   ally: '#6ee7a8',
+  /** Враг без команды («Каждый за себя»): не зелёный, иначе его примут за своего. */
+  rival: '#f87171',
   /** Тёмная обводка знаков в режиме для дальтоников: форма читается на любом полу. */
   outline: 'rgba(8, 13, 25, 0.9)',
 };
@@ -264,7 +266,13 @@ export function WorldMinimap(props: {
           shaped ? (blip.enemy ? 'enemy' : 'ally') : 'dot',
         );
         ctx.fillStyle =
-          blip.team === 'red' ? COLORS.red : blip.team === 'blue' ? COLORS.blue : COLORS.ally;
+          blip.team === 'red'
+            ? COLORS.red
+            : blip.team === 'blue'
+              ? COLORS.blue
+              : blip.enemy
+                ? COLORS.rival
+                : COLORS.ally;
         ctx.fill();
         // Засвеченный враг обведён: цвет команды говорит, чей он, а кольцо — что
         // это разведанная цель, а не свой, которого видно всегда.

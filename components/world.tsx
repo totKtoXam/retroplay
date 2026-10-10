@@ -61,7 +61,7 @@ import { footstepSurface } from '@/lib/footsteps';
 import { setAvatarAnonymous } from './world-avatar';
 import { attachCustomSkins, applyAvatarSkin } from './world-skins';
 import { slotsFor } from '@/lib/loadout';
-import { modeOf } from '@/lib/maps/catalog';
+import { isFreeForAll, modeOf } from '@/lib/maps/catalog';
 import { aimFov, viewFov } from '@/lib/hud-prefs';
 import { damageSource } from '@/lib/hud-feedback';
 import { useHudPrefs, useTouchOnly } from './hud-prefs';
@@ -364,6 +364,7 @@ export default function World(props: Props) {
           },
           colliders: minimapMap.colliders,
           memory: spotted.current,
+          freeForAll: isFreeForAll(room.state),
         }),
       };
     }

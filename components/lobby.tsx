@@ -17,6 +17,7 @@ import {
   NotebookPen,
   Rocket,
   Swords,
+  Crosshair,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -31,7 +32,7 @@ import { THEMES, type RoomAccessType } from '@/lib/model';
 import { EmptyRoomsArt, NoMatchesArt, RoomCover } from './room-cover';
 import { api, ready } from '@/lib/client';
 import { plural } from '@/lib/plural';
-import { defaultMapFor, mapsForMode, MODES, type GameMode } from '@/lib/maps/catalog';
+import { defaultMapFor, mapsForMode, MODES, MODE_CHOICES, modeChoice, type GameMode, type ModeChoiceId } from '@/lib/maps/catalog';
 import {
   filterRooms,
   mergeRooms,
@@ -62,7 +63,7 @@ const FILTERS: { value: RoomFilter; label: string }[] = [
  * новый режим отдельными условиями.
  */
 const MODE_COPY: Partial<
-  Record<GameMode, { icon: LucideIcon; title: string; hint: string; cta: string }>
+  Record<ModeChoiceId, { icon: LucideIcon; title: string; hint: string; cta: string }>
 > = {
   retro: {
     icon: NotebookPen,
@@ -76,6 +77,12 @@ const MODE_COPY: Partial<
     hint: 'Выберите карту и позовите команду на матч.',
     cta: 'Начать бой',
   },
+  ffa: {
+    icon: Crosshair,
+    title: 'Каждый за себя?',
+    hint: 'Без команд: побеждает тот, кто больше всех убьёт.',
+    cta: 'Начать бой',
+  },
   impostor: {
     icon: Rocket,
     title: 'Кто из экипажа — предатель?',
@@ -83,8 +90,8 @@ const MODE_COPY: Partial<
     cta: 'Создать партию',
   },
 };
-const modeCopy = (mode: GameMode) => {
-  const info = MODES.find((m) => m.id === mode);
+const modeCopy = (mode: ModeChoiceId) => {
+  const info = MODE_CHOICES.find((m) => m.id === mode);
   return (
     MODE_COPY[mode] ?? {
       icon: Gamepad2,
@@ -94,13 +101,13 @@ const modeCopy = (mode: GameMode) => {
     }
   );
 };
-function ModeIcon({ mode, size = 22 }: { mode: GameMode; size?: number }) {
+function ModeIcon({ mode, size = 22 }: { mode: ModeChoiceId; size?: number }) {
   const Icon = modeCopy(mode).icon;
   return <Icon size={size} aria-hidden />;
 }
-/** Бейдж режима на карточке комнаты: иконка и название из MODES. */
-function ModeBadge({ mode, cover = false }: { mode: GameMode; cover?: boolean }) {
-  const title = MODES.find((m) => m.id === mode)?.title ?? 'Игра';
+/** Бейдж режима на карточке комнаты: иконка и название из MODE_CHOICES. */
+function ModeBadge({ mode, cover = false }: { mode: ModeChoiceId; cover?: boolean }) {
+  const title = MODE_CHOICES.find((m) => m.id === mode)?.title ?? 'Игра';
   return (
     <span
       className={`${cover ? 'cover-chip cover-mode' : 'room-mode-badge'} room-mode-${mode}`}
@@ -162,7 +169,8 @@ export default function Lobby() {
     [theme, setTheme] = useState('nauryz'),
     [visualStyle, setVisualStyle] = useState('classic'),
     [template, setTemplate] = useState('four'),
-    [gameMode, setGameMode] = useState<GameMode>('retro'),
+    // Выбор в диалоге: режим и, для боя, с командами или «Каждый за себя».
+    [modeId, setModeId] = useState<ModeChoiceId>('retro'),
     [map, setMap] = useState('hub'),
     // Приватная по умолчанию: командное ретро не должно само попадать в общий список.
     [accessType, setAccessType] = useState<RoomAccessType>('private'),
@@ -182,6 +190,7 @@ export default function Lobby() {
     [joinCode, setJoinCode] = useState(''),
     [help, setHelp] = useState(false),
     [helpMode, setHelpMode] = useState<GameMode>('retro');
+  const gameMode = modeChoice(modeId).mode;
 
   const openAuth = (mode: AuthMode = 'login') => {
     setAuthMode(mode);
@@ -280,6 +289,7 @@ export default function Lobby() {
           template,
           visualStyle,
           mode: gameMode,
+          freeForAll: modeChoice(modeId).freeForAll,
           map,
           access: accessType,
           maxPlayers,
@@ -290,7 +300,7 @@ export default function Lobby() {
         '/room/' +
         r.id +
         (r.accessType === 'private' && r.inviteToken ? '?invite=' + r.inviteToken : '');
-      location.href = url;
+      location.assign(url);
     } catch (e) {
       setCreateError((e as Error).message);
       setBusy(false);
@@ -576,7 +586,7 @@ export default function Lobby() {
                         {statusLabel}
                       </span>
                       <span className="cover-chips-end">
-                        {r.mode && <ModeBadge mode={r.mode} cover />}
+                        {r.mode && <ModeBadge mode={r.mode === 'battle' && r.freeForAll ? 'ffa' : r.mode} cover />}
                         {/* Доступ — значком: подпись режима важнее, а место на обложке узкое. */}
                         <span
                           className="cover-chip cover-chip-icon"
@@ -659,8 +669,8 @@ export default function Lobby() {
       </div>
       <Dialog open={create} onOpenChange={setCreateOpen}>
         <DialogContent className="app-dialog">
-          <DialogTitle>{modeCopy(gameMode).title}</DialogTitle>
-          <DialogDescription>{modeCopy(gameMode).hint}</DialogDescription>
+          <DialogTitle>{modeCopy(modeId).title}</DialogTitle>
+          <DialogDescription>{modeCopy(modeId).hint}</DialogDescription>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -670,15 +680,16 @@ export default function Lobby() {
             <div className="field">
               <span className="field-label">Режим игры</span>
               <div className="access-choice-cards access-choice-cards-lg">
-                {MODES.map((m) => (
+                {MODE_CHOICES.map((m) => (
                   <button
                     type="button"
                     key={m.id}
-                    className={`access-choice-card ${gameMode === m.id ? 'selected' : ''}`}
-                    aria-pressed={gameMode === m.id}
+                    className={`access-choice-card ${modeId === m.id ? 'selected' : ''}`}
+                    aria-pressed={modeId === m.id}
                     onClick={() => {
-                      setGameMode(m.id);
-                      setMap(defaultMapFor(m.id));
+                      // Карта не сбрасывается при переходе между боем с командами и без.
+                      if (m.mode !== gameMode) setMap(defaultMapFor(m.mode));
+                      setModeId(m.id);
                     }}
                   >
                     <div className="access-choice-head">
@@ -810,7 +821,7 @@ export default function Lobby() {
               type="submit"
               disabled={busy}
             >
-              {busy ? 'Создаём комнату…' : modeCopy(gameMode).cta}{' '}
+              {busy ? 'Создаём комнату…' : modeCopy(modeId).cta}{' '}
               <ArrowUpRight size={17} aria-hidden />
             </button>
           </form>
