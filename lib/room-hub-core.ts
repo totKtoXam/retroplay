@@ -10,7 +10,6 @@ import { simulateGrenade } from './grenade-physics.ts';
 import { fromBehind, knockDistance, knockImpulse, meleeDamage, meleeStats } from './melee.ts';
 import {
   blastCenter,
-  calculatePelletsHit,
   effectDamage,
   effectStyle,
   hitZone,
@@ -28,6 +27,7 @@ import {
   type WorldEffect,
 } from './model.ts';
 import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
+import { shotgunVolley, type VolleyHits } from './shotgun.ts';
 import { getMap } from './maps/index.ts';
 import { isFreeForAll, modeOf, type GameMode } from './maps/catalog.ts';
 import {
@@ -907,38 +907,41 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
       }
     }
   }
+  // Дробь: каждая дробина ранит первого на своём луче, урон — сумма попавших.
+  let volley: VolleyHits | undefined;
+  if (e.kind === 'confetti') {
+    const victims = [];
+    for (const p of state.members.values())
+      if (p.id !== e.author && p.hp > 0 && p.seen > now - ONLINE_MS) victims.push({ id: p.id, pose: poseAt(p, e.rewindTo) });
+    volley = shotgunVolley(origin, target, e.id, victims, colliders).hits;
+  }
   const author = state.members.get(e.author);
   const authorImmune = !!author && isImmune(state, author, now);
   for (const p of state.members.values()) {
     if (p.id === e.author || p.hp <= 0 || p.seen <= now - ONLINE_MS) continue;
     const pose = poseAt(p, e.rewindTo);
+    const pellets = volley?.get(p.id);
     const hit =
       e.kind === 'melee'
         ? p.id === meleeVictim
-        : e.kind === 'confetti'
-          ? calculatePelletsHit(origin, target, pose, 8, colliders).pelletsHit > 0
+        : volley
+          ? !!pellets
           : inHitRange(e.kind, origin, target, pose, colliders);
     // After a respawn a player can neither take nor deal damage.
     if (!hit || authorImmune || isImmune(state, p, now)) continue;
     // Безвредное (лайк) не ранит и не убивает даже попаданием в голову.
-    if (e.kind !== 'confetti' && effectDamage(e.kind) <= 0) continue;
+    if (!pellets && effectDamage(e.kind) <= 0) continue;
     // Взрыв гранаты накрывает целиком, у остального оружия урон зависит от зоны попадания:
     // голова — сразу насмерть, туловище — полный урон, руки и ноги — ослабленный.
-    const zone = e.kind === 'grenade' ? 'torso' : hitZone(origin, target, pose);
-    const head = zone === 'head';
+    // У дроби зона своя у каждой дробины, урон уже сложен по ним.
+    const zone = e.kind === 'grenade' || pellets ? 'torso' : hitZone(origin, target, pose);
+    const head = pellets ? pellets.head : zone === 'head';
     let damage: number;
-    let pelletsHit: number | undefined;
     if (e.kind === 'melee') {
       // Голова и спина больнее, но насмерть с одного удара — только нож в спину.
       damage = meleeDamage(e.variant, zone, fromBehind(origin, pose));
-    } else if (e.kind === 'confetti') {
-      const pellets = calculatePelletsHit(origin, target, pose, 8, colliders);
-      pelletsHit = pellets.pelletsHit;
-      damage = head
-        ? 100
-        : zone === 'limb'
-          ? Math.round(pellets.damage * LIMB_DAMAGE_SCALE)
-          : pellets.damage;
+    } else if (pellets) {
+      damage = pellets.damage;
     } else if (head) {
       damage = 100;
     } else if (e.kind === 'sniper') {
@@ -1000,7 +1003,7 @@ function applyHits(state: HubState, e: HubEffect, now: number) {
       teamkill: friendly || undefined,
       scoped: e.scoped,
       noScope: e.kind === 'sniper' && (e.noScope ?? !e.scoped),
-      pelletsHit,
+      pelletsHit: pellets?.pellets,
       author: e.author,
       at: now,
       resolveAt: 0,

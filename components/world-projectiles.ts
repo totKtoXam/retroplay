@@ -2,6 +2,7 @@ import * as T from 'three';
 import type { Room, WorldEffect } from '@/lib/model';
 import { hitZone, inHitRange, type HitZone } from '@/lib/game-items';
 import { flightMs } from '@/lib/weapon-definition';
+import { SHOTGUN_RANGE, shotgunVolley, type Pellet } from '@/lib/shotgun';
 import { meleeStats } from '@/lib/melee';
 import { rayCastWorldObstacle } from '@/lib/world-collision';
 import { grenadeAt, simulateGrenade, type GrenadeFlight, type GrenadeWorld } from '@/lib/grenade-physics';
@@ -27,7 +28,14 @@ type Flight = {
   grenade?: GrenadeFlight;
   /** Сколько отскоков гранаты уже прозвучало. */
   knocks?: number;
+  /** Дробина залпа: куда легла и по кому попала — посчитано при выстреле. */
+  pellet?: Pellet;
+  /** Общее на залп: отметка попадания и звук — один раз на все дробины. */
+  volley?: { zone?: HitZone; marked: boolean; landed: boolean };
 };
+
+/** Отметка залпа — по самой тяжёлой зоне среди попавших дробин. */
+const ZONE_RANK: Record<HitZone, number> = { limb: 1, torso: 2, head: 3 };
 
 /** Удар ближнего боя: снаряда нет, есть миг, когда оружие дошло до цели. */
 type Swing = {
@@ -126,6 +134,7 @@ export function createWorldProjectiles({
     forward = new T.Vector3(0, 0, 1),
     up = new T.Vector3(0, 1, 0);
   const paintGeo = new T.SphereGeometry(0.105, 12, 8);
+  const pelletGeo = new T.SphereGeometry(0.05, 8, 6);
   /**
    * Шлейф шарика: тонкий конус за ним, от яркого у шарика к прозрачному на
    * хвосте (цвет вершин при аддитивном смешивании: чёрный — невидимый).
@@ -226,7 +235,7 @@ export function createWorldProjectiles({
     // Толщина шлейфа — по радиусу снаряда: у дробины он тоньше и короче.
     if (!geometry.boundingSphere) geometry.computeBoundingSphere();
     trail.userData.radius = (geometry.boundingSphere?.radius ?? 0.1) * 0.55;
-    trail.userData.length = geometry === paintGeo ? 1.3 : 0.8;
+    trail.userData.length = geometry === paintGeo ? 1.3 : 0.9;
     trail.scale.setScalar(0.0001);
     trail.name = 'trail';
     mesh.add(trail);
@@ -267,6 +276,14 @@ export function createWorldProjectiles({
     const start = new T.Vector3(...e.origin),
       target = new T.Vector3(...e.target),
       normal = new T.Vector3(...e.normal).normalize();
+    // Вспышка у ствола — и у своего выстрела, и у чужого; у старых эффектов её нет.
+    if (now - e.at < 300 && e.kind !== 'grenade')
+      vfx?.muzzleFlash(start, flightDir.copy(target).sub(start), e.color, now, e.kind);
+    const born = performance.now() - Math.max(0, Date.now() - e.at);
+    if (e.kind === 'confetti') {
+      spawnVolley(e, start, normal, born);
+      return;
+    }
     const projectile =
       e.kind === 'grenade'
         ? makeGrenade(e.color, e.variant)
@@ -277,15 +294,11 @@ export function createWorldProjectiles({
             : ball(e.color);
     if (e.kind === 'sniper') projectile.add(exhaustSprite());
     projectile.position.copy(start);
-    // Вспышка у ствола — и у своего выстрела, и у чужого; у старых эффектов её нет.
-    if (now - e.at < 300 && e.kind !== 'grenade')
-      vfx?.muzzleFlash(start, flightDir.copy(target).sub(start), e.color, now, e.kind);
     projectile.userData.transientProjectile = true;
     scene.add(projectile);
     // Граната рвётся там, куда долетела и докатилась, — сервер считает тот же путь.
     const grenade = e.kind === 'grenade' ? simulateGrenade(e.origin, e.target, world) : undefined;
     if (grenade) target.fromArray(grenade.end);
-    const born = performance.now() - Math.max(0, Date.now() - e.at);
     flights.push({
       mesh: projectile,
       origin: start,
@@ -302,6 +315,60 @@ export function createWorldProjectiles({
       kind: e.kind,
       author: e.author,
     });
+  };
+  /**
+   * Залп дробовика: восемь дробин по тому же рисунку, что считает сервер.
+   * Позы — текущие, а не отмотанные: это картинка и отметка, урон даёт сервер.
+   */
+  const spawnVolley = (e: WorldEffect, start: T.Vector3, normal: T.Vector3, born: number) => {
+    const victims = [];
+    for (const m of latest.current.room.members) if (m.id !== e.author) victims.push({ id: m.id, pose: m.pose });
+    const volley: NonNullable<Flight['volley']> = { marked: false, landed: false };
+    const self = latest.current.room.self;
+    for (const pellet of shotgunVolley(e.origin!, e.target!, e.id, victims, colliders).pellets) {
+      const mesh = ball(e.color!, pelletGeo);
+      mesh.position.copy(start);
+      mesh.userData.transientProjectile = true;
+      scene.add(mesh);
+      const target = new T.Vector3(...pellet.end);
+      // Отметка своего попадания — только по чужим: по себе дробь не считается.
+      if (pellet.hit && pellet.hit.victim !== self && (!volley.zone || ZONE_RANK[pellet.hit.zone] > ZONE_RANK[volley.zone]))
+        volley.zone = pellet.hit.zone;
+      flights.push({
+        mesh,
+        origin: start,
+        target,
+        normal,
+        born,
+        duration: flightMs('confetti', start.distanceTo(target)),
+        variant: e.variant || 'classic',
+        color: e.color!,
+        kind: 'confetti',
+        author: e.author,
+        pellet,
+        volley,
+      });
+    }
+  };
+  /** Дробина долетела: в тело — брызги, мимо — хлопок там, где легла. */
+  const landPellet = (f: Flight, now: number) => {
+    const volley = f.volley!,
+      hit = f.pellet!.hit,
+      self = latest.current.room.self;
+    const at = f.born + f.duration;
+    if (!volley.landed && now - at < 800) onLand?.(f.kind, f.target);
+    volley.landed = true;
+    if (!hit) {
+      // Долетела до предела в воздухе — просто гаснет; в стену — хлопок.
+      if (f.origin.distanceTo(f.target) < SHOTGUN_RANGE - 0.05) burst(f.target, f.color, at, `pop:${f.variant}`, f.normal);
+      return;
+    }
+    burst(f.target, f.color, at, 'paint');
+    if (f.author === self && !volley.marked) {
+      volley.marked = true;
+      // Самая тяжёлая зона залпа известна сразу: дробины посчитаны при выстреле.
+      hitMarker.current(volley.zone ?? hit.zone);
+    }
   };
   /**
    * Удар дошёл: по кому попал — брызги и глухой шлепок, свой удар ещё и отмечен
@@ -343,6 +410,19 @@ export function createWorldProjectiles({
       // Клиент укорачивает удар до стены, в которую упёрся взгляд.
       if (wall || reach < meleeStats(s.variant).reach - 0.05) onBounce?.(new T.Vector3(...s.target));
     }
+  };
+  const release = (f: Flight) => {
+    f.mesh.removeFromParent();
+    f.mesh.traverse((o) => {
+      if (o instanceof T.Mesh || o instanceof T.Sprite) {
+        const pool = o.userData.materialPool as MaterialPool<T.Material> | undefined;
+        if (pool) pool.release(o.material as T.Material);
+        else if (!o.userData.sharedMaterial) (o.material as T.Material).dispose();
+        // Своя геометрия — только у гранаты и ракеты; шарики, шлейфы и сердечки делят общую.
+        if ((f.kind === 'grenade' || f.kind === 'sniper') && !o.userData.sharedGeometry)
+          o.geometry.dispose();
+      }
+    });
   };
   const update = (
     now: number,
@@ -394,7 +474,11 @@ export function createWorldProjectiles({
           }
         }
       }
-      if (t >= 1) {
+      if (t >= 1 && f.pellet) {
+        landPellet(f, now);
+        release(f);
+        flights.splice(i, 1);
+      } else if (t >= 1) {
         // Звук — только у свежих приземлений: догнанные при входе в комнату летят «мгновенно».
         if (now - (f.born + f.duration) < 800) onLand?.(f.kind, f.target);
         let hitPlayerGroup: T.Object3D | null = null;
@@ -560,23 +644,14 @@ export function createWorldProjectiles({
             }
           }
         }
-        f.mesh.removeFromParent();
-        f.mesh.traverse((o) => {
-          if (o instanceof T.Mesh || o instanceof T.Sprite) {
-            const pool = o.userData.materialPool as MaterialPool<T.Material> | undefined;
-            if (pool) pool.release(o.material as T.Material);
-            else if (!o.userData.sharedMaterial) (o.material as T.Material).dispose();
-            // Своя геометрия — только у гранаты и ракеты; шарики, шлейфы и сердечки делят общую.
-            if ((f.kind === 'grenade' || f.kind === 'sniper') && !o.userData.sharedGeometry)
-              o.geometry.dispose();
-          }
-        });
+        release(f);
         flights.splice(i, 1);
       }
     }
   };
   const dispose = () => {
     paintGeo.dispose();
+    pelletGeo.dispose();
     trailGeo.dispose();
     heartGeo.dispose();
     ballMaterials.dispose();
@@ -585,5 +660,5 @@ export function createWorldProjectiles({
     exhaust?.material.dispose();
     exhaust?.texture.dispose();
   };
-  return { flights, spawn, update, dispose, ball };
+  return { flights, spawn, update, dispose };
 }
