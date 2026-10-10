@@ -1374,10 +1374,11 @@ export class BotBrain {
     const noise = this.noise;
     if (noise && now - noise.at < 4000) {
       const key = Math.round(noise.x / 6) + ':' + Math.round(noise.z / 6);
-      // На один шум идут не больше двух: остальные держат свои участки.
+      // На один шум идут не больше двух: остальные держат свои участки. Без команд
+      // («Каждый за себя») союзников нет — каждый идёт на шум сам.
       let allies = 0;
       for (const other of ctx.squad.values())
-        if (other !== this && other.team === me.team && other.huntKey === key && other.huntAt > now - 4000)
+        if (other !== this && me.team && other.team === me.team && other.huntKey === key && other.huntAt > now - 4000)
           allies++;
       if (allies < (noise.ally ? 1 : 2)) {
         this.huntKey = key;

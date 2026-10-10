@@ -10,7 +10,7 @@ import {
   type Person,
   type Room,
 } from '@/lib/model';
-import type { GameMode } from '@/lib/maps/catalog';
+import { isFreeForAll, type GameMode } from '@/lib/maps/catalog';
 import { BOT_LEVELS } from '@/lib/bot-levels';
 import { teamName } from '@/lib/team-colors';
 import type { useRoomSync } from './use-room-sync';
@@ -156,10 +156,11 @@ export function RoomMonitor({
                           ? 'Ведущий'
                           : 'Участник'}
                       {gameMode === 'battle' &&
+                        !isFreeForAll(room.state) &&
                         ` · ${teamName(m.team).toLowerCase()}`}
                     </small>
                   </span>
-                  {gameMode === 'battle' && (host || m.id === room.self) && (
+                  {gameMode === 'battle' && !isFreeForAll(room.state) && (host || m.id === room.self) && (
                     <button
                       type="button"
                       className={`side-swap ${m.team || 'none'}`}

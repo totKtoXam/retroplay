@@ -815,6 +815,7 @@ export function WorldHud(props: WorldHudProps) {
         <HudMatchBanner
           match={props.room.match}
           myTeam={props.self?.team}
+          selfId={props.self?.id}
           freezeSeconds={props.freezeSeconds}
           kills={kills}
           deaths={deaths}

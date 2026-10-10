@@ -74,7 +74,7 @@ import RoomBoardFallback from './room-board-fallback';
 import { useRoomSync } from './use-room-sync';
 import GameChat from './game-chat';
 import { useVoiceChat } from './use-voice-chat';
-import { MAP_CATALOG, MODES, modeOf } from '@/lib/maps/catalog';
+import { isFreeForAll, MAP_CATALOG, modeChoice, modeChoiceOf, modeOf } from '@/lib/maps/catalog';
 import { defaultSlot, hasSlot, slotsFor } from '@/lib/loadout';
 import { useLocalPrefs } from './use-local-prefs';
 import { RoomJoinScreen, RoomLoadingScreen } from './room-join-screen';
@@ -898,12 +898,20 @@ export default function RoomApp({ id }: { id: string }) {
     if (ok) void act({ type: 'access.set', accessType });
   };
   const changeRoomSettings = async (patch: Record<string, unknown>) => {
-    if ('mode' in patch && patch.mode !== gameMode) {
-      const title = MODES.find((m) => m.id === patch.mode)?.title ?? '';
+    // Командный бой и «Каждый за себя» — один режим с флагом команд, но переход между
+    // ними тоже начинает игру заново, поэтому спрашиваем и о нём.
+    const target = modeChoiceOf({
+      mode: 'mode' in patch ? String(patch.mode) : gameMode,
+      map: s.map,
+      freeForAll: 'freeForAll' in patch ? !!patch.freeForAll : s.freeForAll,
+    });
+    if (target !== modeChoiceOf(s)) {
+      const sameMode = modeChoice(target).mode === gameMode;
       const ok = await confirm({
-        title: `Переключить комнату в режим «${title}»?`,
-        description:
-          'Режим и карта сменятся сразу у всех участников. Карточки, голоса и план действий сохранятся — к ним можно вернуться, переключив режим обратно.',
+        title: `Переключить комнату в режим «${modeChoice(target).title}»?`,
+        description: sameMode
+          ? 'Матч начнётся заново у всех участников: стороны раздадутся или снимутся, счёт и убийства обнулятся.'
+          : 'Режим и карта сменятся сразу у всех участников. Карточки, голоса и план действий сохранятся — к ним можно вернуться, переключив режим обратно.',
         confirmLabel: 'Переключить режим',
       });
       if (!ok) return;
@@ -1356,7 +1364,7 @@ export default function RoomApp({ id }: { id: string }) {
             {(
               {
                 menu: 'Настройки',
-                team: 'Выбор стороны',
+                team: isFreeForAll(s) ? 'Облик бойца' : 'Выбор стороны',
                 share: 'Пригласить команду',
                 results: 'Итоги встречи',
                 join_requests: 'Запросы на вход',
@@ -1509,6 +1517,7 @@ export default function RoomApp({ id }: { id: string }) {
               members={room.members}
               anime={s.visualStyle === 'anime'}
               anonymous={!!s.anonymousPlayers}
+              teams={!isFreeForAll(s)}
               onClose={() => setPanel('')}
               selectedSkin={selectedSkin}
               selectedBandanaColor={selectedBandanaColor}

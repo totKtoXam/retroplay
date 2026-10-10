@@ -29,7 +29,7 @@ import {
 import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
 import { shotgunVolley, type VolleyHits } from './shotgun.ts';
 import { getMap } from './maps/index.ts';
-import { modeOf, type GameMode } from './maps/catalog.ts';
+import { isFreeForAll, modeOf, type GameMode } from './maps/catalog.ts';
 import {
   emergency,
   finishTask,
@@ -161,7 +161,7 @@ export type HubRoom = {
   mode: GameMode;
   /** Настройки режима «Предатель» (lib/impostor.ts). */
   impostor: ImpostorSettings;
-  /** Team battle: on for battle maps, off for the hub. */
+  /** Team battle: on for battle maps, off for the hub and for «Каждый за себя». */
   teams: boolean;
   friendlyFire: boolean;
   friendlyFirePercent: number;
@@ -182,6 +182,10 @@ export type HubMatch = {
   winner?: Team | 'draw';
   /** Выигранные матчи за игру: переживают новый матч, обнуляются со сменой карты или режима. */
   wins: { red: number; blue: number };
+  /** Бой без команд («Каждый за себя»): счёт — личные убийства, `score` и `wins` стоят. */
+  ffa?: boolean;
+  /** Победитель матча без команд (при ничьей нет, а `winner` — 'draw'). */
+  champion?: { id: string; name: string; kills: number };
 };
 export type HubState = {
   room: HubRoom;
@@ -249,11 +253,13 @@ export function roomFromState(host: string, state: Partial<RoomState>): HubRoom 
     map: getMap(state.map).id,
     mode: modeOf(state),
     impostor: impostorSettings(state.impostor),
-    // Teams belong to the battle mode; a retrospective is free-for-all.
-    teams: modeOf(state) === 'battle',
+    // Teams belong to the battle mode; a retrospective and «Каждый за себя» go without.
+    teams: modeOf(state) === 'battle' && !isFreeForAll(state),
     friendlyFire: !!state.friendlyFire,
     friendlyFirePercent: clamp(state.friendlyFirePercent ?? 50, 0, 100),
-    matchMode: state.matchMode === 'rounds' ? 'rounds' : 'deathmatch',
+    // Без команд раундам не на чем стоять (кто «выжил» — один человек), поэтому только бой
+    // с возрождением.
+    matchMode: state.matchMode === 'rounds' && !isFreeForAll(state) ? 'rounds' : 'deathmatch',
     killLimit: clamp(state.killLimit ?? 30, 0, 200),
     matchMinutes: clamp(state.matchMinutes ?? 10, 0, 60),
     roundWins: clamp(state.roundWins ?? 5, 1, 15),
@@ -602,8 +608,14 @@ export function placeIfInvalid(state: HubState, m: HubMember, now: number) {
 /**
  * Puts a member without a team into the smaller one and onto that team's spawn (they may
  * be standing wherever the previous map or the hub left them). Returns whether it did.
+ * В бою «Каждый за себя» наоборот снимает сторону, оставшуюся в базе с командной игры.
  */
 export function balanceTeam(state: HubState, m: HubMember, now: number) {
+  if (state.room.mode === 'battle' && !state.room.teams) {
+    if (!m.team) return false;
+    m.team = '';
+    return true;
+  }
   if (!state.room.teams || m.team) return false;
   let red = 0,
     blue = 0;
@@ -638,6 +650,8 @@ export function balanceTeam(state: HubState, m: HubMember, now: number) {
  */
 export function setTeam(state: HubState, self: string, team: Team, now: number) {
   const m = state.members.get(self);
+  // «Каждый за себя»: сторон нет, выбрать их нельзя.
+  if (state.room.mode === 'battle' && !state.room.teams) return false;
   if (!m || m.team === team) return false;
   const previous = m.team;
   m.team = team;
@@ -662,6 +676,7 @@ export function newMatch(room: HubRoom, now: number, wins = { red: 0, blue: 0 })
   // Раунды начинаются с подготовки; в бою с возрождением ждать нечего.
   const rounds = room.matchMode === 'rounds';
   return {
+    ...(room.mode === 'battle' && !room.teams ? { ffa: true } : {}),
     mode: room.matchMode,
     score: { red: 0, blue: 0 },
     wins: { ...wins },
@@ -701,25 +716,45 @@ export function respawnAll(state: HubState, now: number) {
   }
 }
 
+/** Лучший по убийствам в бою без команд; при равенстве лучших — никого (ничья). */
+export function freeForAllLeader(state: HubState) {
+  let best: HubMember | undefined;
+  let tied = false;
+  for (const m of state.members.values()) {
+    if (!best || m.kills > best.kills) {
+      best = m;
+      tied = false;
+    } else if (m.kills === best.kills) tied = true;
+  }
+  return best && best.kills > 0 && !tied ? best : undefined;
+}
+
 function endMatch(state: HubState, now: number) {
   const match = state.match;
   match.phase = 'ended';
+  match.until = now + ENDED_MS;
+  if (match.ffa) {
+    const top = freeForAllLeader(state);
+    if (top) match.champion = { id: top.id, name: top.name || 'Игрок', kills: top.kills };
+    else match.winner = 'draw';
+    return;
+  }
   match.winner =
     match.score.red === match.score.blue ? 'draw' : match.score.red > match.score.blue ? 'red' : 'blue';
   if (match.winner !== 'draw') match.wins[match.winner] += 1;
-  match.until = now + ENDED_MS;
 }
 
 /**
  * Runs the match clock: ends a deathmatch on the kill limit or the time, ends a round when
  * one side is wiped out or its time runs out, and starts the next round or match after the
- * break. Free-for-all rooms (the hub) have no match.
+ * break. «Каждый за себя» — бой с возрождением до лимита личных убийств или времени. Вне боя
+ * (хаб, «Предатель») матча нет.
  */
 export function updateMatch(state: HubState, now: number) {
   const room = state.room,
     match = state.match;
-  if (!room.teams) return false;
-  if (match.mode !== room.matchMode) {
+  if (!room.teams && room.mode !== 'battle') return false;
+  if (match.mode !== room.matchMode || !!match.ffa === room.teams) {
     state.match = newMatch(room, now);
     respawnAll(state, now);
     return true;
@@ -741,7 +776,12 @@ export function updateMatch(state: HubState, now: number) {
     return true;
   }
   if (match.phase === 'live') {
-    const limit = room.killLimit > 0 && (match.score.red >= room.killLimit || match.score.blue >= room.killLimit);
+    const top = match.ffa ? Math.max(0, ...[...state.members.values()].map((m) => m.kills)) : 0;
+    const limit =
+      room.killLimit > 0 &&
+      (match.ffa
+        ? top >= room.killLimit
+        : match.score.red >= room.killLimit || match.score.blue >= room.killLimit);
     if (!limit && !(match.until > 0 && now >= match.until)) return false;
     endMatch(state, now);
     return true;
@@ -759,6 +799,13 @@ export function updateMatch(state: HubState, now: number) {
     match.until = now + FREEZE_MS;
   } else {
     state.match = newMatch(room, now, match.wins);
+    // Без команд счёт матча — личные убийства: новый матч начинается с нуля.
+    if (state.match.ffa)
+      for (const m of state.members.values()) {
+        m.kills = 0;
+        m.deaths = 0;
+        m.assists = 0;
+      }
   }
   respawnAll(state, now);
   return true;

@@ -5277,6 +5277,22 @@ h1 > span {
 .match-bar .score.blue {
   color: var(--team-blue);
 }
+/* «Каждый за себя»: свой счёт и лидера, подписи мелко над числом. */
+.match-bar.is-ffa .score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #dbe7ff;
+}
+.match-bar.is-ffa .score small {
+  font: 500 9px/1.3 system-ui, sans-serif;
+  color: var(--hud-dim);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.match-bar.is-ffa .score.leader {
+  color: #ffd27a;
+}
 .match-bar .clock {
   display: flex;
   flex-direction: column;

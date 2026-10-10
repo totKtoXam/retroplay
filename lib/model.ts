@@ -486,6 +486,8 @@ export type RoomState = {
   mode?: GameMode;
   /** Game map id (lib/maps); missing means the hub. */
   map?: string;
+  /** Бой без команд — «Каждый за себя» (lib/maps/catalog.ts, isFreeForAll); только в бою. */
+  freeForAll?: boolean;
   /** Team battle settings; they apply on battle maps, the hub stays free-for-all. */
   friendlyFire?: boolean;
   /** Share of the damage a teammate takes when friendly fire is on, percent. */
@@ -519,6 +521,10 @@ export type Match = {
   winner?: 'red' | 'blue' | 'draw';
   /** Выигранные матчи за игру (с последней смены карты или режима). */
   wins?: { red: number; blue: number };
+  /** Матч без команд («Каждый за себя»): счёт личный, `score` и `wins` не ведутся. */
+  ffa?: boolean;
+  /** Победитель матча без команд; при ничьей его нет, а `winner` — 'draw'. */
+  champion?: { id: string; name: string; kills: number };
 };
 export type Room = {
   id: string;
@@ -906,6 +912,7 @@ export function applyOperation(
       s.mode = mode;
     }
     if ('voiceEnabled' in p) s.voiceEnabled = !!p.voiceEnabled;
+    if ('freeForAll' in p) s.freeForAll = !!p.freeForAll;
     if ('friendlyFire' in p) s.friendlyFire = !!p.friendlyFire;
     if ('friendlyFirePercent' in p) {
       s.friendlyFirePercent = finite(p.friendlyFirePercent, 1, 100);

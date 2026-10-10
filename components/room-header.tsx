@@ -128,7 +128,14 @@ export function RoomHeader({
           // суток это фон боя, а не его счёт, и ни строки в шапке, ни высоты
           // сцены занимать не должно.
           <div className="match-stack">
-            <MatchBar match={room.match} rounds={s.roundWins ?? 5} now={now} />
+            <MatchBar
+              match={room.match}
+              rounds={s.roundWins ?? 5}
+              now={now}
+              members={room.members}
+              self={room.self}
+              killLimit={s.killLimit ?? 30}
+            />
             <GameClock state={s} now={now} />
           </div>
         ) : (

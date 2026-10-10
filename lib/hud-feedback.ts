@@ -80,11 +80,23 @@ export type MatchOutcome = {
 /**
  * Итог раунда или матча относительно своей команды: «ВЫ ПОБЕДИЛИ», а не «ПОБЕДА
  * КРАСНЫХ» — в конце боя игрок ищет глазами свой результат, а не цвет. Без команды
- * (наблюдатель, свободная драка) остаётся нейтральная формулировка.
+ * (наблюдатель) остаётся нейтральная формулировка. В бою «Каждый за себя» победитель —
+ * один человек: он сам или кто-то другой по имени.
  */
-export function matchOutcome(match: Pick<Match, 'phase' | 'winner'>, myTeam: string | undefined): MatchOutcome | null {
+export function matchOutcome(
+  match: Pick<Match, 'phase' | 'winner' | 'ffa' | 'champion'>,
+  myTeam: string | undefined,
+  selfId?: string,
+): MatchOutcome | null {
   if (match.phase !== 'ended' && match.phase !== 'intermission') return null;
   const ended = match.phase === 'ended';
+  if (match.ffa) {
+    const champion = match.champion;
+    if (!champion) return { title: 'НИЧЬЯ', tone: 'neutral' };
+    return champion.id === selfId
+      ? { title: 'ВЫ ПОБЕДИЛИ', tone: 'win' }
+      : { title: `ПОБЕДИЛ ${champion.name.toUpperCase()}`, tone: 'loss' };
+  }
   const winner = match.winner;
   if (!winner || winner === 'draw')
     return { title: ended ? 'НИЧЬЯ' : 'РАУНД ОКОНЧЕН', tone: 'neutral' };

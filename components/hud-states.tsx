@@ -6,6 +6,7 @@ import type { GameMode } from '@/lib/maps/catalog';
 import type { Match } from '@/lib/model';
 import { keyLabel } from '@/lib/keymap';
 import { teamCss } from '@/lib/team-colors';
+import { plural } from '@/lib/plural';
 import { matchOutcome, respawnCaption, roundCountdown } from '@/lib/hud-feedback';
 import { KeysHelp } from './keys-help';
 import { WeaponIcon, weaponName } from './hud-icons';
@@ -264,6 +265,8 @@ const TEAM_COLOR: Record<string, string> = {
 export function HudMatchBanner(props: {
   match: Match;
   myTeam?: string;
+  /** Свой id: в бою без команд победитель — человек, а не сторона. */
+  selfId?: string;
   freezeSeconds: number;
   kills: number;
   deaths: number;
@@ -289,7 +292,7 @@ export function HudMatchBanner(props: {
       </div>
     );
   }
-  const outcome = matchOutcome(match, props.myTeam);
+  const outcome = matchOutcome(match, props.myTeam, props.selfId);
   const color =
     outcome?.tone === 'neutral' && match.winner && match.winner !== 'draw'
       ? TEAM_COLOR[match.winner]
@@ -298,11 +301,19 @@ export function HudMatchBanner(props: {
     <div className={`match-banner hud-match is-${outcome?.tone ?? 'neutral'}`}>
       <b style={color ? { color } : undefined}>{outcome?.title}</b>
       <small>
+        {match.ffa ? (
+          match.champion && (
+            <span className="hud-match-score">
+              {match.champion.name}: {plural(match.champion.kills, ['убийство', 'убийства', 'убийств'])}
+            </span>
+          )
+        ) : (
         <span className="hud-match-score">
           <span style={{ color: TEAM_COLOR.red }}>{match.score.red}</span>
           {' : '}
           <span style={{ color: TEAM_COLOR.blue }}>{match.score.blue}</span>
         </span>
+        )}
         {match.phase === 'intermission' && ' · следующий раунд вот-вот начнётся'}
       </small>
       {match.phase === 'ended' && (

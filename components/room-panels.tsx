@@ -36,7 +36,7 @@ import {
   type RoomState,
   type Round,
 } from '@/lib/model';
-import { mapsForMode, modeOf, MODES, type GameMode } from '@/lib/maps/catalog';
+import { isFreeForAll, mapsForMode, modeChoiceOf, modeOf, MODE_CHOICES, type GameMode } from '@/lib/maps/catalog';
 import { KeysHelp } from './keys-help';
 import { plural } from '@/lib/plural';
 import {
@@ -749,11 +749,18 @@ export function MatchBar({
   match,
   rounds,
   now,
+  members = [],
+  self,
+  killLimit = 0,
 }: {
   match: Match | undefined;
   /** Побед в матче — сколько пипсов показывать в режиме раундов. */
   rounds: number;
   now: number;
+  /** Для боя без команд: личный счёт свой и лидера. */
+  members?: Pick<Person, 'id' | 'kills'>[];
+  self?: string;
+  killLimit?: number;
 }) {
   if (!match) return <span className="game-tag">Матч готовится…</span>;
   const left = match.until ? Math.max(0, Math.ceil((match.until - now) / 1000)) : 0;
@@ -762,6 +769,31 @@ export function MatchBar({
     : match.mode === 'rounds'
       ? `РАУНД ${match.round}`
       : 'БОЙ';
+  if (match.ffa) {
+    // «Каждый за себя»: свои убийства против лучшего результата в комнате.
+    const mine = members.find((m) => m.id === self)?.kills ?? 0;
+    const top = Math.max(0, ...members.map((m) => m.kills ?? 0));
+    return (
+      <div className="match-bar is-ffa">
+        <strong className="score mine" title="Ваши убийства">
+          <small>вы</small>
+          {mine}
+        </strong>
+        <span className="clock">
+          {clock}
+          {match.phase === 'ended' ? (
+            <small>{match.champion ? `победил ${match.champion.name}` : 'ничья'}</small>
+          ) : (
+            killLimit > 0 && <small>до {killLimit} убийств</small>
+          )}
+        </span>
+        <strong className="score leader" title="Лучший результат в комнате">
+          <small>лидер</small>
+          {top}
+        </strong>
+      </div>
+    );
+  }
   const pips = (team: 'red' | 'blue') =>
     match.mode === 'rounds' && (
       <span className="pips">
@@ -917,18 +949,21 @@ export function ModePanel({
   onSettings: (patch: Record<string, unknown>) => void;
 }) {
   const mode = modeOf(s);
+  const choice = modeChoiceOf(s);
+  const ffa = isFreeForAll(s);
   return (
     <>
       <div className="mode-grid">
-        {MODES.map((m) => (
+        {MODE_CHOICES.map((m) => (
           <button
             key={m.id}
             type="button"
             disabled={!host}
             title={host ? undefined : 'Режим комнаты меняет ведущий'}
-            aria-pressed={mode === m.id}
-            className={`mode-card ${mode === m.id ? 'selected' : ''}`}
-            onClick={() => mode !== m.id && onSettings({ mode: m.id })}
+            aria-pressed={choice === m.id}
+            className={`mode-card ${choice === m.id ? 'selected' : ''}`}
+            // «Каждый за себя» и командный бой — один режим с флагом команд: карта остаётся.
+            onClick={() => choice !== m.id && onSettings({ mode: m.mode, freeForAll: m.freeForAll })}
           >
             <strong>{m.title}</strong>
             <small>{m.hint}</small>
@@ -944,21 +979,30 @@ export function ModePanel({
       />
       {mode === 'battle' && (
         <>
-          <Choice
-            label="Формат матча"
-            value={s.matchMode ?? 'deathmatch'}
-            disabled={!host}
-            onChange={(matchMode) => onSettings({ matchMode })}
-            options={[
-              { value: 'deathmatch', label: 'Бой с возрождением' },
-              { value: 'rounds', label: 'Раунды без возрождения' },
-            ]}
-          />
+          {/* Без команд раундов нет: только бой с возрождением (lib/room-hub-core.ts). */}
+          {!ffa && (
+            <Choice
+              label="Формат матча"
+              value={s.matchMode ?? 'deathmatch'}
+              disabled={!host}
+              onChange={(matchMode) => onSettings({ matchMode })}
+              options={[
+                { value: 'deathmatch', label: 'Бой с возрождением' },
+                { value: 'rounds', label: 'Раунды без возрождения' },
+              ]}
+            />
+          )}
           <div className="two-fields">
-            {((s.matchMode ?? 'deathmatch') === 'rounds'
+            {((s.matchMode ?? 'deathmatch') === 'rounds' && !ffa
               ? ([['roundWins', 'Побед в матче', 1, 15, 5]] as const)
               : ([
-                  ['killLimit', 'Убийств до победы (0 — без лимита)', 0, 200, 30],
+                  [
+                    'killLimit',
+                    ffa ? 'Убийств одного игрока до победы (0 — без лимита)' : 'Убийств до победы (0 — без лимита)',
+                    0,
+                    200,
+                    30,
+                  ],
                   ['matchMinutes', 'Минут на матч (0 — без лимита)', 0, 60, 10],
                 ] as const)
             ).map(([key, label, min, max, fallback]) => (
@@ -983,6 +1027,7 @@ export function ModePanel({
               </label>
             ))}
           </div>
+          {!ffa && (
           <Toggle
             label="Огонь по своим"
             description="Выстрелы по своей команде наносят урон"
@@ -990,7 +1035,8 @@ export function ModePanel({
             disabled={!host}
             onChange={(friendlyFire) => onSettings({ friendlyFire })}
           />
-          {s.friendlyFire && (
+          )}
+          {s.friendlyFire && !ffa && (
             <label className="field">
               Урон по своим, % от обычного
               <input
@@ -1208,12 +1254,14 @@ export function BotsPanel({
   if (mode !== 'battle' && mode !== 'impostor')
     return (
       <p className="bots-note">
-        Боты играют в командном бою и в «Предателе». Переключите режим в разделе «Режим и карта» —
+        Боты играют в бою и в «Предателе». Переключите режим в разделе «Режим и карта» —
         {bots.length ? ` добавленные раньше боты (${bots.length}) вернутся в игру сами.` : ' и добавляйте.'}
       </p>
     );
   // В «Предателе» сторон нет, а роли боту раздаёт сервер при старте партии — и держит в тайне.
   const impostor = mode === 'impostor';
+  // «Каждый за себя»: сторон тоже нет, бот бьётся со всеми.
+  const sides = !impostor && !isFreeForAll(s);
   const hint = impostor ? IMPOSTOR_BOT_LEVELS[level].hint : BOT_LEVELS[level].hint;
   const live = new Map(members.map((m) => [m.id, m]));
   const left = MAX_BOTS - bots.length;
@@ -1221,7 +1269,7 @@ export function BotsPanel({
   return (
     <>
       <div className="bots-add">
-        <div className={impostor ? undefined : 'two-fields'}>
+        <div className={sides ? 'two-fields' : undefined}>
           <Choice
             label="Уровень"
             value={level}
@@ -1229,7 +1277,7 @@ export function BotsPanel({
             onChange={(value) => setLevel(value as BotLevel)}
             options={LEVEL_OPTIONS}
           />
-          {!impostor && (
+          {sides && (
             <Choice
               label="Сторона"
               value={team}
@@ -1270,7 +1318,7 @@ export function BotsPanel({
             type="button"
             className="primary"
             disabled={!host || left <= 0}
-            onClick={() => onAct({ type: 'bots.add', level, team: impostor ? 'auto' : team, count: amount })}
+            onClick={() => onAct({ type: 'bots.add', level, team: sides ? team : 'auto', count: amount })}
           >
             <Bot size={16} /> Добавить {amount > 1 ? amount : ''}
           </button>
@@ -1284,7 +1332,8 @@ export function BotsPanel({
         <div className="bots-list">
           {bots.map((b) => {
             const m = live.get(b.id);
-            const side = m?.team || b.team;
+            // Без команд у бота стороны нет, даже если её выбрали, пока команды были.
+            const side = sides ? m?.team || b.team : '';
             return (
               <div key={b.id} className={`bot-row team-${side || 'none'}`}>
                 <span className="bot-name">
@@ -1292,7 +1341,7 @@ export function BotsPanel({
                   <small>
                     {impostor
                       ? IMPOSTOR_BOT_LEVELS[b.level].hint.split(':')[0]
-                      : `${side ? teamName(side).toLowerCase() : 'сторона при входе'}${m ? ` · ${m.kills ?? 0}/${m.deaths ?? 0}/${m.assists ?? 0}` : ''}`}
+                      : `${!sides ? 'каждый за себя' : side ? teamName(side).toLowerCase() : 'сторона при входе'}${m ? ` · ${m.kills ?? 0}/${m.deaths ?? 0}/${m.assists ?? 0}` : ''}`}
                   </small>
                 </span>
                 <Choice

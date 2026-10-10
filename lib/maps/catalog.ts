@@ -40,3 +40,39 @@ export const modeOfMap = (id?: string): GameMode =>
 /** The mode a room is in: its own setting, or the one its map belongs to. */
 export const modeOf = (state: { mode?: string; map?: string }): GameMode =>
   GAME_MODES.includes(state.mode as string) ? (state.mode as GameMode) : modeOfMap(state.map);
+
+/**
+ * «Каждый за себя» — тот же бой (`mode: 'battle'`, те же карты, оружие и клавиши), только
+ * без команд: личный счёт, свои и чужие не делятся. Поэтому это флаг состояния комнаты, а
+ * не отдельный `GameMode`: всё, что зависит от режима, работает для него как для боя.
+ */
+export const isFreeForAll = (state: { mode?: string; map?: string; freeForAll?: boolean }) =>
+  modeOf(state) === 'battle' && !!state.freeForAll;
+
+/** Что выбирает игрок в лобби и в настройках: режим и, для боя, есть ли команды. */
+export type ModeChoiceId = GameMode | 'ffa';
+export const MODE_CHOICES: {
+  id: ModeChoiceId;
+  mode: GameMode;
+  freeForAll: boolean;
+  title: string;
+  hint: string;
+}[] = MODES.flatMap((m) => {
+  const own = { ...m, mode: m.id, freeForAll: false };
+  return m.id === 'battle'
+    ? [
+        own,
+        {
+          id: 'ffa' as const,
+          mode: 'battle' as const,
+          freeForAll: true,
+          title: 'Каждый за себя',
+          hint: 'Все против всех на боевой карте: без команд, личный счёт',
+        },
+      ]
+    : [own];
+});
+/** Выбор, которому соответствует комната. */
+export const modeChoiceOf = (state: { mode?: string; map?: string; freeForAll?: boolean }): ModeChoiceId =>
+  isFreeForAll(state) ? 'ffa' : modeOf(state);
+export const modeChoice = (id: ModeChoiceId) => MODE_CHOICES.find((c) => c.id === id) ?? MODE_CHOICES[0];

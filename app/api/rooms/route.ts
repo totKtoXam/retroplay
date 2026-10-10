@@ -1,7 +1,7 @@
 import { db, session, json, payload, discardBody } from '@/db/server';
 import { initialState, cleanText, THEMES, type RoomAccessType } from '@/lib/model';
 import { stripNotes } from '@/lib/room-store';
-import { defaultMapFor, modeOf, modeOfMap } from '@/lib/maps/catalog';
+import { defaultMapFor, isFreeForAll, modeOf, modeOfMap } from '@/lib/maps/catalog';
 export async function GET(request: Request) {
   const self = await session(request);
   if (!self) return json({ error: 'Откройте приложение заново' }, 401);
@@ -60,6 +60,7 @@ export async function GET(request: Request) {
             phase: s.phase,
             // Лобби показывает бейдж режима и не выдаёт этап ретро за статус боя.
             mode: modeOf(s),
+            freeForAll: isFreeForAll(s) || undefined,
             created: r.created,
             membersCount,
             maxPlayers,
@@ -99,6 +100,7 @@ export async function GET(request: Request) {
           archived: s.archived,
           phase: s.phase,
           mode: modeOf(s),
+          freeForAll: isFreeForAll(s) || undefined,
           created: r.created,
           // Rooms not yet moved to the notes table keep their cards inline.
           notes: Array.isArray(s.notes)
@@ -152,6 +154,8 @@ export async function POST(request: Request) {
     // The mode decides which maps are allowed; a map from another mode is ignored.
     const mode = p.mode === 'battle' || p.mode === 'impostor' ? p.mode : 'retro';
     s.mode = mode;
+    // «Каждый за себя» — бой без команд (lib/maps/catalog.ts).
+    if (mode === 'battle' && p.freeForAll === true) s.freeForAll = true;
     s.map =
       typeof p.map === 'string' && modeOfMap(p.map) === mode
         ? p.map
