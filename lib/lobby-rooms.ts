@@ -26,6 +26,8 @@ export type MyRoomSummary = {
   created: number;
   notes: number;
   mode?: string;
+  /** Бой без команд — «Каждый за себя». */
+  freeForAll?: boolean;
 };
 
 /** Публичная комната: `GET /api/rooms?browse=public`. */
@@ -41,6 +43,7 @@ export type PublicRoomSummary = {
   maxPlayers: number;
   status: PublicRoomStatus;
   mode?: string;
+  freeForAll?: boolean;
 };
 
 /** Комната в едином списке: свои и публичные слиты по id, `mine` помечает свои. */
@@ -53,6 +56,8 @@ export type RoomItem = {
   created: number;
   mine: boolean;
   mode: GameMode | null;
+  /** Бой без команд — «Каждый за себя» (бейдж режима). */
+  freeForAll: boolean;
   notes: number | null;
   hostName: string | null;
   membersCount: number | null;
@@ -78,6 +83,7 @@ export function mergeRooms(
       created: r.created,
       mine: false,
       mode: summaryMode(r.mode),
+      freeForAll: !!r.freeForAll,
       notes: null,
       hostName: r.hostName,
       membersCount: r.membersCount,
@@ -95,6 +101,7 @@ export function mergeRooms(
       created: r.created,
       mine: true,
       mode: summaryMode(r.mode) ?? prev?.mode ?? null,
+      freeForAll: !!(r.freeForAll ?? prev?.freeForAll),
       notes: r.notes,
       hostName: prev?.hostName ?? null,
       membersCount: prev?.membersCount ?? null,

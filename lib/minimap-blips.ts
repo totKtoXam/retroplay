@@ -56,17 +56,24 @@ export function minimapBlips(opts: {
   drops?: { x: number; z: number }[];
   /** Дальше этого от своего игрока зомби на план не попадают, м (окно угловой плашки). */
   range?: number;
+  /**
+   * Бой «Каждый за себя»: своих нет, враг — каждый, и засвечивает только сам игрок.
+   * Без этого флага игрок без команды видит всех как своих — так задумано для хаба.
+   */
+  freeForAll?: boolean;
 }): MinimapBlip[] {
   const { members, self, now, memory } = opts;
   const mine = members.find((m) => m.id === self);
   const alive = (m: Person) => (m.hp ?? 100) > 0;
   const here = (m: Person) => isOnline(m.lastSeen, now);
+  const rival = (m: Person) =>
+    m.id !== self && !m.zombie && (opts.freeForAll ? true : !!m.team && m.team !== mine?.team);
   // Зомби — тоже участники комнаты, но не свои и не враги-игроки: у них свой знак ниже.
-  const allies = members.filter(
-    (m) => m.id !== self && !m.zombie && here(m) && (!mine?.team || m.team === mine.team),
-  );
+  const allies = opts.freeForAll
+    ? []
+    : members.filter((m) => m.id !== self && !m.zombie && here(m) && (!mine?.team || m.team === mine.team));
 
-  if (mine?.team) {
+  if (mine?.team || opts.freeForAll) {
     // Смотрят все свои живые, включая себя.
     const watchers: Watcher[] = [opts.me];
     for (const m of allies)
@@ -79,9 +86,7 @@ export function minimapBlips(opts: {
           pitch: m.pose.pitch,
           stance: m.pose.stance,
         });
-    const enemies = members.filter(
-      (m) => m.team && m.team !== mine.team && !m.zombie && alive(m) && here(m),
-    );
+    const enemies = members.filter((m) => rival(m) && alive(m) && here(m));
     const targets: Target[] = enemies.map((m) => ({
       id: m.id,
       x: m.pose.x,

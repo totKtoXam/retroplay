@@ -168,11 +168,30 @@ export function exportCsvRows(state: RoomState): string[][] {
   ];
 }
 
+/**
+ * Начало ячейки, с которого Excel и LibreOffice читают формулу: = + - @, а
+ * также табуляция и перевод строки. Чужой текст карточки не должен исполняться
+ * у того, кто открыл экспорт (CSV injection, OWASP).
+ */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
+/** Текст ячейки для CSV: формула обезврежена апострофом в начале. */
+export function csvCell(value: string | number | boolean | null | undefined) {
+  const s = String(value ?? '');
+  return FORMULA_START.test(s) ? "'" + s : s;
+}
+
+/** Обратно при импорте своего же экспорта: снять защитный апостроф. */
+export function fromCsvCell(value: string | undefined) {
+  const s = value ?? '';
+  return s.startsWith("'") && FORMULA_START.test(s.slice(1)) ? s.slice(1) : s;
+}
+
 export function toCsv(rows: string[][]) {
   return (
     '﻿' +
     rows
-      .map((r) => r.map((c) => '"' + String(c).replaceAll('"', '""') + '"').join(','))
+      .map((r) => r.map((c) => '"' + csvCell(c).replaceAll('"', '""') + '"').join(','))
       .join('\r\n')
   );
 }

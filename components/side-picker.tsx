@@ -65,6 +65,7 @@ export function SidePicker({
   selectedBandanaColor,
   anime,
   anonymous,
+  teams = true,
   onApply,
   onClose,
 }: {
@@ -74,6 +75,8 @@ export function SidePicker({
   selectedBandanaColor: string;
   anime: boolean;
   anonymous: boolean;
+  /** Есть ли стороны: в бою «Каждый за себя» окно выбирает только облик. */
+  teams?: boolean;
   onApply: (pick: SidePick) => void;
   onClose: () => void;
 }) {
@@ -127,6 +130,7 @@ export function SidePicker({
 
   return (
     <div className="side-picker">
+      {teams && (
       <section className="sp-sides" aria-label="Сторона">
         {SIDES.map((side) => {
           const chosen = team === side.team;
@@ -181,8 +185,11 @@ export function SidePicker({
           );
         })}
       </section>
+      )}
       <p className="sp-hint">
-        {costly
+        {!teams
+          ? 'Каждый за себя: команд нет, против вас — все. Здесь выбирается только облик.'
+          : costly
           ? 'Переход посреди боя стоит жизни и одного очка убийства — иначе можно было бы бесплатно перебегать к тем, кто выигрывает.'
           : serverTeam
             ? `Ничего не уходит на сервер, пока вы не нажмёте «В БОЙ». Сейчас: ${SIDES.find((s) => s.team === serverTeam)!.title.toLowerCase()}.`

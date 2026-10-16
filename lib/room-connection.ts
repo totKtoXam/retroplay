@@ -55,3 +55,34 @@ export function isNetworkError(message: string) {
     message,
   );
 }
+
+/**
+ * Повтор записи при сбое сети. Запись могла дойти до сервера, а ответ — нет
+ * (таймаут 6 с): тогда повтор с тем же ключом `opId` сервер узнаёт и не
+ * применяет второй раз (db/room-ops.ts). Отказ сервера по правилам не
+ * повторяется — только сетевые сбои.
+ */
+export const OP_RETRY_DELAYS_MS = [700, 2000] as const;
+
+/** Ключ одной операции: одинаков у всех её повторов. */
+export function newOpId() {
+  const c = globalThis.crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/** Отправить и при сетевом сбое повторить с паузами `delays`. */
+export async function sendWithRetry<T>(
+  send: () => Promise<T>,
+  delays: readonly number[] = OP_RETRY_DELAYS_MS,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await send();
+    } catch (e) {
+      if (attempt >= delays.length || !isNetworkError((e as Error)?.message ?? '')) throw e;
+      await sleep(delays[attempt]);
+    }
+  }
+}
