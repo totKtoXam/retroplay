@@ -4,8 +4,8 @@ import {
   defaultMapFor,
   GAME_MODES,
   MAP_IDS,
+  mapFitsMode,
   modeOf,
-  modeOfMap,
   type GameMode,
 } from './maps/catalog.ts';
 import { IMPOSTOR_LIMITS, type ImpostorSettings } from './impostor-settings.ts';
@@ -916,7 +916,7 @@ export function applyOperation(
     if ('mode' in p || 'map' in p) {
       const mode = ('mode' in p ? oneOf(p.mode, [...GAME_MODES]) : modeOf(s)) as GameMode;
       const map = 'map' in p ? oneOf(p.map, MAP_IDS) : (s.map ?? 'hub');
-      if (modeOfMap(map) !== mode) {
+      if (!mapFitsMode(map, mode)) {
         if ('map' in p) throw Error('Эта карта не для выбранного режима');
         s.map = defaultMapFor(mode);
       } else s.map = map;

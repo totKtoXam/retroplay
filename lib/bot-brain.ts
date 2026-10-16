@@ -183,6 +183,21 @@ const NEIGHBOURS: [number, number, number][] = [
 const OPPOSITE = NEIGHBOURS.map(([dx, dz]) => NEIGHBOURS.findIndex(([ox, oz]) => ox === -dx && oz === -dz));
 /** A* не обходит больше клеток: цель дальше считается недостижимой. */
 const MAX_VISITS = 9000;
+/**
+ * Сетка крупнее этого — огромная карта («Зона заражения», 667 × 667 клеток). Точки
+ * патруля по всей карте там лежат за километр: A* упирается в MAX_VISITS, не находит
+ * пути, и бот стоит, а каждая такая попытка стоит ~10 мс такта. Поэтому на огромной
+ * карте бот идёт маршем: цепочка близких точек к цели — сначала к центру карты, где
+ * сходятся все, потом к спавну противника, потом снова к центру. Короткие отрезки
+ * ищутся дёшево, а общая цель сводит стороны: случайный патруль на 4 км² не встречался
+ * бы десятками минут, а марш «каждый к чужому спавну» расходился бы на встречных курсах.
+ */
+const HUGE_GRID = 100_000;
+/** Шаг марша между точками и сколько точек за раз, м. */
+const MARCH_STEP = 110;
+const MARCH_POINTS = 5;
+/** Ближе этого к цели марша — цель достигнута, берём следующую. */
+const MARCH_ARRIVE = 70;
 /** Высота луча между соседними клетками: пояс идущего. */
 const EDGE_RAY_Y = 0.9;
 
@@ -662,6 +677,15 @@ export class BotBrain {
   // Движение.
   private waypoints: Point[] = [];
   private waypointTeam: string | null = null;
+  /** Патруль местный (огромная карта): обойдя точки, бот набирает новые вокруг себя. */
+  private waypointsLocal = false;
+  private waypointStart = 0;
+  /** Номер цели марша на огромной карте: чётные — центр, нечётные — противник. */
+  private marchLeg = 0;
+  /** Подряд не нашлось пути к точкам марша: столько — и цель меняется. */
+  private marchFails = 0;
+  /** Такт, в котором маршрут к цели не нашёлся: второй дорогой поиск в том же такте не нужен. */
+  private planFailedAt = -1;
   private waypointIndex = 0;
   private slideSign: number;
   private slideTurn = 0;
@@ -1087,18 +1111,31 @@ export class BotBrain {
    * разбросаны по всей карте и у каждого бота свои, поэтому команда не ходит
    * гуськом и не стоит на базе.
    */
-  private ensureWaypoints(me: HubMember, map: GameMap) {
-    if (this.waypointTeam === me.team && this.waypoints.length) return;
-    this.waypointTeam = me.team;
+  private ensureWaypoints(me: HubMember, map: GameMap, defend: boolean) {
+    // Ключ маршрута — сторона и задача: на той же карте бой и «Выживание» ходят по-разному.
+    const key = `${me.team}|${defend ? 'base' : 'map'}`;
+    if (this.waypointTeam === key && this.waypoints.length) return;
+    this.waypointTeam = key;
     const nav = this.nav ?? navFor(map);
     this.nav = nav;
     const points: Point[] = [];
-    // В «Выживании» бот держится базы: патруль — по её точкам, а не по всей карте.
-    if (map.base?.length) {
+    // В «Выживании» бот держится базы: патруль — по её точкам, а не по всей карте. В бою
+    // на той же карте база — просто лагерь, и патруль идёт по всей карте.
+    if (defend && map.base?.length) {
       this.waypoints = map.base.map((p) => ({ x: p.x, z: p.z }));
       this.waypointIndex = this.index % this.waypoints.length;
       return;
     }
+    const b = map.bounds;
+    // Противник: спавны чужой стороны, а без команд («Каждый за себя») — все спавны.
+    const foe = me.team === 'red' ? 'blue' : 'red';
+    const spawns = me.team ? map.spawns?.[foe] || [] : [...(map.spawns?.red || []), ...(map.spawns?.blue || [])];
+    if (nav.kind.length > HUGE_GRID) {
+      this.waypointsLocal = true;
+      this.march(me, nav, spawns, b);
+      return;
+    }
+    this.waypointsLocal = false;
     for (let guard = 0; points.length < 9 && guard < 800; guard++) {
       const idx = Math.floor(this.random() * nav.kind.length);
       if (nav.kind[idx] !== 1) continue;
@@ -1108,13 +1145,10 @@ export class BotBrain {
       points.push({ x, z });
     }
     // Половина противника — там и встречаются: добавляем точку у их спавна.
-    const foe = me.team === 'red' ? 'blue' : 'red';
-    const spawns = map.spawns?.[foe] || [];
     if (spawns.length) {
       const s = spawns[this.index % spawns.length];
       points.push({ x: s.x, z: s.z });
     }
-    const b = map.bounds;
     points.push({ x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2 });
     // Свой порядок обхода у каждого бота.
     for (let i = points.length - 1; i > 0; i--) {
@@ -1133,6 +1167,54 @@ export class BotBrain {
       }
     });
     this.waypointIndex = best;
+    this.waypointStart = best;
+    this.goalBest = Infinity;
+    this.goalBestAt = this.lastStepAt;
+  }
+
+  /**
+   * Марш на огромной карте: несколько точек через MARCH_STEP по линии к цели, с разбросом
+   * вбок, чтобы двое ботов не шли след в след. Дошёл до цели — следующая цель.
+   */
+  private march(me: HubMember, nav: NavGrid, spawns: { x: number; z: number }[], b: { minX: number; maxX: number; minZ: number; maxZ: number }) {
+    const from = { x: me.pose.x, z: me.pose.z };
+    const goalOf = (leg: number) =>
+      leg % 2 === 1 && spawns.length
+        ? spawns[(this.index + leg) % spawns.length]
+        : { x: (b.minX + b.maxX) / 2 + (this.random() - 0.5) * 120, z: (b.minZ + b.maxZ) / 2 + (this.random() - 0.5) * 120 };
+    // Тупик: точки по линии к цели раз за разом недостижимы (двор за забором, крыша) —
+    // меняем цель, иначе бот стоял бы на месте до конца матча.
+    if (this.marchFails >= MARCH_POINTS * 2) {
+      this.marchLeg++;
+      this.marchFails = 0;
+    }
+    let goal = goalOf(this.marchLeg);
+    for (let guard = 0; guard < 3 && Math.hypot(goal.x - from.x, goal.z - from.z) < MARCH_ARRIVE; guard++)
+      goal = goalOf(++this.marchLeg);
+    const dist = Math.hypot(goal.x - from.x, goal.z - from.z);
+    const ux = (goal.x - from.x) / Math.max(1e-3, dist);
+    const uz = (goal.z - from.z) / Math.max(1e-3, dist);
+    const points: Point[] = [];
+    for (let i = 1; i <= MARCH_POINTS; i++) {
+      const along = Math.min(dist, i * MARCH_STEP);
+      const side = along >= dist ? 0 : (this.random() - 0.5) * 80;
+      const idx = nav.nearest(from.x + ux * along - uz * side, from.z + uz * along + ux * side);
+      if (idx < 0 || nav.kind[idx] !== 1) continue;
+      points.push({ x: nav.cx(idx % nav.cols), z: nav.cz(Math.floor(idx / nav.cols)) });
+      if (along >= dist) {
+        // Цель в этой цепочке — следующий набор пойдёт к следующей.
+        this.marchLeg++;
+        break;
+      }
+    }
+    if (!points.length) {
+      // Вокруг ни одной проходимой клетки по линии — шагнём к следующей цели.
+      this.marchLeg++;
+      points.push({ x: from.x, z: from.z });
+    }
+    this.waypoints = points;
+    this.waypointIndex = 0;
+    this.waypointStart = 0;
     this.goalBest = Infinity;
     this.goalBestAt = this.lastStepAt;
   }
@@ -1141,6 +1223,8 @@ export class BotBrain {
     this.waypointIndex = (this.waypointIndex + 1) % Math.max(1, this.waypoints.length);
     this.goalBest = Infinity;
     this.goalBestAt = now;
+    // Местный патруль обойдён — следующий набор точек ляжет вокруг нового места.
+    if (this.waypointsLocal && this.waypointIndex === this.waypointStart) this.waypoints = [];
   }
 
   /** Откуда делать следующий шаг: уже сделанный в этом такте или поза сервера. */
@@ -1265,6 +1349,7 @@ export class BotBrain {
       now - this.pathAt > 8000;
     if (stale && !this.replan(now, me, map, goal)) {
       this.clearPath();
+      this.planFailedAt = now;
       return true;
     }
     const path = this.path as PathNode[];
@@ -1283,6 +1368,7 @@ export class BotBrain {
       const fresh = this.replan(now, me, map, goal);
       if (!fresh) {
         this.clearPath();
+        this.planFailedAt = now;
         return true;
       }
       node = fresh[this.pathIndex] || node;
@@ -1361,7 +1447,7 @@ export class BotBrain {
       this.turnTo(me, dt, [(b.minX + b.maxX) / 2, me.pose.y + EYE_STAND, (b.minZ + b.maxZ) / 2], 0.5);
       return null;
     }
-    this.ensureWaypoints(me, map);
+    this.ensureWaypoints(me, map, ctx.state.room.mode === 'survival');
     const visible = this.look(ctx, me);
     const target = visible[0] || null;
     // Новый контакт — человеческая задержка реакции до первого выстрела.
@@ -1512,7 +1598,12 @@ export class BotBrain {
       // Смотрим вдоль маршрута, а не на цель за стеной — как живой игрок.
       this.turnTo(me, dt, [look.x, me.pose.y + EYE_STAND, look.z], 0.6);
       if (!this.navigate(ctx, me, dt, goal, this.dash(ctx.now))) return;
+      const failed = this.planFailedAt === ctx.now;
+      this.marchFails = failed ? this.marchFails + 1 : 0;
       this.nextWaypoint(ctx.now);
+      // Поиск, который не нашёл пути, обходит всю допустимую часть сетки: второй
+      // такой в этом же такте — лишние миллисекунды. Следующую точку возьмём в следующем.
+      if (failed) return;
     }
   }
 
