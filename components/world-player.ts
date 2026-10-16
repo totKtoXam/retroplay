@@ -2,7 +2,7 @@ import * as T from 'three';
 // Relative paths with extensions: this module is also exercised straight from node in
 // tests/world-player.test.mjs, which has no '@/' alias.
 import type { Pose } from '../lib/model.ts';
-import { isBlocked3D } from '../lib/world-collision.ts';
+import { forEachColliderNear, isBlocked3D } from '../lib/world-collision.ts';
 import { stanceHeight, type GameMap } from '../lib/maps/types.ts';
 import { wrapAngle } from '../lib/game-camera.ts';
 import { followCameraHeading } from './world-avatar.ts';
@@ -247,9 +247,15 @@ export function createWorldPlayer({
 
     // Dynamic ground height detection & gravity:
     const groundY = map.groundHeight(pos.x, pos.z, pos.y);
+    const wasGrounded = vy === 0;
     vy -= 13 * dt;
     pos.y = pos.y + vy * dt;
     if (pos.y <= groundY) {
+      pos.y = groundY;
+      vy = 0;
+    } else if (map.terrainHeight && wasGrounded && pos.y - groundY < 0.3) {
+      // Спуск по склону рельефа: ноги остаются на земле, а не подпрыгивают на каждом шаге
+      // (иначе боец «падает» вниз по горе и мигает анимацией полёта).
       pos.y = groundY;
       vy = 0;
     }
@@ -264,7 +270,8 @@ export function createWorldPlayer({
     // Anti-stuck depenetration: guarantee player never gets stuck inside colliders
     const playerRadius = 0.32;
     const worldColliders = ghost?.() ? [] : map.colliders;
-    for (const c of worldColliders) {
+    // На огромной карте коллайдеров десятки тысяч: берём только ближние (lib/world-collision.ts).
+    forEachColliderNear(worldColliders, pos.x - playerRadius, pos.x + playerRadius, pos.z - playerRadius, pos.z + playerRadius, (c) => {
       if (
         pos.x + playerRadius > c.minX &&
         pos.x - playerRadius < c.maxX &&
@@ -290,7 +297,7 @@ export function createWorldPlayer({
           }
         }
       }
-    }
+    });
     return { moving, speed, dx, dz, groundY };
   };
 

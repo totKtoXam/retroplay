@@ -9,12 +9,14 @@ type Checkpoint = {
   match: HubState['match']; effects: HubState['effects']; seq: number; members: SavedMember[];
   /** Партия «Предателя»; в чекпоинтах до режима её нет. */
   impostor?: HubState['impostor'];
+  /** Партия «Выживания»; в чекпоинтах до режима её нет. */
+  survival?: HubState['survival'];
 };
 /** JSON only; absolute server deadlines survive restarts without restarting their timers. */
 export function encodeCheckpoint(roomId: string, hub: HubState): string {
   const saved: Checkpoint = {
     version: 1, roomId, map: hub.room.map, teams: hub.room.teams,
-    match: hub.match, effects: hub.effects, seq: hub.seq, impostor: hub.impostor,
+    match: hub.match, effects: hub.effects, seq: hub.seq, impostor: hub.impostor, survival: hub.survival,
     members: [...hub.members.values()].map(({ weapon, ...member }) => ({
       ...member, weapon: weapon && { ...weapon, magazine: weapon.magazine.snapshot() },
     })),
@@ -36,8 +38,14 @@ export function restoreCheckpoint(roomId: string, hub: HubState, data: string): 
   hub.effects = saved.effects;
   hub.seq = saved.seq;
   if (saved.impostor) hub.impostor = saved.impostor;
+  if (saved.survival) hub.survival = saved.survival;
   for (const previous of saved.members) {
-    const current = hub.members.get(previous.id);
+    let current = hub.members.get(previous.id);
+    // Зомби живут только в чекпоинте: после перезапуска толпа встаёт там же, где была.
+    if (!current && previous.zombie) {
+      current = { ...previous, weapon: undefined };
+      hub.members.set(previous.id, current);
+    }
     if (!current) continue;
     const { weapon, ...hot } = previous;
     const profile = { name: current.name, color: current.color, mood: current.mood,

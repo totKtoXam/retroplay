@@ -68,9 +68,11 @@ type SocketMessage =
       effects: WorldEffect[];
       match?: Room['match'];
       impostor?: Room['impostor'];
+      survival?: Room['survival'];
     }
   | { t: 'refresh' }
   | { t: 'impostor'; id: string; ok: boolean; error?: string }
+  | { t: 'survival'; id: string; ok: boolean; error?: string }
   | { t: 'chat'; messages: ChatMessage[]; history?: boolean }
   | { t: 'chat.error'; error: string }
   | ({ t: 'voice' } & VoiceSignal)
@@ -264,6 +266,7 @@ export function useRoomSync({
             members: data.members,
             match: data.match ?? old.match,
             impostor: data.impostor,
+            survival: data.survival,
             effects,
           };
         }
@@ -386,8 +389,8 @@ export function useRoomSync({
    * Действие режима «Предатель». Ответ сервера — принято или почему нет; само
    * изменение партии приходит следующим тиком. Без сокета — тем же HTTP, что и всё.
    */
-  const impostor = useCallback(
-    (action: Record<string, unknown>): Promise<ImpostorReply> => {
+  const modeAction = useCallback(
+    (mode: 'impostor' | 'survival', action: Record<string, unknown>): Promise<ImpostorReply> => {
       const ws = socketRef.current;
       if (ws?.readyState === WebSocket.OPEN) {
         const requestId = uid();
@@ -398,7 +401,7 @@ export function useRoomSync({
           }, 5000);
           impostorRequests.current.set(requestId, { resolve, timer });
           try {
-            ws.send(JSON.stringify({ ...action, t: 'impostor', id: requestId }));
+            ws.send(JSON.stringify({ ...action, t: mode, id: requestId }));
           } catch {
             clearTimeout(timer);
             impostorRequests.current.delete(requestId);
@@ -406,13 +409,16 @@ export function useRoomSync({
           }
         });
       }
-      return api<ImpostorReply>('/api/rooms/' + id, { ...action, type: 'impostor' }).catch((e: Error) => ({
+      return api<ImpostorReply>('/api/rooms/' + id, { ...action, type: mode }).catch((e: Error) => ({
         ok: false,
         error: e.message,
       }));
     },
     [id],
   );
+  const impostor = useCallback((action: Record<string, unknown>) => modeAction('impostor', action), [modeAction]);
+  /** Действие режима «Выживание» (старт, стоп, навык): тот же канал, что и у «Предателя». */
+  const survival = useCallback((action: Record<string, unknown>) => modeAction('survival', action), [modeAction]);
   /**
    * Служебное сообщение голосового чата. Только через сокет: договориться о
    * соединении по HTTP-опросу нельзя — пока ответ дойдёт, предложение устареет.
@@ -523,11 +529,12 @@ export function useRoomSync({
                   serverNow: msg.now,
                   match: msg.match ?? old.match,
                   impostor: msg.impostor,
+                  survival: msg.survival,
                   effects: mergeEffects(old.effects, msg.effects),
                 } as Room)
               : old,
           );
-        } else if (msg.t === 'impostor') {
+        } else if (msg.t === 'impostor' || msg.t === 'survival') {
           const pending = impostorRequests.current.get(msg.id);
           if (pending) {
             clearTimeout(pending.timer);
@@ -728,6 +735,7 @@ export function useRoomSync({
     fire,
     weapon,
     impostor,
+    survival,
     sendVoice,
     setVoiceSink,
     serverNow,

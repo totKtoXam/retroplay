@@ -1,13 +1,14 @@
 // Единая раскладка клавиш (план UX/UI, п. 3.1). Отсюда строятся справка, карточка входа,
 // подсказки <kbd> в HUD, правила «Предателя» и таблица в README. Источник правды — код
 // обработчиков: components/world.tsx (onKey/onUp/onDown/wheel), components/world-player.ts
-// (движение), components/impostor-overlay.tsx, components/game-chat.tsx, components/item-wheel.tsx,
+// (движение), components/impostor-overlay.tsx, components/survival-overlay.tsx, components/game-chat.tsx,
+// components/item-wheel.tsx,
 // components/room-app.tsx (G). Новая клавиша в коде — новая строка здесь, и наоборот:
 // tests/keymap.test.mjs сверяет раскладку с обработчиками.
 import { MODES, type GameMode } from './maps/catalog.ts';
 import { slotsFor } from './loadout.ts';
 
-export type KeyGroup = 'move' | 'camera' | 'items' | 'combat' | 'social' | 'interface' | 'impostor';
+export type KeyGroup = 'move' | 'camera' | 'items' | 'combat' | 'social' | 'interface' | 'impostor' | 'survival';
 
 /**
  * Одна клавиша или кнопка мыши.
@@ -64,8 +65,18 @@ export const GROUP_TITLES: Record<KeyGroup, string> = {
   social: 'Общение',
   interface: 'Интерфейс',
   impostor: 'Предатель',
+  survival: 'Выживание',
 };
-export const GROUP_ORDER: KeyGroup[] = ['move', 'camera', 'items', 'combat', 'impostor', 'social', 'interface'];
+export const GROUP_ORDER: KeyGroup[] = [
+  'move',
+  'camera',
+  'items',
+  'combat',
+  'impostor',
+  'survival',
+  'social',
+  'interface',
+];
 
 export const CONTEXT_TITLES: Record<KeyContext, string> = {
   world: 'в игре',
@@ -108,6 +119,7 @@ const K = {
   Y: key('KeyY', 'Y'),
   G: key('KeyG', 'G'),
   M: key('KeyM', 'M'),
+  N: key('KeyN', 'N'),
   tab: key('Tab', 'Tab'),
   enter: key('Enter', 'Enter'),
   numEnter: key('NumpadEnter', 'Enter'),
@@ -241,7 +253,7 @@ const BASE: KeyBinding[] = [
     label: 'Кратность оптики',
     keys: [K.wheel],
     group: 'combat',
-    modes: ['battle'],
+    modes: ['battle', 'survival'],
     context: 'scope',
   },
   {
@@ -300,6 +312,25 @@ const BASE: KeyBinding[] = [
     keys: [K.esc],
     group: 'impostor',
     modes: ['impostor'],
+    context: 'overlay',
+  },
+
+  // «Выживание» — components/survival-overlay.tsx. N открывает панель навыков в любой фазе:
+  // очки тратят между волнами, а читают описания и в лобби.
+  {
+    action: 'perks',
+    label: 'Навыки',
+    keys: [K.N],
+    group: 'survival',
+    modes: ['survival'],
+    note: 'Очки навыков дают уровни; Esc или N закрывает',
+  },
+  {
+    action: 'close',
+    label: 'Закрыть панель навыков',
+    keys: [K.esc],
+    group: 'survival',
+    modes: ['survival'],
     context: 'overlay',
   },
 

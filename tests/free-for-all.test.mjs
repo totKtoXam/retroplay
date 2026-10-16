@@ -27,7 +27,7 @@ test('«Каждый за себя» — бой без команд, отдел�
   assert.equal(modeChoiceOf({ mode: 'battle', map: 'mansion', freeForAll: true }), 'ffa');
   assert.deepEqual(
     MODE_CHOICES.map((c) => c.id),
-    ['retro', 'battle', 'ffa', 'impostor'],
+    ['retro', 'battle', 'ffa', 'impostor', 'survival'],
   );
   assert.deepEqual([modeChoice('ffa').mode, modeChoice('ffa').freeForAll], ['battle', true]);
 });

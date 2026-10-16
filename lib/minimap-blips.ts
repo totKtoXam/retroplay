@@ -18,6 +18,11 @@ export type MinimapBlip = {
   enemy?: boolean;
   /** 1 — только что видели, 0 — отметка вот-вот погаснет. */
   fresh?: number;
+  /**
+   * Не игрок: зомби «Выживания» (живой, в радиусе плана) или аптечка. У них нет
+   * команды и засветки — рисуются своим знаком (components/world-minimap.tsx).
+   */
+  kind?: 'zombie' | 'drop';
 };
 
 /** Последнее известное место засвеченного врага и когда его видели (время сервера). */
@@ -47,6 +52,10 @@ export function minimapBlips(opts: {
   me: Watcher;
   colliders: BoxCollider3D[];
   memory: SpotMemory;
+  /** Аптечки «Выживания» (`room.survival.drops`). */
+  drops?: { x: number; z: number }[];
+  /** Дальше этого от своего игрока зомби на план не попадают, м (окно угловой плашки). */
+  range?: number;
   /**
    * Бой «Каждый за себя»: своих нет, враг — каждый, и засвечивает только сам игрок.
    * Без этого флага игрок без команды видит всех как своих — так задумано для хаба.
@@ -58,10 +67,11 @@ export function minimapBlips(opts: {
   const alive = (m: Person) => (m.hp ?? 100) > 0;
   const here = (m: Person) => isOnline(m.lastSeen, now);
   const rival = (m: Person) =>
-    m.id !== self && (opts.freeForAll ? true : !!m.team && m.team !== mine?.team);
+    m.id !== self && !m.zombie && (opts.freeForAll ? true : !!m.team && m.team !== mine?.team);
+  // Зомби — тоже участники комнаты, но не свои и не враги-игроки: у них свой знак ниже.
   const allies = opts.freeForAll
     ? []
-    : members.filter((m) => m.id !== self && here(m) && (!mine?.team || m.team === mine.team));
+    : members.filter((m) => m.id !== self && !m.zombie && here(m) && (!mine?.team || m.team === mine.team));
 
   if (mine?.team || opts.freeForAll) {
     // Смотрят все свои живые, включая себя.
@@ -107,5 +117,14 @@ export function minimapBlips(opts: {
       enemy: true,
       fresh: 1 - (now - mark.at) / SPOT_MEMORY_MS,
     });
+  // Зомби видны без засветки: толпу слышно и так, а план нужен, чтобы понять, откуда
+  // она идёт. Трупы с плана пропадают сразу — стрелять по ним незачем.
+  const range = opts.range ?? Infinity;
+  for (const m of members) {
+    if (!m.zombie || !alive(m) || !here(m)) continue;
+    if (Math.hypot(m.pose.x - opts.me.x, m.pose.z - opts.me.z) > range) continue;
+    out.push({ x: m.pose.x, z: m.pose.z, kind: 'zombie' });
+  }
+  for (const d of opts.drops ?? []) out.push({ x: d.x, z: d.z, kind: 'drop' });
   return out;
 }

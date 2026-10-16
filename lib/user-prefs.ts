@@ -26,6 +26,8 @@ export const PREF_KEYS = {
   colorblind: 'jinaly-colorblind',
   /** Блок частоты кадров и пинга в углу HUD: '0' — скрыт, иначе виден. */
   showStats: 'jinaly-show-stats',
+  /** Кровь и тела на мрачных картах: '0' — спрятаны, иначе видны. */
+  gore: 'jinaly-gore',
 } as const;
 
 /** Число из настроек в пределах [min, max]; нет или мусор — по умолчанию. */

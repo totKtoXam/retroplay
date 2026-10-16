@@ -16,7 +16,7 @@
 // него убрана сеть и журнал аномалий.
 import type { HubMember, HubState } from './room-hub-core.ts';
 import { stanceHeight, type GameMap } from './maps/types.ts';
-import { isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
+import { forEachColliderNear, isBlocked3D, rayCastWorldObstacle } from './world-collision.ts';
 import { WEAPONS, cooledDown, isBlaster, weaponCooldown, type Blaster } from './weapon-definition.ts';
 import { memberWeapon } from './weapon-authority.ts';
 import { aimGrenadeAt } from './grenade-physics.ts';
@@ -179,8 +179,27 @@ const NEIGHBOURS: [number, number, number][] = [
   [-1, 1, Math.SQRT2],
   [-1, -1, Math.SQRT2],
 ];
+/** Противоположное направление для каждого из NEIGHBOURS: ребро симметрично. */
+const OPPOSITE = NEIGHBOURS.map(([dx, dz]) => NEIGHBOURS.findIndex(([ox, oz]) => ox === -dx && oz === -dz));
 /** A* не обходит больше клеток: цель дальше считается недостижимой. */
 const MAX_VISITS = 9000;
+/**
+ * Сетка крупнее этого — огромная карта («Зона заражения», 667 × 667 клеток). Точки
+ * патруля по всей карте там лежат за километр: A* упирается в MAX_VISITS, не находит
+ * пути, и бот стоит, а каждая такая попытка стоит ~10 мс такта. Поэтому на огромной
+ * карте бот идёт маршем: цепочка близких точек к цели — сначала к центру карты, где
+ * сходятся все, потом к спавну противника, потом снова к центру. Короткие отрезки
+ * ищутся дёшево, а общая цель сводит стороны: случайный патруль на 4 км² не встречался
+ * бы десятками минут, а марш «каждый к чужому спавну» расходился бы на встречных курсах.
+ */
+const HUGE_GRID = 100_000;
+/** Шаг марша между точками и сколько точек за раз, м. */
+const MARCH_STEP = 110;
+const MARCH_POINTS = 5;
+/** Ближе этого к цели марша — цель достигнута, берём следующую. */
+const MARCH_ARRIVE = 70;
+/** Высота луча между соседними клетками: пояс идущего. */
+const EDGE_RAY_Y = 0.9;
 
 type PathNode = { x: number; z: number; y: number; crouch: boolean };
 
@@ -245,10 +264,24 @@ export class NavGrid {
   readonly minZ: number;
   readonly cols: number;
   readonly rows: number;
+  /** Шаг сетки, м: у огромных карт крупнее (`ArenaDef.navCell`). */
+  readonly cell: number;
+  /** Перепад высот между соседними клетками, который берётся шагом: на крупной сетке склон даёт больший перепад. */
+  readonly climb: number;
   /** 0 — непроходимо, 1 — стоя, 2 — только присев. */
   readonly kind: Uint8Array;
   readonly height: Float32Array;
   walkable = 0;
+  /**
+   * Тонкие стены между центрами соседних клеток сетка не видит: на крупной клетке
+   * (3 м на «Зоне заражения») забор или ряд столбов умещается между центрами, и обе
+   * клетки проходимы, а пройти между ними нельзя. Поэтому ребро к соседу проверяется
+   * лучом — лениво, при первом обходе, и запоминается битами по направлению. Луч
+   * нужен только там, где рядом есть коллайдер (`near`): в чистом поле рёбра свободны.
+   */
+  private near: Uint8Array;
+  private edgeKnown: Uint8Array;
+  private edgeBlocked: Uint8Array;
   private gScore: Float32Array;
   private came: Int32Array;
   private stamp: Int32Array;
@@ -257,13 +290,18 @@ export class NavGrid {
   constructor(map: GameMap) {
     const b = map.bounds;
     this.map = map;
+    this.cell = map.arena?.navCell ?? NAV_CELL;
+    this.climb = CLIMB * Math.max(1, this.cell / NAV_CELL);
     this.minX = b.minX;
     this.minZ = b.minZ;
-    this.cols = Math.max(1, Math.ceil((b.maxX - b.minX) / NAV_CELL));
-    this.rows = Math.max(1, Math.ceil((b.maxZ - b.minZ) / NAV_CELL));
+    this.cols = Math.max(1, Math.ceil((b.maxX - b.minX) / this.cell));
+    this.rows = Math.max(1, Math.ceil((b.maxZ - b.minZ) / this.cell));
     const size = this.cols * this.rows;
     this.kind = new Uint8Array(size);
     this.height = new Float32Array(size);
+    this.near = new Uint8Array(size);
+    this.edgeKnown = new Uint8Array(size);
+    this.edgeBlocked = new Uint8Array(size);
     this.gScore = new Float32Array(size);
     this.came = new Int32Array(size);
     this.stamp = new Int32Array(size);
@@ -271,18 +309,82 @@ export class NavGrid {
   }
 
   cx(ix: number) {
-    return this.minX + (ix + 0.5) * NAV_CELL;
+    return this.minX + (ix + 0.5) * this.cell;
   }
 
   cz(iz: number) {
-    return this.minZ + (iz + 0.5) * NAV_CELL;
+    return this.minZ + (iz + 0.5) * this.cell;
   }
 
   at(x: number, z: number) {
-    const ix = Math.floor((x - this.minX) / NAV_CELL);
-    const iz = Math.floor((z - this.minZ) / NAV_CELL);
+    const ix = Math.floor((x - this.minX) / this.cell);
+    const iz = Math.floor((z - this.minZ) / this.cell);
     if (ix < 0 || iz < 0 || ix >= this.cols || iz >= this.rows) return -1;
     return iz * this.cols + ix;
+  }
+
+  /**
+   * Сколько можно подняться, шагая в точку (x, z) на высоту y. Крупная клетка берёт
+   * большой перепад — но только по рельефу (склон длиной в клетку); на ящик или крышу
+   * высотой выше колена с земли не шагнуть, какой бы крупной ни была клетка.
+   */
+  private climbLimit(x: number, z: number, y: number) {
+    const terrain = this.map.terrainHeight;
+    if (!terrain || Math.abs(terrain(x, z) - y) < 0.3) return this.climb;
+    return CLIMB;
+  }
+
+  /** Рядом с клеткой есть коллайдер (0 — не считали, 1 — чисто, 2 — есть). */
+  private nearCollider(idx: number) {
+    let v = this.near[idx];
+    if (v) return v === 2;
+    const x = this.cx(idx % this.cols);
+    const z = this.cz(Math.floor(idx / this.cols));
+    const r = this.cell + BODY_RADIUS;
+    let found = false;
+    forEachColliderNear(this.map.colliders, x - r, x + r, z - r, z + r, () => {
+      found = true;
+      return true;
+    });
+    v = found ? 2 : 1;
+    this.near[idx] = v;
+    return found;
+  }
+
+  /** Между центрами соседних клеток `idx` → `nidx` (направление `dir` из NEIGHBOURS) нет стены. */
+  edgeOpen(idx: number, nidx: number, dir: number) {
+    const bit = 1 << dir;
+    if (this.edgeKnown[idx] & bit) return !(this.edgeBlocked[idx] & bit);
+    let blocked = false;
+    if (this.nearCollider(idx) || this.nearCollider(nidx)) {
+      const ax = this.cx(idx % this.cols);
+      const az = this.cz(Math.floor(idx / this.cols));
+      const bx = this.cx(nidx % this.cols);
+      const bz = this.cz(Math.floor(nidx / this.cols));
+      const wall = rayCastWorldObstacle(
+        [ax, this.height[idx] + EDGE_RAY_Y, az],
+        [bx, this.height[nidx] + EDGE_RAY_Y, bz],
+        this.map.colliders,
+      );
+      blocked = !!(wall && wall.hit);
+    }
+    this.edgeKnown[idx] |= bit;
+    const back = 1 << OPPOSITE[dir];
+    this.edgeKnown[nidx] |= back;
+    if (blocked) {
+      this.edgeBlocked[idx] |= bit;
+      this.edgeBlocked[nidx] |= back;
+    }
+    return !blocked;
+  }
+
+  /** Ребро между любыми двумя соседними клетками (по индексам); не соседи — закрыто. */
+  private cellsLinked(a: number, b: number) {
+    if (a === b) return true;
+    const dx = (b % this.cols) - (a % this.cols);
+    const dz = Math.floor(b / this.cols) - Math.floor(a / this.cols);
+    const dir = NEIGHBOURS.findIndex(([nx, nz]) => nx === dx && nz === dz);
+    return dir >= 0 && this.edgeOpen(a, b, dir);
   }
 
   /** Какой стойкой клетка проходима на высоте y. */
@@ -328,7 +430,7 @@ export class NavGrid {
         // Высоту считаем «от текущей ноги»: так работает и сам движок.
         const ny = this.map.groundHeight(wx, wz, y);
         seen[nidx] = 1;
-        if (ny - y > CLIMB || y - ny > FALL) continue;
+        if (ny - y > this.climbLimit(wx, wz, ny) || y - ny > FALL) continue;
         const kind = this.passable(wx, wz, ny);
         if (!kind) continue;
         this.kind[nidx] = kind;
@@ -341,8 +443,8 @@ export class NavGrid {
 
   /** Ближайшая проходимая клетка к точке (поиск по расширяющемуся кольцу). */
   nearest(x: number, z: number) {
-    const ix = Math.floor((x - this.minX) / NAV_CELL);
-    const iz = Math.floor((z - this.minZ) / NAV_CELL);
+    const ix = Math.floor((x - this.minX) / this.cell);
+    const iz = Math.floor((z - this.minZ) / this.cell);
     for (let r = 0; r <= 6; r++) {
       let best = -1;
       let bestD = Infinity;
@@ -377,22 +479,27 @@ export class NavGrid {
   clearLine(ax: number, az: number, ay: number, bx: number, bz: number) {
     const dist = Math.hypot(bx - ax, bz - az);
     if (dist < 1e-3) return true;
-    const steps = Math.ceil(dist / (NAV_CELL / 3));
+    const steps = Math.ceil(dist / (this.cell / 3));
     // Поперёк направления — на радиус тела в обе стороны.
     const sx = (-(bz - az) / dist) * BODY_RADIUS;
     const sz = ((bx - ax) / dist) * BODY_RADIUS;
     let y = ay;
+    let prev = this.at(ax, az);
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
       const x = ax + (bx - ax) * t;
       const z = az + (bz - az) * t;
       const idx = this.at(x, z);
       if (idx < 0 || this.kind[idx] !== 1) return false;
+      // Шаг меньше клетки: соседние отсчёты — та же клетка или смежные, и между
+      // смежными не должно быть стены.
+      if (prev >= 0 && !this.cellsLinked(prev, idx)) return false;
+      prev = idx;
       const ny = this.height[idx];
-      if (ny - y > CLIMB || y - ny > FALL) return false;
+      if (ny - y > this.climbLimit(x, z, ny) || y - ny > FALL) return false;
       for (const side of [1, -1]) {
         const edge = this.at(x + sx * side, z + sz * side);
-        if (edge < 0 || this.kind[edge] !== 1 || Math.abs(this.height[edge] - ny) > CLIMB) return false;
+        if (edge < 0 || this.kind[edge] !== 1 || Math.abs(this.height[edge] - ny) > this.climb) return false;
       }
       y = ny;
     }
@@ -426,7 +533,8 @@ export class NavGrid {
       const ix = current % this.cols;
       const iz = Math.floor(current / this.cols);
       const g = this.gScore[current];
-      for (const [dx, dz, cost] of NEIGHBOURS) {
+      for (let dir = 0; dir < NEIGHBOURS.length; dir++) {
+        const [dx, dz, cost] = NEIGHBOURS[dir];
         const nx = ix + dx;
         const nz = iz + dz;
         if (nx < 0 || nz < 0 || nx >= this.cols || nz >= this.rows) continue;
@@ -434,9 +542,10 @@ export class NavGrid {
         if (!this.kind[nidx]) continue;
         // Углы не срезаем: по диагонали только если обе стороны свободны.
         if (dx && dz && (!this.kind[iz * this.cols + nx] || !this.kind[nz * this.cols + ix])) continue;
+        if (!this.edgeOpen(current, nidx, dir)) continue;
         const climb = Math.abs(this.height[nidx] - this.height[current]);
         // Присев ходят медленнее, крутые места тоже не бесплатны.
-        const next = g + cost * NAV_CELL + (this.kind[nidx] === 2 ? 1.4 : 0) + climb * 0.6;
+        const next = g + cost * this.cell + (this.kind[nidx] === 2 ? 1.4 : 0) + climb * 0.6;
         if (this.stamp[nidx] === pass && this.gScore[nidx] <= next) continue;
         this.stamp[nidx] = pass;
         this.gScore[nidx] = next;
@@ -568,6 +677,15 @@ export class BotBrain {
   // Движение.
   private waypoints: Point[] = [];
   private waypointTeam: string | null = null;
+  /** Патруль местный (огромная карта): обойдя точки, бот набирает новые вокруг себя. */
+  private waypointsLocal = false;
+  private waypointStart = 0;
+  /** Номер цели марша на огромной карте: чётные — центр, нечётные — противник. */
+  private marchLeg = 0;
+  /** Подряд не нашлось пути к точкам марша: столько — и цель меняется. */
+  private marchFails = 0;
+  /** Такт, в котором маршрут к цели не нашёлся: второй дорогой поиск в том же такте не нужен. */
+  private planFailedAt = -1;
   private waypointIndex = 0;
   private slideSign: number;
   private slideTurn = 0;
@@ -829,6 +947,8 @@ export class BotBrain {
   private isFoe(ctx: BotContext, me: HubMember, m: HubMember) {
     if (m.id === me.id || m.hp <= 0) return false;
     if (m.seen <= ctx.now - ONLINE_MS) return false;
+    // В «Выживании» бот — союзник людей: враг только зомби.
+    if (ctx.state.room.mode === 'survival') return !!m.zombie;
     if (ctx.state.room.teams && me.team && m.team === me.team) return false;
     return true;
   }
@@ -991,12 +1111,31 @@ export class BotBrain {
    * разбросаны по всей карте и у каждого бота свои, поэтому команда не ходит
    * гуськом и не стоит на базе.
    */
-  private ensureWaypoints(me: HubMember, map: GameMap) {
-    if (this.waypointTeam === me.team && this.waypoints.length) return;
-    this.waypointTeam = me.team;
+  private ensureWaypoints(me: HubMember, map: GameMap, defend: boolean) {
+    // Ключ маршрута — сторона и задача: на той же карте бой и «Выживание» ходят по-разному.
+    const key = `${me.team}|${defend ? 'base' : 'map'}`;
+    if (this.waypointTeam === key && this.waypoints.length) return;
+    this.waypointTeam = key;
     const nav = this.nav ?? navFor(map);
     this.nav = nav;
     const points: Point[] = [];
+    // В «Выживании» бот держится базы: патруль — по её точкам, а не по всей карте. В бою
+    // на той же карте база — просто лагерь, и патруль идёт по всей карте.
+    if (defend && map.base?.length) {
+      this.waypoints = map.base.map((p) => ({ x: p.x, z: p.z }));
+      this.waypointIndex = this.index % this.waypoints.length;
+      return;
+    }
+    const b = map.bounds;
+    // Противник: спавны чужой стороны, а без команд («Каждый за себя») — все спавны.
+    const foe = me.team === 'red' ? 'blue' : 'red';
+    const spawns = me.team ? map.spawns?.[foe] || [] : [...(map.spawns?.red || []), ...(map.spawns?.blue || [])];
+    if (nav.kind.length > HUGE_GRID) {
+      this.waypointsLocal = true;
+      this.march(me, nav, spawns, b);
+      return;
+    }
+    this.waypointsLocal = false;
     for (let guard = 0; points.length < 9 && guard < 800; guard++) {
       const idx = Math.floor(this.random() * nav.kind.length);
       if (nav.kind[idx] !== 1) continue;
@@ -1006,13 +1145,10 @@ export class BotBrain {
       points.push({ x, z });
     }
     // Половина противника — там и встречаются: добавляем точку у их спавна.
-    const foe = me.team === 'red' ? 'blue' : 'red';
-    const spawns = map.spawns?.[foe] || [];
     if (spawns.length) {
       const s = spawns[this.index % spawns.length];
       points.push({ x: s.x, z: s.z });
     }
-    const b = map.bounds;
     points.push({ x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2 });
     // Свой порядок обхода у каждого бота.
     for (let i = points.length - 1; i > 0; i--) {
@@ -1031,6 +1167,54 @@ export class BotBrain {
       }
     });
     this.waypointIndex = best;
+    this.waypointStart = best;
+    this.goalBest = Infinity;
+    this.goalBestAt = this.lastStepAt;
+  }
+
+  /**
+   * Марш на огромной карте: несколько точек через MARCH_STEP по линии к цели, с разбросом
+   * вбок, чтобы двое ботов не шли след в след. Дошёл до цели — следующая цель.
+   */
+  private march(me: HubMember, nav: NavGrid, spawns: { x: number; z: number }[], b: { minX: number; maxX: number; minZ: number; maxZ: number }) {
+    const from = { x: me.pose.x, z: me.pose.z };
+    const goalOf = (leg: number) =>
+      leg % 2 === 1 && spawns.length
+        ? spawns[(this.index + leg) % spawns.length]
+        : { x: (b.minX + b.maxX) / 2 + (this.random() - 0.5) * 120, z: (b.minZ + b.maxZ) / 2 + (this.random() - 0.5) * 120 };
+    // Тупик: точки по линии к цели раз за разом недостижимы (двор за забором, крыша) —
+    // меняем цель, иначе бот стоял бы на месте до конца матча.
+    if (this.marchFails >= MARCH_POINTS * 2) {
+      this.marchLeg++;
+      this.marchFails = 0;
+    }
+    let goal = goalOf(this.marchLeg);
+    for (let guard = 0; guard < 3 && Math.hypot(goal.x - from.x, goal.z - from.z) < MARCH_ARRIVE; guard++)
+      goal = goalOf(++this.marchLeg);
+    const dist = Math.hypot(goal.x - from.x, goal.z - from.z);
+    const ux = (goal.x - from.x) / Math.max(1e-3, dist);
+    const uz = (goal.z - from.z) / Math.max(1e-3, dist);
+    const points: Point[] = [];
+    for (let i = 1; i <= MARCH_POINTS; i++) {
+      const along = Math.min(dist, i * MARCH_STEP);
+      const side = along >= dist ? 0 : (this.random() - 0.5) * 80;
+      const idx = nav.nearest(from.x + ux * along - uz * side, from.z + uz * along + ux * side);
+      if (idx < 0 || nav.kind[idx] !== 1) continue;
+      points.push({ x: nav.cx(idx % nav.cols), z: nav.cz(Math.floor(idx / nav.cols)) });
+      if (along >= dist) {
+        // Цель в этой цепочке — следующий набор пойдёт к следующей.
+        this.marchLeg++;
+        break;
+      }
+    }
+    if (!points.length) {
+      // Вокруг ни одной проходимой клетки по линии — шагнём к следующей цели.
+      this.marchLeg++;
+      points.push({ x: from.x, z: from.z });
+    }
+    this.waypoints = points;
+    this.waypointIndex = 0;
+    this.waypointStart = 0;
     this.goalBest = Infinity;
     this.goalBestAt = this.lastStepAt;
   }
@@ -1039,6 +1223,8 @@ export class BotBrain {
     this.waypointIndex = (this.waypointIndex + 1) % Math.max(1, this.waypoints.length);
     this.goalBest = Infinity;
     this.goalBestAt = now;
+    // Местный патруль обойдён — следующий набор точек ляжет вокруг нового места.
+    if (this.waypointsLocal && this.waypointIndex === this.waypointStart) this.waypoints = [];
   }
 
   /** Откуда делать следующий шаг: уже сделанный в этом такте или поза сервера. */
@@ -1163,6 +1349,7 @@ export class BotBrain {
       now - this.pathAt > 8000;
     if (stale && !this.replan(now, me, map, goal)) {
       this.clearPath();
+      this.planFailedAt = now;
       return true;
     }
     const path = this.path as PathNode[];
@@ -1181,6 +1368,7 @@ export class BotBrain {
       const fresh = this.replan(now, me, map, goal);
       if (!fresh) {
         this.clearPath();
+        this.planFailedAt = now;
         return true;
       }
       node = fresh[this.pathIndex] || node;
@@ -1259,7 +1447,7 @@ export class BotBrain {
       this.turnTo(me, dt, [(b.minX + b.maxX) / 2, me.pose.y + EYE_STAND, (b.minZ + b.maxZ) / 2], 0.5);
       return null;
     }
-    this.ensureWaypoints(me, map);
+    this.ensureWaypoints(me, map, ctx.state.room.mode === 'survival');
     const visible = this.look(ctx, me);
     const target = visible[0] || null;
     // Новый контакт — человеческая задержка реакции до первого выстрела.
@@ -1410,7 +1598,12 @@ export class BotBrain {
       // Смотрим вдоль маршрута, а не на цель за стеной — как живой игрок.
       this.turnTo(me, dt, [look.x, me.pose.y + EYE_STAND, look.z], 0.6);
       if (!this.navigate(ctx, me, dt, goal, this.dash(ctx.now))) return;
+      const failed = this.planFailedAt === ctx.now;
+      this.marchFails = failed ? this.marchFails + 1 : 0;
       this.nextWaypoint(ctx.now);
+      // Поиск, который не нашёл пути, обходит всю допустимую часть сетки: второй
+      // такой в этом же такте — лишние миллисекунды. Следующую точку возьмём в следующем.
+      if (failed) return;
     }
   }
 

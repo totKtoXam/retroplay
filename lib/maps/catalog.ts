@@ -1,6 +1,10 @@
 // Which maps exist and what mode each belongs to — names only, no geometry, so the
 // lobby and lib/model.ts can reason about modes without loading every map's boxes.
-export type GameMode = 'retro' | 'battle' | 'impostor';
+//
+// `mode` — родной режим карты: по нему старые комнаты без поля `mode` узнают, во что
+// играют. `also` — другие режимы, где карту тоже можно выбрать (огромная «Зона
+// заражения» годится и для боя: команды, «Каждый за себя»).
+export type GameMode = 'retro' | 'battle' | 'impostor' | 'survival';
 
 export const MAP_CATALOG = [
   { id: 'hub', title: 'Хаб', mode: 'retro' },
@@ -8,8 +12,11 @@ export const MAP_CATALOG = [
   { id: 'bazaar', title: 'Базар', mode: 'battle' },
   { id: 'mountain', title: 'Горный лагерь', mode: 'battle' },
   { id: 'valley', title: 'Ледниковая долина', mode: 'battle' },
+  // Огромная карта «Выживания» (волны зомби, база — лагерь выживших); в бою — 2×2 км
+  // городов, деревень и леса для командного боя и «Каждый за себя».
+  { id: 'outbreak', title: 'Зона заражения', mode: 'survival', also: ['battle'] },
   { id: 'ship', title: 'Корабль', mode: 'impostor' },
-] as const satisfies readonly { id: string; title: string; mode: GameMode }[];
+] as const satisfies readonly { id: string; title: string; mode: GameMode; also?: readonly GameMode[] }[];
 
 export type MapId = (typeof MAP_CATALOG)[number]['id'];
 export const MAP_IDS: MapId[] = MAP_CATALOG.map((m) => m.id);
@@ -26,12 +33,30 @@ export const MODES: { id: GameMode; title: string; hint: string }[] = [
     title: 'Предатель',
     hint: 'Экипаж чинит корабль, предатели тайно мешают; собрания и голосование',
   },
+  {
+    id: 'survival',
+    title: 'Выживание',
+    hint: 'Кооператив против волн зомби: опыт, уровни и навыки за партию',
+  },
 ];
 
-const GAME_MODES: readonly string[] = ['retro', 'battle', 'impostor'];
+export const GAME_MODES: readonly GameMode[] = ['retro', 'battle', 'impostor', 'survival'];
+export const isGameMode = (v: unknown): v is GameMode =>
+  typeof v === 'string' && (GAME_MODES as readonly string[]).includes(v);
 
-/** Maps the host can pick in this mode. */
-export const mapsForMode = (mode: GameMode) => MAP_CATALOG.filter((m) => m.mode === mode);
+type CatalogEntry = (typeof MAP_CATALOG)[number] & { also?: readonly GameMode[] };
+/** Карту можно выбрать в этом режиме: он для неё родной или указан в `also`. */
+const fits = (m: CatalogEntry, mode: GameMode) => m.mode === mode || !!m.also?.includes(mode);
+/** Maps the host can pick in this mode: its own first, then the ones it borrows. */
+export const mapsForMode = (mode: GameMode) => [
+  ...MAP_CATALOG.filter((m) => m.mode === mode),
+  ...MAP_CATALOG.filter((m: CatalogEntry) => m.mode !== mode && fits(m, mode)),
+];
+/** Годится ли карта для режима (родной или из `also`); неизвестная — только для ретро, как хаб. */
+export const mapFitsMode = (id: string | undefined, mode: GameMode) => {
+  const m: CatalogEntry | undefined = MAP_CATALOG.find((c) => c.id === id);
+  return m ? fits(m, mode) : mode === 'retro';
+};
 /** Where a room lands when the mode changes and the old map does not fit. */
 export const defaultMapFor = (mode: GameMode): MapId => mapsForMode(mode)[0].id;
 /** The mode of a map id; unknown ids are hub-like, i.e. retro. */
@@ -39,7 +64,7 @@ export const modeOfMap = (id?: string): GameMode =>
   MAP_CATALOG.find((m) => m.id === id)?.mode ?? 'retro';
 /** The mode a room is in: its own setting, or the one its map belongs to. */
 export const modeOf = (state: { mode?: string; map?: string }): GameMode =>
-  GAME_MODES.includes(state.mode as string) ? (state.mode as GameMode) : modeOfMap(state.map);
+  isGameMode(state.mode) ? state.mode : modeOfMap(state.map);
 
 /**
  * «Каждый за себя» — тот же бой (`mode: 'battle'`, те же карты, оружие и клавиши), только

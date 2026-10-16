@@ -173,11 +173,15 @@ export function RoomSettings({
               ? s?.bots?.length
                 ? `На корабле: ${s.bots.length}`
                 : 'Экипаж и предатели четырёх уровней'
-              : gameMode !== 'battle'
-                ? 'Играют в бою и в «Предателе»'
-                : s?.bots?.length
-                  ? `В бою: ${s.bots.length}`
-                  : 'Соперники и напарники четырёх уровней',
+              : gameMode === 'survival'
+                ? s?.bots?.length
+                  ? `На базе: ${s.bots.length}`
+                  : 'Боты-союзники держат базу вместе с вами'
+                : gameMode !== 'battle'
+                  ? 'Играют в бою, в «Предателе» и в «Выживании»'
+                  : s?.bots?.length
+                    ? `В бою: ${s.bots.length}`
+                    : 'Соперники и напарники четырёх уровней',
           icon: Bot,
           hostOnly: true,
         },

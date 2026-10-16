@@ -13,8 +13,11 @@ test('inventory holds only the items of its mode', () => {
   const ids = (mode) => slotsFor(mode).map((s) => GAME_TOOLS[s.index].id);
   assert.deepEqual(ids('retro'), ['pointer', 'sticky', 'paint', 'confetti', 'like']);
   assert.deepEqual(ids('battle'), ['paint', 'confetti', 'grenade', 'sniper', 'melee']);
-  // Keys are 1..N in both modes, with no duplicates and no gaps.
-  for (const mode of ['retro', 'battle'])
+  // Survival fights with the battle kit; the flashlight is the impostor's only item.
+  assert.deepEqual(ids('survival'), ids('battle'));
+  assert.deepEqual(ids('impostor'), ['flashlight']);
+  // Keys are 1..N in every mode, with no duplicates and no gaps.
+  for (const mode of ['retro', 'battle', 'impostor', 'survival'])
     assert.deepEqual(
       slotsFor(mode).map((s) => s.key),
       slotsFor(mode).map((_, i) => String(i + 1)),

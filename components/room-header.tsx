@@ -138,6 +138,10 @@ export function RoomHeader({
             />
             <GameClock state={s} now={now} />
           </div>
+        ) : gameMode === 'survival' ? (
+          // Таймер встречи и голоса — для ретро; волну и отсчёт показывает
+          // оверлей режима поверх сцены, в шапке остаются только часы суток.
+          <GameClock state={s} now={now} />
         ) : (
           <>
             {/* Этапы уехали из шапки в PhaseBar над сценой, приватное
@@ -239,7 +243,7 @@ export function RoomHeader({
         onOpenChange={setMenuOpen}
         status={connection}
         compact={[
-          ...(gameMode !== 'battle'
+          ...(gameMode !== 'battle' && gameMode !== 'survival'
             ? [
                 {
                   id: 'timer',
@@ -314,7 +318,7 @@ export function RoomHeader({
           ) : undefined
         }
         privacy={
-          gameMode !== 'battle'
+          gameMode !== 'battle' && gameMode !== 'survival'
             ? {
                 value: s.privateWriting,
                 host,

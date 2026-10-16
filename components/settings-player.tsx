@@ -284,6 +284,19 @@ export function StatsSetting() {
   );
 }
 
+/** Кровь и тела на мрачных картах. Приложение — и для рабочих встреч: кому не нужно, выключит. */
+export function GoreSetting() {
+  const on = usePrefValue(PREF_KEYS.gore) !== '0';
+  return (
+    <Toggle
+      label="Кровь и жестокость"
+      description="Лужи крови и тела погибших на мрачных картах («Зона заражения»). Выключите — останутся только разруха и брошенные вещи; на игру это не влияет."
+      value={on}
+      onChange={(v) => writePrefNotify(PREF_KEYS.gore, v ? '1' : '0')}
+    />
+  );
+}
+
 export function ColorblindSetting() {
   const on = usePrefValue(PREF_KEYS.colorblind) === '1';
   return (

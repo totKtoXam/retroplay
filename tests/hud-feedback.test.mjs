@@ -105,6 +105,7 @@ test('настройки HUD: по умолчанию, границы и мус�
   localStorage.setItem(PREF_KEYS.hudScale, '0.5');
   localStorage.setItem(PREF_KEYS.colorblind, '1');
   localStorage.setItem(PREF_KEYS.showStats, '0');
+  localStorage.setItem(PREF_KEYS.gore, '0');
   assert.deepEqual(readHudPrefs(), {
     fov: 100,
     sfxVolume: 0.4,
@@ -113,6 +114,7 @@ test('настройки HUD: по умолчанию, границы и мус�
     hudScale: 0.9,
     colorblind: true,
     showStats: false,
+    gore: false,
   });
   localStorage.setItem(PREF_KEYS.crosshairColor, 'red; background: url(x)');
   localStorage.setItem(PREF_KEYS.crosshairStyle, 'star');

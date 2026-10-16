@@ -86,6 +86,8 @@ import { RoomSettings } from './room-settings';
 const World = lazy(() => import('./world'));
 // Как и мир, интерфейс «Предателя» тянет геометрию карт — грузится отдельно и только в этом режиме.
 const ImpostorOverlay = lazy(() => import('./impostor-overlay'));
+// Интерфейс «Выживания» нужен только в этом режиме: волны, опыт и панель навыков.
+const SurvivalOverlay = lazy(() => import('./survival-overlay'));
 const kinds: Record<string, string> = {
   pointer: 'sticky',
   sticky: 'sticky',
@@ -145,8 +147,9 @@ export default function RoomApp({ id }: { id: string }) {
     [comment, setComment] = useState(''),
     [fps, setFps] = useState(0),
     [monitor, setMonitor] = useState(false),
-    // Экран режима «Предатель» (мини-игра, собрание) держит курсор — мир не слушает ввод.
-    [impostorBlocked, setImpostorBlocked] = useState(false),
+    // Экран режима («Предатель»: мини-игра, собрание; «Выживание»: панель навыков, итоги)
+    // держит курсор — мир не слушает ввод.
+    [overlayBlocked, setOverlayBlocked] = useState(false),
     [chatOpen, setChatOpen] = useState(false),
     // Растёт, когда чат закрыт клавишей: мир снова захватывает мышь.
     [resumeWorld, setResumeWorld] = useState(0),
@@ -241,6 +244,7 @@ export default function RoomApp({ id }: { id: string }) {
     fire,
     weapon,
     impostor,
+    survival,
     sendVoice,
     setVoiceSink,
     serverNow,
@@ -1146,7 +1150,7 @@ export default function RoomApp({ id }: { id: string }) {
                   menuOpen ||
                   !!draft ||
                   !!selectedZone ||
-                  impostorBlocked ||
+                  overlayBlocked ||
                   chatOpen
                 }
               />
@@ -1160,7 +1164,18 @@ export default function RoomApp({ id }: { id: string }) {
                 serverNow={serverNow}
                 pose={pose}
                 send={impostor}
-                onBlocked={setImpostorBlocked}
+                onBlocked={setOverlayBlocked}
+              />
+            </Suspense>
+          )}
+          {gameMode === 'survival' && !webglFailed && (
+            <Suspense fallback={null}>
+              <SurvivalOverlay
+                room={room}
+                host={host}
+                serverNow={serverNow}
+                send={survival}
+                onBlocked={setOverlayBlocked}
               />
             </Suspense>
           )}
@@ -1386,7 +1401,7 @@ export default function RoomApp({ id }: { id: string }) {
                   ? 'Личные настройки, встреча и правила комнаты. Esc закрывает.'
                   : panel === 'team'
                     ? 'Сторона, скин и цвет банданы вашего бойца'
-                    : gameMode === 'battle'
+                    : gameMode === 'battle' || gameMode === 'survival'
                       ? 'Снаряжение бойца'
                       : 'Инструменты вашей ретроспективы'}
           </DialogDescription>

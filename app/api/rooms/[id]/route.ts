@@ -68,6 +68,7 @@ async function buildRoomSnapshot(
     serverNow: live.now,
     match: live.match,
     ...(live.impostor ? { impostor: live.impostor } : {}),
+    ...(live.survival ? { survival: live.survival } : {}),
     joinRequests: pendingJoinRequests,
     effects: live.effects,
     state:
@@ -373,6 +374,9 @@ export async function POST(request: Request, context: Context) {
     }
     if (op.type === 'impostor') {
       return json(await roomHub(id).impostor(id, self, op));
+    }
+    if (op.type === 'survival') {
+      return json(await roomHub(id).survival(id, self, op));
     }
     if (op.type === 'history') {
       const { results } = await db()

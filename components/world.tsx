@@ -36,6 +36,7 @@ import { createGrenadeAim } from './world-grenade-aim';
 import { useKillFeed } from './use-kill-feed';
 import { WorldEquipment } from './world-equipment';
 import { createWorldRemotePlayers } from './world-remote-players';
+import { createWorldZombies, type WorldZombies } from './world-zombies';
 import {
   avatarMuzzle,
   createFlashlightBeam,
@@ -273,6 +274,8 @@ export default function World(props: Props) {
   const tabletInWorldRef = useRef(false);
   const tabletInspectRef = useRef(0);
 
+  /** Зомби «Выживания» (components/world-zombies.ts): настройке крови нужен доступ извне кадра. */
+  const zombiesRef = useRef<WorldZombies | null>(null);
   const engine = useRef<{
     kit: WorldKit;
     visuals: ReturnType<typeof createVisualProvider>;
@@ -364,6 +367,9 @@ export default function World(props: Props) {
           },
           colliders: minimapMap.colliders,
           memory: spotted.current,
+          // «Выживание»: аптечки и зомби в окне угловой плашки (320 м на огромной карте).
+          drops: room.survival?.drops,
+          range: 170,
           freeForAll: isFreeForAll(room.state),
         }),
       };
@@ -597,6 +603,7 @@ export default function World(props: Props) {
     // видеокарте 18 ламп «Особняка» съедали больше половины кадра.
     const kit = createMapScene(map, renderer, { lampLights: isCinematic ? 6 : isBalanced ? 4 : 3 }),
       { scene } = kit;
+    kit.setGore?.(hudPrefsRef.current.gore);
     const pixelRatio = isCinematic
       ? Math.min(devicePixelRatio, 1.5)
       : isBalanced
@@ -770,6 +777,17 @@ export default function World(props: Props) {
       onDied: (remote) => vfx.clearPaint(remote),
     });
     const { remoteAvatars, deadTimers } = remotePlayers;
+    // Зомби «Выживания» — скелетные модели по снимку, отдельно от бойцов; в других
+    // режимах участников с `zombie` нет, и слой пуст.
+    const zombies = createWorldZombies({
+      scene,
+      latest,
+      map,
+      gore: hudPrefsRef.current.gore,
+      shadows: props.quality !== 'low',
+      eye: () => camera.position,
+    });
+    zombiesRef.current = zombies;
     const shadow = new T.Mesh(
       new T.CircleGeometry(0.5, 20),
       new T.MeshBasicMaterial({
@@ -950,6 +968,9 @@ export default function World(props: Props) {
       const remotes = new Set<T.Object3D>(remoteAvatars.values());
       const walk = (o: T.Object3D) => {
         if (staticTargetExclusions.has(o) || remotes.has(o)) return;
+        // Зомби и аптечки приходят и уходят каждую волну: их мишени собираются
+        // отдельно (gatherRemoteAvatarMeshes), а не из кэша сцены.
+        if (o.userData.survivalProp) return;
         if (o instanceof T.Mesh && !o.userData.transientProjectile) list.push(o);
         for (const child of o.children) walk(child);
       };
@@ -972,6 +993,8 @@ export default function World(props: Props) {
           )
             list.push(o);
         });
+      // Живые зомби — мишени как и бойцы: по ним работают маркер попадания и краска.
+      for (const hit of zombies.meshes()) list.push(hit);
       return list;
     };
 
@@ -1570,6 +1593,7 @@ export default function World(props: Props) {
         flashlight.aim(flashlightOrigin, camera.getWorldDirection(flashlightDirection));
       }
       remotePlayers.update(now, dt);
+      zombies.update(now, dt);
       // Шаги во всех режимах: в бою и в «Предателе» на слух узнают, что кто-то идёт за
       // поворотом. Призраки «Предателя» парят беззвучно — и сам призрак, и чужие (их видят
       // только другие призраки); павшие в бою тоже не шагают. В хабе шаги тише.
@@ -1774,6 +1798,8 @@ export default function World(props: Props) {
       unmountHuman(avatar);
       viewArms.dispose();
       for (const remote of remoteAvatars.values()) unmountHuman(remote);
+      zombies.dispose();
+      zombiesRef.current = null;
       scene.traverse((o) => {
         if (
           o instanceof T.Mesh ||
@@ -1839,6 +1865,10 @@ export default function World(props: Props) {
     engine.current?.kit.setNotes(latest.current.room.state);
   }, [props.room.version]);
   useEffect(() => {
+    engine.current?.kit.setGore?.(hudPrefs.gore);
+    zombiesRef.current?.setGore(hudPrefs.gore);
+  }, [hudPrefs.gore]);
+  useEffect(() => {
     for (const effect of props.room.effects || []) engine.current?.fire(effect);
   }, [props.room.effects]);
   useEffect(() => {
@@ -1860,7 +1890,7 @@ export default function World(props: Props) {
     !active && !radial && !contextWheel && !dead && !props.blocked && !scorePinned && !tabletInWorld;
   return (
     <div
-      className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''} ${inCombat ? 'in-combat' : ''} ${hudPrefs.colorblind ? 'is-colorblind' : ''}`}
+      className={`world-container ${active ? 'play-active' : ''} ${props.room.state.visualStyle === 'anime' ? 'anime-world' : 'tactical-world'} ${aiming ? 'is-aiming' : ''} ${inCombat ? 'in-combat' : ''} ${hudPrefs.colorblind ? 'is-colorblind' : ''} ${minimapMap.arena?.mood === 'grim' ? 'is-grim' : ''}`}
       style={{ '--hud-scale': hudPrefs.hudScale } as React.CSSProperties}
     >
       <div ref={mount} className="world-canvas" data-visual-pack={packStatus === 'ready' ? resourcePack : 'default'} />
@@ -1897,7 +1927,7 @@ export default function World(props: Props) {
         personalAlert={personalAlert}
         respawnSeconds={respawnSeconds}
         respawnTotal={props.room.state.respawnSeconds ?? 5}
-        waitsForRound={gameMode === 'battle' && match?.mode === 'rounds'}
+        waitsForRound={gameMode === 'survival' ? 'wave' : gameMode === 'battle' && match?.mode === 'rounds'}
         deathInfo={deathInfo}
         prefs={hudPrefs}
         voice={props.voice}

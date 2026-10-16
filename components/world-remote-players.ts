@@ -186,6 +186,9 @@ export function createWorldRemotePlayers({
     liveRemoteIds.clear();
     for (const member of latest.current.room.members) {
       if (member.id === latest.current.room.self) continue;
+      // Зомби «Выживания» рисует components/world-zombies.ts скелетной моделью, а не
+      // бойцом. Не попав в живые id, его аватар (если был) уйдёт в отставку ниже.
+      if (member.zombie) continue;
       // Отошедшего от экрана в мире не показываем: его поза уже несвежая.
       if (!isOnline(member.lastSeen, serverNow)) continue;
       liveRemoteIds.add(member.id);

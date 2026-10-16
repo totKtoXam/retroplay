@@ -22,6 +22,8 @@ export type HudPrefs = {
   colorblind: boolean;
   /** Блок частоты кадров и пинга в углу HUD. */
   showStats: boolean;
+  /** Кровь и тела на мрачных картах («Зона заражения»). */
+  gore: boolean;
 };
 
 export const DEFAULT_HUD_PREFS: HudPrefs = {
@@ -32,6 +34,7 @@ export const DEFAULT_HUD_PREFS: HudPrefs = {
   hudScale: 1,
   colorblind: false,
   showStats: true,
+  gore: true,
 };
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -46,6 +49,7 @@ export function readHudPrefs(): HudPrefs {
     hudScale: readNumberPref(PREF_KEYS.hudScale, 0.9, 1.25, DEFAULT_HUD_PREFS.hudScale),
     colorblind: readPref(PREF_KEYS.colorblind) === '1',
     showStats: readPref(PREF_KEYS.showStats) !== '0',
+    gore: readPref(PREF_KEYS.gore) !== '0',
   };
 }
 
@@ -57,7 +61,8 @@ export function sameHudPrefs(a: HudPrefs, b: HudPrefs) {
     a.crosshairColor === b.crosshairColor &&
     a.hudScale === b.hudScale &&
     a.colorblind === b.colorblind &&
-    a.showStats === b.showStats
+    a.showStats === b.showStats &&
+    a.gore === b.gore
   );
 }
 

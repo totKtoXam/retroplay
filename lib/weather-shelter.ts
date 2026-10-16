@@ -29,7 +29,14 @@ const MARGIN = 6;
 /** Потолок ниже этой высоты над полом — не перекрытие, а часть стены или мебели. */
 const MIN_CLEARANCE = 0.3;
 
-export function buildRoofMap(map: GameMap, cell = 0.5): RoofMap {
+/**
+ * Шаг карты укрытий: полметра на обычных картах; на огромной — крупнее, иначе сетка на
+ * квадратные километры заняла бы десятки мегабайт (там и перекрытий почти нет — дома
+ * глухие коробки).
+ */
+const roofCell = (map: GameMap) => (Math.max(map.bounds.maxX - map.bounds.minX, map.bounds.maxZ - map.bounds.minZ) > 400 ? 2 : 0.5);
+
+export function buildRoofMap(map: GameMap, cell = roofCell(map)): RoofMap {
   const b = map.bounds;
   const minX = b.minX - MARGIN,
     minZ = b.minZ - MARGIN;

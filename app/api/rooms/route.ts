@@ -1,7 +1,7 @@
 import { db, session, json, payload, discardBody } from '@/db/server';
 import { initialState, cleanText, THEMES, type RoomAccessType } from '@/lib/model';
 import { stripNotes } from '@/lib/room-store';
-import { defaultMapFor, isFreeForAll, modeOf, modeOfMap } from '@/lib/maps/catalog';
+import { defaultMapFor, isFreeForAll, isGameMode, mapFitsMode, modeOf } from '@/lib/maps/catalog';
 export async function GET(request: Request) {
   const self = await session(request);
   if (!self) return json({ error: 'Откройте приложение заново' }, 401);
@@ -152,12 +152,12 @@ export async function POST(request: Request) {
       throw Error('Неизвестный стиль');
     s.visualStyle = p.visualStyle === 'anime' ? 'anime' : 'classic';
     // The mode decides which maps are allowed; a map from another mode is ignored.
-    const mode = p.mode === 'battle' || p.mode === 'impostor' ? p.mode : 'retro';
+    const mode = isGameMode(p.mode) ? p.mode : 'retro';
     s.mode = mode;
     // «Каждый за себя» — бой без команд (lib/maps/catalog.ts).
     if (mode === 'battle' && p.freeForAll === true) s.freeForAll = true;
     s.map =
-      typeof p.map === 'string' && modeOfMap(p.map) === mode
+      typeof p.map === 'string' && mapFitsMode(p.map, mode)
         ? p.map
         : defaultMapFor(mode);
     await db().batch([

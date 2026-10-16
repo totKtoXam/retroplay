@@ -132,6 +132,7 @@ const RUNNING: Partial<Record<GameMode, string>> = {
   retro: 'Идёт ретро',
   battle: 'Идёт бой',
   impostor: 'Идёт партия',
+  survival: 'Идёт волна',
 };
 
 /**
