@@ -26,14 +26,20 @@ const PROP_CHUNK = 250;
 const SMALL_CHUNK = 125;
 const SMALL_VIEW = 150;
 const SMALL_HEIGHT = 1.6;
-/** Тяжёлые сканы (больше HEAVY_TRIS треугольников) не рисуются дальше HEAVY_VIEW м. */
+/** Чем больше треугольников в копии, тем ближе она обрезается: ступени LIGHT / MEDIUM / HEAVY. */
+const LIGHT_TRIS = 3000;
+const LIGHT_VIEW = 220;
+const MEDIUM_TRIS = 8000;
+const MEDIUM_VIEW = 140;
 const HEAVY_TRIS = 20000;
-const HEAVY_VIEW = 220;
+const HEAVY_VIEW = 100;
 /** Совсем тяжёлые (деревья-сканы по 50 тыс.) — ещё ближе. */
 const HUGE_TRIS = 40000;
-const HUGE_VIEW = 150;
+const HUGE_VIEW = 70;
 /** Тени отбрасывают только ближние чанки: проход теней рисует всё второй раз. */
-const SHADOW_VIEW = 140;
+const SHADOW_VIEW = 90;
+/** Модели тяжелее этого вовсе не бросают тень: проход теней рисует их ещё раз. */
+const SHADOW_MAX_TRIS = 20000;
 /** Дальность без `def.viewDistance` — как туман огромной карты. */
 const DEFAULT_VIEW = 320;
 /** Сколько файлов моделей грузится разом. */
@@ -175,6 +181,10 @@ type Part = {
 
 type PropBucket = {
   model: string;
+  /** Треугольников в одной копии: тяжёлые не бросают тень. */
+  tris: number;
+  /** Половина стороны чанка, м: дальность считается до его края, а не до центра. */
+  half: number;
   small: boolean;
   gore: boolean;
   /** Дальше этого расстояния от камеры до центра чанка копии не рисуются. */
@@ -189,10 +199,19 @@ type PropBucket = {
 type Cull = {
   x: number;
   z: number;
+  /** Половина стороны чанка вместе с выносом копий за его край. */
+  half: number;
   reach: number;
   gore: boolean;
   shadow?: boolean;
 };
+
+/** Расстояние по земле от камеры до ближайшего края квадрата чанка (0 — камера внутри). */
+function edgeDist(c: Cull, eye: T.Vector3) {
+  const dx = Math.max(Math.abs(c.x - eye.x) - c.half, 0),
+    dz = Math.max(Math.abs(c.z - eye.z) - c.half, 0);
+  return Math.hypot(dx, dz);
+}
 
 /** Не больше `n` загрузок разом: 150 файлов одновременно забили бы сеть и декодер. */
 function limiter(n: number) {
@@ -304,12 +323,18 @@ export function createPropLayer(def: ArenaDef) {
           ? Math.min(HUGE_VIEW, viewDistance)
           : (info.tris ?? 0) > HEAVY_TRIS
             ? Math.min(HEAVY_VIEW, viewDistance)
-            : viewDistance;
+            : (info.tris ?? 0) > MEDIUM_TRIS
+              ? Math.min(MEDIUM_VIEW, viewDistance)
+              : (info.tris ?? 0) > LIGHT_TRIS
+                ? Math.min(LIGHT_VIEW, viewDistance)
+                : viewDistance;
       b = {
         model: p.m,
+        tris: info.tris ?? 0,
+        half: size / 2,
         small,
         gore: !!info.gore,
-        reach: view + size * 0.71,
+        reach: view,
         extent: 0,
         items: [],
         cx: (cx + 0.5) * size,
@@ -385,13 +410,15 @@ export function createPropLayer(def: ArenaDef) {
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       mesh.computeBoundingSphere();
       mesh.receiveShadow = true;
-      mesh.castShadow = !b.small;
+      const casts = !b.small && b.tris <= SHADOW_MAX_TRIS;
+      mesh.castShadow = casts;
       mesh.userData.cull = {
         x: b.cx,
         z: b.cz,
-        reach: b.reach + b.extent,
+        half: b.half + b.extent,
+        reach: b.reach,
         gore: b.gore,
-        shadow: !b.small,
+        shadow: casts,
       } satisfies Cull;
       if (b.gore) {
         // Кровь и тела не мишень и не стена: краска и камера их не замечают.
@@ -551,9 +578,9 @@ export function createPropLayer(def: ArenaDef) {
       lastCull = seconds;
       for (const mesh of meshes) {
         const c = mesh.userData.cull as Cull;
-        const dist = Math.hypot(c.x - eye.x, c.z - eye.z);
+        const dist = edgeDist(c, eye);
         mesh.visible = (goreOn || !c.gore) && dist < c.reach;
-        if (c.shadow) mesh.castShadow = dist < SHADOW_VIEW + PROP_CHUNK * 0.71;
+        if (c.shadow) mesh.castShadow = dist < SHADOW_VIEW;
       }
       decals.view(eye);
     },
@@ -736,7 +763,8 @@ function createDecalLayer(def: ArenaDef) {
       mesh.userData.cull = {
         x: b.cx,
         z: b.cz,
-        reach: DECAL_VIEW + DECAL_CHUNK * 0.71,
+        half: DECAL_CHUNK / 2,
+        reach: DECAL_VIEW,
         gore,
       } satisfies Cull;
       mesh.visible = goreOn || !gore;
@@ -752,7 +780,7 @@ function createDecalLayer(def: ArenaDef) {
       for (const mesh of meshes) {
         const c = mesh.userData.cull as Cull;
         mesh.visible =
-          (goreOn || !c.gore) && Math.hypot(c.x - eye.x, c.z - eye.z) < c.reach;
+          (goreOn || !c.gore) && edgeDist(c, eye) < c.reach;
       }
     },
     setGore(on: boolean) {
